@@ -68,7 +68,7 @@ test('F03: attachment uploads retain bytes, metadata and hash; failed uploads le
 });
 test('F02: stocked/approved scope facts and execution location stay immutable; meaningful changes are guarded',async()=>{
  const f=await fixture(),result=await approve(f,await demand(f));let {p,d}=result;
- let e=await api('/projects/'+p.id+'/executions','POST',{number:'EX'},201);
+ let e=await api('/projects/'+p.id+'/executions','POST',{number:'EX',plan_type:'outage'},201);
  e=await api('/executions/'+e.id+'/items','POST',{version:e.version,scope_id:p.scopes[0].id,quantity:'1'},201);
  await api('/demands/'+d.id,'PATCH',{version:d.version,reason:'改成其他工作',target_object:'绝缘子',quantity:'1'},409);
  await api('/demands/'+d.id,'PATCH',{version:d.version,reason:'缩小需求数量',quantity:'1'},409);
@@ -77,7 +77,7 @@ test('F02: stocked/approved scope facts and execution location stay immutable; m
  const moved=await api('/physical-towers','POST',{tower_code:'MOVED'+f.n},201);
  await api('/logical-towers/'+f.tower.id,'PATCH',{version:1,physical_tower_id:moved.id,change_kind:'correction',reason:'实体关联纠错'});
  await api('/demands/'+d.id+'/revalidate-location','POST',{version:d.version,reason:'批准后重新定位'},409);
- let second=await api('/projects/'+p.id+'/executions','POST',{number:'EX2'},201);
+ let second=await api('/projects/'+p.id+'/executions','POST',{number:'EX2',plan_type:'non_outage'},201);
  second=await api('/executions/'+second.id+'/items','POST',{version:second.version,scope_id:p.scopes[0].id,quantity:'1'},201);
  assert.equal(second.items[0].actual_physical_tower_id,f.physical.id,'new execution still uses approved physical identity');
  d=await api('/demands/'+d.id,'PATCH',{version:d.version,reason:'补充风险说明',problem_description:'补充现场风险记录'});
@@ -132,7 +132,7 @@ test('F07: four-decimal quantities survive demands, defaults, estimates, executi
  const row=book.worksheets[0].getRows(2,book.worksheets[0].rowCount-1).find(row=>row.getCell(1).value===d.demand_no);assert.equal(row.getCell(7).value,0.0001);
  const {lineEstimate}=await import('../server/projects.mjs');assert.equal(lineEstimate({quantity_scaled:1,unit_price_fen:15000}),2);assert.equal(lineEstimate({quantity_scaled:1,unit_price_fen:4999}),0);
  const g=await fixture(),r=await approve(g,await demand(g));
- let e=await api('/projects/'+r.p.id+'/executions','POST',{number:'FINE'},201);
+ let e=await api('/projects/'+r.p.id+'/executions','POST',{number:'FINE',plan_type:'outage'},201);
  e=await api('/executions/'+e.id+'/items','POST',{version:e.version,scope_id:r.p.scopes[0].id,quantity:'0.0001'},201);
  e=await api('/executions/'+e.id+'/start','POST',{version:e.version,reason:'执行'});
  e=await api('/executions/'+e.id+'/items/'+e.items[0].id+'/complete','POST',{quantity:'0.0001',occurred_on:'2026-10-29',evidence:'验收',idempotency_key:'fine'},201);

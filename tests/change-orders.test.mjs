@@ -55,7 +55,7 @@ async function draft(f,code='CH1',quantity='1.5',price='120'){
 }
 test('C06: submit/approve produces B2, preserves E1 facts, enforces release, quotas, and stale drafts',async()=>{
  const f=await fixture(),b1=(await api('/projects/'+f.p.id+'/approval-versions'))[0];
- let e1=await api('/projects/'+f.p.id+'/executions','POST',{number:'E1'},201);
+ let e1=await api('/projects/'+f.p.id+'/executions','POST',{number:'E1',plan_type:'outage'},201);
  e1=await api('/executions/'+e1.id+'/items','POST',{version:e1.version,scope_id:f.scope.id,quantity:'2'},201);
  const first=await draft(f,'CH1','1.5','120');
  await api('/change-orders/'+first.id+'/submit','POST',{reason:'提交预算变更'});
@@ -77,7 +77,7 @@ test('C06: submit/approve produces B2, preserves E1 facts, enforces release, quo
  assert.equal(e1.approval_version_id,b1.id);
  assert.equal((await api('/executions/'+e1.id)).items[0].demand_snapshot.id,f.d.id);
  assert.equal(JSON.parse((await api('/executions/'+e1.id)).items[0].scope_snapshot_json).quantity_scaled,20000);
- let e2=await api('/projects/'+f.p.id+'/executions','POST',{number:'E2'},201);
+ let e2=await api('/projects/'+f.p.id+'/executions','POST',{number:'E2',plan_type:'non_outage'},201);
  assert.equal(e2.approval_version_id,versions[0].id);
  await api('/executions/'+e2.id+'/items','POST',{version:e2.version,scope_id:f.scope.id,quantity:'1.1'},409);
  e2=await api('/executions/'+e2.id+'/items','POST',{version:e2.version,scope_id:f.scope.id,quantity:'1'},201);
@@ -199,7 +199,7 @@ test('settlement ledger: four implementation/settlement states, append-only reve
  assert.equal(progress.scopes[0].dual_status,'unimplemented_unsettled');
  assert.throws(()=>db.prepare('UPDATE project_settlement_entries SET amount_fen=1 WHERE id=?').run(payment.id),/不可修改/);
  assert.throws(()=>db.prepare('DELETE FROM project_settlement_entries WHERE id=?').run(payment.id),/不可删除/);
- let e=await api(path+'/executions','POST',{number:'SETTLE-E1'},201);
+ let e=await api(path+'/executions','POST',{number:'SETTLE-E1',plan_type:'outage'},201);
  e=await api('/executions/'+e.id+'/items','POST',{version:e.version,scope_id:scopeId,quantity:'1'},201);
  e=await api('/executions/'+e.id+'/start','POST',{version:e.version,reason:'开工'});
  e=await api('/executions/'+e.id+'/items/'+e.items[0].id+'/complete','POST',{

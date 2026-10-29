@@ -31,7 +31,9 @@ export function createExecution(projectId,body,user){
  const p=project(projectId);if(p.status!=='approved')reject(409,'未立项项目不得正式执行');
  const approval=one('SELECT * FROM project_approval_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1',projectId);
  if(!approval)reject(409,'项目缺少有效的批准版本，不得创建执行批次');
- const item={id:uid(),project_id:projectId,number:required(body.number,'执行批次编号'),description:body.description||'',
+ const planType=required(body.plan_type,'检修计划类型');
+ if(!['outage','non_outage'].includes(planType))reject(422,'检修计划类型必须为停电或不停电');
+ const item={id:uid(),project_id:projectId,number:required(body.number,'检修计划编号'),description:body.description||'',plan_type:planType,
  status:'planned',version:1,planned_on:body.planned_on||null,started_at:null,finished_at:null,close_reason:null,
  created_by:user.id,created_at:now(),updated_at:now(),approval_version_id:approval.id};
  return transaction(()=>{

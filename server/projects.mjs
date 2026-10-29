@@ -32,14 +32,16 @@ const event=(user,entity,id,action,before,after,reason='')=>audit(user.id,entity
 export function listFrameworks(){
  return all(`SELECT f.*, COALESCE((SELECT SUM(a.limit_fen) FROM agreements a WHERE a.framework_id=f.id),0) agreement_limit_fen,
  (SELECT COUNT(*) FROM agreements a WHERE a.framework_id=f.id) agreement_count,
- COALESCE((SELECT SUM(p.approved_budget_fen) FROM projects p JOIN agreements a ON a.id=p.agreement_id WHERE a.framework_id=f.id AND p.status IN ('approved','closed')),0) approved_project_budget_fen
+ COALESCE((SELECT SUM(p.approved_budget_fen) FROM projects p WHERE p.framework_id=f.id AND p.status IN ('approved','closed')),0) approved_project_budget_fen
  FROM frameworks f ORDER BY f.created_at DESC`);
 }
 export function createFramework(body,user){
- const t=now(),item={id:uid(),code:required(body.code,'框架编码'),name:required(body.name,'框架名称'),
+ const fiscalYear=body.fiscal_year===undefined?new Date().getFullYear():Number(body.fiscal_year);
+ if(!Number.isInteger(fiscalYear)||fiscalYear<2000||fiscalYear>2100)fault(422,'框架年度必须是2000至2100之间的整数');
+ const t=now(),item={id:uid(),code:required(body.code,'框架编码'),name:required(body.name,'框架名称'),fiscal_year:fiscalYear,
  limit_fen:yuanToFen(body.limit_yuan,'框架额度'),status:'active',version:1,created_at:t,updated_at:t};
  if(item.limit_fen<=0)fault(422,'框架额度必须大于零');
- return transaction(()=>{exec('INSERT INTO frameworks VALUES(?,?,?,?,?,?,?,?)',...Object.values(item));event(user,'frameworks',item.id,'create',null,item);return item});
+ return transaction(()=>{exec('INSERT INTO frameworks('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));event(user,'frameworks',item.id,'create',null,item);return item});
 }
 export function listAgreements(){
  return all(`SELECT a.*,f.name AS framework_name,f.code AS framework_code,
@@ -62,12 +64,16 @@ export function createAgreement(body,user){
 }
 export function createProject(body,user){
  const ag=body.agreement_id?agreement(body.agreement_id):null;
- if(ag&&ag.status!=='active')fault(422,'执行协议不可用');
+ const frameworkId=body.framework_id||ag?.framework_id;
+ if(!frameworkId)fault(422,'请先选择所属年度框架');
+ const fw=framework(frameworkId);
+ if(fw.status!=='active')fault(422,'所属年度框架已停用');
+ if(ag&&(ag.status!=='active'||ag.framework_id!==fw.id))fault(422,'协行协议必须属于当前年度框架且处于启用状态');
  if(body.category_id){
   const item=one("SELECT * FROM dictionary_items WHERE id=? AND type_id='project_category' AND status='active'",body.category_id);
   if(!item)fault(422,'无效的项目类别');
  }
- const t=now(),item={id:uid(),code:required(body.code,'项目编号'),name:required(body.name,'项目名称'),
+ const t=now(),item={id:uid(),code:required(body.code,'项目编号'),name:required(body.name,'项目名称'),framework_id:fw.id,
  agreement_id:ag?.id||null,category_id:body.category_id||null,status:'reserve',version:1,estimate_fen:null,approved_budget_fen:null,created_by:user.id,created_at:t,updated_at:t};
  return transaction(()=>{
   exec('INSERT INTO projects('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
@@ -99,7 +105,7 @@ export function listProjects(){
  return all(`SELECT p.*,a.name AS agreement_name,f.name AS framework_name,
  (SELECT COUNT(*) FROM project_demand_scopes s WHERE s.project_id=p.id AND s.status='active') demand_count
  FROM projects p LEFT JOIN agreements a ON a.id=p.agreement_id
- LEFT JOIN frameworks f ON f.id=a.framework_id ORDER BY p.created_at DESC`);
+ JOIN frameworks f ON f.id=p.framework_id ORDER BY p.created_at DESC`);
 }
 export function projectDetail(id){
  const p=project(id),items=scopes(id),events=all('SELECT * FROM project_stage_events WHERE project_id=? ORDER BY created_at',id);
@@ -162,6 +168,7 @@ export function bindAgreement(id,body,user){
  if(p.status==='approved'||p.status==='closed')fault(409,'立项后的协议归属不得通过普通编辑改挂');
  const ag=agreement(body.agreement_id);
  if(ag.status!=='active'||framework(ag.framework_id).status!=='active')fault(422,'协议或框架已停用');
+ if(ag.framework_id!==p.framework_id)fault(422,'协行协议与子项目所属年度框架不一致');
  return transaction(()=>{
   const next={...p,agreement_id:ag.id,version:p.version+1,updated_at:now()};
   exec('UPDATE projects SET agreement_id=?,version=?,updated_at=? WHERE id=?',next.agreement_id,next.version,next.updated_at,id);
@@ -169,7 +176,7 @@ export function bindAgreement(id,body,user){
  });
 }
 function stageSnapshot(p,items,stage,reason,user){
- return {project_id:p.id,project_code:p.code,project_name:p.name,stage,agreement_id:p.agreement_id,category_id:p.category_id,preliminary_estimate_fen:p.preliminary_estimate_fen,preliminary_estimate_basis:p.preliminary_estimate_basis,
+ return {project_id:p.id,project_code:p.code,project_name:p.name,stage,framework_id:p.framework_id,agreement_id:p.agreement_id,category_id:p.category_id,preliminary_estimate_fen:p.preliminary_estimate_fen,preliminary_estimate_basis:p.preliminary_estimate_basis,
  scopes:items.map(x=>({scope_id:x.id,demand_id:x.demand_id,demand_version:x.demand_version,demand_snapshot:x.demand_snapshot,quantity_scaled:x.quantity_scaled,unit_price_fen:x.unit_price_fen,price_source:x.price_source,price_date:x.price_date,tax_mode:x.tax_mode,amount_fen:lineEstimate(x)})),
  created_at:now(),reason,actor_id:user.id};
 }
@@ -196,15 +203,15 @@ export function advanceProject(id,stage,body,user){
    if(!latest.agreement_id)fault(422,'立项前必须绑定唯一执行协议');
    const ag=agreement(latest.agreement_id),fw=framework(ag.framework_id);
    if(ag.status!=='active'||fw.status!=='active')fault(422,'协议或框架未启用');
+   if(ag.framework_id!==latest.framework_id)fault(422,'协行协议与子项目所属年度框架不一致');
    if(!estimate.complete)fault(422,'存在未估价需求，不能形成批准预算');
    if(items.some(x=>!x.price_source||!x.price_date||!x.tax_mode))fault(422,'立项估算缺少价格来源、日期或税口径');
    const used=one("SELECT COALESCE(SUM(approved_budget_fen),0) n FROM projects WHERE agreement_id=? AND status IN ('approved','closed')",ag.id).n;
    if(BigInt(used)+BigInt(estimate.known_total_fen)>BigInt(ag.limit_fen))fault(422,'批准预算超过协议可用额度');
    for(const x of items){
-    const assigned=one(`SELECT COALESCE(SUM(s.quantity_scaled),0) n
-     FROM project_demand_scopes s JOIN projects p ON p.id=s.project_id
-     WHERE s.demand_id=? AND s.status='active' AND p.status IN ('approved','closed')`,x.demand_id).n;
-    if(assigned+x.quantity_scaled>x.demand_quantity_scaled)fault(409,'需求范围已被其他有效项目承接，不能重复立项：'+x.demand_no);
+    const other=one(`SELECT p.id FROM project_demand_scopes s JOIN projects p ON p.id=s.project_id
+     WHERE s.demand_id=? AND s.status='active' AND p.status IN ('approved','closed') AND p.id<>? LIMIT 1`,x.demand_id,id);
+    if(other)fault(409,'该专业需求已由其他正式子项目承接，不可重复立项：'+x.demand_no);
    }
   }
   const t=now(),newVersion=latest.version+1;

@@ -144,6 +144,7 @@ try{
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await nav('子项目储备');await page.getByRole('button',{name:'新增子项目储备'}).click();
  st=page.locator('.form-panel');await fill(st,'业务编码','PJ-WEB');await fill(st,'名称','浏览器子项目');
+ await st.getByLabel('所属年度框架').selectOption({index:1});
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await page.getByRole('button',{name:'需求范围与阶段'}).first().click();
  await page.locator('.detail-panel').getByRole('button',{name:/关联需求范围/}).click();

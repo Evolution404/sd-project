@@ -171,6 +171,7 @@ CREATE TABLE allowed_ips (
 
 CREATE TABLE frameworks (
  id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+ fiscal_year INTEGER NOT NULL CHECK(fiscal_year BETWEEN 2000 AND 2100),
  limit_fen INTEGER NOT NULL CHECK(limit_fen>0),
  status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive')),
  version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
@@ -186,6 +187,7 @@ CREATE TABLE agreements (
 
 CREATE TABLE projects (
  id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+ framework_id TEXT NOT NULL REFERENCES frameworks(id) ON DELETE RESTRICT,
  agreement_id TEXT REFERENCES agreements(id) ON DELETE RESTRICT,
  category_id TEXT REFERENCES dictionary_items(id) ON DELETE RESTRICT,
  status TEXT NOT NULL DEFAULT 'reserve' CHECK(status IN ('reserve','stocked','approved','closed')),
@@ -228,6 +230,7 @@ CREATE TABLE project_stage_events (
 CREATE TABLE executions (
  id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  number TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+ plan_type TEXT NOT NULL CHECK(plan_type IN ('outage','non_outage')),
  status TEXT NOT NULL DEFAULT 'planned' CHECK(status IN ('planned','running','finished','cancelled')),
  version INTEGER NOT NULL DEFAULT 1, planned_on TEXT,
  started_at TEXT, finished_at TEXT, close_reason TEXT,
@@ -337,6 +340,8 @@ CREATE INDEX idx_demands_tower ON demands(logical_tower_id,operation_id,status);
 CREATE INDEX idx_agreement_framework ON agreements(framework_id);
 
 CREATE INDEX idx_projects_agreement ON projects(agreement_id,status);
+CREATE INDEX idx_projects_framework ON projects(framework_id,status);
+CREATE INDEX idx_executions_plan_type ON executions(project_id,plan_type,status);
 
 CREATE INDEX idx_project_scope_demand ON project_demand_scopes(demand_id);
 

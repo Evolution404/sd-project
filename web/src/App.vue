@@ -5,6 +5,7 @@ import FormModal from './components/FormModal.vue';
 import CustomFields from './components/CustomFields.vue';
 import LedgerWorkspace from './components/LedgerWorkspace.vue';
 import SidebarChevron from './components/SidebarChevron.vue';
+import StatusTag from './components/StatusTag.vue';
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
@@ -28,7 +29,7 @@ const changeDecision=ref<Rec|null>(null),changeDecisionReason=ref('');
 const changeDraft=reactive<Rec>({code:'',reason:'',action:'adjust',scope_id:'',demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
 const approvedDemandOptions=ref<Rec[]>([]);
 const executionRows=ref<Rec[]>([]),executionView=ref<Rec|null>(null);
-const executionNumber=ref(''),executionDescription=ref(''),execScopeId=ref(''),execQuantity=ref('1');
+const executionNumber=ref(''),executionDescription=ref(''),executionPlanType=ref('outage'),execScopeId=ref(''),execQuantity=ref('1');
 const completeQuantity=ref(''),completeEvidence=ref(''),completeDate=ref(new Date().toLocaleDateString('en-CA'));
 const eligibleExecutionScopes=computed<Rec[]>(()=> (projectView.value?.scopes||[]).filter((x:Rec)=>!(executionView.value?.items||[]).some((i:Rec)=>i.project_scope_id===x.id)));
 const eligibleDemands=computed(()=>approvedDemandOptions.value.filter(x=>!(projectView.value?.scopes||[]).some((s:Rec)=>s.demand_id===x.id)));
@@ -71,7 +72,6 @@ const roleStageApprove=computed(()=>user.value?.role==='admin');
 const roleWrite=computed(()=>user.value&&['admin','editor'].includes(user.value.role));
 const roleVerify=computed(()=>user.value&&['admin','verifier'].includes(user.value.role));
 const money=(value:any)=>value===null||value===undefined?'待核定':(Number(value)/100).toFixed(2);
-const projectStage=(value:string)=>({reserve:'储备编制',stocked:'已入库',approved:'已立项',closed:'已结项'} as Rec)[value]||value;
 const roleAdmin=computed(()=>user.value?.role==='admin');
 const mediaTitle=computed(()=>labels[nav.value]||'');
 const options=(type:string)=>items.value.filter(x=>x.type_id===type).sort((a,b)=>a.sort_order-b.sort_order);
@@ -81,7 +81,6 @@ const fieldDefinitions=computed<Rec[]>(()=>{try{const fields=JSON.parse(selected
 watch(()=>common.operation_id,()=>{common.custom_fields=Object.fromEntries(fieldDefinitions.value.filter(f=>f.default!==undefined).map(f=>[f.key,f.default]));for(const row of Object.values(overrides))delete row.custom_fields},{flush:'sync'});
 const dateStr=(s:string)=>s?s.slice(0,10):'';
 const fmtQty=(v:any)=>Number(v||0)/10000;
-const statusName=(v:string)=>({pending:'待核实',active:'有效',returned:'退回',cancelled:'取消'} as Record<string,string>)[v]||v;
 const visibleError=computed(()=>error.value===inlineErrorMessage.value?'':error.value);
 const errorMessage=(e:any)=>{const message=e?.message||'网络请求失败';presentFormError(message,e?.details);return message};
 function notify(msg:string){success.value=msg;setTimeout(()=>{if(success.value===msg)success.value=''},4000)}
@@ -105,7 +104,7 @@ async function loadStructure(){
  const [f,a,p,d]=await Promise.all([api('/frameworks'),api('/agreements'),api('/projects'),api('/demands?status=active')]);
  frameworks.value=f;agreements.value=a;projects.value=p;approvedDemandOptions.value=d;
 }
-function openStructureCreate(type:string){stage.value=type;edit.value=null;Object.keys(form).forEach(k=>delete form[k]);form.code='';form.name='';form.limit_yuan='';form.framework_id='';form.agreement_id='';form.category_id='';}
+function openStructureCreate(type:string){stage.value=type;edit.value=null;Object.keys(form).forEach(k=>delete form[k]);form.code='';form.name='';form.limit_yuan='';form.fiscal_year=new Date().getFullYear();form.framework_id='';form.agreement_id='';form.category_id='';}
 async function saveStructure(){
  error.value='';busy.value=true;
  try{
@@ -147,10 +146,6 @@ async function saveSettlement(){
   notify(settlementForm.entry_kind==='reversal'?'结算冲销凭证已登记':'结算凭证已登记并关联项目批准版本');
  }catch(e){error.value=errorMessage(e)}
 }
-const financeStatus=(status:string)=>({
- unimplemented_unsettled:'未实施未结算',unimplemented_settled:'未实施已结算',
- implemented_unsettled:'已实施未结算',implemented_settled:'已实施已结算'
-} as Rec)[status]||'待核对';
 async function loadProjectChanges(projectId:string){
  const [versions,orders]=await Promise.all([api('/projects/'+projectId+'/approval-versions'),api('/projects/'+projectId+'/change-orders')]);
  projectApprovalVersions.value=versions;projectChangeOrders.value=orders;
@@ -196,9 +191,9 @@ function openChangeDraft(){
 async function loadExecutions(projectId:string){executionRows.value=await api('/projects/'+projectId+'/executions')}
 async function createProjectExecution(){if(!projectView.value)return;error.value='';
  try{
- const r=await api('/projects/'+projectView.value.id+'/executions','POST',{number:executionNumber.value,description:executionDescription.value});
- executionNumber.value='';executionDescription.value='';await loadExecutions(projectView.value.id);
- executionView.value=r;projectAction.value='';notify('执行批次已建立');
+ const r=await api('/projects/'+projectView.value.id+'/executions','POST',{number:executionNumber.value,description:executionDescription.value,plan_type:executionPlanType.value});
+ executionNumber.value='';executionDescription.value='';executionPlanType.value='outage';await loadExecutions(projectView.value.id);
+ executionView.value=r;projectAction.value='';notify('检修计划已建立');
  }catch(e){error.value=errorMessage(e)}
 }
 async function openExecution(id:string){executionAction.value='';completionItem.value=null;executionView.value=await api('/executions/'+id);execScopeId.value='';execQuantity.value='1'}
@@ -438,13 +433,13 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands"/>
   <template v-if="['frameworks','agreements','projects'].includes(nav)">
    <section class="panel">
-    <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">框架 → 执行协议 → 子项目 → 多次执行；当前阶段保留独立业务ID与审批快照</p></div><button v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</button></div>
+    <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">管理：年度框架 → 子项目 → 检修计划 → 专业需求；资金：年度框架 → 协行协议 → 子项目 → 检修计划</p></div><button v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</button></div>
     <div class="table-wrap"><table>
      <thead><tr><th>业务编码</th><th>名称</th><th v-if="nav!=='frameworks'">所属框架/协议</th><th>{{nav==='projects'?'已批准预算 (元)':'授权额度 (元)'}}</th><th>状态</th><th>操作</th></tr></thead>
      <tbody>
       <tr v-for="x in nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects" :key="x.id">
-       <td class="mono">{{x.code}}</td><td>{{x.name}}</td><td v-if="nav!=='frameworks'">{{nav==='agreements'?x.framework_name:(x.agreement_name||'暂未绑定协议')}}</td>
-       <td>{{money(nav==='projects'?x.approved_budget_fen:x.limit_fen)}}</td><td><span class="tag">{{nav==='projects'?projectStage(x.status):(x.status==='active'?'启用':'停用')}}</span></td>
+       <td class="mono">{{x.code}}</td><td>{{x.name}}</td><td v-if="nav!=='frameworks'">{{nav==='agreements'?x.framework_name:(x.framework_name+' / '+(x.agreement_name||'协议待落实'))}}</td>
+       <td>{{money(nav==='projects'?x.approved_budget_fen:x.limit_fen)}}</td><td><StatusTag :status="x.status" :label="nav==='projects'?undefined:(x.status==='active'?'启用':'停用')"/></td>
        <td><button v-if="nav==='projects'" class="link" @click="openProject(x)">需求范围与阶段</button><span v-else class="muted">{{nav==='frameworks'?'协议额度：'+money(x.agreement_limit_fen):'已批准预算：'+money(x.approved_budget_fen)}}</span></td>
       </tr><tr v-if="!(nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects).length"><td colspan="6" class="empty">暂无记录，请从创建框架开始</td></tr>
      </tbody>
@@ -454,16 +449,18 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <form v-form-validation novalidate class="form-grid" @submit.prevent="saveStructure">
      <label><span class="field-caption">业务编码</span><input v-model.trim="form.code" required placeholder="唯一稳定业务编码"/></label>
      <label><span class="field-caption">名称</span><input v-model.trim="form.name" required/></label>
+     <label v-if="nav==='frameworks'"><span class="field-caption">框架年度</span><input v-model.number="form.fiscal_year" type="number" min="2000" max="2100" required/></label>
      <label v-if="nav!=='projects'"><span class="field-caption">授权额度（元）</span><input v-model.trim="form.limit_yuan" data-validate="money" required inputmode="decimal" placeholder="100000.00"/></label>
      <label v-if="nav==='agreements'"><span class="field-caption">所属框架</span><select v-model="form.framework_id" required><option value="">请选择</option><option v-for="f in frameworks.filter(x=>x.status==='active')" :key="f.id" :value="f.id">{{f.name}}</option></select></label>
-     <label v-if="nav==='projects'"><span class="field-caption">拟归属执行协议（储备阶段可不选）</span><select v-model="form.agreement_id"><option value="">待落实</option><option v-for="a in agreements.filter(x=>x.status==='active')" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
+     <label v-if="nav==='projects'"><span class="field-caption">所属年度框架</span><select v-model="form.framework_id" required @change="form.agreement_id=''"><option value="">请选择</option><option v-for="f in frameworks.filter(x=>x.status==='active')" :key="f.id" :value="f.id">{{f.fiscal_year}} · {{f.name}}</option></select></label>
+     <label v-if="nav==='projects'"><span class="field-caption">拟归属执行协议（储备阶段可不选）</span><select v-model="form.agreement_id"><option value="">待落实</option><option v-for="a in agreements.filter(x=>x.status==='active'&&x.framework_id===form.framework_id)" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
      <label v-if="nav==='projects'"><span class="field-caption">储备类别</span><select v-model="form.category_id"><option value="">待分类</option><option v-for="c in options('project_category').filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</option></select></label>
      <div class="wide form-actions"><button type="button" class="light" @click="stage=''">取消</button><button class="primary" :disabled="busy">保存</button></div>
     </form>
    </FormModal>
   </template>
   <section v-if="projectView" class="detail-overlay" @click.self="projectView=null"><div class="detail-panel">
-   <div class="section-header"><div><h2>{{projectView.code}} · {{projectView.name}}</h2><span class="tag">{{projectStage(projectView.status)}} · v{{projectView.version}}</span></div><button class="light" @click="projectView=null">关闭 ×</button></div>
+   <div class="section-header"><div><h2>{{projectView.code}} · {{projectView.name}}</h2><StatusTag :status="projectView.status" :version="projectView.version"/></div><button class="light" @click="projectView=null">关闭 ×</button></div>
    <div class="info-grid"><div><small>已知估算（元）</small><strong>{{money(projectView.estimate.known_total_fen)}}</strong></div><div><small>待定价项</small><strong>{{projectView.estimate.missing_price_count}}</strong></div><div><small>批准预算（元）</small><strong>{{money(projectView.approved_budget_fen)}}</strong></div><div><small>需求范围条数</small><strong>{{projectView.estimate.total}}</strong></div></div>
    <h3>项目类别与初步估算</h3>
    <div class="toolbar">
@@ -565,13 +562,15 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      <div class="wide form-actions"><button type="button" class="light" @click="projectAction=''">取消</button><button class="primary">仅保存草稿</button></div>
     </form>
    </FormModal>
-   <h3>分次执行</h3>
-   <div v-if="!executionRows.length" class="empty">尚无执行批次</div>
-   <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条计划 · 确认工作量 {{fmtQty(e.completed_quantity_scaled)}}（不同单位不能合计核算）</p></div><button class="link" @click="openExecution(e.id)">进入执行</button></div><span class="tag">{{e.status}}</span></div>
-   <button v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建执行批次</button>
-   <FormModal :open="projectAction==='execution'" title="新建执行批次" :error="visibleError" @close="projectAction=''">
+   <h3>检修计划</h3>
+   <div v-if="!executionRows.length" class="empty">尚无检修计划</div>
+   <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.plan_type==='outage'?'停电检修':'不停电检修'}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条计划 · 确认工作量 {{fmtQty(e.completed_quantity_scaled)}}（不同单位不能合计核算）</p></div><button class="link" @click="openExecution(e.id)">进入执行</button></div><StatusTag :status="e.status"/></div>
+   <button v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建检修计划</button>
+   <FormModal :open="projectAction==='execution'" title="新建检修计划" :error="visibleError" @close="projectAction=''">
        <form v-form-validation novalidate class="form-grid" @submit.prevent="createProjectExecution">
-     <label><span class="field-caption">执行批次编号</span><input v-model="executionNumber" required placeholder="如 2026-01"/></label><label><span class="field-caption">施工说明</span><input v-model="executionDescription" placeholder="本次施工任务"/></label><div class="wide form-actions"><button class="secondary">新建执行批次</button></div>
+     <label><span class="field-caption">检修计划编号</span><input v-model="executionNumber" required placeholder="如 2026-01"/></label>
+     <label><span class="field-caption">检修类型</span><select v-model="executionPlanType" required><option value="outage">停电检修</option><option value="non_outage">不停电检修</option></select></label>
+     <label class="wide"><span class="field-caption">施工说明</span><input v-model="executionDescription" placeholder="本次检修任务"/></label><div class="wide form-actions"><button class="primary">创建检修计划</button></div>
    </form>
    </FormModal>
    <h3>实施与结算核对</h3>
@@ -580,7 +579,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <div class="section-header">
      <div><strong>{{scope.demand_no}} · {{scope.line_name_snapshot}} {{scope.tower_no_snapshot}}</strong>
      <p class="muted">确认实施 {{fmtQty(scope.completed_quantity_scaled)}} / 批准 {{fmtQty(scope.quantity_scaled)}} {{scope.unit_snapshot}} · 净结算 {{money(scope.settled_fen)}} 元</p></div>
-     <span class="tag">{{financeStatus(scope.dual_status)}}</span>
+     <StatusTag :status="scope.dual_status"/>
     </div>
     <button v-if="roleStageApprove&&projectView.status==='approved'" class="secondary" @click="openSettlement(scope)">登记结算凭证</button>
    </div>
@@ -610,7 +609,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
   </div></section>
   <section v-if="executionView" class="detail-overlay execution-overlay" @click.self="executionView=null"><div class="detail-panel">
-   <div class="section-header"><div><h2>执行批次 {{executionView.number}}</h2><span class="tag">{{executionView.status}} · v{{executionView.version}}</span></div><button class="light" @click="executionView=null">返回项目</button></div>
+   <div class="section-header"><div><h2>{{executionView.plan_type==='outage'?'停电检修':'不停电检修'}}计划 {{executionView.number}}</h2><StatusTag :status="executionView.status" :version="executionView.version"/></div><button class="light" @click="executionView=null">返回项目</button></div>
    <p>{{executionView.description||'本次执行需求范围'}}</p>
    <div v-for="i in executionView.items" :key="i.id" class="scope-item">
     <h3>{{i.demand_no}} · {{i.line_name_snapshot}} {{i.tower_no_snapshot}}</h3>
@@ -660,7 +659,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <p class="muted minor">只允许精确 IP 地址，不允许填网段、IP 范围或域名。验证使用真实 TCP 连接地址，不相信浏览器传入的代理头。IP 授权不能替代账号登录；Windows 防火墙仍需单独放行服务端口。</p>
     </section>
   </template>
-  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>数据字典管理</h2><button class="primary" @click="editDict()">新增选项</button></div><p v-if="dictionaryType==='voltage'" class="muted">电压等级属于系统基础字典。线路引用同一份字典，停用后不再允许新增线路选用，已有线路关联保留。</p><div class="toolbar"><label><span class="field-caption">类别</span><select v-model="dictionaryType" @change="stage='';edit=null"><option value="voltage">电压等级</option><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th v-if="dictionaryType!=='voltage'">编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in dictionaryRows" :key="x.id"><td v-if="dictionaryType!=='voltage'" class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><span class="tag">{{x.status==='active'?'启用':'停用'}}</span></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!dictionaryRows.length"><td :colspan="dictionaryType==='voltage'?5:6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
+  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>数据字典管理</h2><button class="primary" @click="editDict()">新增选项</button></div><p v-if="dictionaryType==='voltage'" class="muted">电压等级属于系统基础字典。线路引用同一份字典，停用后不再允许新增线路选用，已有线路关联保留。</p><div class="toolbar"><label><span class="field-caption">类别</span><select v-model="dictionaryType" @change="stage='';edit=null"><option value="voltage">电压等级</option><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th v-if="dictionaryType!=='voltage'">编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in dictionaryRows" :key="x.id"><td v-if="dictionaryType!=='voltage'" class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><StatusTag :status="x.status" :label="x.status==='active'?'启用':'停用'"/></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!dictionaryRows.length"><td :colspan="dictionaryType==='voltage'?5:6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
 <FormModal :open="stage==='dictionary'" :title="edit?'调整选项 v'+edit.version:'新增选项'" :error="visibleError" size="wide" @close="stage='';edit=null">
     <form v-form-validation novalidate class="form-grid" @submit.prevent="saveDict"><label v-if="dictionaryType!=='voltage'"><span class="field-caption">编码</span><input required v-model="form.code"/></label><label><span class="field-caption">名称</span><input required v-model="form.name"/></label><label><span class="field-caption">排序</span><input type="number" v-model.number="form.sort_order"/></label><label><span class="field-caption">状态</span><select v-model="form.status"><option value="active">启用</option><option value="inactive">停用</option></select></label>
     <template v-if="dictionaryType==='operation'"><label><span class="field-caption">适用对象</span><select v-model="form.work_target_type"><option value="line">线路侧作业</option><option value="physical">共用实体作业</option><option value="both">两者适用</option></select></label><label><span class="field-caption">默认单位</span><select v-model="form.default_unit_id"><option value="">不设默认</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">默认每项数量</span><input v-model="form.default_quantity" data-validate="quantity" placeholder="1"/></label><label class="wide"><span class="field-caption">默认完成标准</span><input v-model="form.completion_standard"/></label><label class="wide"><span class="field-caption">字段模板 JSON</span><textarea v-model="form.fields_json" data-validate="json" rows="2"/></label></template><div class="wide form-actions"><button type="button" class="light" @click="stage='';edit=null">取消</button><button class="primary" :disabled="busy">保存配置</button></div></form>
@@ -790,7 +789,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <div class="form-actions"><button type="button" class="light" @click="duplicateDialog=false">取消</button><button class="primary">按核实结论提交</button></div>
    </form>
   </FormModal>
-  <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><button class="secondary" @click="exportDemands">Excel 导出</button><button v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</button></div></div><div class="toolbar"><label><span class="field-caption">状态</span><select v-model="statusFilter"><option value="">全部</option><option value="pending">待核实</option><option value="active">有效</option><option value="returned">退回</option><option value="cancelled">取消</option></select></label><label><span class="field-caption">线路</span><select v-model="lineFilter"><option value="">全部线路</option><option v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">关键词</span><input v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><table><thead><tr><th>编号</th><th>位置</th><th>操作与部位</th><th>工作量</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="d in demands" :key="d.id"><td class="mono">{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><span class="tag">{{statusName(d.status)}}</span></td><td><button class="link" @click="showDemand(d.id)">详情</button></td></tr><tr v-if="!demands.length"><td colspan="6" class="empty">没有符合筛选条件的需求</td></tr></tbody></table></div></section></template>
+  <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><button class="secondary" @click="exportDemands">Excel 导出</button><button v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</button></div></div><div class="toolbar"><label><span class="field-caption">状态</span><select v-model="statusFilter"><option value="">全部</option><option value="pending">待核实</option><option value="active">有效</option><option value="returned">退回</option><option value="cancelled">取消</option></select></label><label><span class="field-caption">线路</span><select v-model="lineFilter"><option value="">全部线路</option><option v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">关键词</span><input v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><table><thead><tr><th>编号</th><th>位置</th><th>操作与部位</th><th>工作量</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="d in demands" :key="d.id"><td class="mono">{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><StatusTag :status="d.status"/></td><td><button class="link" @click="showDemand(d.id)">详情</button></td></tr><tr v-if="!demands.length"><td colspan="6" class="empty">没有符合筛选条件的需求</td></tr></tbody></table></div></section></template>
   <section v-if="detail" class="detail-overlay" @click.self="detail=null"><div class="detail-panel"><div class="section-header"><h2>{{detail.demand_no?'需求 '+detail.demand_no:'台账详情'}}</h2><button class="light" @click="detail=null">关闭 ×</button></div>
     <template v-if="detail.demand_no"><div class="info-grid"><div><small>原始线路快照</small><strong>{{detail.line_name_snapshot}} {{detail.tower_no_snapshot}}</strong></div><div><small>物理塔快照</small><strong>{{detail.physical_code_snapshot}}</strong></div><div><small>操作与版本</small><strong>{{detail.operation_snapshot}} v{{detail.operation_version}}</strong></div><div><small>工作量</small><strong>{{fmtQty(detail.quantity_scaled)}} {{detail.unit_snapshot}}</strong></div><div><small>当前状态</small><strong>{{detail.status}}</strong></div><div><small>当前版本</small><strong>v{{detail.version}}</strong></div></div>
       <p v-if="detail.project_references?.length" class="muted">已关联项目：{{detail.project_references.map((x:Rec)=>x.code).join('、')}}。工作范围保留历史依据；范围变更须办理项目变更。</p>

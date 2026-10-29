@@ -31,7 +31,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/auth/me','GET',undefined,401);
   const login=await request('/auth/login','POST',{username:'tester',password:'Test-Secure-Passw0rd-36'});
   assert.equal(login.user.role,'admin');
-  assert.equal(one('PRAGMA user_version').user_version,101);
+  assert.equal(one('PRAGMA user_version').user_version,102);
   assert.equal(isPermittedIP('127.0.0.1'),true);
   assert.equal(isPermittedIP('::1'),true);
   assert.equal(isPermittedIP('::ffff:127.0.0.1'),true);
@@ -100,8 +100,12 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/demands/'+d.id+'/verify','POST',{status:'active',version:d.version,reason:'现场核实完成'});
   const fw=await request('/frameworks','POST',{code:'FW-TEST',name:'试验资金框架',limit_yuan:'100000.00'},201);
   const ag=await request('/agreements','POST',{code:'AG-TEST',name:'测试执行协议',framework_id:fw.id,limit_yuan:'30000'},201);
+  const otherFw=await request('/frameworks','POST',{code:'FW-OTHER',name:'另一年度框架',fiscal_year:2027,limit_yuan:'10000'},201);
+  const otherAg=await request('/agreements','POST',{code:'AG-OTHER',name:'其他框架协议',framework_id:otherFw.id,limit_yuan:'5000'},201);
+  await request('/projects','POST',{code:'P-MISSING-FRAMEWORK',name:'不可无框架的储备'},422);
+  await request('/projects','POST',{code:'P-WRONG-FRAMEWORK',name:'跨框架错误',framework_id:fw.id,agreement_id:otherAg.id},422);
   await request('/agreements','POST',{code:'AG-TOO-LARGE',name:'超额协议',framework_id:fw.id,limit_yuan:'80000'},422);
-  const project=await request('/projects','POST',{code:'P-TEST',name:'防鸟装置施工项目'},201);
+  const project=await request('/projects','POST',{code:'P-TEST',name:'防鸟装置施工项目',framework_id:fw.id},201);
   assert.equal(project.agreement_id,null,'reserve may have unbound agreement');
   let detail=await request('/projects/'+project.id);
   detail=await request('/projects/'+project.id+'/scopes','POST',{version:detail.version,demand_id:d.id,quantity:'1'},201);
@@ -121,6 +125,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   detail=await request('/projects/'+project.id+'/stock','POST',{version:detail.version,reason:'纳入正式储备库，价格待核'},200);
   assert.equal(detail.status,'stocked');
   await request('/projects/'+project.id+'/approve','POST',{version:detail.version,reason:'缺协议'},422);
+  await request('/projects/'+project.id+'/agreement','POST',{version:detail.version,agreement_id:otherAg.id},422);
   detail=await request('/projects/'+project.id+'/agreement','POST',{version:detail.version,agreement_id:ag.id,reason:'落实执行协议'},200);
   await request('/projects/'+project.id+'/approve','POST',{version:detail.version,reason:'缺价格'},422);
   detail=await request('/projects/'+project.id+'/scopes/'+detail.scopes[0].id,'PATCH',{
@@ -131,6 +136,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   assert.equal(detail.events.length,2,'stock and approval snapshots each retained');  const approvalVersions=await request('/projects/'+project.id+'/approval-versions');
   assert.equal(approvalVersions.length,1);
   assert.equal(approvalVersions[0].approved_budget_fen,15025);
+  assert.equal(JSON.parse(approvalVersions[0].snapshot_json).framework_id,fw.id,'approved version freezes direct management framework');
   const change=await request('/projects/'+project.id+'/change-orders','POST',{
    code:'CHG-001',base_approval_version_id:approvalVersions[0].id,
    reason:'现场发现新增工作内容，提出范围调整但尚未审批',
@@ -145,11 +151,13 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   },422);
   assert.equal((await request('/projects/'+project.id)).approved_budget_fen,15025,'change draft must not alter approved budget');
 
-  const ex1=await request('/projects/'+project.id+'/executions','POST',{number:'EX1',description:'第一次作业',planned_on:'2026-10-30'},201);
+  const ex1=await request('/projects/'+project.id+'/executions','POST',{number:'EX1',description:'第一次作业',planned_on:'2026-10-30',plan_type:'outage'},201);
   assert.equal(ex1.status,'planned');
+  assert.equal(ex1.plan_type,'outage');
   assert.equal(ex1.approval_version_id,approvalVersions[0].id,'execution must bind immutable approval version');
 
-  const ex2=await request('/projects/'+project.id+'/executions','POST',{number:'EX2',description:'第二次作业'},201);
+  const ex2=await request('/projects/'+project.id+'/executions','POST',{number:'EX2',description:'第二次作业',plan_type:'non_outage'},201);
+  assert.equal(ex2.plan_type,'non_outage');
   const firstItem=await request('/executions/'+ex1.id+'/items','POST',{version:ex1.version,scope_id:detail.scopes[0].id,quantity:'1'},201);
   assert.equal(firstItem.items.length,1);
   assert.equal(firstItem.items[0].demand_snapshot.id,d.id);
@@ -158,8 +166,8 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/executions/'+ex2.id+'/items','POST',{version:ex2.version,scope_id:detail.scopes[0].id,quantity:'0.5'},409);
   const secondItem=null;
 
-  await request('/projects/'+project.id+'/executions','POST',{number:'EX2'},409);
-  const third=await request('/projects/'+project.id+'/executions','POST',{number:'EX3'},201);
+  await request('/projects/'+project.id+'/executions','POST',{number:'EX2',plan_type:'non_outage'},409);
+  const third=await request('/projects/'+project.id+'/executions','POST',{number:'EX3',plan_type:'outage'},201);
   await request('/executions/'+third.id+'/items','POST',{version:third.version,scope_id:detail.scopes[0].id,quantity:'0.1'},409);
   let running=await request('/executions/'+ex1.id+'/start','POST',{version:firstItem.version,reason:'实际开工'},200);
   await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'1.1',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-too-large'},409);
@@ -180,8 +188,9 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
 
   assert.equal((await request('/frameworks')).find(x=>x.id===fw.id).approved_project_budget_fen,15025,'real-time rollup from distinct projects');
   await request('/projects/'+project.id+'/agreement','POST',{version:detail.version,agreement_id:ag.id},409);
-  const parallel=await request('/projects','POST',{code:'P-SECOND',name:'重复范围候选'},201);
-  let p2=await request('/projects/'+parallel.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'2'},201);
+  const parallel=await request('/projects','POST',{code:'P-SECOND',name:'重复范围候选',framework_id:fw.id},201);
+  // Although the total is within D's original quantity, a second formally approved project must not share this demand.
+  let p2=await request('/projects/'+parallel.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'0.5'},201);
   p2=await request('/projects/'+parallel.id+'/preliminary-estimate','POST',{version:p2.version,
    category_id:projectCategory.id,amount_yuan:'400',basis:'估算依据：同类工程参考'},200);
   p2=await request('/projects/'+parallel.id+'/stock','POST',{version:p2.version,reason:'候选项目入库'},200);
@@ -190,6 +199,36 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
    version:p2.version,unit_price_yuan:'200',price_source:'合成价目表',price_date:'2026-10-29',tax_mode:'inclusive'
   },200);
   await request('/projects/'+parallel.id+'/approve','POST',{version:p2.version,reason:'重复范围不应获批'},409);
+
+  // One professional demand (10 sets) is owned by exactly one subproject,
+  // but may be reserved by multiple maintenance plans within that subproject.
+  let tenDemand=await request('/demands/'+result.ids[1]);
+  tenDemand=await request('/demands/'+tenDemand.id,'PATCH',{version:tenDemand.version,quantity:'10',reason:'核实实际需更换10套'});
+  tenDemand=await request('/demands/'+tenDemand.id+'/verify','POST',{version:tenDemand.version,status:'active',reason:'现场核实10套'});
+  let tenProject=await request('/projects','POST',{code:'P-TEN',name:'分计划实施十套',framework_id:fw.id},201);
+  tenProject=await request('/projects/'+tenProject.id+'/scopes','POST',{version:tenProject.version,demand_id:tenDemand.id,quantity:'10'},201);
+  tenProject=await request('/projects/'+tenProject.id+'/preliminary-estimate','POST',{version:tenProject.version,category_id:projectCategory.id,amount_yuan:'10',basis:'经现场核实共十套'},200);
+  tenProject=await request('/projects/'+tenProject.id+'/stock','POST',{version:tenProject.version,reason:'正式储备'},200);
+  tenProject=await request('/projects/'+tenProject.id+'/agreement','POST',{version:tenProject.version,agreement_id:ag.id},200);
+  tenProject=await request('/projects/'+tenProject.id+'/scopes/'+tenProject.scopes[0].id,'PATCH',{
+   version:tenProject.version,unit_price_yuan:'1',price_source:'核定参考价',price_date:'2026-10-29',tax_mode:'inclusive'},200);
+  tenProject=await request('/projects/'+tenProject.id+'/approve','POST',{version:tenProject.version,reason:'批准10套专业需求'},200);
+  const tenScope=tenProject.scopes[0].id;
+  let plan1=await request('/projects/'+tenProject.id+'/executions','POST',{number:'M01',plan_type:'outage'},201);
+  let plan2=await request('/projects/'+tenProject.id+'/executions','POST',{number:'M02',plan_type:'outage'},201);
+  plan1=await request('/executions/'+plan1.id+'/items','POST',{version:plan1.version,scope_id:tenScope,quantity:'5'},201);
+  plan2=await request('/executions/'+plan2.id+'/items','POST',{version:plan2.version,scope_id:tenScope,quantity:'5'},201);
+  assert.equal(plan1.items[0].project_scope_id,plan2.items[0].project_scope_id,'both plans reuse one approved demand scope');
+  let plan3=await request('/projects/'+tenProject.id+'/executions','POST',{number:'M03',plan_type:'non_outage'},201);
+  await request('/executions/'+plan3.id+'/items','POST',{version:plan3.version,scope_id:tenScope,quantity:'1'},409);
+  plan1=await request('/executions/'+plan1.id+'/start','POST',{version:plan1.version,reason:'停电检修开工'});
+  plan1=await request('/executions/'+plan1.id+'/items/'+plan1.items[0].id+'/complete','POST',{
+   idempotency_key:'ten-scope-done-3',quantity:'3',occurred_on:'2026-10-30',evidence:'现场仅完成3套'},201);
+  plan1=await request('/executions/'+plan1.id+'/finish','POST',{version:plan1.version,reason:'第一计划结束，2套转后续计划'});
+  plan3=await request('/executions/'+plan3.id+'/items','POST',{version:plan3.version,scope_id:tenScope,quantity:'2'},201);
+  assert.equal(plan3.items[0].planned_quantity_scaled,20000,'unfinished 2 sets become available after closing plan M01');
+
+
 
   await request('/demands/'+d.id+'/verify','POST',{status:'active',version:d.version,reason:'重复确认'},409);
   const renamed=await request('/logical-towers/'+lt1.id,'PATCH',{version:1,tower_no:'#1A',reason:'命名修正'});

@@ -130,10 +130,10 @@ function materializeChanges(order,p,baseline){
   scope.amount_fen=amount(scope.quantity_scaled,scope.unit_price_fen);
   const d=one('SELECT quantity_scaled FROM demands WHERE id=?',scope.demand_id);
   if(!d||scope.quantity_scaled>d.quantity_scaled)err(409,'需求数量已变化，批准范围超过有效需求数量');
-  const other=one(`SELECT COALESCE(SUM(s.quantity_scaled),0) n FROM project_demand_scopes s
-    JOIN projects p ON p.id=s.project_id WHERE s.demand_id=? AND s.status='active'
-    AND p.status IN ('approved','closed') AND p.id<>?`,scope.demand_id,p.id).n;
-  if(other+scope.quantity_scaled>d.quantity_scaled)err(409,'与其他已批准项目重叠超量');
+  const other=one(`SELECT p.id FROM project_demand_scopes s JOIN projects p ON p.id=s.project_id
+    WHERE s.demand_id=? AND s.status='active' AND p.status IN ('approved','closed')
+    AND p.id<>? LIMIT 1`,scope.demand_id,p.id);
+  if(other)err(409,'该专业需求已由其他正式子项目承接，不允许跨项目通过变更单分担');
  }
  return {scopes,updates,retire,add,budget:sumBudget(scopes)};
 }
@@ -149,6 +149,7 @@ export function approveChangeOrder(id,body,user){
   const applied=materializeChanges(old,p,baseline),ag=one('SELECT * FROM agreements WHERE id=?',p.agreement_id);
   const fw=ag?one('SELECT * FROM frameworks WHERE id=?',ag.framework_id):null;
   if(!ag||!fw||ag.status!=='active'||fw.status!=='active')err(409,'协议或框架不可用');
+  if(ag.framework_id!==p.framework_id)err(409,'协行协议与子项目所属年度框架不一致');
   const others=one("SELECT COALESCE(SUM(approved_budget_fen),0) n FROM projects WHERE agreement_id=? AND id<>? AND status IN ('approved','closed')",ag.id,p.id).n;
   if(BigInt(others)+BigInt(applied.budget)>BigInt(ag.limit_fen))err(409,'变更后的有效项目预算超过执行协议可用额度');
   const settled=one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
