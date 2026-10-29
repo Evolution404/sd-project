@@ -73,7 +73,8 @@ const listLookup=(table)=>all('SELECT * FROM '+table+' ORDER BY created_at DESC 
 function createVoltage(body,user){
  const order=Number(body.sort_order??100);
  if(!Number.isInteger(order))fail(422,'显示顺序必须为整数');
- const item={id:uid(),code:required(body.code,'电压编码'),name:required(body.name,'电压名称'),
+ const id=uid(),code=body.code===undefined||body.code===null||typeof body.code==='string'&&!body.code.trim()?'VL-'+id.replaceAll('-',''):required(body.code,'电压编码');
+ const item={id,code,name:required(body.name,'电压名称'),
   status:body.status||'active',version:1,sort_order:order,updated_at:now()};
  validStatus(item.status,['active','inactive']);
  transaction(()=>{

@@ -49,7 +49,11 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/access/ips/'+firstIp.id,'DELETE');
   assert.equal(isPermittedIP('192.168.8.15'),false,'revocation immediate');
   const voltage=await request('/voltage-levels','POST',{code:'110',name:'110kV'},201);
-  const v220=await request('/voltage-levels','POST',{code:'220',name:'220kV'},201);
+  const v220=await request('/voltage-levels','POST',{name:'220kV'},201);
+  assert.match(v220.code,/^VL-[0-9a-f]{32}$/,'name-only creation generates a stable code');
+  const edited220=await request('/voltage-levels/'+v220.id,'PATCH',{version:1,sort_order:30});
+  assert.equal(edited220.code,v220.code,'editing without code keeps the generated identifier');
+  assert.equal(edited220.id,v220.id);
   assert.equal(voltage.version,1);
   assert.equal(voltage.sort_order,100);
   assert.equal((await request('/voltage-levels')).find(x=>x.id===voltage.id).id,voltage.id);

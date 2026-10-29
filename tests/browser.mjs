@@ -59,9 +59,9 @@ try{
  if(await masterNav.count())throw Error('Voltage level must not remain in base ledgers navigation');
  await page.locator('section.panel').first().getByLabel('类别').selectOption({label:'电压等级'});
  await page.getByRole('button',{name:'新增选项'}).click();
- let form=page.locator('.form-panel');await fill(form,'编码','110');await fill(form,'名称','110kV');
+ let form=page.locator('.form-panel');if(await form.getByLabel('编码',{exact:true}).count())throw Error('Voltage code must be generated internally');await fill(form,'名称','110kV');
  await form.getByRole('button',{name:'保存配置'}).click();await form.waitFor({state:'hidden'});
- await page.getByText('110kV',{exact:true}).waitFor();
+ await page.getByText('110kV',{exact:true}).waitFor();if(await page.getByRole('columnheader',{name:'编码',exact:true}).count())throw Error('Voltage list must hide internal code');
  await nav('线路台账');await page.getByRole('button',{name:'新建线路',exact:true}).click();
  form=page.getByRole('dialog',{name:'新建线路'});await fill(form,'线路名称','浏览器测试线路');await select(form,'电压等级','110kV');await form.getByRole('button',{name:'保存线路',exact:true}).click();await form.waitFor({state:'hidden'});
  await page.getByRole('heading',{name:'浏览器测试线路',exact:true}).waitFor();
