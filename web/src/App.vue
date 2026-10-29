@@ -26,13 +26,13 @@ const batchSources=ref<Rec[]>([{type_id:'',discovered_on:new Date().toLocaleDate
 const selected=reactive<Record<string,boolean>>({});
 const overrides=reactive<Record<string,{target_object?:string,quantity?:string}>>({});
 const excluded=reactive<Record<string,boolean>>({});
-const stage=ref(''),dictionaryType=ref('operation');
+const stage=ref(''),dictionaryType=ref('voltage');
 const batchKey=ref<string>(newClientId()),lastResult=ref<Rec|null>(null);
 const common=reactive<Rec>({work_target_type:'line',operation_id:'',target_object:'',quantity:'1',unit_id:'',completion_standard:'',problem_description:'',priority_id:'',expected_on:'',source:{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}});
 const initialForm:Rec={};
 const form=reactive<Rec>({});
-const labels:Rec={overview:'工作台',voltage:'电压等级',lines:'线路台账',physical:'物理杆塔',logical:'逻辑杆塔',entry:'批量需求录入',demands:'需求中心',dictionary:'系统字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备'};
-const tabs=['overview','entry','demands','voltage','lines','physical','logical','dictionary'];
+const labels:Rec={overview:'工作台',lines:'线路台账',physical:'物理杆塔',logical:'逻辑杆塔',entry:'批量需求录入',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备'};
+const tabs=['overview','entry','demands','lines','physical','logical','dictionary','access'];
 const ops=computed(()=>items.value.filter(x=>x.type_id==='operation'&&x.status==='active'&&(x.work_target_type===common.work_target_type||x.work_target_type==='both')));
 const units=computed(()=>items.value.filter(x=>x.type_id==='unit'&&x.status==='active'));
 const sources=computed(()=>items.value.filter(x=>x.type_id==='source'&&x.status==='active'));
@@ -52,6 +52,7 @@ const projectStage=(value:string)=>({reserve:'储备编制',stocked:'已入库',
 const roleAdmin=computed(()=>user.value?.role==='admin');
 const mediaTitle=computed(()=>labels[nav.value]||'');
 const options=(type:string)=>items.value.filter(x=>x.type_id===type).sort((a,b)=>a.sort_order-b.sort_order);
+const dictionaryRows=computed(()=>dictionaryType.value==='voltage'?voltage.value:options(dictionaryType.value));
 const selectedOp=computed(()=>items.value.find(x=>x.id===common.operation_id));
 const dateStr=(s:string)=>s?s.slice(0,10):'';
 const fmtQty=(v:any)=>Number(v||0)/1000;
@@ -164,7 +165,7 @@ async function removeAllowedIP(entry:Rec){
 async function loadDemands(){const query=new URLSearchParams();if(statusFilter.value)query.set('status',statusFilter.value);if(search.value)query.set('search',search.value);if(lineFilter.value)query.set('line_id',lineFilter.value);demands.value=await api('/demands?'+query.toString())}
 async function openNav(next:string){
  nav.value=next;detail.value=null;edit.value=null;error.value='';sidebarMobile.value=false;
- expandedGroup.value=['frameworks','agreements'].includes(next)?'frameworks':['voltage','lines','physical','logical'].includes(next)?'masters':['dictionary','access'].includes(next)?'system':'';
+ expandedGroup.value=['frameworks','agreements'].includes(next)?'frameworks':['lines','physical','logical'].includes(next)?'masters':['dictionary','access'].includes(next)?'system':'';
  if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(next==='access')await loadAccess();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
 function toggleMenu(group:string,landing:string){
  if(nav.value===landing)expandedGroup.value=expandedGroup.value===group?'':group;
@@ -178,10 +179,10 @@ function sourcePayload(){return batchSources.value.map(item=>({...item}));}
 function newForm(){edit.value=null;Object.keys(form).forEach(k=>delete form[k]);form.status='active';form.sort_rank=logical.value.filter(x=>x.line_id===form.line_id).length+1;form.version=undefined;}
 function openCreate(){newForm();stage.value=nav.value;}
 function openEdit(row:Rec){edit.value=row;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,row);stage.value=nav.value;}
-function collectionFor(tab:string){return tab==='voltage'?voltage.value:tab==='lines'?lines.value:tab==='physical'?physical.value:logical.value;}
-function endpoint(tab:string){return ({voltage:'/voltage-levels',lines:'/lines',physical:'/physical-towers',logical:'/logical-towers'} as Rec)[tab]}
+function collectionFor(tab:string){return tab==='lines'?lines.value:tab==='physical'?physical.value:logical.value;}
+function endpoint(tab:string){return ({lines:'/lines',physical:'/physical-towers',logical:'/logical-towers'} as Rec)[tab]}
 function fieldsFor(tab:string){
- return ({voltage:[['code','电压编码'],['name','电压名称']],lines:[['line_code','线路编码'],['name','线路名称']],physical:[['tower_code','实体编码'],['asset_no','资产编号'],['tower_type','塔型'],['longitude','经度'],['latitude','纬度']],logical:[['logical_code','位置编码'],['tower_no','杆塔编号'],['display_name','习惯称呼'],['sort_rank','沿线顺序'],['circuit_position','回路位置']]} as Rec)[tab]||[];
+ return ({lines:[['line_code','线路编码'],['name','线路名称']],physical:[['tower_code','实体编码'],['asset_no','资产编号'],['tower_type','塔型'],['longitude','经度'],['latitude','纬度']],logical:[['logical_code','位置编码'],['tower_no','杆塔编号'],['display_name','习惯称呼'],['sort_rank','沿线顺序'],['circuit_position','回路位置']]} as Rec)[tab]||[];
 }
 async function saveMaster(){error.value='';busy.value=true;try{
  const path=endpoint(stage.value)+(edit.value?'/'+edit.value.id:'');
@@ -190,11 +191,18 @@ async function saveMaster(){error.value='';busy.value=true;try{
  }catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
 async function showMaster(row:Rec){try{detail.value=await api(endpoint(nav.value)+'/'+row.id);stage.value='history'}catch(e){error.value=errorMessage(e)}}
 async function saveDict(){error.value='';busy.value=true;try{
- const body={...form,type_id:dictionaryType.value,fields:form.fields_json?JSON.parse(form.fields_json):[]};
- const path='/dictionary-items'+(edit.value?'/'+edit.value.id:'');
- await api(path,edit.value?'PATCH':'POST',body);stage.value='';edit.value=null;notify('字典选项已持久化');await refresh()
+ const voltageType=dictionaryType.value==='voltage';
+ const body=voltageType?{code:form.code,name:form.name,status:form.status,sort_order:form.sort_order,version:form.version,reason:form.reason||'字典维护'}:{...form,type_id:dictionaryType.value,fields:form.fields_json?JSON.parse(form.fields_json):[]};
+ const path=(voltageType?'/voltage-levels':'/dictionary-items')+(edit.value?'/'+edit.value.id:'');
+ await api(path,edit.value?'PATCH':'POST',body);
+ stage.value='';edit.value=null;notify('字典选项已持久化');await refresh()
  }catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
-function editDict(x?:Rec){edit.value=x||null;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,x||{code:'',name:'',status:'active',sort_order:100,work_target_type:'line',default_quantity:'1',fields_json:'[]'});if(x?.default_quantity_milli)form.default_quantity=String(x.default_quantity_milli/1000);stage.value='dictionary'}
+function editDict(x?:Rec){
+ edit.value=x||null;Object.keys(form).forEach(k=>delete form[k]);
+ Object.assign(form,x||{code:'',name:'',status:'active',sort_order:100,work_target_type:'line',default_quantity:'1',fields_json:'[]'});
+ if(x?.default_quantity_milli)form.default_quantity=String(x.default_quantity_milli/1000);
+ stage.value='dictionary';
+}
 function applyDefault(){const op=selectedOp.value;if(!op)return;if(op.default_unit_id)common.unit_id=op.default_unit_id;if(op.default_quantity_milli)common.quantity=String(op.default_quantity_milli/1000);if(op.completion_standard)common.completion_standard=op.completion_standard;notify('已更新共同默认值；逐行自定义保留')}
 function selectRange(){if(!fromRank.value||!toRank.value){error.value='请选择起止杆塔';return}const a=logical.value.find(x=>x.id===fromRank.value),b=logical.value.find(x=>x.id===toRank.value);if(!a||!b||a.line_id!==b.line_id)return;const min=Math.min(a.sort_rank,b.sort_rank),max=Math.max(a.sort_rank,b.sort_rank);for(const t of logical.value.filter(x=>x.line_id===a.line_id&&x.sort_rank>=min&&x.sort_rank<=max&&x.status==='active'))selected[t.id]=true;notify('已按台账顺序选择区段')}
 function toggleAll(){selectVisible();}
@@ -228,10 +236,10 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <button class="nav-primary" :class="{active:nav==='projects'}" @click="openNav('projects')"><span class="nav-icon">▱</span>项目中心</button>
   <button class="nav-primary" :class="{active:['frameworks','agreements'].includes(nav)}" @click="toggleMenu('frameworks','frameworks')"><span class="nav-icon">♧</span>框架与协议<span class="nav-chevron">{{expandedGroup==='frameworks'?'⌄':'›'}}</span></button>
   <div v-if="expandedGroup==='frameworks'" class="nav-submenu"><button :class="{active:nav==='frameworks'}" @click="openNav('frameworks')">项目框架</button><button :class="{active:nav==='agreements'}" @click="openNav('agreements')">执行协议</button></div>
-  <button class="nav-primary" :class="{active:['voltage','lines','physical','logical'].includes(nav)}" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<span class="nav-chevron">{{expandedGroup==='masters'?'⌄':'›'}}</span></button>
-  <div v-if="expandedGroup==='masters'" class="nav-submenu"><button :class="{active:nav==='voltage'}" @click="openNav('voltage')">电压等级</button><button :class="{active:nav==='lines'}" @click="openNav('lines')">线路台账</button><button :class="{active:nav==='physical'}" @click="openNav('physical')">物理杆塔</button><button :class="{active:nav==='logical'}" @click="openNav('logical')">逻辑杆塔</button></div>
+  <button class="nav-primary" :class="{active:['lines','physical','logical'].includes(nav)}" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<span class="nav-chevron">{{expandedGroup==='masters'?'⌄':'›'}}</span></button>
+  <div v-if="expandedGroup==='masters'" class="nav-submenu"><button :class="{active:nav==='lines'}" @click="openNav('lines')">线路台账</button><button :class="{active:nav==='physical'}" @click="openNav('physical')">物理杆塔</button><button :class="{active:nav==='logical'}" @click="openNav('logical')">逻辑杆塔</button></div>
   <button v-if="roleAdmin" class="nav-primary" :class="{active:['dictionary','access'].includes(nav)}" @click="toggleMenu('system','access')"><span class="nav-icon">⚙</span>系统管理<span class="nav-chevron">{{expandedGroup==='system'?'⌄':'›'}}</span></button>
-  <div v-if="roleAdmin&&expandedGroup==='system'" class="nav-submenu"><button :class="{active:nav==='dictionary'}" @click="openNav('dictionary')">系统字典</button><button :class="{active:nav==='access'}" @click="openNav('access')">IP访问管理</button></div>
+  <div v-if="roleAdmin&&expandedGroup==='system'" class="nav-submenu"><button :class="{active:nav==='dictionary'}" @click="openNav('dictionary')">数据字典</button><button :class="{active:nav==='access'}" @click="openNav('access')">IP访问管理</button></div>
   <div class="sidebar-footer"><div><strong>{{user.username}}</strong><small>{{user.role}}</small></div><button class="light" @click="logout">退出</button></div>
  </aside>
  <main class="main">
@@ -242,7 +250,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   </div>
   <p v-if="error" role="alert" class="alert error">{{error}} <button @click="error=''">×</button></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
   <template v-if="nav==='overview'"><div class="stats"><div v-for="(label,key) in {lines:'线路',physical:'实体杆塔',logical:'逻辑杆塔',pending:'待核实需求',active:'有效需求'}" :key="key" class="stat"><small>{{label}}</small><strong>{{overview[key]??0}}</strong></div></div><section class="panel"><div class="section-header"><div><h2>待核实事项</h2><p class="muted">基于当前数据库实际记录</p></div><button class="secondary" @click="openNav('demands')">进入需求中心</button></div><div v-if="!demands.filter(x=>x.status==='pending').length" class="empty">当前没有待核实需求</div><div v-else class="table-wrap"><table><thead><tr><th>需求编号</th><th>位置</th><th>操作</th><th>工作量</th><th></th></tr></thead><tbody><tr v-for="d in demands.filter(x=>x.status==='pending').slice(0,8)" :key="d.id"><td>{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_milli)}} {{d.unit_snapshot}}</td><td><button class="link" @click="openNav('demands');showDemand(d.id)">查看</button></td></tr></tbody></table></div></section></template>
-  <template v-if="['voltage','lines','physical','logical'].includes(nav)">
+  <template v-if="['lines','physical','logical'].includes(nav)">
    <section class="panel"><div class="section-header"><div><h2>{{mediaTitle}}列表</h2><p class="muted">稳定编码与名称独立，历史修改保留</p></div><button v-if="roleWrite" class="primary" @click="openCreate">新增{{mediaTitle}}</button></div>
    <div class="table-wrap"><table><thead><tr><th>编码</th><th>名称或杆塔号</th><th v-if="nav==='logical'">线路</th><th v-if="nav==='logical'">实体塔</th><th v-if="nav==='lines'">电压等级</th><th>状态</th><th>操作</th></tr></thead>
     <tbody><tr v-for="x in collectionFor(nav)" :key="x.id"><td class="mono">{{x.code||x.line_code||x.tower_code||x.logical_code}}</td><td>{{x.name||x.tower_no||x.tower_type||'—'}}</td><td v-if="nav==='logical'">{{x.line_name}} / 序号{{x.sort_rank}}</td><td v-if="nav==='logical'">{{x.physical_code||'待关联'}}</td><td v-if="nav==='lines'">{{x.voltage_name}}</td><td><span class="tag">{{x.status}}</span></td><td class="actions"><button class="link" @click="showMaster(x)">详情</button><button v-if="roleWrite" class="link" @click="openEdit(x)">编辑</button></td></tr><tr v-if="!collectionFor(nav).length"><td colspan="7" class="empty">尚无台账，请通过新增录入真实信息</td></tr></tbody></table></div></section>
@@ -355,7 +363,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <p class="muted minor">只允许精确 IP 地址，不允许填网段、IP 范围或域名。验证使用真实 TCP 连接地址，不相信浏览器传入的代理头。IP 授权不能替代账号登录；Windows 防火墙仍需单独放行服务端口。</p>
     </section>
   </template>
-  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>业务字典维护</h2><button class="primary" @click="editDict()">新增选项</button></div><div class="toolbar"><label>类别<select v-model="dictionaryType"><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th>编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in options(dictionaryType)" :key="x.id"><td class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><span class="tag">{{x.status==='active'?'启用':'停用'}}</span></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!options(dictionaryType).length"><td colspan="6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
+  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>数据字典管理</h2><button class="primary" @click="editDict()">新增选项</button></div><p v-if="dictionaryType==='voltage'" class="muted">电压等级属于系统基础字典。线路引用同一份字典，停用后不再允许新增线路选用，已有线路关联保留。</p><div class="toolbar"><label>类别<select v-model="dictionaryType" @change="stage='';edit=null"><option value="voltage">电压等级</option><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th>编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in dictionaryRows" :key="x.id"><td class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><span class="tag">{{x.status==='active'?'启用':'停用'}}</span></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!dictionaryRows.length"><td colspan="6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
    <section v-if="stage==='dictionary'" class="panel form-panel"><div class="section-header"><h2>{{edit?'调整选项 v'+edit.version:'新增选项'}}</h2><button class="light" @click="stage=''">关闭</button></div><form class="form-grid" @submit.prevent="saveDict"><label>编码<input required v-model="form.code"/></label><label>名称<input required v-model="form.name"/></label><label>排序<input type="number" v-model.number="form.sort_order"/></label><label>状态<select v-model="form.status"><option value="active">启用</option><option value="inactive">停用</option></select></label>
     <template v-if="dictionaryType==='operation'"><label>适用对象<select v-model="form.work_target_type"><option value="line">线路侧作业</option><option value="physical">共用实体作业</option><option value="both">两者适用</option></select></label><label>默认单位<select v-model="form.default_unit_id"><option value="">不设默认</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label>默认每项数量<input v-model="form.default_quantity" placeholder="1"/></label><label class="wide">默认完成标准<input v-model="form.completion_standard"/></label><label class="wide">字段模板 JSON<textarea v-model="form.fields_json" rows="2"/></label></template><div class="wide form-actions"><button class="primary" :disabled="busy">保存配置</button></div></form></section>
   </template>

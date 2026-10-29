@@ -26,13 +26,13 @@ try{
  await page.getByRole('button',{name:'登录系统'}).click();
  await page.getByRole('heading',{name:'工作台'}).waitFor();
  const nav=async title=>{
-  const parents={'系统字典':'系统管理','IP访问管理':'系统管理','电压等级':'基础台账','线路台账':'基础台账','物理杆塔':'基础台账','逻辑杆塔':'基础台账','项目框架':'框架与协议','执行协议':'框架与协议','批量新建需求':'需求中心'};
+  const parents={'数据字典':'系统管理','IP访问管理':'系统管理','线路台账':'基础台账','物理杆塔':'基础台账','逻辑杆塔':'基础台账','项目框架':'框架与协议','执行协议':'框架与协议','批量新建需求':'需求中心'};
   const parent=parents[title];
   if(parent&&!await page.locator('.sidebar .nav-submenu').getByRole('button',{name:title,exact:true}).isVisible())await page.locator('.sidebar .nav-primary').filter({hasText:parent}).click();
   if(parent)await page.locator('.sidebar .nav-submenu').getByRole('button',{name:title,exact:true}).click();
   else await page.locator('.sidebar .nav-primary').filter({hasText:title==='子项目储备'?'项目中心':title}).click();
  };
- await nav('系统字典');
+ await nav('数据字典');
  async function addDict(type,code,name,extra={}){
   await page.locator('section.panel').first().getByLabel('类别').selectOption({label:type});
   await page.getByRole('button',{name:'新增选项'}).click();
@@ -45,8 +45,14 @@ try{
  await addDict('工作单位','SET','套');
  await addDict('来源类型','PATROL','巡视');
  await addDict('操作类型','INSTALL','安装防鸟装置',{unit:'套'});
- await nav('电压等级');await page.getByRole('button',{name:'新增电压等级'}).click();
- let form=page.locator('.form-panel');await fill(form,'电压编码','110');await fill(form,'电压名称','110kV');await form.getByRole('button',{name:'保存台账'}).click();await form.waitFor({state:'hidden'});
+ await nav('数据字典');
+ const masterNav=page.locator('.sidebar .nav-submenu').getByRole('button',{name:'电压等级',exact:true});
+ if(await masterNav.count())throw Error('Voltage level must not remain in base ledgers navigation');
+ await page.locator('section.panel').first().getByLabel('类别').selectOption({label:'电压等级'});
+ await page.getByRole('button',{name:'新增选项'}).click();
+ let form=page.locator('.form-panel');await fill(form,'编码','110');await fill(form,'名称','110kV');
+ await form.getByRole('button',{name:'保存配置'}).click();await form.waitFor({state:'hidden'});
+ await page.getByText('110kV',{exact:true}).waitFor();
  await nav('线路台账');await page.getByRole('button',{name:'新增线路台账'}).click();
  form=page.locator('.form-panel');await fill(form,'线路编码','LTEST');await fill(form,'线路名称','浏览器测试线路');await select(form,'所属电压','110kV');await form.getByRole('button',{name:'保存台账'}).click();await form.waitFor({state:'hidden'});
  await nav('物理杆塔');await page.getByRole('button',{name:'新增物理杆塔'}).click();

@@ -30,7 +30,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/auth/me','GET',undefined,401);
   const login=await request('/auth/login','POST',{username:'tester',password:'Test-Secure-Passw0rd-36'});
   assert.equal(login.user.role,'admin');
-  assert.equal(one('PRAGMA user_version').user_version,4);
+  assert.equal(one('PRAGMA user_version').user_version,5);
   assert.equal(isPermittedIP('127.0.0.1'),true);
   assert.equal(isPermittedIP('::1'),true);
   assert.equal(isPermittedIP('::ffff:127.0.0.1'),true);
@@ -50,8 +50,24 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   assert.equal(isPermittedIP('192.168.8.15'),false,'revocation immediate');
   const voltage=await request('/voltage-levels','POST',{code:'110',name:'110kV'},201);
   const v220=await request('/voltage-levels','POST',{code:'220',name:'220kV'},201);
+  assert.equal(voltage.version,1);
+  assert.equal(voltage.sort_order,100);
+  assert.equal((await request('/voltage-levels')).find(x=>x.id===voltage.id).id,voltage.id);
+  await request('/voltage-levels/'+voltage.id,'PATCH',{version:1,name:'110千伏',sort_order:20,reason:'系统字典修订'});
+  await request('/voltage-levels/'+voltage.id,'PATCH',{version:1,name:'旧版覆盖'},409);
+  const updatedVoltage=(await request('/voltage-levels')).find(x=>x.id===voltage.id);
+  assert.equal(updatedVoltage.version,2);
+  assert.equal(updatedVoltage.name,'110千伏');
+  assert.equal(updatedVoltage.sort_order,20);
+
   const line1=await request('/lines','POST',{line_code:'L01',name:'合成甲线',voltage_level_id:voltage.id},201);
   const line2=await request('/lines','POST',{line_code:'L02',name:'合成乙线',voltage_level_id:v220.id},201);
+  const lineView=(await request('/lines')).find(x=>x.id===line1.id);
+  assert.equal(lineView.voltage_name,'110千伏','existing line resolves updated dictionary name through unchanged stable ID');
+  await request('/voltage-levels/'+voltage.id,'PATCH',{version:2,status:'inactive',reason:'电压字典停用'});
+  await request('/lines','POST',{line_code:'L-BLOCKED',name:'不可新增线路',voltage_level_id:voltage.id},422);
+  assert.equal((await request('/lines')).find(x=>x.id===line1.id).voltage_level_id,voltage.id,'existing references must survive inactivation');
+
   const physical=await request('/physical-towers','POST',{tower_code:'PH-001',tower_type:'角钢塔'},201);
   const otherPhysical=await request('/physical-towers','POST',{tower_code:'PH-002',tower_type:'角钢塔'},201);
   const lt1=await request('/logical-towers','POST',{logical_code:'L01-T01',line_id:line1.id,physical_tower_id:physical.id,tower_no:'#1',sort_rank:100},201);

@@ -73,9 +73,16 @@ function csrf(req){
 }
 const listLookup=(table)=>all('SELECT * FROM '+table+' ORDER BY created_at DESC LIMIT 1000');
 function createVoltage(body,user){
- const item={id:uid(),code:required(body.code,'电压编码'),name:required(body.name,'电压名称'),status:body.status||'active'};
+ const order=Number(body.sort_order??100);
+ if(!Number.isInteger(order))fail(422,'显示顺序必须为整数');
+ const item={id:uid(),code:required(body.code,'电压编码'),name:required(body.name,'电压名称'),
+  status:body.status||'active',version:1,sort_order:order,updated_at:now()};
  validStatus(item.status,['active','inactive']);
- transaction(()=>{exec('INSERT INTO voltage_levels VALUES(?,?,?,?)',...Object.values(item));postAudit(user,'voltage_levels',item,'create')});return item;
+ transaction(()=>{
+  exec('INSERT INTO voltage_levels(id,code,name,status,version,sort_order,updated_at) VALUES(?,?,?,?,?,?,?)',...Object.values(item));
+  postAudit(user,'voltage_levels',item,'create');
+ });
+ return item;
 }
 function createLine(body,user){
  const v=one('SELECT * FROM voltage_levels WHERE id=? AND status=\'active\'',body.voltage_level_id);
@@ -108,12 +115,20 @@ function createLogical(body,user){
  postAudit(user,'logical_towers',item,'create')});return item;
 }
 function updateTowerData(table,id,body,user){
- const whitelist={voltage_levels:['code','name','status'],transmission_lines:['name','status'],physical_towers:['asset_no','tower_type','longitude','latitude','commissioned_on','status'],logical_towers:['tower_no','display_name','sort_rank','circuit_position','physical_tower_id','status']};
+ const whitelist={voltage_levels:['code','name','status','sort_order'],transmission_lines:['name','status'],physical_towers:['asset_no','tower_type','longitude','latitude','commissioned_on','status'],logical_towers:['tower_no','display_name','sort_rank','circuit_position','physical_tower_id','status']};
  const old=one('SELECT * FROM '+table+' WHERE id=?',id);if(!old)fail(404,'台账不存在');
- if(table!=='voltage_levels'&&body.version!==old.version)fail(409,'台账已被其他人修改，请刷新');
+ if(body.version!==old.version)fail(409,'台账已被其他人修改，请刷新');
  const changes=Object.fromEntries(Object.entries(body).filter(([k,v])=>whitelist[table].includes(k)&&v!==undefined));
  if(!Object.keys(changes).length)return old;
  const next={...old,...changes};
+ if(table==='voltage_levels'){
+  next.code=required(next.code,'电压编码');
+  next.name=required(next.name,'电压名称');
+  validStatus(next.status,['active','inactive']);
+  next.sort_order=Number(next.sort_order);
+  if(!Number.isInteger(next.sort_order))fail(422,'显示顺序必须为整数');
+  changes.code=next.code;changes.name=next.name;changes.sort_order=next.sort_order;
+ }
  if(table==='transmission_lines')validStatus(next.status,['active','inactive']);
  if(table==='logical_towers'){
   validStatus(next.status,['draft','active','inactive']);
@@ -128,7 +143,7 @@ function updateTowerData(table,id,body,user){
   if(one("SELECT 1 FROM logical_towers WHERE line_id=? AND status='active' LIMIT 1",id))fail(422,'线路下有启用逻辑节点，请先处理');
  }
  if(table==='logical_towers'&&old.physical_tower_id!==next.physical_tower_id&&!required(body.reason,'实体变化原因'))fail(422,'需要原因');
- const t=now();if(table!=='voltage_levels'){next.version=old.version+1;next.updated_at=t;changes.version=next.version;changes.updated_at=t}
+ const t=now();next.version=old.version+1;next.updated_at=t;changes.version=next.version;changes.updated_at=t
  transaction(()=>{
   const keys=Object.keys(changes);exec('UPDATE '+table+' SET '+keys.map(k=>k+'=?').join(',')+' WHERE id=?',...keys.map(k=>changes[k]),id);
   const reason=body.reason?.trim()||'资料维护';
@@ -426,14 +441,14 @@ async function dispatch(req,res){
     FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=t.physical_tower_id
     WHERE (? IS NULL OR t.line_id=?) ORDER BY l.name,t.sort_rank`,q,q));
    if(table==='transmission_lines')return json(res,200,all('SELECT l.*,v.name AS voltage_name FROM transmission_lines l JOIN voltage_levels v ON v.id=l.voltage_level_id ORDER BY l.name'));
-   return json(res,200,all('SELECT * FROM '+table+' ORDER BY rowid DESC LIMIT 1000'));
+   return json(res,200,all('SELECT * FROM '+table+(table==='voltage_levels'?' ORDER BY sort_order,name':' ORDER BY rowid DESC')+' LIMIT 1000'));
   }
   if(pathname===path&&method==='POST'){
-   permit(user,'write');const body=await parseJson(req);const create={voltage_levels:createVoltage,transmission_lines:createLine,physical_towers:createPhysical,logical_towers:createLogical}[table];
+   permit(user,table==='voltage_levels'?'admin':'write');const body=await parseJson(req);const create={voltage_levels:createVoltage,transmission_lines:createLine,physical_towers:createPhysical,logical_towers:createLogical}[table];
    return json(res,201,create(body,user));
   }
   const match=pathname.match(new RegExp('^'+path+'/([^/]+)$'));
-  if(match&&method==='PATCH'){permit(user,'write');return json(res,200,updateTowerData(table,match[1],await parseJson(req),user))}
+  if(match&&method==='PATCH'){permit(user,table==='voltage_levels'?'admin':'write');return json(res,200,updateTowerData(table,match[1],await parseJson(req),user))}
   if(match&&method==='GET'){permit(user,'view');const item=one('SELECT * FROM '+table+' WHERE id=?',match[1]);if(!item)fail(404,'记录不存在');
    const histories={transmission_lines:'line_name_history',logical_towers:'logical_tower_name_history'};
    return json(res,200,{...item,name_history:histories[table]?all('SELECT * FROM '+histories[table]+' WHERE '+(table==='transmission_lines'?'line_id':'logical_tower_id')+'=? ORDER BY valid_from DESC',match[1]):[],physical_history:table==='logical_towers'?all('SELECT * FROM logical_tower_physical_history WHERE logical_tower_id=? ORDER BY valid_from DESC',match[1]):[]});
