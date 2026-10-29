@@ -3,8 +3,11 @@ import {computed,onMounted,reactive,ref,watch} from 'vue';
 import {newClientId} from './utils/client-id';
 import FormModal from './components/FormModal.vue';
 import CustomFields from './components/CustomFields.vue';
+import LedgerWorkspace from './components/LedgerWorkspace.vue';
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
+function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
+const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref(rememberedView('ledger-tab','towers')),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
 const nav=ref('overview'),page=ref('overview'),user=ref<Rec|null>(null);
 const expandedGroup=ref('');const sidebarMobile=ref(false);
 const username=ref(''),password=ref('');
@@ -41,19 +44,19 @@ const newCommon=():Rec=> ({work_target_type:'line',operation_id:'',target_object
 const common=reactive<Rec>(newCommon());
 const initialForm:Rec={};
 const form=reactive<Rec>({});
-const labels:Rec={overview:'工作台',lines:'线路台账',physical:'物理杆塔',logical:'逻辑杆塔',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备'};
+const labels:Rec={overview:'工作台',lines:'线路台账',towers:'杆塔查询',spans:'档距查询',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备'};
 const tabs=['overview','entry','demands','lines','physical','logical','dictionary','access'];
 const ops=computed(()=>items.value.filter(x=>x.type_id==='operation'&&x.status==='active'&&(x.work_target_type===common.work_target_type||x.work_target_type==='both')));
 const units=computed(()=>items.value.filter(x=>x.type_id==='unit'&&x.status==='active'));
 const sources=computed(()=>items.value.filter(x=>x.type_id==='source'&&x.status==='active'));
 const priorities=computed(()=>items.value.filter(x=>x.type_id==='priority'&&x.status==='active'));
 const thisLineTowers=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&x.status==='active'&&(!towerSearch.value||[x.tower_no,x.logical_code,x.physical_code].some(y=>String(y||'').toLowerCase().includes(towerSearch.value.toLowerCase())))).sort((a,b)=>a.sort_rank-b.sort_rank));
-const selectedRows=computed<Rec[]>(()=>logical.value.filter(x=>selected[x.id]&&!excluded[x.id]).map(x=>({...x,quantity:overrides[x.id]?.quantity??String(common.quantity),target_object:overrides[x.id]?.target_object??String(common.target_object),custom_fields:{...common.custom_fields,...overrides[x.id]?.custom_fields}})));
+const selectedRows=computed<Rec[]>(()=> (demandLocationKind.value==='span'?demandSpanRows.value:logical.value.filter(x=>selected[x.id])).filter(x=>!excluded[x.id]).map(x=>({...x,tower_no:x.span_id?x.start_tower_no+'—'+x.end_tower_no:x.tower_no,quantity:overrides[x.id]?.quantity??String(common.quantity),target_object:overrides[x.id]?.target_object??String(common.target_object),custom_fields:{...common.custom_fields,...overrides[x.id]?.custom_fields}})));
 const totalQty=computed(()=>selectedRows.value.reduce((acc,x)=>acc+(Number(x.quantity)||0),0));
 const thisLineSelected=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&selected[x.id]&&!excluded[x.id]).length);
 const thisLineTotal=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&x.status==='active').length);
 const selectedLines=computed(()=>lines.value.filter(l=>selectedRows.value.some(x=>x.line_id===l.id)));
-const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':['frameworks','agreements'].includes(nav.value)?'框架与协议':['voltage','lines','physical','logical'].includes(nav.value)?'基础台账':['dictionary','access'].includes(nav.value)?'系统管理':'项目全流程');
+const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':['frameworks','agreements'].includes(nav.value)?'框架与协议':['lines','towers','spans'].includes(nav.value)?'基础台账':['dictionary','access'].includes(nav.value)?'系统管理':'项目全流程');
 const displayTitle=computed(()=>nav.value==='entry'?'新建需求':nav.value==='projects'?'项目中心':nav.value==='overview'?'工作台':mediaTitle.value);
 const roleWrite=computed(()=>user.value&&['admin','editor'].includes(user.value.role));
 const roleVerify=computed(()=>user.value&&['admin','verifier'].includes(user.value.role));
@@ -180,10 +183,17 @@ async function removeAllowedIP(){
 async function loadDemands(){const query=new URLSearchParams();if(statusFilter.value)query.set('status',statusFilter.value);if(search.value)query.set('search',search.value);if(lineFilter.value)query.set('line_id',lineFilter.value);demands.value=await api('/demands?'+query.toString())}
 async function openNav(next:string){
  nav.value=next;detail.value=null;edit.value=null;error.value='';sidebarMobile.value=false;
- expandedGroup.value=['frameworks','agreements'].includes(next)?'frameworks':['lines','physical','logical'].includes(next)?'masters':['dictionary','access'].includes(next)?'system':'';
+ expandedGroup.value=['frameworks','agreements'].includes(next)?'frameworks':['lines','towers','spans'].includes(next)?'masters':['dictionary','access'].includes(next)?'system':'';
  stage.value='';ipDialog.value=false;projectAction.value='';executionAction.value='';completionItem.value=null;reasonAction.value='';
  if(next==='entry'&&roleWrite.value)await loadDrafts();
  if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(next==='access')await loadAccess();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
+function openLedger(value:Rec){ledgerLineId.value=value.lineId;ledgerTab.value=value.tab||'towers';ledgerTowerId.value=value.towerId||'';void openNav('lines')}
+async function seedLedgerDemands(value:Rec){
+ resetBatch();demandLocationKind.value=value.kind;selectedLine.value=value.line_id;
+ if(value.kind==='span'){demandSpanRows.value=value.rows.map((s:Rec)=>({...s,span_id:s.id,span_version:s.version}));common.work_target_type='line'}
+ else for(const t of value.rows)selected[t.id]=true;
+ await refresh();await openNav('entry');notify('已带入 '+value.rows.length+' 个'+(value.kind==='span'?'档距':'杆塔')+'位置，请填写本次工作内容和工程量');
+}
 function toggleMenu(group:string,landing:string){
  if(nav.value===landing)expandedGroup.value=expandedGroup.value===group?'':group;
  else void openNav(landing);
@@ -193,20 +203,6 @@ function removeSource(index:number){if(batchSources.value.length>1)batchSources.
 function removeSelectedLine(){for(const item of logical.value.filter(x=>x.line_id===selectedLine.value))selected[item.id]=false;}
 function selectVisible(){for(const tower of thisLineTowers.value)selected[tower.id]=true;for(const tower of thisLineTowers.value)delete excluded[tower.id];}
 function sourcePayload(){return batchSources.value.map(item=>({...item}));}
-function newForm(){edit.value=null;Object.keys(form).forEach(k=>delete form[k]);form.status='active';form.sort_rank=logical.value.filter(x=>x.line_id===form.line_id).length+1;form.version=undefined;}
-function openCreate(){newForm();stage.value=nav.value;}
-function openEdit(row:Rec){edit.value=row;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,row);stage.value=nav.value;}
-function collectionFor(tab:string){return tab==='lines'?lines.value:tab==='physical'?physical.value:logical.value;}
-function endpoint(tab:string){return ({lines:'/lines',physical:'/physical-towers',logical:'/logical-towers'} as Rec)[tab]}
-function fieldsFor(tab:string){
- return ({lines:[['line_code','线路编码'],['name','线路名称']],physical:[['tower_code','实体编码'],['asset_no','资产编号'],['tower_type','塔型'],['longitude','经度'],['latitude','纬度']],logical:[['logical_code','位置编码'],['tower_no','杆塔编号'],['display_name','习惯称呼'],['sort_rank','沿线顺序'],['circuit_position','回路位置']]} as Rec)[tab]||[];
-}
-async function saveMaster(){error.value='';busy.value=true;try{
- const path=endpoint(stage.value)+(edit.value?'/'+edit.value.id:'');
- const result=await api(path,edit.value?'PATCH':'POST',{...form,reason:form.reason||'业务台账维护'});
- notify('已保存到数据库');edit.value=null;stage.value='';await refresh();return result;
- }catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
-async function showMaster(row:Rec){try{detail.value=await api(endpoint(nav.value)+'/'+row.id);stage.value='history'}catch(e){error.value=errorMessage(e)}}
 async function saveDict(){error.value='';busy.value=true;try{
  const voltageType=dictionaryType.value==='voltage';
  const body=voltageType?{code:form.code,name:form.name,status:form.status,sort_order:form.sort_order,version:form.version,reason:form.reason||'字典维护'}:{...form,type_id:dictionaryType.value,fields:form.fields_json?JSON.parse(form.fields_json):[]};
@@ -223,18 +219,19 @@ function editDict(x?:Rec){
 function applyDefault(){const op=selectedOp.value;if(!op)return;if(op.default_unit_id)common.unit_id=op.default_unit_id;if(op.default_quantity_scaled)common.quantity=String(op.default_quantity_scaled/10000);if(op.completion_standard)common.completion_standard=op.completion_standard;notify('已更新共同默认值；逐行自定义保留')}
 function selectRange(){if(!fromRank.value||!toRank.value){error.value='请选择起止杆塔';return}const a=logical.value.find(x=>x.id===fromRank.value),b=logical.value.find(x=>x.id===toRank.value);if(!a||!b||a.line_id!==b.line_id)return;const min=Math.min(a.sort_rank,b.sort_rank),max=Math.max(a.sort_rank,b.sort_rank);for(const t of logical.value.filter(x=>x.line_id===a.line_id&&x.sort_rank>=min&&x.sort_rank<=max&&x.status==='active'))selected[t.id]=true;notify('已按台账顺序选择区段')}
 function toggleAll(){selectVisible();}
-function resetBatch(){currentDraft.value=null;Object.assign(common,newCommon());batchSources.value=[{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}];Object.keys(selected).forEach(k=>delete selected[k]);Object.keys(excluded).forEach(k=>delete excluded[k]);Object.keys(overrides).forEach(k=>delete overrides[k]);batchKey.value=newClientId();lastResult.value=null;}
-function payload(){return {...common,source:{...sourcePayload()[0]},sources:sourcePayload(),rows:selectedRows.value.map(x=>({logical_tower_id:x.id,target_object:x.target_object,quantity:x.quantity,custom_fields:overrides[x.id]?.custom_fields||{}})),idempotency_key:batchKey.value,...(currentDraft.value?{draft_id:currentDraft.value.id,draft_version:currentDraft.value.version}:{})};}
+function resetBatch(){demandLocationKind.value='tower';demandSpanRows.value=[];currentDraft.value=null;Object.assign(common,newCommon());batchSources.value=[{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}];Object.keys(selected).forEach(k=>delete selected[k]);Object.keys(excluded).forEach(k=>delete excluded[k]);Object.keys(overrides).forEach(k=>delete overrides[k]);batchKey.value=newClientId();lastResult.value=null;}
+function payload(){return {...common,source:{...sourcePayload()[0]},sources:sourcePayload(),location_kind:demandLocationKind.value,rows:selectedRows.value.map(x=>({...((x.span_id)?{span_id:x.span_id,span_version:x.span_version}:{logical_tower_id:x.id}),target_object:x.target_object,quantity:x.quantity,custom_fields:overrides[x.id]?.custom_fields||{}})),idempotency_key:batchKey.value,...(currentDraft.value?{draft_id:currentDraft.value.id,draft_version:currentDraft.value.version}:{})};}
 async function loadDrafts(){drafts.value=await api('/demand-batches?status=draft')}
 async function restoreDraft(id:string){error.value='';try{
  const draft=await api('/demand-batches/'+id),saved=JSON.parse(draft.draft_json);
  resetBatch();
  common.operation_id=saved.operation_id||'';
- const {rows,sources,source,idempotency_key,draft_id,draft_version,...fields}=saved;
+ const {rows,sources,source,idempotency_key,draft_id,draft_version,location_kind,...fields}=saved;
  Object.assign(common,fields);common.custom_fields=saved.custom_fields||{};
  batchSources.value=sources?.length?sources:source?[source]:batchSources.value;
- for(const row of rows||[]){selected[row.logical_tower_id]=true;overrides[row.logical_tower_id]={target_object:row.target_object,quantity:row.quantity,custom_fields:row.custom_fields||{}}}
- const first=logical.value.find(x=>x.id===rows?.[0]?.logical_tower_id);if(first)selectedLine.value=first.line_id;
+ if((rows||[]).some((row:Rec)=>row.span_id)){demandLocationKind.value='span';const spans=await api('/ledger/spans?status=all');demandSpanRows.value=(rows||[]).map((row:Rec)=>({...spans.find((x:Rec)=>x.id===row.span_id),id:row.span_id,span_id:row.span_id,span_version:row.span_version}));}
+ for(const row of rows||[]){const id=row.span_id||row.logical_tower_id;selected[id]=true;overrides[id]={target_object:row.target_object,quantity:row.quantity,custom_fields:row.custom_fields||{}}}
+ const first=logical.value.find(x=>x.id===rows?.[0]?.logical_tower_id);if(first)selectedLine.value=first.line_id;else if(demandSpanRows.value[0]?.line_id){selectedLine.value=demandSpanRows.value[0].line_id;ledgerLineId.value=selectedLine.value;}
  batchKey.value=idempotency_key||newClientId();currentDraft.value=draft;lastResult.value=null;
  notify('已恢复草稿；停用选项或位置会在提交时重新检查');
  }catch(e){error.value=errorMessage(e)}}
@@ -290,6 +287,7 @@ async function submitReason(){
  if(!error.value){reasonAction.value='';reasonValue.value=''}
 }
 function exportDemands(){const q=new URLSearchParams();if(statusFilter.value)q.set('status',statusFilter.value);if(search.value)q.set('search',search.value);if(lineFilter.value)q.set('line_id',lineFilter.value);window.location.href='/api/demands/export.xlsx?'+q.toString()}
+watch([ledgerLineId,ledgerTab],()=>{try{sessionStorage.setItem('ledger-line',ledgerLineId.value);sessionStorage.setItem('ledger-tab',ledgerTab.value)}catch{}});
 onMounted(async()=>{try{user.value=(await api('/auth/me')).user;await refresh()}catch{user.value=null}});
 watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands')loadDemands().catch(e=>error.value=errorMessage(e))});
 </script>
@@ -309,8 +307,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <button class="nav-primary" :class="{active:nav==='projects'}" @click="openNav('projects')"><span class="nav-icon">▱</span>项目中心</button>
   <button class="nav-primary" :class="{active:['frameworks','agreements'].includes(nav)}" @click="toggleMenu('frameworks','frameworks')"><span class="nav-icon">♧</span>框架与协议<span class="nav-chevron">{{expandedGroup==='frameworks'?'⌄':'›'}}</span></button>
   <div v-if="expandedGroup==='frameworks'" class="nav-submenu"><button :class="{active:nav==='frameworks'}" @click="openNav('frameworks')">项目框架</button><button :class="{active:nav==='agreements'}" @click="openNav('agreements')">执行协议</button></div>
-  <button class="nav-primary" :class="{active:['lines','physical','logical'].includes(nav)}" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<span class="nav-chevron">{{expandedGroup==='masters'?'⌄':'›'}}</span></button>
-  <div v-if="expandedGroup==='masters'" class="nav-submenu"><button :class="{active:nav==='lines'}" @click="openNav('lines')">线路台账</button><button :class="{active:nav==='physical'}" @click="openNav('physical')">物理杆塔</button><button :class="{active:nav==='logical'}" @click="openNav('logical')">逻辑杆塔</button></div>
+  <button class="nav-primary" :class="{active:['lines','towers','spans'].includes(nav)}" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<span class="nav-chevron">{{expandedGroup==='masters'?'⌄':'›'}}</span></button>
+  <div v-if="expandedGroup==='masters'" class="nav-submenu"><button :class="{active:nav==='lines'}" @click="openNav('lines')">线路台账</button><button :class="{active:nav==='towers'}" @click="openNav('towers')">杆塔查询</button><button :class="{active:nav==='spans'}" @click="openNav('spans')">档距查询</button></div>
   <button v-if="roleAdmin" class="nav-primary" :class="{active:['dictionary','access'].includes(nav)}" @click="toggleMenu('system','access')"><span class="nav-icon">⚙</span>系统管理<span class="nav-chevron">{{expandedGroup==='system'?'⌄':'›'}}</span></button>
   <div v-if="roleAdmin&&expandedGroup==='system'" class="nav-submenu"><button :class="{active:nav==='dictionary'}" @click="openNav('dictionary')">数据字典</button><button :class="{active:nav==='access'}" @click="openNav('access')">IP访问管理</button></div>
   <div class="sidebar-footer"><div><strong>{{user.username}}</strong><small>{{user.role}}</small></div><button class="light" @click="logout">退出</button></div>
@@ -323,23 +321,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   </div>
   <p v-if="visibleError" role="alert" class="alert error">{{visibleError}} <button @click="error=''">×</button></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
   <template v-if="nav==='overview'"><div class="stats"><div v-for="(label,key) in {lines:'线路',physical:'实体杆塔',logical:'逻辑杆塔',pending:'待核实需求',active:'有效需求'}" :key="key" class="stat"><small>{{label}}</small><strong>{{overview[key]??0}}</strong></div></div><section class="panel"><div class="section-header"><div><h2>待核实事项</h2><p class="muted">基于当前数据库实际记录</p></div><button class="secondary" @click="openNav('demands')">进入需求中心</button></div><div v-if="!demands.filter(x=>x.status==='pending').length" class="empty">当前没有待核实需求</div><div v-else class="table-wrap"><table><thead><tr><th>需求编号</th><th>位置</th><th>操作</th><th>工作量</th><th></th></tr></thead><tbody><tr v-for="d in demands.filter(x=>x.status==='pending').slice(0,8)" :key="d.id"><td>{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><button class="link" @click="openNav('demands');showDemand(d.id)">查看</button></td></tr></tbody></table></div></section></template>
-  <template v-if="['lines','physical','logical'].includes(nav)">
-   <section class="panel"><div class="section-header"><div><h2>{{mediaTitle}}列表</h2><p class="muted">稳定编码与名称独立，历史修改保留</p></div><button v-if="roleWrite" class="primary" @click="openCreate">新增{{mediaTitle}}</button></div>
-   <div class="table-wrap"><table><thead><tr><th>编码</th><th>名称或杆塔号</th><th v-if="nav==='logical'">线路</th><th v-if="nav==='logical'">实体塔</th><th v-if="nav==='lines'">电压等级</th><th>状态</th><th>操作</th></tr></thead>
-    <tbody><tr v-for="x in collectionFor(nav)" :key="x.id"><td class="mono">{{x.code||x.line_code||x.tower_code||x.logical_code}}</td><td>{{x.name||x.tower_no||x.tower_type||'—'}}</td><td v-if="nav==='logical'">{{x.line_name}} / 序号{{x.sort_rank}}</td><td v-if="nav==='logical'">{{x.physical_code||'待关联'}}</td><td v-if="nav==='lines'">{{x.voltage_name}}</td><td><span class="tag">{{x.status}}</span></td><td class="actions"><button class="link" @click="showMaster(x)">详情</button><button v-if="roleWrite" class="link" @click="openEdit(x)">编辑</button></td></tr><tr v-if="!collectionFor(nav).length"><td colspan="7" class="empty">尚无台账，请通过新增录入真实信息</td></tr></tbody></table></div></section>
-<FormModal :open="stage===nav" :title="(edit?'编辑':'新增')+mediaTitle" :error="visibleError" size="wide" @close="stage='';edit=null">
-    <form v-form-validation novalidate @submit.prevent="saveMaster" class="form-grid">
-     <label v-for="[key,label] in fieldsFor(nav)" :key="key"><span class="field-caption">{{label}}</span><input v-model="form[key]" :type="['longitude','latitude','sort_rank'].includes(key)?'number':'text'" :step="key==='sort_rank'?'1':'any'" :min="key==='longitude'?-180:key==='latitude'?-90:key==='sort_rank'?1:undefined" :max="key==='longitude'?180:key==='latitude'?90:undefined" :disabled="!!edit&&['code','line_code','tower_code','logical_code'].includes(key)" :required="['code','line_code','tower_code','logical_code','name','tower_no','sort_rank'].includes(key)"/></label>
-     <label v-if="nav==='lines'"><span class="field-caption">所属电压</span><select v-model="form.voltage_level_id" :disabled="!!edit" required><option value="">请选择</option><option v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-     <label v-if="nav==='logical'"><span class="field-caption">所属线路</span><select v-model="form.line_id" :disabled="!!edit" required><option value="">请选择</option><option v-for="x in lines.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-     <label v-if="nav==='logical'"><span class="field-caption">对应物理塔</span><select v-model="form.physical_tower_id" :required="form.status==='active'"><option value="">待核实</option><option v-for="x in physical.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.tower_code}} {{x.tower_type}}</option></select></label>
-     <label><span class="field-caption">状态</span><select v-model="form.status"><option value="active">启用</option><option v-if="nav==='logical'" value="draft">草稿</option><option value="inactive">停用</option><option v-if="nav==='physical'" value="retired">退役</option></select></label>
-     <label v-if="edit" class="wide"><span class="field-caption">调整原因</span><input v-model="form.reason" placeholder="名称变化、实体纠错或换塔的依据"/></label>
-     <label v-if="edit&&nav==='logical'"><span class="field-caption">实体变化类型</span><select v-model="form.change_kind"><option value="">未改变实体</option><option value="correction">关联纠错</option><option value="replacement">实际换塔</option></select></label>
-     <div class="wide form-actions"><button type="button" class="light" @click="stage='';edit=null">取消</button><button class="primary" :disabled="busy">保存台账</button></div>
-    </form>
-   </FormModal>
-  </template>
+  <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands"/>
   <template v-if="['frameworks','agreements','projects'].includes(nav)">
    <section class="panel">
     <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">框架 → 执行协议 → 子项目 → 多次执行；当前阶段保留独立业务ID与审批快照</p></div><button v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</button></div>
@@ -479,6 +461,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <div class="entry-card">
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">01</span><h2>选择位置</h2></div><span class="section-note">可跨线路追加</span></div>
+      <div v-if="demandLocationKind==='span'" class="scope-item"><strong>当前按档距创建需求</strong><p>已选 {{demandSpanRows.length}} 个档距。长度是台账参考，本次工程量请在共同内容或逐档预览中确认。</p><p v-for="span in demandSpanRows" :key="span.id">{{span.line_name}} {{span.start_tower_no}}—{{span.end_tower_no}} · 台账长度 {{span.length_scaled===null?'未填写':fmtQty(span.length_scaled)+'米'}}</p><button type="button" class="secondary" @click="openLedger({lineId:selectedLine,tab:'spans'})">返回线路调整所选档距</button></div>
+      <template v-else>
       <label class="field-full"><span class="field-caption">选择线路 <span class="required-star" aria-hidden="true">*</span></span><select v-model="selectedLine" required><option value="">请选择线路</option><option v-for="l in lines.filter(x=>x.status==='active')" :value="l.id" :key="l.id">{{l.voltage_name}} · {{l.name}}</option></select>
       </label>
       <p class="field-hint">切换线路后已选位置仍保留，选择1基即可单条创建。</p>
@@ -506,6 +490,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div v-if="selectedLines.length" class="selected-lines">
        <span class="small-chip" v-for="l in selectedLines" :key="l.id">{{l.name}} {{selectedRows.filter(x=>x.line_id===l.id).length}} 基</span>
       </div>
+      </template>
      </section>
 
      <section class="entry-section panel">
@@ -513,7 +498,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <label class="field-full">作业对象 <span class="required-star" aria-hidden="true">*</span></label>
       <div class="segmented-work" role="group" aria-label="作业对象">
        <button type="button" :class="{chosen:common.work_target_type==='line'}" @click="common.work_target_type='line';common.operation_id=''">线路侧设备</button>
-       <button type="button" :class="{chosen:common.work_target_type==='physical'}" @click="common.work_target_type='physical';common.operation_id=''">共用物理杆塔</button>
+       <button type="button" :class="{chosen:common.work_target_type==='physical'}" :disabled="demandLocationKind==='span'" @click="common.work_target_type='physical';common.operation_id=''">共用物理杆塔</button>
       </div>
       <p class="field-hint">{{common.work_target_type==='line'?'各线路杆塔独立生成需求，不因共塔自动合并。':'共塔同部位的作业必须明确选择一个主位置，其他回路在关联位置中记录。'}}</p>
       <div class="form-grid entry-fields">
@@ -522,9 +507,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
         <select aria-label="操作类型" v-model="common.operation_id" required><option value="">请选择操作类型</option><option v-for="op in ops" :key="op.id" :value="op.id">{{op.name}}</option></select>
        </div>
        <label><span class="field-caption">共同处理部位 <span class="required-star" aria-hidden="true">*</span></span><input v-model="common.target_object" required placeholder="例如 横担上部"/></label>
-       <div class="field-label-group"><div class="inline-field-top"><span class="field-title">每基工作量 <span class="required-star" aria-hidden="true">*</span></span><button type="button" class="text-button small" @click="applyDefault">应用操作默认值</button></div>
-        <div class="quantity-inputs"><input aria-label="每基工作量" v-model="common.quantity" required data-validate="quantity" inputmode="decimal" placeholder="1"/><select v-model="common.unit_id" required aria-label="计量单位"><option value="">单位</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></div>
-        <p class="field-hint">如每基安装{{common.quantity||'—'}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}，选{{selectedRows.length}}基共{{Number(totalQty.toFixed(4))}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}。</p>
+       <div class="field-label-group"><div class="inline-field-top"><span class="field-title">{{demandLocationKind==='span'?'每档工作量':'每基工作量'}} <span class="required-star" aria-hidden="true">*</span></span><button type="button" class="text-button small" @click="applyDefault">应用操作默认值</button></div>
+        <div class="quantity-inputs"><input :aria-label="demandLocationKind==='span'?'每档工作量':'每基工作量'" v-model="common.quantity" required data-validate="quantity" inputmode="decimal" placeholder="1"/><select v-model="common.unit_id" required aria-label="计量单位"><option value="">单位</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></div>
+        <p class="field-hint">每个位置的本次工作量为{{common.quantity||'—'}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}，选{{selectedRows.length}}个位置共{{Number(totalQty.toFixed(4))}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}。</p>
        </div>
        <label><span class="field-caption">完成标准 <span class="required-star" aria-hidden="true">*</span></span><input v-model="common.completion_standard" required placeholder="按核定部位完成安装并验收合格"/></label>
        <label class="wide"><span class="field-caption">问题描述 / 实施必要性 <span class="required-star" aria-hidden="true">*</span></span><textarea v-model="common.problem_description" required rows="3" placeholder="说明存在的问题、实施必要性及作业背景"/></label>
@@ -554,7 +539,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      </section>
 
      <section class="entry-section panel">
-      <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">04</span><h2>逐基预览与调整</h2></div><span class="section-note">{{selectedRows.length}} 条独立需求</span></div>
+      <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">04</span><h2>{{demandLocationKind==='span'?'逐档预览与调整':'逐基预览与调整'}}</h2></div><span class="section-note">{{selectedRows.length}} 条独立需求</span></div>
       <p class="field-hint">共同字段已填入每条需求；单独修改部位或数量仅影响对应杆塔。预览确认后提交待核实。</p>
       <div class="table-wrap"><table class="preview-table"><thead><tr><th>位置</th><th>处理部位 <span class="required-star" aria-hidden="true">*</span></th><th>工作量 <span class="required-star" aria-hidden="true">*</span></th><th v-if="fieldDefinitions.length">扩展字段</th><th></th></tr></thead>
        <tbody><tr v-for="(x,index) in selectedRows" :key="x.id" :data-row-index="index"><td><strong>{{x.tower_no}}</strong><small>{{x.line_name}}</small></td><td><input class="compact" :aria-label="'处理部位 '+x.tower_no" :value="x.target_object" required @input="overrides[x.id]={...overrides[x.id],target_object:($event.target as HTMLInputElement).value}"/></td><td><input class="compact num" :aria-label="'工作量 '+x.tower_no" inputmode="decimal" :value="x.quantity" required data-validate="quantity" @input="overrides[x.id]={...overrides[x.id],quantity:($event.target as HTMLInputElement).value}"/></td><td v-if="fieldDefinitions.length"><details><summary>逐基调整</summary><CustomFields :definitions="fieldDefinitions" :prefix="x.tower_no+' '" :model-value="x.custom_fields" @update:model-value="overrides[x.id]={...overrides[x.id],custom_fields:$event}"/></details></td><td><button type="button" class="text-button danger" @click="excluded[x.id]=true">排除</button></td></tr>

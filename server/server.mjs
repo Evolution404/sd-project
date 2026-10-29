@@ -1,3 +1,4 @@
+import * as ledger from './ledgers.mjs';
 import {validateFieldDefinitions,validateFieldValues} from './custom-fields.mjs';
 import {protectDemandChange,frozenProjects} from './demand-snapshots.mjs';
 import {quantityToScaled} from './quantity.mjs';
@@ -39,15 +40,15 @@ function ensureItem(id,type,{active=true}={}){
  return x;
 }
 function ensureLogical(id,active=true){
- const x=one(`SELECT t.*,l.name AS line_name,l.status AS line_status,l.voltage_level_id,p.tower_code,p.status AS physical_status
+ const x=one(`SELECT t.*,l.name AS line_name,l.status AS line_status,l.voltage_level_id,l.setup_status,p.tower_code,p.status AS physical_status
  FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id
  LEFT JOIN physical_towers p ON p.id=t.physical_tower_id WHERE t.id=?`,id);
- if(!x||active&&(x.status!=='active'||x.line_status!=='active'||x.physical_status!=='active'))fail(422,'逻辑杆塔不存在或台账未启用：'+id);
+ if(!x||active&&(x.status!=='active'||x.line_status!=='active'||x.setup_status!=='ready'||x.physical_status!=='active'))fail(422,'逻辑杆塔不存在或台账未启用：'+id);
  return x;
 }
 function ensureLine(id,active=true){
  const row=one('SELECT * FROM transmission_lines WHERE id=?',id);
- if(!row||active&&row.status!=='active')fail(422,'线路不存在或已停用');return row;
+ if(!row||active&&(row.status!=='active'||row.setup_status!=='ready'))fail(422,'线路不存在或已停用');return row;
 }
 const postAudit=(user,entity,item,action,before=null,reason='')=>audit(user.id,entity,item.id,action,before,item,reason);
 const json=(res,status,data,extra={})=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store',...extra});res.end(JSON.stringify(data))};
@@ -81,21 +82,12 @@ function createVoltage(body,user){
  });
  return item;
 }
-function createLine(body,user){
- const v=one('SELECT * FROM voltage_levels WHERE id=? AND status=\'active\'',body.voltage_level_id);
- if(!v)fail(422,'电压等级无效');
- const t=now(),item={id:uid(),line_code:required(body.line_code,'线路编码'),voltage_level_id:v.id,name:required(body.name,'线路名称'),status:body.status||'active',version:1,created_at:t,updated_at:t};
- validStatus(item.status,['active','inactive']);
- transaction(()=>{
- exec('INSERT INTO transmission_lines VALUES(?,?,?,?,?,?,?,?)',...Object.values(item));
- exec('INSERT INTO line_name_history(id,line_id,name,valid_from,valid_to,changed_by,reason) VALUES(?,?,?,?,NULL,?,?)',uid(),item.id,item.name,t,user.id,'初始登记');
- postAudit(user,'transmission_lines',item,'create')});return item;
-}
+function createLine(body,user){return ledger.createLedgerLine(body,user)}
 function createPhysical(body,user){
  const t=now();
  const item={id:uid(),tower_code:required(body.tower_code,'物理塔编码'),asset_no:body.asset_no||null,tower_type:body.tower_type||null,longitude:body.longitude===''||body.longitude==null?null:Number(body.longitude),latitude:body.latitude===''||body.latitude==null?null:Number(body.latitude),commissioned_on:body.commissioned_on||null,status:body.status||'active',version:1,created_at:t,updated_at:t};
  validStatus(item.status,['active','inactive','retired']);
- transaction(()=>{exec('INSERT INTO physical_towers VALUES(?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));postAudit(user,'physical_towers',item,'create')});return item;
+ transaction(()=>{exec('INSERT INTO physical_towers(id,tower_code,asset_no,tower_type,longitude,latitude,commissioned_on,status,version,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));postAudit(user,'physical_towers',item,'create')});return item;
 }
 function createLogical(body,user){
  const line=ensureLine(body.line_id);
@@ -112,6 +104,7 @@ function createLogical(body,user){
  postAudit(user,'logical_towers',item,'create')});return item;
 }
 function updateTowerData(table,id,body,user){
+ if(table==='transmission_lines')return ledger.updateLedgerLine(id,{...body,reason:body.reason||'线路资料维护'},user);
  const whitelist={voltage_levels:['code','name','status','sort_order'],transmission_lines:['name','status'],physical_towers:['asset_no','tower_type','longitude','latitude','commissioned_on','status'],logical_towers:['tower_no','display_name','sort_rank','circuit_position','physical_tower_id','status']};
  const old=one('SELECT * FROM '+table+' WHERE id=?',id);if(!old)fail(404,'台账不存在');
  if(body.version!==old.version)fail(409,'台账已被其他人修改，请刷新');
@@ -228,8 +221,11 @@ function validateRows(body){
  const standard=required(body.completion_standard,'完成标准');const problem=required(body.problem_description,'问题说明');
  body.rows.forEach((row,index)=>{
   try{
-   const id=required(row.logical_tower_id,'逻辑杆塔');
-   if(seen.has(id))fail(422,'重复选择同一逻辑杆塔');seen.add(id);
+   const location=row.span_id?ledger.spanDemandLocation(row.span_id):null;
+   if(location&&workType!=='line')fail(422,'档距需求请选择线路侧作业');
+   if(location&&row.span_version!==location.span.version)fail(409,'档距版本已变化，请重新选择');
+   const id=location?location.start.id:required(row.logical_tower_id,'逻辑杆塔');
+   const key=location?'span:'+row.span_id:'tower:'+id;if(seen.has(key))fail(422,'重复选择同一位置');seen.add(key);
    const tower=ensureLogical(id);
    const target=required(row.target_object??body.target_object,'部位/处理对象');
    const quantity=quantityToScaled(row.quantity??body.quantity);
@@ -247,7 +243,7 @@ function validateRows(body){
    }
    const fields=validateFieldDefinitions(JSON.parse(op.fields_json));
    const custom=validateFieldValues(fields,{...(body.custom_fields||{}),...(row.custom_fields||{})});
-   rows.push({tower,target,quantity,related,custom,fields,originalIndex:index});
+   rows.push({tower,target,quantity,related,custom,fields,location,originalIndex:index});
   }catch(e){errors.push({row:index+1,message:e.message})}
  });
  if(errors.length)fail(422,'批量预检失败',errors);
@@ -290,6 +286,8 @@ function submitBatch(body,user){
    const no='XQ-'+String(seq).padStart(7,'0');
    const item={id,demand_no:no,batch_id:batchId,logical_tower_id:tower.id,observed_physical_tower_id:tower.physical_tower_id,line_name_snapshot:tower.line_name,tower_no_snapshot:tower.tower_no,physical_code_snapshot:tower.tower_code,work_target_type:v.workType,operation_id:op.id,operation_version:op.version,operation_snapshot:op.name,target_object:row.target,quantity_scaled:row.quantity,unit_id:unit.id,unit_version:unit.version,unit_snapshot:unit.name,completion_standard:v.standard,problem_description:v.problem,priority_id:priority?.id||null,priority_snapshot:priority?.name||null,expected_on:body.expected_on||null,status:'pending',version:1,confirmed_at:null,created_by:user.id,created_at:t,updated_at:t};
    item.custom_fields_json=JSON.stringify(row.custom);item.field_definitions_json=JSON.stringify(row.fields);
+   item.location_kind=row.location?'span':'tower';item.location_line_id=row.location?.line.id||tower.line_id;item.span_id=row.location?.span.id||null;item.span_version=row.location?.span.version||null;item.span_snapshot_json=row.location?JSON.stringify(row.location.snapshot):null;
+   if(row.location){item.line_name_snapshot=row.location.line.name;item.tower_no_snapshot=row.location.start.tower_no+'—'+row.location.end.tower_no;}
    exec('INSERT INTO demands('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
    for(const sourceId of sourceIds)exec('INSERT INTO demand_sources VALUES(?,?)',id,sourceId);
    for(const relatedId of row.related)if(relatedId!==tower.id)exec('INSERT INTO demand_related_logical_towers VALUES(?,?)',id,relatedId);
@@ -313,6 +311,7 @@ function demandDetail(id){
  d.related_towers=all('SELECT t.*,l.name AS line_name FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN demand_related_logical_towers r ON r.logical_tower_id=t.id WHERE r.demand_id=?',id);
  d.custom_fields=JSON.parse(d.custom_fields_json);d.field_definitions=JSON.parse(d.field_definitions_json);
  d.project_references=frozenProjects(id);
+ d.span_snapshot=d.span_snapshot_json?JSON.parse(d.span_snapshot_json):null;
  d.attachments=all("SELECT id,filename,bytes,sha256,created_at FROM attachments WHERE owner_type='demand' AND owner_id=? ORDER BY created_at",id);
  d.revisions=all('SELECT * FROM demand_revisions WHERE demand_id=? ORDER BY version DESC',id);
  return d;
@@ -351,12 +350,14 @@ function revalidateLocation(id,body,user){
  const reason=required(body.reason,'位置重新核实依据');
  return transaction(()=>{
   const tower=ensureLogical(old.logical_tower_id);
+  const location=old.span_id?ledger.spanDemandLocation(old.span_id):null;
   const related=all('SELECT logical_tower_id FROM demand_related_logical_towers WHERE demand_id=?',id);
   if(old.work_target_type==='physical'&&related.some(x=>ensureLogical(x.logical_tower_id).physical_tower_id!==tower.physical_tower_id))fail(409,'受影响回路与当前实体不一致，请先核对共塔范围');
   const next={...old,observed_physical_tower_id:tower.physical_tower_id,line_name_snapshot:tower.line_name,tower_no_snapshot:tower.tower_no,physical_code_snapshot:tower.tower_code,status:'pending',confirmed_at:null,version:old.version+1,updated_at:now()};
+  if(location){next.line_name_snapshot=location.line.name;next.tower_no_snapshot=location.start.tower_no+'—'+location.end.tower_no;next.span_version=location.span.version;next.span_snapshot_json=JSON.stringify(location.snapshot)}
   protectDemandChange(old,next);
   exec('INSERT INTO demand_revisions VALUES(?,?,?,?,?,?,?)',uid(),id,old.version,JSON.stringify(old),reason,user.id,now());
-  exec('UPDATE demands SET observed_physical_tower_id=?,line_name_snapshot=?,tower_no_snapshot=?,physical_code_snapshot=?,status=?,confirmed_at=NULL,version=?,updated_at=? WHERE id=?',next.observed_physical_tower_id,next.line_name_snapshot,next.tower_no_snapshot,next.physical_code_snapshot,next.status,next.version,next.updated_at,id);
+  exec('UPDATE demands SET observed_physical_tower_id=?,line_name_snapshot=?,tower_no_snapshot=?,physical_code_snapshot=?,status=?,confirmed_at=NULL,version=?,updated_at=?,span_version=?,span_snapshot_json=? WHERE id=?',next.observed_physical_tower_id,next.line_name_snapshot,next.tower_no_snapshot,next.physical_code_snapshot,next.status,next.version,next.updated_at,next.span_version,next.span_snapshot_json,id);
   postAudit(user,'demands',next,'revalidate_location',old,reason);return demandDetail(id);
  });
 }
@@ -371,6 +372,7 @@ function verifyDemand(id,body,user){
   if(tower.physical_tower_id!==old.observed_physical_tower_id)fail(409,'实体关联已变化，请修订后重新提交核实');
   ensureItem(old.operation_id,'operation');ensureItem(old.unit_id,'unit');
   validateFieldValues(JSON.parse(old.field_definitions_json),JSON.parse(old.custom_fields_json));
+  if(old.span_id){const current=ledger.spanDemandLocation(old.span_id),adopted=JSON.parse(old.span_snapshot_json);if(old.span_version!==current.span.version||['start_tower_id','end_tower_id','start_physical_tower_id','end_physical_tower_id'].some(k=>adopted[k]!==current.snapshot[k]))fail(409,'档距或两端杆塔已变化，请重新核实位置');}
   for(const link of all('SELECT s.type_id FROM source_records s JOIN demand_sources x ON x.source_id=s.id WHERE x.demand_id=?',id))ensureItem(link.type_id,'source');
  }
  protectDemandChange(old,{...old,status});
@@ -382,11 +384,11 @@ function verifyDemand(id,body,user){
  });
 }
 function listDemands(query){
- let sql=`SELECT d.id,d.demand_no,d.line_name_snapshot,d.tower_no_snapshot,d.physical_code_snapshot,d.operation_snapshot,d.target_object,d.quantity_scaled,d.unit_snapshot,d.status,d.version,d.created_at,d.work_target_type,d.problem_description
+ let sql=`SELECT d.id,d.demand_no,d.line_name_snapshot,d.tower_no_snapshot,d.physical_code_snapshot,d.operation_snapshot,d.target_object,d.quantity_scaled,d.unit_snapshot,d.status,d.version,d.created_at,d.work_target_type,d.problem_description,d.location_kind,d.location_line_id,d.span_id,d.span_version
  FROM demands d WHERE 1=1`;
  const args=[];
  if(query.get('status')){sql+=' AND d.status=?';args.push(query.get('status'))}
- if(query.get('line_id')){sql+=' AND d.logical_tower_id IN (SELECT id FROM logical_towers WHERE line_id=?)';args.push(query.get('line_id'))}
+ if(query.get('line_id')){sql+=' AND d.location_line_id=?';args.push(query.get('line_id'))}
  if(query.get('search')){sql+=' AND (d.demand_no LIKE ? OR d.target_object LIKE ? OR d.problem_description LIKE ? OR d.line_name_snapshot LIKE ? OR d.tower_no_snapshot LIKE ?)';args.push(...Array(5).fill('%'+query.get('search')+'%'))}
  sql+=' ORDER BY d.created_at DESC,d.demand_no DESC';
  return all(sql,...args);
@@ -436,6 +438,27 @@ async function dispatch(req,res){
   if(!previous)fail(404,'允许访问的IP不存在');
   transaction(()=>{exec('DELETE FROM allowed_ips WHERE id=?',previous.id);audit(user.id,'allowed_ips',previous.id,'remove',previous,null,'IP访问授权撤销')});
   return json(res,200,{removed:previous.ip});
+ }
+ if(pathname.startsWith('/api/ledger/')){
+  permit(user,method==='GET'?'view':'write');
+  const parts=pathname.split('/').filter(Boolean),[, ,entity,id,action,subAction]=parts;
+  const body=method==='GET'?null:{...await parseJson(req),__operation:method+' '+pathname};
+  if(entity==='lines'&&!id){if(method==='GET')return json(res,200,ledger.listLedgerLines());if(method==='POST')return json(res,201,ledger.createLedgerLine(body,user))}
+  if(entity==='lines'&&id){
+   if(method==='GET')return json(res,200,ledger.ledgerWorkspace(id));
+   if(!action&&method==='PATCH')return json(res,200,ledger.updateLedgerLine(id,body,user));
+   if(!action&&method==='DELETE')return json(res,200,ledger.deleteLedgerLine(id,body,user));
+   if(action==='towers'&&method==='POST')return json(res,subAction==='preview'?200:201,subAction==='preview'?ledger.previewTowers(id,body):ledger.addLedgerTowers(id,body,user));
+   if(action==='reorder'&&method==='POST')return json(res,200,ledger.reorderLedgerTowers(id,body,user));
+   if(action==='spans'&&method==='POST')return json(res,subAction==='preview'?200:201,subAction==='preview'?ledger.previewSpans(id,body):ledger.addLedgerSpans(id,body,user));
+   if(action==='replace-spans'&&method==='POST')return json(res,200,ledger.replaceLedgerSpans(id,body,user));
+  }
+  if(entity==='towers'&&!id&&method==='GET')return json(res,200,ledger.ledgerTowers(searchParams));
+  if(entity==='spans'&&!id&&method==='GET')return json(res,200,ledger.ledgerSpans(searchParams));
+  if(entity==='shared'&&method==='POST')return json(res,200,id==='preview'?ledger.previewShared(body):ledger.bindShared(body,user));
+  if(entity==='towers'&&id){if(method==='GET')return json(res,200,ledger.ledgerTowerDetail(id));if(method==='PATCH')return json(res,200,ledger.updateLedgerTower(id,body,user));if(method==='DELETE')return json(res,200,ledger.deleteLedgerTower(id,body,user))}
+  if(entity==='spans'&&id){if(method==='PATCH')return json(res,200,ledger.updateLedgerSpan(id,body,user));if(method==='DELETE')return json(res,200,ledger.deleteLedgerSpan(id,body,user))}
+  fail(404,'台账操作不存在');
  }
  if(pathname==='/api/frameworks'&&method==='GET'){permit(user,'view');return json(res,200,listFrameworks())}
  if(pathname==='/api/frameworks'&&method==='POST'){permit(user,'write');return json(res,201,createFramework(await parseJson(req),user))}

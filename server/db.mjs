@@ -19,7 +19,7 @@ if(migrationVersion===0){
     for(const [id,title] of types) db.prepare('INSERT INTO dictionary_types(id,title) VALUES(?,?)').run(id,title);
     db.exec("PRAGMA user_version=1"); db.exec('COMMIT');
   }catch(error){db.exec('ROLLBACK');throw error}
-}else if(migrationVersion>7){throw Error('不支持的数据库版本 '+migrationVersion)}
+}else if(migrationVersion>8){throw Error('不支持的数据库版本 '+migrationVersion)}
 if(migrationVersion<2){
  db.exec('BEGIN IMMEDIATE');
  try{
@@ -51,6 +51,11 @@ if(migrationVersion<5){
 for(const [version,migrate] of [[6,migrateQuantities],[7,migrateSnapshots]])if(migrationVersion<version){
  db.exec('BEGIN IMMEDIATE');
  try{migrate(db);db.exec('PRAGMA user_version='+version);db.exec('COMMIT')}
+ catch(e){db.exec('ROLLBACK');throw e}
+}
+if(migrationVersion<8){
+ db.exec('BEGIN IMMEDIATE');
+ try{db.exec(readFileSync(new URL('./migration-008.sql',import.meta.url),'utf8'));db.exec('PRAGMA user_version=8');db.exec('COMMIT')}
  catch(e){db.exec('ROLLBACK');throw e}
 }
 export const now=()=>new Date().toISOString();

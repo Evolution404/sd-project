@@ -1,3 +1,4 @@
+import {spanDemandLocation} from './ledgers.mjs';
 import {captureDemand,readDemandSnapshot} from './demand-snapshots.mjs';
 import {quantityToScaled} from './quantity.mjs';
 import {uid,now,one,all,exec,transaction,audit} from './db.mjs';
@@ -95,6 +96,9 @@ export function projectDetail(id){
 function demand(id){
  const d=one('SELECT * FROM demands WHERE id=?',id);
  if(!d||d.status!=='active')fault(422,'必须选择已核实有效的需求');
+ const current=one('SELECT physical_tower_id FROM logical_towers WHERE id=?',d.logical_tower_id);
+ if(current?.physical_tower_id!==d.observed_physical_tower_id)fault(409,'需求实体关联已变化，请重新核实位置后再关联项目');
+ if(d.span_id){const latest=spanDemandLocation(d.span_id),adopted=JSON.parse(d.span_snapshot_json);if(latest.span.version!==d.span_version||['start_tower_id','end_tower_id','start_physical_tower_id','end_physical_tower_id'].some(k=>adopted[k]!==latest.snapshot[k]))fault(409,'档距已变化，请重新核实位置后再关联项目');}
  return d;
 }
 export function addScope(id,body,user){

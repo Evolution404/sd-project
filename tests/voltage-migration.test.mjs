@@ -19,7 +19,7 @@ test('v4 -> current voltage dictionary migration retains existing voltage IDs an
     import {db,one,all} from './server/db.mjs';
     const v=one('SELECT * FROM voltage_levels WHERE id=?','v-legacy');
     const line=one('SELECT * FROM transmission_lines WHERE id=?','line-legacy');
-    if(one('PRAGMA user_version').user_version!==7||v.version!==1||v.sort_order!==100||line.voltage_level_id!==v.id)process.exit(2);
+    if(one('PRAGMA user_version').user_version!==8||v.version!==1||v.sort_order!==100||line.voltage_level_id!==v.id)process.exit(2);
     db.close();
   `],{cwd:process.cwd(),env:{...process.env,DATA_DIR:root},encoding:'utf8'});
   assert.equal(result.status,0,result.stdout+'\n'+result.stderr);

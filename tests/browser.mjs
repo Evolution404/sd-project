@@ -26,7 +26,7 @@ try{
  await page.getByRole('button',{name:'登录系统'}).click();
  await page.getByRole('heading',{name:'工作台'}).waitFor();
  const nav=async title=>{
-  const parents={'数据字典':'系统管理','IP访问管理':'系统管理','线路台账':'基础台账','物理杆塔':'基础台账','逻辑杆塔':'基础台账','项目框架':'框架与协议','执行协议':'框架与协议','新建需求':'需求中心'};
+  const parents={'数据字典':'系统管理','IP访问管理':'系统管理','线路台账':'基础台账','杆塔查询':'基础台账','档距查询':'基础台账','项目框架':'框架与协议','执行协议':'框架与协议','新建需求':'需求中心'};
   const parent=parents[title];
   if(parent&&!await page.locator('.sidebar .nav-submenu').getByRole('button',{name:title,exact:true}).isVisible())await page.locator('.sidebar .nav-primary').filter({hasText:parent}).click();
   if(parent)await page.locator('.sidebar .nav-submenu').getByRole('button',{name:title,exact:true}).click();
@@ -62,16 +62,13 @@ try{
  let form=page.locator('.form-panel');await fill(form,'编码','110');await fill(form,'名称','110kV');
  await form.getByRole('button',{name:'保存配置'}).click();await form.waitFor({state:'hidden'});
  await page.getByText('110kV',{exact:true}).waitFor();
- await nav('线路台账');await page.getByRole('button',{name:'新增线路台账'}).click();
- form=page.locator('.form-panel');await fill(form,'线路编码','LTEST');await fill(form,'线路名称','浏览器测试线路');await select(form,'所属电压','110kV');await form.getByRole('button',{name:'保存台账'}).click();await form.waitFor({state:'hidden'});
- await nav('物理杆塔');await page.getByRole('button',{name:'新增物理杆塔'}).click();
- form=page.locator('.form-panel');await fill(form,'实体编码','PH-A');await fill(form,'塔型','角钢塔');await form.getByRole('button',{name:'保存台账'}).click();await form.waitFor({state:'hidden'});
- await nav('逻辑杆塔');
+ await nav('线路台账');await page.getByRole('button',{name:'新建线路',exact:true}).click();
+ form=page.getByRole('dialog',{name:'新建线路'});await fill(form,'线路名称','浏览器测试线路');await select(form,'电压等级','110kV');await form.getByRole('button',{name:'保存线路',exact:true}).click();await form.waitFor({state:'hidden'});
+ await page.getByRole('heading',{name:'浏览器测试线路',exact:true}).waitFor();
  for(let n=1;n<=2;n++){
-  await page.getByRole('button',{name:'新增逻辑杆塔'}).click();form=page.locator('.form-panel');
-  await fill(form,'位置编码','LOG-'+n);await fill(form,'杆塔编号','#'+n);await fill(form,'沿线顺序',String(n));
-  await select(form,'所属线路','浏览器测试线路');await form.getByLabel('对应物理塔').selectOption({index:1});
-  await form.getByRole('button',{name:'保存台账'}).click();await form.waitFor({state:'hidden'});
+  await page.getByRole('button',{name:'新增杆塔',exact:true}).click();form=page.getByRole('dialog',{name:'新增杆塔'});
+  await form.getByLabel('杆塔号 1',{exact:true}).fill('#'+n);await fill(form,'结构类型','角钢塔');await form.getByRole('button',{name:'保存杆塔',exact:true}).click();await form.waitFor({state:'hidden'});
+  await page.getByRole('status').filter({hasText:'已保存 1 基杆塔'}).waitFor();
  }
  await nav('新建需求');
  const panels=page.locator('section.entry-section');

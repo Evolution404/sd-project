@@ -14,7 +14,7 @@ test('v4 migration preserves quantity, budget, historical facts, draft strings a
    import {db,one} from './server/db.mjs';
    import {projectDetail} from './server/projects.mjs';
    import {executionDetail,confirmCompletion} from './server/executions.mjs';
-   assert.equal(one('PRAGMA user_version').user_version,7);
+   assert.equal(one('PRAGMA user_version').user_version,8);
    assert.equal(one('SELECT quantity_scaled FROM demands').quantity_scaled,20000);
    assert.equal(one('SELECT default_quantity_scaled FROM dictionary_items WHERE id=?','op').default_quantity_scaled,20000);
    const p=projectDetail('pr');assert.equal(p.approved_budget_fen,20002);assert.equal(p.estimate.known_total_fen,20002);
