@@ -11,7 +11,8 @@ import ExcelJS from 'exceljs';
 import {listExecutions,executionDetail,createExecution,addExecutionItem,changeExecutionStage,confirmCompletion} from './executions.mjs';
 import {normalizeIP,isPermittedIP,isLoopback} from './ip-access.mjs';
 import {previewWholeTowerReplacement,replaceWholeTower} from './tower-replacements.mjs';
-import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder} from './change-orders.mjs';
+import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder,submitChangeOrder,rejectChangeOrder,approveChangeOrder} from './change-orders.mjs';
+import {settlementEntries,projectProgress,registerSettlement} from './finance.mjs';
 import {listFrameworks,createFramework,listAgreements,createAgreement,listProjects,createProject,projectDetail,addScope,changeScope,bindAgreement,advanceProject,savePreliminaryEstimate} from './projects.mjs';
 
 class Problem extends Error { constructor(status,message,details){super(message);this.status=status;this.details=details;} }
@@ -25,7 +26,7 @@ const verifyPassword=(pass,hash)=>{
  const expected=Buffer.from(hex,'hex');return expected.length===64&&timingSafeEqual(expected,scryptSync(pass,salt,64));
 };
 const publicUser=u=>({id:u.id,username:u.username,role:u.role});
-const roleSets={view:['admin','editor','verifier','viewer'],write:['admin','editor'],verify:['admin','verifier'],stock:['admin'],approve:['admin'],admin:['admin']};
+const roleSets={view:['admin','editor','verifier','viewer'],write:['admin','editor'],verify:['admin','verifier'],stock:['admin'],approve:['admin'],settle:['admin'],admin:['admin']};
 const route=(req)=>new URL(req.url,'http://localhost');
 function authenticate(req){
  const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('sd_session='));
@@ -520,11 +521,24 @@ async function dispatch(req,res){
  if(pathname==='/api/frameworks'&&method==='POST'){permit(user,'write');return json(res,201,createFramework(await parseJson(req),user))}
  if(pathname==='/api/agreements'&&method==='GET'){permit(user,'view');return json(res,200,listAgreements())}
  if(pathname==='/api/agreements'&&method==='POST'){permit(user,'write');return json(res,201,createAgreement(await parseJson(req),user))}
+ const progressRoute=pathname.match(/^\/api\/projects\/([^/]+)\/progress$/);
+ if(progressRoute&&method==='GET'){permit(user,'view');return json(res,200,projectProgress(progressRoute[1]))}
+ const settlementRoute=pathname.match(/^\/api\/projects\/([^/]+)\/settlements$/);
+ if(settlementRoute&&method==='GET'){permit(user,'view');return json(res,200,settlementEntries(settlementRoute[1]))}
+ if(settlementRoute&&method==='POST'){permit(user,'settle');return json(res,201,registerSettlement(settlementRoute[1],await parseJson(req),user))}
  const projectApproval=pathname.match(/^\/api\/projects\/([^/]+)\/approval-versions$/);
  if(projectApproval&&method==='GET'){permit(user,'view');return json(res,200,approvalVersions(projectApproval[1]))}
  const changeList=pathname.match(/^\/api\/projects\/([^/]+)\/change-orders$/);
  if(changeList&&method==='GET'){permit(user,'view');return json(res,200,listChangeOrders(changeList[1]))}
  if(changeList&&method==='POST'){permit(user,'write');return json(res,201,createChangeDraft(changeList[1],await parseJson(req),user))}
+ const changeAction=pathname.match(/^\/api\/change-orders\/([^/]+)\/(submit|approve|reject)$/);
+ if(changeAction&&method==='POST'){
+  permit(user,changeAction[2]==='submit'?'write':'approve');
+  const payload=await parseJson(req);
+  return json(res,200,({
+   submit:submitChangeOrder,approve:approveChangeOrder,reject:rejectChangeOrder
+  })[changeAction[2]](changeAction[1],payload,user));
+ }
  const changeDetail=pathname.match(/^\/api\/change-orders\/([^/]+)$/);
  if(changeDetail&&method==='GET'){permit(user,'view');return json(res,200,getChangeOrder(changeDetail[1]))}
  if(pathname==='/api/projects'&&method==='GET'){permit(user,'view');return json(res,200,listProjects())}

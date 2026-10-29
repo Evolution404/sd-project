@@ -58,6 +58,9 @@ export function addExecutionItem(executionId,body,user){
    JOIN executions e ON e.id=i.execution_id
    WHERE i.project_scope_id=? AND e.status IN ('planned','running','finished')`,scope.id).n;
   if(allocated+q>scope.quantity_scaled)reject(409,'当前需求剩余可安排工作量不足');
+  if(e.approval_version_id!==one('SELECT id FROM project_approval_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1',e.project_id)?.id)
+   reject(409,'执行批次采用旧批准版本，不能继续追加计划；请取消旧计划并建立新批准版本批次');
+  if(scope.status!=='active')reject(409,'此范围在当前版本已经终止');
   const approved=one('SELECT snapshot_json FROM project_approval_versions WHERE id=?',e.approval_version_id);
   const approvedScope=approved?JSON.parse(approved.snapshot_json).scopes.find(x=>x.scope_id===scope.id):null;
   if(!approvedScope)reject(409,'执行批次引用的批准版本不包含此工作范围');

@@ -22,7 +22,10 @@ const scopePrice=reactive<Rec>({unit_price_yuan:'',price_source:'',price_date:ne
 const agreementSelection=ref('');
 const preliminaryAmount=ref(''),preliminaryBasis=ref(''),preliminaryCategory=ref('');
 const projectApprovalVersions=ref<Rec[]>([]),projectChangeOrders=ref<Rec[]>([]);
-const changeDraft=reactive<Rec>({code:'',reason:'',action:'adjust',scope_id:'',demand_id:'',quantity:'',unit_price_yuan:'',evidence:''});
+const projectProgress=ref<Rec|null>(null),settlementRecords=ref<Rec[]>([]);
+const settlementDialog=ref(false),settlementForm=reactive<Rec>({});
+const changeDecision=ref<Rec|null>(null),changeDecisionReason=ref('');
+const changeDraft=reactive<Rec>({code:'',reason:'',action:'adjust',scope_id:'',demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
 const approvedDemandOptions=ref<Rec[]>([]);
 const executionRows=ref<Rec[]>([]),executionView=ref<Rec|null>(null);
 const executionNumber=ref(''),executionDescription=ref(''),execScopeId=ref(''),execQuantity=ref('1');
@@ -119,7 +122,35 @@ async function openProject(item:Rec){projectAction.value='';scopePriceEdit.value
  preliminaryCategory.value=projectView.value?.category_id||'';
  await loadExecutions(item.id);
  await loadProjectChanges(item.id);
+ await loadProjectFinancials(item.id);
 }
+async function loadProjectFinancials(projectId:string){
+ const [progress,records]=await Promise.all([api('/projects/'+projectId+'/progress'),api('/projects/'+projectId+'/settlements')]);
+ projectProgress.value=progress;settlementRecords.value=records;
+}
+function openSettlement(scope:Rec,original?:Rec){
+ error.value='';Object.keys(settlementForm).forEach(k=>delete settlementForm[k]);
+ Object.assign(settlementForm,{
+  scope_id:scope.id,settlement_no:'',entry_kind:original?'reversal':'payment',
+  reversal_of:original?.id||'',settlement_type:original?'':'progress',amount_yuan:'',
+  occurred_on:new Date().toLocaleDateString('en-CA'),evidence:''
+ });
+ settlementDialog.value=true;
+}
+async function saveSettlement(){
+ if(!projectView.value)return;error.value='';
+ try{
+  const id=projectView.value.id;
+  await api('/projects/'+id+'/settlements','POST',{...settlementForm});
+  await loadProjectFinancials(id);
+  settlementDialog.value=false;
+  notify(settlementForm.entry_kind==='reversal'?'结算冲销凭证已登记':'结算凭证已登记并关联项目批准版本');
+ }catch(e){error.value=errorMessage(e)}
+}
+const financeStatus=(status:string)=>({
+ unimplemented_unsettled:'未实施未结算',unimplemented_settled:'未实施已结算',
+ implemented_unsettled:'已实施未结算',implemented_settled:'已实施已结算'
+} as Rec)[status]||'待核对';
 async function loadProjectChanges(projectId:string){
  const [versions,orders]=await Promise.all([api('/projects/'+projectId+'/approval-versions'),api('/projects/'+projectId+'/change-orders')]);
  projectApprovalVersions.value=versions;projectChangeOrders.value=orders;
@@ -134,15 +165,32 @@ async function createChangeDraft(){
   changes:[{action:changeDraft.action,scope_id:changeDraft.action==='add'?undefined:changeDraft.scope_id,
     demand_id:changeDraft.action==='add'?changeDraft.demand_id:undefined,
     quantity:changeDraft.action==='remove'?undefined:changeDraft.quantity,
-    unit_price_yuan:changeDraft.unit_price_yuan,evidence:changeDraft.evidence}]
+    unit_price_yuan:changeDraft.unit_price_yuan,price_source:changeDraft.price_source,price_date:changeDraft.price_date,tax_mode:changeDraft.tax_mode,evidence:changeDraft.evidence}]
  });
  await loadProjectChanges(projectView.value.id);
  projectAction.value='';notify('变更单草稿已保存。批准流程尚未定案，不会修改现有批准预算或执行范围');
  }catch(e){error.value=errorMessage(e)}
 }
+function openChangeDecision(order:Rec,action:'submit'|'approve'|'reject'){
+ changeDecision.value={order,action};changeDecisionReason.value='';
+ error.value='';
+}
+async function saveChangeDecision(){
+ if(!changeDecision.value||!projectView.value)return;
+ error.value='';
+ try{
+  const {order,action}=changeDecision.value;
+  await api('/change-orders/'+order.id+'/'+action,'POST',{reason:changeDecisionReason.value});
+  await Promise.all([loadProjectChanges(projectView.value.id),loadStructure()]);
+  projectView.value=await api('/projects/'+projectView.value.id);
+  if(projectView.value)await loadProjectFinancials(projectView.value.id);
+  changeDecision.value=null;changeDecisionReason.value='';
+  notify(action==='submit'?'变更单已提交审批':action==='approve'?'变更批准已生效，新预算版本已建立':'变更单已驳回，批准预算未改变');
+ }catch(e){error.value=errorMessage(e)}
+}
 function openChangeDraft(){
  Object.assign(changeDraft,{code:'',reason:'',action:'adjust',scope_id:projectView.value?.scopes?.[0]?.id||'',
- demand_id:'',quantity:'',unit_price_yuan:'',evidence:''});
+ demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
  projectAction.value='change-order';error.value='';
 }
 async function loadExecutions(projectId:string){executionRows.value=await api('/projects/'+projectId+'/executions')}
@@ -478,11 +526,26 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <h3>批准版本与项目变更</h3>
    <div class="scope-item">
     <p>当前批准版本：{{projectApprovalVersions.length?'第 '+projectApprovalVersions[0].version_no+' 版':'尚未立项批准'}}；
-    已登记变更草稿：{{projectChangeOrders.length}} 张。</p>
-    <p class="muted">变更单暂只允许登记草稿和保留基线。审批方式与在途执行处置尚待细化，草稿不得变更预算、项目范围或历史执行。</p>
+    变更单：{{projectChangeOrders.length}} 张。</p>
+    <p class="muted">编制人员提交变更单后，由具有批准权限的账号核实生效；涉及在途执行的范围，须先结束或取消相关批次。所有历史版本保留。</p>
     <button v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="openChangeDraft">＋ 新建变更单草稿</button>
-    <div v-for="c in projectChangeOrders" :key="c.id" class="history">{{c.code}} · {{c.status==='draft'?'草稿':c.status}} · {{c.reason}}</div>
+    <div v-for="c in projectChangeOrders" :key="c.id" class="scope-item">
+     <div class="section-header"><strong>{{c.code}} · {{({draft:'草稿',submitted:'待批准',approved:'已批准',rejected:'已驳回'} as Rec)[c.status]}}</strong><span>{{c.reason}}</span></div>
+     <p v-if="c.decision_reason" class="muted">审批意见：{{c.decision_reason}}</p>
+     <div class="actions">
+      <button v-if="roleWrite&&c.status==='draft'" class="secondary" @click="openChangeDecision(c,'submit')">提交审批</button>
+      <button v-if="roleStageApprove&&c.status==='submitted'" class="primary" @click="openChangeDecision(c,'approve')">批准变更</button>
+      <button v-if="roleStageApprove&&c.status==='submitted'" class="light" @click="openChangeDecision(c,'reject')">驳回变更</button>
+     </div>
+    </div>
    </div>
+   <FormModal :open="!!changeDecision" :title="changeDecision?.action==='submit'?'提交变更审批':changeDecision?.action==='approve'?'核准项目变更':'驳回项目变更'" :error="visibleError" @close="changeDecision=null">
+    <form v-form-validation novalidate class="form-grid" @submit.prevent="saveChangeDecision">
+     <p class="wide muted">{{changeDecision?.order?.code}}：{{changeDecision?.order?.reason}}</p>
+     <label class="wide"><span class="field-caption">处理依据及意见</span><textarea v-model="changeDecisionReason" required rows="3"/></label>
+     <div class="form-actions"><button type="button" class="light" @click="changeDecision=null">取消</button><button class="primary">确认</button></div>
+    </form>
+   </FormModal>
    <FormModal :open="projectAction==='change-order'" title="拟定项目变更单" :error="visibleError" size="wide" @close="projectAction=''">
     <form v-form-validation novalidate class="form-grid" @submit.prevent="createChangeDraft">
      <label><span class="field-caption">变更单编号</span><input v-model="changeDraft.code" required placeholder="稳定唯一编号"/></label>
@@ -494,6 +557,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
        <option v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.operation_snapshot}}</option></select></label>
      <label v-if="changeDraft.action!=='remove'"><span class="field-caption">拟调整工作量</span><input v-model="changeDraft.quantity" inputmode="decimal" data-validate="quantity" required/></label>
      <label v-if="changeDraft.action!=='remove'"><span class="field-caption">拟核定单价（元，可待核）</span><input v-model="changeDraft.unit_price_yuan" inputmode="decimal" data-validate="money"/></label>
+     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">报价/定额依据</span><input v-model="changeDraft.price_source" placeholder="调整价格时注明"/></label>
+     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">依据日期</span><input type="date" v-model="changeDraft.price_date"/></label>
+     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">税口径</span><select v-model="changeDraft.tax_mode"><option value="inclusive">含税</option><option value="exclusive">不含税</option><option value="none">不适用</option></select></label>
      <label class="wide"><span class="field-caption">变更事项的事实依据</span><textarea v-model="changeDraft.evidence" rows="2" required/></label>
      <label class="wide"><span class="field-caption">变更原因</span><textarea v-model="changeDraft.reason" rows="3" required/></label>
      <div class="wide form-actions"><button type="button" class="light" @click="projectAction=''">取消</button><button class="primary">仅保存草稿</button></div>
@@ -507,6 +573,39 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
        <form v-form-validation novalidate class="form-grid" @submit.prevent="createProjectExecution">
      <label><span class="field-caption">执行批次编号</span><input v-model="executionNumber" required placeholder="如 2026-01"/></label><label><span class="field-caption">施工说明</span><input v-model="executionDescription" placeholder="本次施工任务"/></label><div class="wide form-actions"><button class="secondary">新建执行批次</button></div>
    </form>
+   </FormModal>
+   <h3>实施与结算核对</h3>
+   <p v-if="projectProgress" class="muted">当前有效批准预算 {{money(projectProgress.approved_budget_fen)}} 元 · 已登记净结算 {{money(projectProgress.settled_fen)}} 元 · 未结算批准额度 {{money(projectProgress.unsettled_approved_fen)}} 元</p>
+   <div v-for="scope in projectProgress?.scopes||[]" :key="scope.id" class="scope-item">
+    <div class="section-header">
+     <div><strong>{{scope.demand_no}} · {{scope.line_name_snapshot}} {{scope.tower_no_snapshot}}</strong>
+     <p class="muted">确认实施 {{fmtQty(scope.completed_quantity_scaled)}} / 批准 {{fmtQty(scope.quantity_scaled)}} {{scope.unit_snapshot}} · 净结算 {{money(scope.settled_fen)}} 元</p></div>
+     <span class="tag">{{financeStatus(scope.dual_status)}}</span>
+    </div>
+    <button v-if="roleStageApprove&&projectView.status==='approved'" class="secondary" @click="openSettlement(scope)">登记结算凭证</button>
+   </div>
+   <div v-if="settlementRecords.length" class="scope-item"><strong>结算凭证（包含冲销）</strong>
+    <div v-for="entry in settlementRecords" :key="entry.id" class="history">
+     {{entry.occurred_on}} · {{entry.settlement_no}} · {{entry.entry_kind==='reversal'?'冲销 −':'结算 +'}}{{money(entry.amount_fen)}} 元
+     · {{entry.demand_no}} · {{entry.evidence}}
+     <button v-if="roleStageApprove&&entry.entry_kind==='payment'&&projectView.status==='approved'" class="link"
+      @click="openSettlement(projectProgress?.scopes.find((x:Rec)=>x.id===entry.project_scope_id)||{id:entry.project_scope_id},entry)">登记冲销</button>
+    </div>
+   </div>
+   <FormModal :open="settlementDialog" :title="settlementForm.entry_kind==='reversal'?'登记结算冲销':'登记结算凭证'" :error="visibleError" @close="settlementDialog=false">
+    <form v-form-validation novalidate class="form-grid" @submit.prevent="saveSettlement">
+     <p class="wide muted">结算凭证作为独立业务事实登记；不得以工作计划或预算估算代替已实际结算。当前仅管理员可登记。</p>
+     <label><span class="field-caption">凭证编号</span><input v-model="settlementForm.settlement_no" required/></label>
+     <label v-if="settlementForm.entry_kind==='payment'"><span class="field-caption">结算性质</span>
+      <select v-model="settlementForm.settlement_type" required>
+       <option value="advance">预付款</option><option value="progress">进度结算</option><option value="final">终结结算</option>
+      </select>
+     </label>
+     <label><span class="field-caption">金额（元）</span><input v-model="settlementForm.amount_yuan" data-validate="money" inputmode="decimal" required/></label>
+     <label><span class="field-caption">凭证日期</span><input v-model="settlementForm.occurred_on" type="date" required/></label>
+     <label class="wide"><span class="field-caption">结算依据</span><textarea v-model="settlementForm.evidence" rows="3" required/></label>
+     <div class="form-actions"><button class="light" type="button" @click="settlementDialog=false">取消</button><button class="primary">确认登记</button></div>
+    </form>
    </FormModal>
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
   </div></section>

@@ -1,31 +1,22 @@
 import {spanDemandLocation} from './ledgers.mjs';
 import {captureDemand,readDemandSnapshot} from './demand-snapshots.mjs';
 import {quantityToScaled} from './quantity.mjs';
+import {yuanToFen,amountFen} from './money.mjs';
+export {yuanToFen} from './money.mjs';
 import {uid,now,one,all,exec,transaction,audit} from './db.mjs';
 const fault=(status,message)=>{const e=new Error(message);e.status=status;throw e};
 const required=(value,label)=>{if(typeof value!=='string'||!value.trim())fault(422,label+'不能为空');return value.trim()};
 const versionOf=(old,body)=>{
  if(!Number.isInteger(body.version)||body.version!==old.version)fault(409,'版本不匹配，请刷新后再提交');
 };
-export function yuanToFen(value,label='金额'){
- const raw=String(value??'').trim();
- if(!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(raw))fault(422,label+'格式无效，最多两位小数');
- const [integer,frac='']=raw.split('.');
- const fen=BigInt(integer)*100n+BigInt(frac.padEnd(2,'0'));
- if(fen>BigInt(Number.MAX_SAFE_INTEGER))fault(422,label+'超出有效范围');
- return Number(fen);
-}
 export function lineEstimate(scope){
- if(scope.unit_price_fen===null)return null;
- const fen=(BigInt(scope.quantity_scaled)*BigInt(scope.unit_price_fen)+5000n)/10000n;
- if(fen>BigInt(Number.MAX_SAFE_INTEGER))fault(422,'明细金额超过允许范围');
- return Number(fen);
+ return scope.unit_price_fen===null?null:amountFen(scope.quantity_scaled,scope.unit_price_fen);
 }
 const framework=id=>one('SELECT * FROM frameworks WHERE id=?',id)||fault(404,'框架不存在');
 const agreement=id=>one('SELECT * FROM agreements WHERE id=?',id)||fault(404,'执行协议不存在');
 const project=id=>one('SELECT * FROM projects WHERE id=?',id)||fault(404,'项目不存在');
 const scopes=id=>all(`SELECT s.*,d.quantity_scaled AS demand_quantity_scaled,d.status AS demand_status
- FROM project_demand_scopes s JOIN demands d ON d.id=s.demand_id WHERE s.project_id=? ORDER BY s.created_at,s.id`,id).map(s=>{
+ FROM project_demand_scopes s JOIN demands d ON d.id=s.demand_id WHERE s.project_id=? AND s.status='active' ORDER BY s.created_at,s.id`,id).map(s=>{
  const d=readDemandSnapshot(s);
  if(!d)fault(409,'项目需求历史快照缺失，请先核对历史版本');
  return {...s,demand_no:d.demand_no,operation_snapshot:d.operation_snapshot,line_name_snapshot:d.line_name_snapshot,
@@ -106,7 +97,7 @@ export function savePreliminaryEstimate(id,body,user){
 }
 export function listProjects(){
  return all(`SELECT p.*,a.name AS agreement_name,f.name AS framework_name,
- (SELECT COUNT(*) FROM project_demand_scopes s WHERE s.project_id=p.id) demand_count
+ (SELECT COUNT(*) FROM project_demand_scopes s WHERE s.project_id=p.id AND s.status='active') demand_count
  FROM projects p LEFT JOIN agreements a ON a.id=p.agreement_id
  LEFT JOIN frameworks f ON f.id=a.framework_id ORDER BY p.created_at DESC`);
 }
@@ -212,7 +203,7 @@ export function advanceProject(id,stage,body,user){
    for(const x of items){
     const assigned=one(`SELECT COALESCE(SUM(s.quantity_scaled),0) n
      FROM project_demand_scopes s JOIN projects p ON p.id=s.project_id
-     WHERE s.demand_id=? AND p.status IN ('approved','closed')`,x.demand_id).n;
+     WHERE s.demand_id=? AND s.status='active' AND p.status IN ('approved','closed')`,x.demand_id).n;
     if(assigned+x.quantity_scaled>x.demand_quantity_scaled)fault(409,'需求范围已被其他有效项目承接，不能重复立项：'+x.demand_no);
    }
   }
