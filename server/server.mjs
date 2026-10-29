@@ -493,7 +493,7 @@ async function dispatch(req,res){
   if(method==='POST'&&action==='items'&&itemId&&subAction==='complete')return json(res,201,confirmCompletion(id,itemId,await parseJson(req),user));
  }
  if(pathname==='/api/overview'&&method==='GET'){permit(user,'view');return json(res,200,{lines:one('SELECT COUNT(*) n FROM transmission_lines').n,physical:one('SELECT COUNT(*) n FROM physical_towers').n,logical:one('SELECT COUNT(*) n FROM logical_towers').n,pending:one("SELECT COUNT(*) n FROM demands WHERE status='pending'").n,active:one("SELECT COUNT(*) n FROM demands WHERE status='active'").n})}
- if(pathname==='/api/dictionary-types'&&method==='GET')return json(res,200,all('SELECT * FROM dictionary_types ORDER BY rowid'));
+ if(pathname==='/api/dictionary-types'&&method==='GET')return json(res,200,all('SELECT * FROM dictionary_types WHERE id NOT IN (?,?) ORDER BY rowid','team','erection'));
  if(pathname==='/api/dictionary-items'&&method==='GET'){
   const type=searchParams.get('type');return json(res,200,type?all('SELECT * FROM dictionary_items WHERE type_id=? ORDER BY sort_order,name',type):all('SELECT * FROM dictionary_items ORDER BY type_id,sort_order,name'));
  }

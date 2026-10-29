@@ -4,6 +4,7 @@ import {newClientId} from './utils/client-id';
 import FormModal from './components/FormModal.vue';
 import CustomFields from './components/CustomFields.vue';
 import LedgerWorkspace from './components/LedgerWorkspace.vue';
+import SidebarChevron from './components/SidebarChevron.vue';
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
@@ -305,11 +306,11 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <button class="nav-primary" :class="{active:['entry','demands'].includes(nav)}" @click="openNav('demands')"><span class="nav-icon">▣</span>需求中心</button>
   <div v-if="['entry','demands'].includes(nav)" class="nav-submenu"><button :class="{active:nav==='entry'}" @click="openNav('entry')">新建需求</button><button :class="{active:nav==='demands'}" @click="openNav('demands')">需求台账</button></div>
   <button class="nav-primary" :class="{active:nav==='projects'}" @click="openNav('projects')"><span class="nav-icon">▱</span>项目中心</button>
-  <button class="nav-primary" :class="{active:['frameworks','agreements'].includes(nav)}" @click="toggleMenu('frameworks','frameworks')"><span class="nav-icon">♧</span>框架与协议<span class="nav-chevron">{{expandedGroup==='frameworks'?'⌄':'›'}}</span></button>
+  <button class="nav-primary" :class="{active:['frameworks','agreements'].includes(nav)}" :aria-expanded="expandedGroup==='frameworks'" @click="toggleMenu('frameworks','frameworks')"><span class="nav-icon">♧</span>框架与协议<SidebarChevron :open="expandedGroup==='frameworks'"/></button>
   <div v-if="expandedGroup==='frameworks'" class="nav-submenu"><button :class="{active:nav==='frameworks'}" @click="openNav('frameworks')">项目框架</button><button :class="{active:nav==='agreements'}" @click="openNav('agreements')">执行协议</button></div>
-  <button class="nav-primary" :class="{active:['lines','towers','spans'].includes(nav)}" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<span class="nav-chevron">{{expandedGroup==='masters'?'⌄':'›'}}</span></button>
+  <button class="nav-primary" :class="{active:['lines','towers','spans'].includes(nav)}" :aria-expanded="expandedGroup==='masters'" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<SidebarChevron :open="expandedGroup==='masters'"/></button>
   <div v-if="expandedGroup==='masters'" class="nav-submenu"><button :class="{active:nav==='lines'}" @click="openNav('lines')">线路台账</button><button :class="{active:nav==='towers'}" @click="openNav('towers')">杆塔查询</button><button :class="{active:nav==='spans'}" @click="openNav('spans')">档距查询</button></div>
-  <button v-if="roleAdmin" class="nav-primary" :class="{active:['dictionary','access'].includes(nav)}" @click="toggleMenu('system','access')"><span class="nav-icon">⚙</span>系统管理<span class="nav-chevron">{{expandedGroup==='system'?'⌄':'›'}}</span></button>
+  <button v-if="roleAdmin" class="nav-primary" :class="{active:['dictionary','access'].includes(nav)}" :aria-expanded="expandedGroup==='system'" @click="toggleMenu('system','access')"><span class="nav-icon">⚙</span>系统管理<SidebarChevron :open="expandedGroup==='system'"/></button>
   <div v-if="roleAdmin&&expandedGroup==='system'" class="nav-submenu"><button :class="{active:nav==='dictionary'}" @click="openNav('dictionary')">数据字典</button><button :class="{active:nav==='access'}" @click="openNav('access')">IP访问管理</button></div>
   <div class="sidebar-footer"><div><strong>{{user.username}}</strong><small>{{user.role}}</small></div><button class="light" @click="logout">退出</button></div>
  </aside>

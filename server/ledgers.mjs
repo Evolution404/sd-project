@@ -42,7 +42,7 @@ function lineValues(body,old=null){
  if(kind==='branch'&&status==='active'&&setup==='ready'&&!junctionId)fail(422,'接入杆塔不能为空，可先保存支线草稿');
 
  return {name:text(body.name??old?.name,'线路名称'),voltage_level_id:voltageId,line_kind:kind,parent_line_id:parentId,junction_tower_id:junctionId,setup_status:setup,status,
-  ...Object.fromEntries(['team','erection_type','start_label','end_label'].map(k=>[k,optional(body[k]??old?.[k])]))};
+  ...Object.fromEntries(['start_label','end_label'].map(k=>[k,optional(body[k]??old?.[k])]))};
 }
 export function createLedgerLine(body,user){return mutate(user,body,()=>{
  const values=lineValues(body),id=uid(),t=now(),item={id,line_code:optional(body.line_code)||'XL-'+id.replaceAll('-',''),...values,version:1,created_at:t,updated_at:t};
