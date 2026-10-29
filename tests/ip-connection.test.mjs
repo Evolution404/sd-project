@@ -30,7 +30,9 @@ function sendHttp(host,port) {
   socket.on('data',chunk=>data.push(chunk));
   socket.on('end',()=>finish());
   socket.on('error',error=>{
-   if(error.code==='ECONNRESET')finish();
+   // A reset can race the first write: both errors mean the peer closed
+   // the connection. Callers still assert zero bytes (deny) or HTTP 200 (allow).
+   if(error.code==='ECONNRESET'||error.code==='EPIPE')finish();
    else finish(error);
   });
   socket.on('close',()=>finish());

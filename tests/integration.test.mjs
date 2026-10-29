@@ -30,7 +30,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/auth/me','GET',undefined,401);
   const login=await request('/auth/login','POST',{username:'tester',password:'Test-Secure-Passw0rd-36'});
   assert.equal(login.user.role,'admin');
-  assert.equal(one('PRAGMA user_version').user_version,5);
+  assert.equal(one('PRAGMA user_version').user_version,7);
   assert.equal(isPermittedIP('127.0.0.1'),true);
   assert.equal(isPermittedIP('::1'),true);
   assert.equal(isPermittedIP('::ffff:127.0.0.1'),true);
@@ -79,14 +79,14 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   const unit=await request('/dictionary-items','POST',{type_id:'unit',code:'SET',name:'套',sort_order:1},201);
   const op=await request('/dictionary-items','POST',{type_id:'operation',code:'INSTALL',name:'安装防鸟装置',work_target_type:'line',default_unit_id:unit.id,default_quantity:'2',completion_standard:'验收合格'},201);
   const src=await request('/dictionary-items','POST',{type_id:'source',code:'PATROL',name:'巡视发现'},201);
-  assert.equal(op.default_quantity_milli,2000);
+  assert.equal(op.default_quantity_scaled,20000);
   const payload={idempotency_key:'batch-001',work_target_type:'line',operation_id:op.id,unit_id:unit.id,target_object:'防鸟装置',quantity:'2',completion_standard:'验收合格',problem_description:'合成巡视测试',source:{type_id:src.id,proposed_by:'测试班组',discovered_on:'2026-10-29',description:'一次巡视'},rows:[{logical_tower_id:lt1.id,quantity:'2'},{logical_tower_id:lt2.id,target_object:'横担部位',quantity:'3'},{logical_tower_id:lt3.id,quantity:'2'}]};
   const result=await request('/demand-batches/submit','POST',payload,201);
   assert.equal(result.count,3);assert.equal(result.ids.length,3);
   assert.equal(await request('/demand-batches/submit','POST',payload,201).then(x=>x.batch_id),result.batch_id);
   assert.equal(one('SELECT COUNT(*) n FROM source_records').n,1,'shared source');
   assert.equal(one('SELECT COUNT(*) n FROM demands').n,3);
-  assert.equal(one('SELECT SUM(quantity_milli) n FROM demands').n,7000,'individual overrides');
+  assert.equal(one('SELECT SUM(quantity_scaled) n FROM demands').n,70000,'individual overrides');
   assert.equal(one('SELECT COUNT(*) n FROM demand_sources').n,3,'shared source linkage');
   await request('/demand-batches/submit','POST',{...payload,quantity:'4'},409);
   const d=await request('/demands/'+result.ids[0]);
@@ -125,9 +125,9 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   let running=await request('/executions/'+ex1.id+'/start','POST',{version:firstItem.version,reason:'实际开工'},200);
   await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.6',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-too-large'},409);
   running=await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.5',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-001'},201);
-  assert.equal(running.items[0].completed_quantity_milli,500);
+  assert.equal(running.items[0].completed_quantity_scaled,5000);
   const replay=await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.5',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-001'},201);
-  assert.equal(replay.items[0].completed_quantity_milli,500,'replay must not duplicate');
+  assert.equal(replay.items[0].completed_quantity_scaled,5000,'replay must not duplicate');
   await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.1',occurred_on:'2026-10-29',evidence:'另一次实施',idempotency_key:'completion-001'},409);
   running=await request('/executions/'+ex1.id+'/finish','POST',{version:running.version,reason:'本批完成并归档'},200);
   assert.equal(running.status,'finished');
@@ -154,7 +154,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   assert.equal(history.physical_history.length,2);
   const retained=await request('/demands/'+d.id);
   assert.equal(retained.tower_no_snapshot,'#1');assert.equal(retained.observed_physical_tower_id,physical.id);
-  await request('/demands/'+d.id,'PATCH',{version:2,target_object:'新修订部位',reason:'需求修订'},200);
+  await request('/demands/'+d.id,'PATCH',{version:2,problem_description:'补充现场情况',reason:'需求修订'},200);
   const after=await request('/demands/'+d.id);
   assert.equal(after.status,'pending','revision requires reverification');
   assert.equal(after.revisions.length,2);

@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import {migrateQuantities,migrateSnapshots} from './audit-migrations.mjs';
 const ROOT = process.env.DATA_DIR || (process.platform === 'win32' ? join(process.env.LOCALAPPDATA || homedir(),'SDProject') : join(homedir(), '.local','share','sd-project'));
 export const dataRoot = ROOT;
 mkdirSync(ROOT,{recursive:true}); mkdirSync(join(ROOT,'attachments'),{recursive:true}); mkdirSync(join(ROOT,'backups'),{recursive:true});
@@ -18,7 +19,7 @@ if(migrationVersion===0){
     for(const [id,title] of types) db.prepare('INSERT INTO dictionary_types(id,title) VALUES(?,?)').run(id,title);
     db.exec("PRAGMA user_version=1"); db.exec('COMMIT');
   }catch(error){db.exec('ROLLBACK');throw error}
-}else if(migrationVersion>5){throw Error('不支持的数据库版本 '+migrationVersion)}
+}else if(migrationVersion>7){throw Error('不支持的数据库版本 '+migrationVersion)}
 if(migrationVersion<2){
  db.exec('BEGIN IMMEDIATE');
  try{
@@ -46,6 +47,11 @@ if(migrationVersion<5){
   db.exec(readFileSync(new URL('./migration-005.sql',import.meta.url),'utf8'));
   db.exec('PRAGMA user_version=5');db.exec('COMMIT');
  }catch(e){db.exec('ROLLBACK');throw e}
+}
+for(const [version,migrate] of [[6,migrateQuantities],[7,migrateSnapshots]])if(migrationVersion<version){
+ db.exec('BEGIN IMMEDIATE');
+ try{migrate(db);db.exec('PRAGMA user_version='+version);db.exec('COMMIT')}
+ catch(e){db.exec('ROLLBACK');throw e}
 }
 export const now=()=>new Date().toISOString();
 export const uid=()=>randomUUID();

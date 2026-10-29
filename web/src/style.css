@@ -203,3 +203,21 @@ td{color:#496457}
  .sidebar .nav-submenu{display:flex;flex:none;align-items:center;gap:2px;border:none;padding:0;margin:0 3px}
  .sidebar .nav-submenu button{white-space:nowrap;font-size:11px}
 }
+
+/* Centered forms for every create/edit/configure action. */
+.form-modal-backdrop{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;padding:22px;background:rgba(17,44,30,.48);overflow-y:auto}
+.form-modal-dialog{display:flex;flex-direction:column;background:#fff;border-radius:14px;width:min(100%,560px);max-height:min(88vh,960px);box-shadow:0 24px 90px #092d1b39;outline:none;border:1px solid #dce7de;overflow:hidden}
+.form-modal-wide{width:min(100%,760px)}
+.form-modal-header{display:flex;align-items:start;justify-content:space-between;gap:12px;padding:20px 25px;border-bottom:1px solid #e3ebe4;flex:none}
+.form-modal-header h2{margin:0;font-size:19px;color:var(--green)}
+.form-modal-header p{color:var(--muted);font-size:12px;margin:8px 0 0}
+.form-modal-close{font-size:26px;line-height:1;min-width:34px;height:34px;padding:0;background:#f4f8f4;border:1px solid #e3ebe4;color:#5a7963}
+.form-modal-content{padding:24px 25px;overflow-y:auto;overscroll-behavior:contain;min-height:0}
+.form-modal-content form{margin:0}
+.form-modal-content .form-actions{grid-column:1/-1;display:flex;justify-content:flex-end;padding-top:8px;margin-top:4px}
+.form-modal-content .form-actions button{min-width:95px}
+.form-modal-content .form-grid label{min-width:0}
+.form-modal-content .form-grid{gap:16px}
+.form-modal-content .scope-editor{border:0;background:#fff;padding:0}
+.form-modal-error{color:#b4403a;font-size:12px;margin-top:10px;grid-column:1/-1}
+@media(max-width:740px){.form-modal-backdrop{padding:12px}.form-modal-dialog{max-height:94vh}.form-modal-header{padding:17px 18px}.form-modal-content{padding:20px 18px}}

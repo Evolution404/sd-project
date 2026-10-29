@@ -1,3 +1,5 @@
+import {captureDemand,readDemandSnapshot} from './demand-snapshots.mjs';
+import {quantityToScaled} from './quantity.mjs';
 import {uid,now,one,all,exec,transaction,audit} from './db.mjs';
 const fault=(status,message)=>{const e=new Error(message);e.status=status;throw e};
 const required=(value,label)=>{if(typeof value!=='string'||!value.trim())fault(422,label+'不能为空');return value.trim()};
@@ -12,28 +14,27 @@ export function yuanToFen(value,label='金额'){
  if(fen>BigInt(Number.MAX_SAFE_INTEGER))fault(422,label+'超出有效范围');
  return Number(fen);
 }
-export function quantityToMilli(value){
- const raw=String(value??'').trim();
- if(!/^(?:0|[1-9]\d{0,8})(?:\.\d{1,3})?$/.test(raw))fault(422,'工作量最多三位小数');
- const [integer,frac='']=raw.split('.');
- const n=Number(integer)*1000+Number(frac.padEnd(3,'0'));
- if(n<=0)fault(422,'工作量必须大于零');return n;
-}
 export function lineEstimate(scope){
  if(scope.unit_price_fen===null)return null;
- const fen=(BigInt(scope.quantity_milli)*BigInt(scope.unit_price_fen)+500n)/1000n;
+ const fen=(BigInt(scope.quantity_scaled)*BigInt(scope.unit_price_fen)+5000n)/10000n;
  if(fen>BigInt(Number.MAX_SAFE_INTEGER))fault(422,'明细金额超过允许范围');
  return Number(fen);
 }
 const framework=id=>one('SELECT * FROM frameworks WHERE id=?',id)||fault(404,'框架不存在');
 const agreement=id=>one('SELECT * FROM agreements WHERE id=?',id)||fault(404,'执行协议不存在');
 const project=id=>one('SELECT * FROM projects WHERE id=?',id)||fault(404,'项目不存在');
-const scopes=id=>all(`SELECT s.*,d.demand_no,d.quantity_milli AS demand_quantity_milli,d.status AS demand_status,
- d.operation_snapshot,d.line_name_snapshot,d.tower_no_snapshot,d.target_object,d.unit_snapshot
- FROM project_demand_scopes s JOIN demands d ON d.id=s.demand_id WHERE s.project_id=? ORDER BY s.created_at,s.id`,id);
+const scopes=id=>all(`SELECT s.*,d.quantity_scaled AS demand_quantity_scaled,d.status AS demand_status
+ FROM project_demand_scopes s JOIN demands d ON d.id=s.demand_id WHERE s.project_id=? ORDER BY s.created_at,s.id`,id).map(s=>{
+ const d=readDemandSnapshot(s);
+ if(!d)fault(409,'项目需求历史快照缺失，请先核对历史版本');
+ return {...s,demand_no:d.demand_no,operation_snapshot:d.operation_snapshot,line_name_snapshot:d.line_name_snapshot,
+  tower_no_snapshot:d.tower_no_snapshot,target_object:d.target_object,unit_snapshot:d.unit_snapshot,demand_snapshot:d};
+});
 function summary(items){
  const missing=items.filter(x=>x.unit_price_fen===null);
- return {known_total_fen:items.reduce((n,x)=>n+(lineEstimate(x)||0),0),missing_price_count:missing.length,total:items.length,complete:missing.length===0&&items.length>0};
+ const total=items.reduce((n,x)=>n+BigInt(lineEstimate(x)||0),0n);
+ if(total>BigInt(Number.MAX_SAFE_INTEGER))fault(422,'估算总金额超过允许范围');
+ return {known_total_fen:Number(total),missing_price_count:missing.length,total:items.length,complete:missing.length===0&&items.length>0};
 }
 const event=(user,entity,id,action,before,after,reason='')=>audit(user.id,entity,id,action,before,after,reason);
 export function listFrameworks(){
@@ -99,12 +100,12 @@ function demand(id){
 export function addScope(id,body,user){
  const p=project(id);versionOf(p,body);
  if(p.status!=='reserve')fault(409,'正式入库后不得直接改变需求范围');
- const d=demand(body.demand_id),q=quantityToMilli(body.quantity);
- if(q>d.quantity_milli)fault(422,'纳入数量不能超过需求核实数量');
- const t=now(),item={id:uid(),project_id:id,demand_id:d.id,demand_version:d.version,quantity_milli:q,
- unit_price_fen:null,price_source:null,price_date:null,tax_mode:null,note:body.note||'',created_at:t,updated_at:t};
+ const d=demand(body.demand_id),q=quantityToScaled(body.quantity);
+ if(q>d.quantity_scaled)fault(422,'纳入数量不能超过需求核实数量');
+ const t=now(),item={id:uid(),project_id:id,demand_id:d.id,demand_version:d.version,quantity_scaled:q,
+ unit_price_fen:null,price_source:null,price_date:null,tax_mode:null,note:body.note||'',created_at:t,updated_at:t,demand_snapshot_json:JSON.stringify(captureDemand(d))};
  return transaction(()=>{
-  exec('INSERT INTO project_demand_scopes VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));
+  exec('INSERT INTO project_demand_scopes('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
   exec('UPDATE projects SET version=version+1,updated_at=? WHERE id=?',t,id);
   event(user,'project_demand_scopes',item.id,'create',null,item);
   return projectDetail(id);
@@ -118,8 +119,8 @@ export function changeScope(id,scopeId,body,user){
  if(!old)fault(404,'关联需求不存在');
  const d=demand(old.demand_id);
  const next={...old};
- if(body.quantity!==undefined)next.quantity_milli=quantityToMilli(body.quantity);
- if(next.quantity_milli>d.quantity_milli)fault(422,'超过需求工作量');
+ if(body.quantity!==undefined)next.quantity_scaled=quantityToScaled(body.quantity);
+ if(next.quantity_scaled>d.quantity_scaled)fault(422,'超过需求工作量');
  if(body.unit_price_yuan!==undefined){
   next.unit_price_fen=body.unit_price_yuan===null||body.unit_price_yuan===''?null:yuanToFen(body.unit_price_yuan,'单价');
  }
@@ -130,10 +131,11 @@ export function changeScope(id,scopeId,body,user){
   next.tax_mode=body.tax_mode||null;
  }
  if(body.note!==undefined)next.note=body.note;
- next.demand_version=d.version;next.updated_at=now();
+ if(p.status==='reserve'){next.demand_version=d.version;next.demand_snapshot_json=JSON.stringify(captureDemand(d))}
+ next.updated_at=now();
  return transaction(()=>{
-  exec('UPDATE project_demand_scopes SET demand_version=?,quantity_milli=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,note=?,updated_at=? WHERE id=?',
-  next.demand_version,next.quantity_milli,next.unit_price_fen,next.price_source,next.price_date,next.tax_mode,next.note,next.updated_at,scopeId);
+  exec('UPDATE project_demand_scopes SET demand_version=?,quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,note=?,updated_at=?,demand_snapshot_json=? WHERE id=?',
+  next.demand_version,next.quantity_scaled,next.unit_price_fen,next.price_source,next.price_date,next.tax_mode,next.note,next.updated_at,next.demand_snapshot_json,scopeId);
   exec('UPDATE projects SET version=version+1,updated_at=? WHERE id=?',now(),id);
   event(user,'project_demand_scopes',scopeId,'update',old,next,body.reason||'估算明细调整');
   return projectDetail(id);
@@ -152,7 +154,7 @@ export function bindAgreement(id,body,user){
 }
 function stageSnapshot(p,items,stage,reason,user){
  return {project_id:p.id,project_code:p.code,project_name:p.name,stage,agreement_id:p.agreement_id,
- scopes:items.map(x=>({scope_id:x.id,demand_id:x.demand_id,demand_version:x.demand_version,quantity_milli:x.quantity_milli,unit_price_fen:x.unit_price_fen,price_source:x.price_source,price_date:x.price_date,tax_mode:x.tax_mode,amount_fen:lineEstimate(x)})),
+ scopes:items.map(x=>({scope_id:x.id,demand_id:x.demand_id,demand_version:x.demand_version,demand_snapshot:x.demand_snapshot,quantity_scaled:x.quantity_scaled,unit_price_fen:x.unit_price_fen,price_source:x.price_source,price_date:x.price_date,tax_mode:x.tax_mode,amount_fen:lineEstimate(x)})),
  created_at:now(),reason,actor_id:user.id};
 }
 export function advanceProject(id,stage,body,user){
@@ -165,7 +167,7 @@ export function advanceProject(id,stage,body,user){
   const items=scopes(id);
   if(items.length===0)fault(422,'至少关联一条核实需求');
   for(const x of items){const d=demand(x.demand_id);
-   if(d.version!==x.demand_version)fault(409,'需求已发生修订，必须核对范围版本');
+   if(latest.status==='reserve'&&d.version!==x.demand_version)fault(409,'需求已发生修订，必须核对范围版本');
   }
   const estimate=summary(items);
   if(stage==='approved'){
@@ -177,10 +179,10 @@ export function advanceProject(id,stage,body,user){
    const used=one("SELECT COALESCE(SUM(approved_budget_fen),0) n FROM projects WHERE agreement_id=? AND status IN ('approved','closed')",ag.id).n;
    if(BigInt(used)+BigInt(estimate.known_total_fen)>BigInt(ag.limit_fen))fault(422,'批准预算超过协议可用额度');
    for(const x of items){
-    const assigned=one(`SELECT COALESCE(SUM(s.quantity_milli),0) n
+    const assigned=one(`SELECT COALESCE(SUM(s.quantity_scaled),0) n
      FROM project_demand_scopes s JOIN projects p ON p.id=s.project_id
      WHERE s.demand_id=? AND p.status IN ('approved','closed')`,x.demand_id).n;
-    if(assigned+x.quantity_milli>x.demand_quantity_milli)fault(409,'需求范围已被其他有效项目承接，不能重复立项：'+x.demand_no);
+    if(assigned+x.quantity_scaled>x.demand_quantity_scaled)fault(409,'需求范围已被其他有效项目承接，不能重复立项：'+x.demand_no);
    }
   }
   const t=now(),newVersion=latest.version+1;

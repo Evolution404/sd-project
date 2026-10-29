@@ -1,3 +1,6 @@
+import {validateFieldDefinitions,validateFieldValues} from './custom-fields.mjs';
+import {protectDemandChange,frozenProjects} from './demand-snapshots.mjs';
+import {quantityToScaled} from './quantity.mjs';
 import http from 'node:http';
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 import { readFileSync, createReadStream, existsSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -12,12 +15,6 @@ class Problem extends Error { constructor(status,message,details){super(message)
 const fail=(status,message,details)=>{throw new Problem(status,message,details)};
 const required=(x,label)=>{if(typeof x!=='string'||!x.trim())fail(422,label+'不能为空');return x.trim()};
 const choice=(x,allowed,label)=>{if(!allowed.includes(x))fail(422,label+'无效');return x};
-const qtyMilli=(v)=>{
- const str=String(v??'').trim();
- if(!/^(?:0|[1-9]\d{0,8})(?:\.\d{1,3})?$/.test(str))fail(422,'工作量为正数且最多三位小数');
- const [i,f='']=str.split('.');const n=Number(i)*1000+Number(f.padEnd(3,'0'));
- if(n<=0)fail(422,'工作量必须大于0');return n;
-};
 const sha=(data)=>createHash('sha256').update(data).digest('hex');
 const shaToken=token=>sha(token);
 const verifyPassword=(pass,hash)=>{
@@ -167,7 +164,7 @@ function updateTowerData(table,id,body,user){
 function createDictionary(body,user){
  const type=one('SELECT * FROM dictionary_types WHERE id=?',body.type_id);if(!type)fail(422,'未知字典类别');
  if(body.default_unit_id)ensureItem(body.default_unit_id,'unit');
- const item={id:uid(),type_id:type.id,code:required(body.code,'字典编码'),name:required(body.name,'字典名称'),status:body.status||'active',sort_order:Number(body.sort_order??100),version:1,work_target_type:type.id==='operation'?(body.work_target_type||'line'):null,default_unit_id:type.id==='operation'?(body.default_unit_id||null):null,default_quantity_milli:type.id==='operation'&&body.default_quantity!=null?qtyMilli(body.default_quantity):null,completion_standard:type.id==='operation'?(body.completion_standard||null):null,fields_json:JSON.stringify(body.fields||[]),updated_at:now()};
+ const item={id:uid(),type_id:type.id,code:required(body.code,'字典编码'),name:required(body.name,'字典名称'),status:body.status||'active',sort_order:Number(body.sort_order??100),version:1,work_target_type:type.id==='operation'?(body.work_target_type||'line'):null,default_unit_id:type.id==='operation'?(body.default_unit_id||null):null,default_quantity_scaled:type.id==='operation'&&body.default_quantity!=null?quantityToScaled(body.default_quantity):null,completion_standard:type.id==='operation'?(body.completion_standard||null):null,fields_json:JSON.stringify(validateFieldDefinitions(body.fields||[])),updated_at:now()};
  validStatus(item.status,['active','inactive']);
  if(item.work_target_type)validStatus(item.work_target_type,['line','physical','both']);
  transaction(()=>{exec('INSERT INTO dictionary_items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));exec('INSERT INTO dictionary_item_versions VALUES(?,?,?,?,?,?)',uid(),item.id,1,JSON.stringify(item),user.id,now());postAudit(user,'dictionary_items',item,'create')});return item;
@@ -177,13 +174,13 @@ function updateDictionary(id,body,user){
  const next={...old};
  const keys=['code','name','status','sort_order','work_target_type','default_unit_id','completion_standard'];
  for(const key of keys)if(body[key]!==undefined)next[key]=body[key];
- if(body.default_quantity!==undefined)next.default_quantity_milli=body.default_quantity===null?null:qtyMilli(body.default_quantity);
- if(body.fields!==undefined)next.fields_json=JSON.stringify(body.fields);
+ if(body.default_quantity!==undefined)next.default_quantity_scaled=body.default_quantity===null?null:quantityToScaled(body.default_quantity);
+ if(body.fields!==undefined)next.fields_json=JSON.stringify(validateFieldDefinitions(body.fields));
  if(next.default_unit_id)ensureItem(next.default_unit_id,'unit');
  if(next.work_target_type)validStatus(next.work_target_type,['line','physical','both']);
  next.name=required(next.name,'选项名称');next.code=required(next.code,'选项编码');validStatus(next.status,['active','inactive']);next.version++;next.updated_at=now();
  transaction(()=>{
-  exec('UPDATE dictionary_items SET code=?,name=?,status=?,sort_order=?,version=?,work_target_type=?,default_unit_id=?,default_quantity_milli=?,completion_standard=?,fields_json=?,updated_at=? WHERE id=?',next.code,next.name,next.status,next.sort_order,next.version,next.work_target_type,next.default_unit_id,next.default_quantity_milli,next.completion_standard,next.fields_json,next.updated_at,id);
+  exec('UPDATE dictionary_items SET code=?,name=?,status=?,sort_order=?,version=?,work_target_type=?,default_unit_id=?,default_quantity_scaled=?,completion_standard=?,fields_json=?,updated_at=? WHERE id=?',next.code,next.name,next.status,next.sort_order,next.version,next.work_target_type,next.default_unit_id,next.default_quantity_scaled,next.completion_standard,next.fields_json,next.updated_at,id);
   exec('INSERT INTO dictionary_item_versions VALUES(?,?,?,?,?,?)',uid(),id,next.version,JSON.stringify(next),user.id,now());
   postAudit(user,'dictionary_items',next,'update',old,body.reason||'字典维护');
  });return next;
@@ -192,8 +189,25 @@ function draftBatch(body,user){
  const t=now(),item={id:uid(),draft_json:JSON.stringify(body),status:'draft',version:1,idempotency_key:null,payload_sha256:null,source_id:null,created_by:user.id,created_at:t,updated_at:t};
  transaction(()=>{exec('INSERT INTO demand_batches VALUES(?,?,?,?,?,?,?,?,?,?)',...Object.values(item));postAudit(user,'demand_batches',item,'create')});return item;
 }
+function ownedBatch(id,user){
+ const batch=one('SELECT * FROM demand_batches WHERE id=?',id);if(!batch)fail(404,'批次不存在');
+ if(batch.created_by!==user.id&&user.role!=='admin')fail(403,'只能访问自己的草稿批次');
+ return batch;
+}
+function updateDraft(id,body,user){
+ const old=ownedBatch(id,user);
+ if(old.status!=='draft')fail(409,'批次已提交，不能修改草稿');
+ if(old.version!==body.version)fail(409,'草稿已被修改，请刷新');
+ if(!body.draft||typeof body.draft!=='object'||Array.isArray(body.draft))fail(422,'草稿内容必须为对象');
+ return transaction(()=>{
+  const next={...old,draft_json:JSON.stringify(body.draft),version:old.version+1,updated_at:now()};
+  exec('UPDATE demand_batches SET draft_json=?,version=?,updated_at=? WHERE id=?',next.draft_json,next.version,next.updated_at,id);
+  postAudit(user,'demand_batches',next,'update_draft',old,'保存草稿');return next;
+ });
+}
 function validateRows(body){
  if(!Array.isArray(body.rows)||body.rows.length===0||body.rows.length>500)fail(422,'每批需选择1至500个位置');
+ if(body.rows.some(row=>!row||typeof row!=='object'||Array.isArray(row)))fail(422,'每个位置必须为对象');
  const seen=new Set();const rows=[];const errors=[];
  const workType=choice(body.work_target_type,['line','physical'],'作业对象类型');
  const op=ensureItem(body.operation_id,'operation');
@@ -209,6 +223,7 @@ function validateRows(body){
   if(!/^\d{4}-\d{2}-\d{2}$/.test(discovered))fail(422,'来源'+(index+1)+'日期格式为 YYYY-MM-DD');
   return {src,proposer,discovered,description:source.description||null,external_ref:source.external_ref||null};
  });
+ for(const values of [body.custom_fields,...body.rows.map(row=>row.custom_fields)])if(values!==undefined&&(!values||typeof values!=='object'||Array.isArray(values)))fail(422,'自定义字段值必须为对象');
  const priority=body.priority_id?ensureItem(body.priority_id,'priority'):null;
  const standard=required(body.completion_standard,'完成标准');const problem=required(body.problem_description,'问题说明');
  body.rows.forEach((row,index)=>{
@@ -217,7 +232,7 @@ function validateRows(body){
    if(seen.has(id))fail(422,'重复选择同一逻辑杆塔');seen.add(id);
    const tower=ensureLogical(id);
    const target=required(row.target_object??body.target_object,'部位/处理对象');
-   const quantity=qtyMilli(row.quantity??body.quantity);
+   const quantity=quantityToScaled(row.quantity??body.quantity);
    let related=[];
    if(workType==='physical'){
     if(!tower.physical_tower_id)fail(422,'共用实体作业缺少实体核实');
@@ -230,7 +245,9 @@ function validateRows(body){
      }
     }
    }
-   rows.push({tower,target,quantity,related,originalIndex:index});
+   const fields=validateFieldDefinitions(JSON.parse(op.fields_json));
+   const custom=validateFieldValues(fields,{...(body.custom_fields||{}),...(row.custom_fields||{})});
+   rows.push({tower,target,quantity,related,custom,fields,originalIndex:index});
   }catch(e){errors.push({row:index+1,message:e.message})}
  });
  if(errors.length)fail(422,'批量预检失败',errors);
@@ -247,18 +264,21 @@ function submitBatch(body,user){
  const key=required(body.idempotency_key,'幂等键');if(key.length>160)fail(422,'幂等键过长');
  const payload=JSON.stringify({...body,idempotency_key:undefined});const digest=sha(payload);
  const previous=one('SELECT * FROM demand_batches WHERE idempotency_key=?',key);
- if(previous){if(previous.payload_sha256!==digest)fail(409,'相同幂等键的数据内容不同');return batchResult(previous.id)}
+ if(previous){ownedBatch(previous.id,user);if(previous.payload_sha256!==digest)fail(409,'相同幂等键的数据内容不同');return batchResult(previous.id)}
+ const draft=body.draft_id?ownedBatch(body.draft_id,user):null;
+ if(draft&&(draft.status!=='draft'||draft.version!==body.draft_version))fail(409,'草稿状态或版本已变化，请重新加载');
  const v=validateRows(body);const t=now();
  return transaction(()=>{
   const again=one('SELECT * FROM demand_batches WHERE idempotency_key=?',key);
   if(again){if(again.payload_sha256!==digest)fail(409,'重复键不匹配');return batchResult(again.id)}
-  const batchId=uid(),sourceIds=[];
+  const batchId=draft?.id||uid(),sourceIds=[];
   for(const source of v.sourceData){
    const sourceId=uid();
    exec('INSERT INTO source_records VALUES(?,?,?,?,?,?,?,?,?)',sourceId,source.src.id,source.src.name,source.proposer,source.discovered,source.description,source.external_ref,user.id,t);
    sourceIds.push(sourceId);
   }
-  exec('INSERT INTO demand_batches VALUES(?,?,?,?,?,?,?,?,?,?)',batchId,JSON.stringify(body),'submitted',1,key,digest,sourceIds[0],user.id,t,t);
+  if(draft)exec("UPDATE demand_batches SET draft_json=?,status='submitted',version=version+1,idempotency_key=?,payload_sha256=?,source_id=?,updated_at=? WHERE id=?",JSON.stringify(body),key,digest,sourceIds[0],t,batchId);
+  else exec('INSERT INTO demand_batches VALUES(?,?,?,?,?,?,?,?,?,?)',batchId,JSON.stringify(body),'submitted',1,key,digest,sourceIds[0],user.id,t,t);
   const ids=[];
   for(const row of v.rows){
    // Revalidate inside the write lock: no stale objects/options accepted
@@ -268,8 +288,9 @@ function submitBatch(body,user){
    for(const source of v.sourceData)ensureItem(source.src.id,'source');
    const id=uid(),seq=one('SELECT COUNT(*) AS n FROM demands').n+1;
    const no='XQ-'+String(seq).padStart(7,'0');
-   const item={id,demand_no:no,batch_id:batchId,logical_tower_id:tower.id,observed_physical_tower_id:tower.physical_tower_id,line_name_snapshot:tower.line_name,tower_no_snapshot:tower.tower_no,physical_code_snapshot:tower.tower_code,work_target_type:v.workType,operation_id:op.id,operation_version:op.version,operation_snapshot:op.name,target_object:row.target,quantity_milli:row.quantity,unit_id:unit.id,unit_version:unit.version,unit_snapshot:unit.name,completion_standard:v.standard,problem_description:v.problem,priority_id:priority?.id||null,priority_snapshot:priority?.name||null,expected_on:body.expected_on||null,status:'pending',version:1,confirmed_at:null,created_by:user.id,created_at:t,updated_at:t};
-   exec('INSERT INTO demands VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
+   const item={id,demand_no:no,batch_id:batchId,logical_tower_id:tower.id,observed_physical_tower_id:tower.physical_tower_id,line_name_snapshot:tower.line_name,tower_no_snapshot:tower.tower_no,physical_code_snapshot:tower.tower_code,work_target_type:v.workType,operation_id:op.id,operation_version:op.version,operation_snapshot:op.name,target_object:row.target,quantity_scaled:row.quantity,unit_id:unit.id,unit_version:unit.version,unit_snapshot:unit.name,completion_standard:v.standard,problem_description:v.problem,priority_id:priority?.id||null,priority_snapshot:priority?.name||null,expected_on:body.expected_on||null,status:'pending',version:1,confirmed_at:null,created_by:user.id,created_at:t,updated_at:t};
+   item.custom_fields_json=JSON.stringify(row.custom);item.field_definitions_json=JSON.stringify(row.fields);
+   exec('INSERT INTO demands('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
    for(const sourceId of sourceIds)exec('INSERT INTO demand_sources VALUES(?,?)',id,sourceId);
    for(const relatedId of row.related)if(relatedId!==tower.id)exec('INSERT INTO demand_related_logical_towers VALUES(?,?)',id,relatedId);
    postAudit(user,'demands',item,'submit');
@@ -290,6 +311,9 @@ function demandDetail(id){
  if(!d)fail(404,'需求不存在');
  d.sources=all('SELECT s.* FROM source_records s JOIN demand_sources ds ON ds.source_id=s.id WHERE ds.demand_id=?',id);
  d.related_towers=all('SELECT t.*,l.name AS line_name FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN demand_related_logical_towers r ON r.logical_tower_id=t.id WHERE r.demand_id=?',id);
+ d.custom_fields=JSON.parse(d.custom_fields_json);d.field_definitions=JSON.parse(d.field_definitions_json);
+ d.project_references=frozenProjects(id);
+ d.attachments=all("SELECT id,filename,bytes,sha256,created_at FROM attachments WHERE owner_type='demand' AND owner_id=? ORDER BY created_at",id);
  d.revisions=all('SELECT * FROM demand_revisions WHERE demand_id=? ORDER BY version DESC',id);
  return d;
 }
@@ -301,13 +325,15 @@ function updateDemand(id,body,user){
  const next={...old};
  const keys=['target_object','completion_standard','problem_description','expected_on','priority_id','operation_id','unit_id'];
  for(const k of keys)if(body[k]!==undefined)next[k]=body[k];
- if(body.quantity!==undefined)next.quantity_milli=qtyMilli(body.quantity);
+ if(body.quantity!==undefined)next.quantity_scaled=quantityToScaled(body.quantity);
  if(next.operation_id!==old.operation_id){
   const op=ensureItem(next.operation_id,'operation');if(op.work_target_type!=='both'&&op.work_target_type!==next.work_target_type)fail(422,'操作不适用');
-  next.operation_version=op.version;next.operation_snapshot=op.name;
+  next.operation_version=op.version;next.operation_snapshot=op.name;next.field_definitions_json=op.fields_json;next.custom_fields_json=JSON.stringify(validateFieldValues(JSON.parse(op.fields_json),body.custom_fields||{}));
  }
  if(next.unit_id!==old.unit_id){const u=ensureItem(next.unit_id,'unit');next.unit_version=u.version;next.unit_snapshot=u.name}
  if(next.priority_id!==old.priority_id){next.priority_snapshot=next.priority_id?ensureItem(next.priority_id,'priority').name:null}
+ if(body.custom_fields!==undefined)next.custom_fields_json=JSON.stringify(validateFieldValues(JSON.parse(next.field_definitions_json),body.custom_fields));
+ protectDemandChange(old,next);
  next.target_object=required(next.target_object,'处理对象');next.problem_description=required(next.problem_description,'问题说明');next.completion_standard=required(next.completion_standard,'完成标准');
  next.version++;next.updated_at=now();if(old.status==='active'){next.status='pending';next.confirmed_at=null}
  return transaction(()=>{
@@ -316,6 +342,22 @@ function updateDemand(id,body,user){
   exec('UPDATE demands SET '+changed.map(k=>k+'=?').join(',')+' WHERE id=?',...changed.map(k=>next[k]),id);
   postAudit(user,'demands',next,'revise',old,body.reason||'修改');
   return demandDetail(id);
+ });
+}
+function revalidateLocation(id,body,user){
+ const old=one('SELECT * FROM demands WHERE id=?',id);if(!old)fail(404,'需求不存在');
+ if(old.version!==body.version)fail(409,'需求版本冲突，请刷新');
+ if(old.status==='cancelled')fail(409,'已取消需求不能重新核实位置');
+ const reason=required(body.reason,'位置重新核实依据');
+ return transaction(()=>{
+  const tower=ensureLogical(old.logical_tower_id);
+  const related=all('SELECT logical_tower_id FROM demand_related_logical_towers WHERE demand_id=?',id);
+  if(old.work_target_type==='physical'&&related.some(x=>ensureLogical(x.logical_tower_id).physical_tower_id!==tower.physical_tower_id))fail(409,'受影响回路与当前实体不一致，请先核对共塔范围');
+  const next={...old,observed_physical_tower_id:tower.physical_tower_id,line_name_snapshot:tower.line_name,tower_no_snapshot:tower.tower_no,physical_code_snapshot:tower.tower_code,status:'pending',confirmed_at:null,version:old.version+1,updated_at:now()};
+  protectDemandChange(old,next);
+  exec('INSERT INTO demand_revisions VALUES(?,?,?,?,?,?,?)',uid(),id,old.version,JSON.stringify(old),reason,user.id,now());
+  exec('UPDATE demands SET observed_physical_tower_id=?,line_name_snapshot=?,tower_no_snapshot=?,physical_code_snapshot=?,status=?,confirmed_at=NULL,version=?,updated_at=? WHERE id=?',next.observed_physical_tower_id,next.line_name_snapshot,next.tower_no_snapshot,next.physical_code_snapshot,next.status,next.version,next.updated_at,id);
+  postAudit(user,'demands',next,'revalidate_location',old,reason);return demandDetail(id);
  });
 }
 function verifyDemand(id,body,user){
@@ -328,8 +370,10 @@ function verifyDemand(id,body,user){
   const tower=ensureLogical(old.logical_tower_id);
   if(tower.physical_tower_id!==old.observed_physical_tower_id)fail(409,'实体关联已变化，请修订后重新提交核实');
   ensureItem(old.operation_id,'operation');ensureItem(old.unit_id,'unit');
+  validateFieldValues(JSON.parse(old.field_definitions_json),JSON.parse(old.custom_fields_json));
   for(const link of all('SELECT s.type_id FROM source_records s JOIN demand_sources x ON x.source_id=s.id WHERE x.demand_id=?',id))ensureItem(link.type_id,'source');
  }
+ protectDemandChange(old,{...old,status});
  const t=now(),next={...old,status,version:old.version+1,confirmed_at:status==='active'?t:null,updated_at:t};
  return transaction(()=>{
   exec('INSERT INTO demand_revisions VALUES(?,?,?,?,?,?,?)',uid(),id,old.version,JSON.stringify(old),reason,user.id,t);
@@ -338,7 +382,7 @@ function verifyDemand(id,body,user){
  });
 }
 function listDemands(query){
- let sql=`SELECT d.id,d.demand_no,d.line_name_snapshot,d.tower_no_snapshot,d.physical_code_snapshot,d.operation_snapshot,d.target_object,d.quantity_milli,d.unit_snapshot,d.status,d.version,d.created_at,d.work_target_type,d.problem_description
+ let sql=`SELECT d.id,d.demand_no,d.line_name_snapshot,d.tower_no_snapshot,d.physical_code_snapshot,d.operation_snapshot,d.target_object,d.quantity_scaled,d.unit_snapshot,d.status,d.version,d.created_at,d.work_target_type,d.problem_description
  FROM demands d WHERE 1=1`;
  const args=[];
  if(query.get('status')){sql+=' AND d.status=?';args.push(query.get('status'))}
@@ -349,8 +393,8 @@ function listDemands(query){
 }
 async function exportExcel(rows){
  const workbook=new ExcelJS.Workbook();const sheet=workbook.addWorksheet('需求台账');
- sheet.columns=[['系统编号','demand_no'],['线路','line_name_snapshot'],['杆塔号','tower_no_snapshot'],['物理塔','physical_code_snapshot'],['操作','operation_snapshot'],['处理部位','target_object'],['工作量','quantity_milli'],['单位','unit_snapshot'],['状态','status'],['问题说明','problem_description']].map(([header,key])=>({header,key,width:20}));
- for(const d of rows)sheet.addRow({...d,quantity_milli:d.quantity_milli/1000});
+ sheet.columns=[['系统编号','demand_no'],['线路','line_name_snapshot'],['杆塔号','tower_no_snapshot'],['物理塔','physical_code_snapshot'],['操作','operation_snapshot'],['处理部位','target_object'],['工作量','quantity_scaled'],['单位','unit_snapshot'],['状态','status'],['问题说明','problem_description']].map(([header,key])=>({header,key,width:20}));
+ for(const d of rows)sheet.addRow({...d,quantity_scaled:d.quantity_scaled/10000});
  sheet.getRow(1).font={bold:true};
  return Buffer.from(await workbook.xlsx.writeBuffer());
 }
@@ -454,14 +498,17 @@ async function dispatch(req,res){
    return json(res,200,{...item,name_history:histories[table]?all('SELECT * FROM '+histories[table]+' WHERE '+(table==='transmission_lines'?'line_id':'logical_tower_id')+'=? ORDER BY valid_from DESC',match[1]):[],physical_history:table==='logical_towers'?all('SELECT * FROM logical_tower_physical_history WHERE logical_tower_id=? ORDER BY valid_from DESC',match[1]):[]});
   }
  }
+ if(pathname==='/api/demand-batches'&&method==='GET'){permit(user,'write');const status=choice(searchParams.get('status')||'draft',['draft','submitted'],'批次状态');return json(res,200,all('SELECT * FROM demand_batches WHERE status=? AND (created_by=? OR ?=1) ORDER BY updated_at DESC',status,user.id,user.role==='admin'?1:0))}
  if(pathname==='/api/demand-batches/drafts'&&method==='POST'){permit(user,'write');return json(res,201,draftBatch(await parseJson(req),user))}
  if(pathname==='/api/demand-batches/submit'&&method==='POST'){permit(user,'write');return json(res,201,submitBatch(await parseJson(req),user))}
  const batch=pathname.match(/^\/api\/demand-batches\/([^/]+)$/);
- if(batch&&method==='GET'){permit(user,'view');const d=one('SELECT * FROM demand_batches WHERE id=?',batch[1]);if(!d)fail(404,'草稿不存在');return json(res,200,d)}
+ if(batch&&method==='GET'){permit(user,'write');return json(res,200,ownedBatch(batch[1],user))}
+ if(batch&&method==='PATCH'){permit(user,'write');return json(res,200,updateDraft(batch[1],await parseJson(req),user))}
  if(pathname==='/api/demands'&&method==='GET'){permit(user,'view');return json(res,200,listDemands(searchParams))}
  if(pathname==='/api/demands/export.xlsx'&&method==='GET'){permit(user,'view');const buf=await exportExcel(listDemands(searchParams));res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':"attachment; filename*=UTF-8''demands.xlsx",'Content-Length':buf.length,'Cache-Control':'no-store'});return res.end(buf)}
- const d=pathname.match(/^\/api\/demands\/([^/]+)(?:\/(verify|revisions))?$/);
+ const d=pathname.match(/^\/api\/demands\/([^/]+)(?:\/(verify|revisions|revalidate-location))?$/);
  if(d&&method==='GET'){permit(user,'view');return json(res,200,demandDetail(d[1]))}
+ if(d&&d[2]==='revalidate-location'&&method==='POST'){permit(user,'write');return json(res,200,revalidateLocation(d[1],await parseJson(req),user))}
  if(d&&d[2]==='verify'&&method==='POST'){permit(user,'verify');return json(res,200,verifyDemand(d[1],await parseJson(req),user))}
  if(d&&!d[2]&&method==='PATCH'){permit(user,'write');return json(res,200,updateDemand(d[1],await parseJson(req),user))}
  if(pathname==='/api/attachments'&&method==='POST'){
@@ -472,7 +519,7 @@ async function dispatch(req,res){
   const bytes=await parseBinary(req),key=uid(),id=uid();if(!bytes.length)fail(422,'附件不能为空');
   const file=join(dataRoot,'attachments',key);
   writeFileSync(file,bytes,{flag:'wx'});
-  try{transaction(()=>{exec('INSERT INTO attachments VALUES(?,?,?,?,?,?,?,?,?)',id,ownerType,ownerId,key,filename,req.headers['content-type']||'application/octet-stream',bytes.length,sha(bytes),user.id,now());postAudit(user,'attachments',{id,owner_type:ownerType,owner_id:ownerId,filename},'upload')})}catch(e){unlinkSync(file);throw e}
+  try{transaction(()=>{exec('INSERT INTO attachments(id,owner_type,owner_id,storage_key,filename,mime,bytes,sha256,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)',id,ownerType,ownerId,key,filename,req.headers['content-type']||'application/octet-stream',bytes.length,sha(bytes),user.id,now());postAudit(user,'attachments',{id,owner_type:ownerType,owner_id:ownerId,filename},'upload')})}catch(e){unlinkSync(file);throw e}
   return json(res,201,{id,filename,bytes:bytes.length});
  }
  const att=pathname.match(/^\/api\/attachments\/([^/]+)$/);
