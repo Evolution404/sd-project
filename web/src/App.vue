@@ -3,6 +3,7 @@ import {computed,onMounted,reactive,ref,watch} from 'vue';
 import {newClientId} from './utils/client-id';
 import FormModal from './components/FormModal.vue';
 import CustomFields from './components/CustomFields.vue';
+import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
 const nav=ref('overview'),page=ref('overview'),user=ref<Rec|null>(null);
 const expandedGroup=ref('');const sidebarMobile=ref(false);
@@ -68,12 +69,13 @@ watch(()=>common.operation_id,()=>{common.custom_fields=Object.fromEntries(field
 const dateStr=(s:string)=>s?s.slice(0,10):'';
 const fmtQty=(v:any)=>Number(v||0)/10000;
 const statusName=(v:string)=>({pending:'待核实',active:'有效',returned:'退回',cancelled:'取消'} as Record<string,string>)[v]||v;
-const errorMessage=(e:any)=>e?.message||'网络请求失败';
+const visibleError=computed(()=>error.value===inlineErrorMessage.value?'':error.value);
+const errorMessage=(e:any)=>{const message=e?.message||'网络请求失败';presentFormError(message,e?.details);return message};
 function notify(msg:string){success.value=msg;setTimeout(()=>{if(success.value===msg)success.value=''},4000)}
 async function api(path:string,method='GET',body?:any){
  const res=await fetch('/api'+path,{method,credentials:'same-origin',headers:{...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
  const data=await res.json();
- if(!res.ok)throw Error(data.error+(data.details?'：'+data.details.map((x:any)=>'第'+x.row+'行 '+x.message).join('；'):''));
+ if(!res.ok)throw Object.assign(Error(data.error+(data.details?'：'+data.details.map((x:any)=>'第'+x.row+'行 '+x.message).join('；'):'')),{details:data.details});
  return data;
 }
 async function doLogin(){error.value='';busy.value=true;try{const r=await api('/auth/login','POST',{username:username.value,password:password.value});user.value=r.user;password.value='';await refresh();}catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
@@ -251,10 +253,11 @@ async function revalidateDemandLocation(reason:string){
 }
 async function uploadAttachment(event:Event){const input=event.target as HTMLInputElement,file=input.files?.[0];if(!file||!detail.value)return;
  error.value='';busy.value=true;try{
+ if(file.size>15*1024*1024)throw Error('附件不能超过15MB');
  const res=await fetch('/api/attachments',{method:'POST',credentials:'same-origin',headers:{'x-owner-type':'demand','x-owner-id':detail.value.id,'x-filename':encodeURIComponent(file.name),'content-type':file.type||'application/octet-stream'},body:file});
  const data=await res.json();if(!res.ok)throw Error(data.error);
  detail.value=await api('/demands/'+detail.value.id);attachmentDialog.value=false;notify('附件已上传');
- }catch(e){error.value=errorMessage(e)}finally{busy.value=false;input.value=''}
+ }catch(e){error.value=errorMessage(e);presentFormError(error.value,undefined,input)}finally{busy.value=false;input.value=''}
 }
 async function showDemand(id:string){demandEdit.value=null;try{detail.value=await api('/demands/'+id);stage.value='demand'}catch(e){error.value=errorMessage(e)}}
 async function verify(status:string,reason:string){if(!detail.value)return;error.value='';try{detail.value=await api('/demands/'+detail.value.id+'/verify','POST',{status,version:detail.value.version,reason});await loadDemands();notify('核实结果已保存')}catch(e){error.value=errorMessage(e)}}
@@ -291,7 +294,7 @@ onMounted(async()=>{try{user.value=(await api('/auth/me')).user;await refresh()}
 watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands')loadDemands().catch(e=>error.value=errorMessage(e))});
 </script>
 <template>
-<div v-if="!user" class="auth-bg"><div class="auth-card"><div class="logo">SD</div><h1>输电项目全流程管理</h1><p class="muted">使用本地服务器账号登录</p><form @submit.prevent="doLogin"><label>用户名<input v-model="username" autocomplete="username" required placeholder="输入用户名"/></label><label>密码<input v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码"/></label><p v-if="error" class="error">{{error}}</p><button class="primary full" :disabled="busy">登录系统</button></form><p class="minor">首次部署请在服务器运行「初始化管理员.cmd」</p></div></div>
+<div v-if="!user" class="auth-bg"><div class="auth-card"><div class="logo">SD</div><h1>输电项目全流程管理</h1><p class="muted">使用本地服务器账号登录</p><form v-form-validation novalidate @submit.prevent="doLogin"><label><span class="field-caption">用户名</span><input v-model="username" autocomplete="username" required placeholder="输入用户名"/></label><label><span class="field-caption">密码</span><input v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码"/></label><p v-if="visibleError" class="error">{{visibleError}}</p><button class="primary full" :disabled="busy">登录系统</button></form><p class="minor">首次部署请在服务器运行「初始化管理员.cmd」</p></div></div>
 <div v-else class="shell">
  <header class="app-header">
   <div class="app-brand"><div class="logo sm">输</div><strong>输电项目管理</strong></div>
@@ -318,21 +321,21 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <div class="page-heading-title"><h1>{{displayTitle}}</h1><span v-if="nav==='entry'" class="subtle-tag">逐基独立生成</span></div>
    <p class="page-description">{{nav==='entry'?'选择多个位置，共同内容填一次；逐基差异在预览中调整。':nav==='overview'?'掌握项目与需求的当前状态。':nav==='demands'?'查看、核实和跟踪每一条需求。':nav==='access'?'由管理员逐个配置允许访问服务器的 IP 地址。':nav==='projects'?'从项目储备到立项及分次执行的全过程管理。':'维护真实业务台账与版本历史。'}}</p>
   </div>
-  <p v-if="error" role="alert" class="alert error">{{error}} <button @click="error=''">×</button></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
+  <p v-if="visibleError" role="alert" class="alert error">{{visibleError}} <button @click="error=''">×</button></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
   <template v-if="nav==='overview'"><div class="stats"><div v-for="(label,key) in {lines:'线路',physical:'实体杆塔',logical:'逻辑杆塔',pending:'待核实需求',active:'有效需求'}" :key="key" class="stat"><small>{{label}}</small><strong>{{overview[key]??0}}</strong></div></div><section class="panel"><div class="section-header"><div><h2>待核实事项</h2><p class="muted">基于当前数据库实际记录</p></div><button class="secondary" @click="openNav('demands')">进入需求中心</button></div><div v-if="!demands.filter(x=>x.status==='pending').length" class="empty">当前没有待核实需求</div><div v-else class="table-wrap"><table><thead><tr><th>需求编号</th><th>位置</th><th>操作</th><th>工作量</th><th></th></tr></thead><tbody><tr v-for="d in demands.filter(x=>x.status==='pending').slice(0,8)" :key="d.id"><td>{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><button class="link" @click="openNav('demands');showDemand(d.id)">查看</button></td></tr></tbody></table></div></section></template>
   <template v-if="['lines','physical','logical'].includes(nav)">
    <section class="panel"><div class="section-header"><div><h2>{{mediaTitle}}列表</h2><p class="muted">稳定编码与名称独立，历史修改保留</p></div><button v-if="roleWrite" class="primary" @click="openCreate">新增{{mediaTitle}}</button></div>
    <div class="table-wrap"><table><thead><tr><th>编码</th><th>名称或杆塔号</th><th v-if="nav==='logical'">线路</th><th v-if="nav==='logical'">实体塔</th><th v-if="nav==='lines'">电压等级</th><th>状态</th><th>操作</th></tr></thead>
     <tbody><tr v-for="x in collectionFor(nav)" :key="x.id"><td class="mono">{{x.code||x.line_code||x.tower_code||x.logical_code}}</td><td>{{x.name||x.tower_no||x.tower_type||'—'}}</td><td v-if="nav==='logical'">{{x.line_name}} / 序号{{x.sort_rank}}</td><td v-if="nav==='logical'">{{x.physical_code||'待关联'}}</td><td v-if="nav==='lines'">{{x.voltage_name}}</td><td><span class="tag">{{x.status}}</span></td><td class="actions"><button class="link" @click="showMaster(x)">详情</button><button v-if="roleWrite" class="link" @click="openEdit(x)">编辑</button></td></tr><tr v-if="!collectionFor(nav).length"><td colspan="7" class="empty">尚无台账，请通过新增录入真实信息</td></tr></tbody></table></div></section>
-<FormModal :open="stage===nav" :title="(edit?'编辑':'新增')+mediaTitle" :error="error" size="wide" @close="stage='';edit=null">
-    <form @submit.prevent="saveMaster" class="form-grid">
-     <label v-for="[key,label] in fieldsFor(nav)" :key="key">{{label}} <input v-model="form[key]" :disabled="!!edit&&['code','line_code','tower_code','logical_code'].includes(key)" :required="['code','line_code','tower_code','logical_code','name','tower_no','sort_rank'].includes(key)"/></label>
-     <label v-if="nav==='lines'">所属电压<select v-model="form.voltage_level_id" :disabled="!!edit" required><option value="">请选择</option><option v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-     <label v-if="nav==='logical'">所属线路<select v-model="form.line_id" :disabled="!!edit" required><option value="">请选择</option><option v-for="x in lines.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-     <label v-if="nav==='logical'">对应物理塔<select v-model="form.physical_tower_id"><option value="">待核实</option><option v-for="x in physical.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.tower_code}} {{x.tower_type}}</option></select></label>
-     <label>状态<select v-model="form.status"><option value="active">启用</option><option v-if="nav==='logical'" value="draft">草稿</option><option value="inactive">停用</option><option v-if="nav==='physical'" value="retired">退役</option></select></label>
-     <label v-if="edit" class="wide">调整原因<input v-model="form.reason" placeholder="名称变化、实体纠错或换塔的依据"/></label>
-     <label v-if="edit&&nav==='logical'">实体变化类型<select v-model="form.change_kind"><option value="">未改变实体</option><option value="correction">关联纠错</option><option value="replacement">实际换塔</option></select></label>
+<FormModal :open="stage===nav" :title="(edit?'编辑':'新增')+mediaTitle" :error="visibleError" size="wide" @close="stage='';edit=null">
+    <form v-form-validation novalidate @submit.prevent="saveMaster" class="form-grid">
+     <label v-for="[key,label] in fieldsFor(nav)" :key="key"><span class="field-caption">{{label}}</span><input v-model="form[key]" :type="['longitude','latitude','sort_rank'].includes(key)?'number':'text'" :step="key==='sort_rank'?'1':'any'" :min="key==='longitude'?-180:key==='latitude'?-90:key==='sort_rank'?1:undefined" :max="key==='longitude'?180:key==='latitude'?90:undefined" :disabled="!!edit&&['code','line_code','tower_code','logical_code'].includes(key)" :required="['code','line_code','tower_code','logical_code','name','tower_no','sort_rank'].includes(key)"/></label>
+     <label v-if="nav==='lines'"><span class="field-caption">所属电压</span><select v-model="form.voltage_level_id" :disabled="!!edit" required><option value="">请选择</option><option v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
+     <label v-if="nav==='logical'"><span class="field-caption">所属线路</span><select v-model="form.line_id" :disabled="!!edit" required><option value="">请选择</option><option v-for="x in lines.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
+     <label v-if="nav==='logical'"><span class="field-caption">对应物理塔</span><select v-model="form.physical_tower_id" :required="form.status==='active'"><option value="">待核实</option><option v-for="x in physical.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.tower_code}} {{x.tower_type}}</option></select></label>
+     <label><span class="field-caption">状态</span><select v-model="form.status"><option value="active">启用</option><option v-if="nav==='logical'" value="draft">草稿</option><option value="inactive">停用</option><option v-if="nav==='physical'" value="retired">退役</option></select></label>
+     <label v-if="edit" class="wide"><span class="field-caption">调整原因</span><input v-model="form.reason" placeholder="名称变化、实体纠错或换塔的依据"/></label>
+     <label v-if="edit&&nav==='logical'"><span class="field-caption">实体变化类型</span><select v-model="form.change_kind"><option value="">未改变实体</option><option value="correction">关联纠错</option><option value="replacement">实际换塔</option></select></label>
      <div class="wide form-actions"><button type="button" class="light" @click="stage='';edit=null">取消</button><button class="primary" :disabled="busy">保存台账</button></div>
     </form>
    </FormModal>
@@ -351,14 +354,14 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      </tbody>
     </table></div>
    </section>
-<FormModal :open="stage===nav" :title="'创建'+mediaTitle" :error="error" size="normal" @close="stage='';edit=null">
-    <form class="form-grid" @submit.prevent="saveStructure">
-     <label>业务编码<input v-model.trim="form.code" required placeholder="唯一稳定业务编码"/></label>
-     <label>名称<input v-model.trim="form.name" required/></label>
-     <label v-if="nav!=='projects'">授权额度（元）<input v-model.trim="form.limit_yuan" required inputmode="decimal" placeholder="100000.00"/></label>
-     <label v-if="nav==='agreements'">所属框架<select v-model="form.framework_id" required><option value="">请选择</option><option v-for="f in frameworks.filter(x=>x.status==='active')" :key="f.id" :value="f.id">{{f.name}}</option></select></label>
-     <label v-if="nav==='projects'">拟归属执行协议（储备阶段可不选）<select v-model="form.agreement_id"><option value="">待落实</option><option v-for="a in agreements.filter(x=>x.status==='active')" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
-     <label v-if="nav==='projects'">储备类别<select v-model="form.category_id"><option value="">待分类</option><option v-for="c in options('category').filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</option></select></label>
+<FormModal :open="stage===nav" :title="'创建'+mediaTitle" :error="visibleError" size="normal" @close="stage='';edit=null">
+    <form v-form-validation novalidate class="form-grid" @submit.prevent="saveStructure">
+     <label><span class="field-caption">业务编码</span><input v-model.trim="form.code" required placeholder="唯一稳定业务编码"/></label>
+     <label><span class="field-caption">名称</span><input v-model.trim="form.name" required/></label>
+     <label v-if="nav!=='projects'"><span class="field-caption">授权额度（元）</span><input v-model.trim="form.limit_yuan" data-validate="money" required inputmode="decimal" placeholder="100000.00"/></label>
+     <label v-if="nav==='agreements'"><span class="field-caption">所属框架</span><select v-model="form.framework_id" required><option value="">请选择</option><option v-for="f in frameworks.filter(x=>x.status==='active')" :key="f.id" :value="f.id">{{f.name}}</option></select></label>
+     <label v-if="nav==='projects'"><span class="field-caption">拟归属执行协议（储备阶段可不选）</span><select v-model="form.agreement_id"><option value="">待落实</option><option v-for="a in agreements.filter(x=>x.status==='active')" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
+     <label v-if="nav==='projects'"><span class="field-caption">储备类别</span><select v-model="form.category_id"><option value="">待分类</option><option v-for="c in options('category').filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</option></select></label>
      <div class="wide form-actions"><button type="button" class="light" @click="stage=''">取消</button><button class="primary" :disabled="busy">保存</button></div>
     </form>
    </FormModal>
@@ -370,9 +373,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <div class="toolbar"><span class="muted">{{agreements.find(x=>x.id===projectView?.agreement_id)?.name||'暂未关联执行协议'}}</span>
     <button v-if="roleWrite&&['reserve','stocked'].includes(projectView.status)" class="secondary" @click="projectAction='agreement'">设置执行协议</button>
    </div>
-   <FormModal :open="projectAction==='agreement'" title="选择执行协议" :error="error" @close="projectAction=''">
-    <form class="form-grid" @submit.prevent="bindProjectAgreement">
-     <label class="wide">唯一执行协议<select v-model="agreementSelection" required><option value="">请选择</option><option v-for="a in agreements.filter(x=>x.status==='active')" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
+   <FormModal :open="projectAction==='agreement'" title="选择执行协议" :error="visibleError" @close="projectAction=''">
+    <form v-form-validation novalidate class="form-grid" @submit.prevent="bindProjectAgreement">
+     <label class="wide"><span class="field-caption">唯一执行协议</span><select v-model="agreementSelection" required><option value="">请选择</option><option v-for="a in agreements.filter(x=>x.status==='active')" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
      <div class="form-actions"><button type="button" class="light" @click="projectAction=''">取消</button><button class="primary">确认协议归属</button></div>
     </form>
    </FormModal>
@@ -382,19 +385,19 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <p>计划 {{fmtQty(scope.quantity_scaled)}} {{scope.unit_snapshot}} · 单价 {{money(scope.unit_price_fen)}} 元 · {{scope.price_source||'价格待确定'}}</p>
    </div>
    <button v-if="roleWrite&&projectView.status==='reserve'" class="secondary" @click="projectAction='scope'">＋ 关联需求范围</button>
-   <FormModal :open="projectAction==='scope'" title="关联需求范围" :error="error" @close="projectAction=''">
-       <form class="form-grid" @submit.prevent="addProjectScope">
-    <label class="wide">纳入有效需求<select v-model="scopeDemand" required><option value="">请选择</option><option v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.line_name_snapshot}} {{d.tower_no_snapshot}} · {{d.operation_snapshot}}</option></select></label>
-    <label>本项目拟覆盖工作量<input v-model="scopeQuantity" required inputmode="decimal"/></label><div class="form-actions"><button class="secondary">关联需求</button></div>
+   <FormModal :open="projectAction==='scope'" title="关联需求范围" :error="visibleError" @close="projectAction=''">
+       <form v-form-validation novalidate class="form-grid" @submit.prevent="addProjectScope">
+    <label class="wide"><span class="field-caption">纳入有效需求</span><select v-model="scopeDemand" required><option value="">请选择</option><option v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.line_name_snapshot}} {{d.tower_no_snapshot}} · {{d.operation_snapshot}}</option></select></label>
+    <label><span class="field-caption">本项目拟覆盖工作量</span><input v-model="scopeQuantity" data-validate="quantity" required inputmode="decimal"/></label><div class="form-actions"><button class="secondary">关联需求</button></div>
    </form>
    </FormModal>
-   <FormModal :open="!!scopePriceEdit" title="核定估价依据" :error="error" @close="scopePriceEdit=null">
-      <form class="form-grid scope-editor" @submit.prevent="saveScopePrice">
-    <label>核定单价（元）<input v-model="scopePrice.unit_price_yuan" inputmode="decimal" placeholder="留空代表待估价"/></label>
-    <label>价格依据<input v-model="scopePrice.price_source" placeholder="物资报价或有效定额编号"/></label>
-    <label>依据日期<input type="date" v-model="scopePrice.price_date"/></label>
-    <label>税口径<select v-model="scopePrice.tax_mode"><option value="inclusive">含税</option><option value="exclusive">不含税</option><option value="none">不适用</option></select></label>
-    <label class="wide">修订原因<input v-model="scopePrice.reason" placeholder="核定或调整依据"/></label>
+   <FormModal :open="!!scopePriceEdit" title="核定估价依据" :error="visibleError" @close="scopePriceEdit=null">
+      <form v-form-validation novalidate class="form-grid scope-editor" @submit.prevent="saveScopePrice">
+    <label><span class="field-caption">核定单价（元）</span><input v-model="scopePrice.unit_price_yuan" data-validate="money" inputmode="decimal" placeholder="留空代表待估价"/></label>
+    <label><span class="field-caption">价格依据</span><input v-model="scopePrice.price_source" placeholder="物资报价或有效定额编号"/></label>
+    <label><span class="field-caption">依据日期</span><input type="date" v-model="scopePrice.price_date"/></label>
+    <label><span class="field-caption">税口径</span><select v-model="scopePrice.tax_mode"><option value="inclusive">含税</option><option value="exclusive">不含税</option><option value="none">不适用</option></select></label>
+    <label class="wide"><span class="field-caption">修订原因</span><input v-model="scopePrice.reason" placeholder="核定或调整依据"/></label>
     <div class="wide form-actions"><button class="primary">保存估价</button><button type="button" class="light" @click="scopePriceEdit=null">取消</button></div>
    </form>
    </FormModal>
@@ -404,9 +407,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <div v-if="!executionRows.length" class="empty">尚无执行批次</div>
    <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条计划 · 确认工作量 {{fmtQty(e.completed_quantity_scaled)}}（不同单位不能合计核算）</p></div><button class="link" @click="openExecution(e.id)">进入执行</button></div><span class="tag">{{e.status}}</span></div>
    <button v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建执行批次</button>
-   <FormModal :open="projectAction==='execution'" title="新建执行批次" :error="error" @close="projectAction=''">
-       <form class="form-grid" @submit.prevent="createProjectExecution">
-     <label>执行批次编号<input v-model="executionNumber" required placeholder="如 2026-01"/></label><label>施工说明<input v-model="executionDescription" placeholder="本次施工任务"/></label><div class="wide form-actions"><button class="secondary">新建执行批次</button></div>
+   <FormModal :open="projectAction==='execution'" title="新建执行批次" :error="visibleError" @close="projectAction=''">
+       <form v-form-validation novalidate class="form-grid" @submit.prevent="createProjectExecution">
+     <label><span class="field-caption">执行批次编号</span><input v-model="executionNumber" required placeholder="如 2026-01"/></label><label><span class="field-caption">施工说明</span><input v-model="executionDescription" placeholder="本次施工任务"/></label><div class="wide form-actions"><button class="secondary">新建执行批次</button></div>
    </form>
    </FormModal>
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
@@ -421,17 +424,17 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <button v-if="executionView.status==='running'&&roleWrite" class="secondary" @click="completionItem=i">确认完成量</button>
 
    </div>
-   <FormModal :open="!!completionItem" :title="'确认实际完成量：'+(completionItem?.demand_no||'')" :error="error" @close="completionItem=null">
-        <form @submit.prevent="confirmWork(completionItem!)" class="form-grid">
-     <label>本次确认量<input v-model="completeQuantity" required inputmode="decimal"/></label><label>实施日期<input v-model="completeDate" required type="date"/></label>
-     <label class="wide">完成依据 / 验收说明<input v-model="completeEvidence" required/></label><div class="wide form-actions"><button class="secondary">确认实际完成量</button></div>
+   <FormModal :open="!!completionItem" :title="'确认实际完成量：'+(completionItem?.demand_no||'')" :error="visibleError" @close="completionItem=null">
+        <form v-form-validation novalidate @submit.prevent="confirmWork(completionItem!)" class="form-grid">
+     <label><span class="field-caption">本次确认量</span><input v-model="completeQuantity" data-validate="quantity" required inputmode="decimal"/></label><label><span class="field-caption">实施日期</span><input v-model="completeDate" required type="date"/></label>
+     <label class="wide"><span class="field-caption">完成依据 / 验收说明</span><input v-model="completeEvidence" required/></label><div class="wide form-actions"><button class="secondary">确认实际完成量</button></div>
     </form>
    </FormModal>
    <button v-if="executionView.status==='planned'&&roleWrite" class="secondary" @click="executionAction='plan'">＋ 安排工作明细</button>
-   <FormModal :open="executionAction==='plan'" title="安排本次执行明细" :error="error" @close="executionAction=''">
-       <form @submit.prevent="addExecutionPlan" class="form-grid">
-    <label class="wide">安排批准范围<select v-model="execScopeId" required><option value="">请选择</option><option v-for="s in eligibleExecutionScopes" :key="s.id" :value="s.id">{{s.demand_no}} · {{s.line_name_snapshot}} {{s.tower_no_snapshot}}</option></select></label>
-    <label>本批次拟完成工作量<input v-model="execQuantity" required inputmode="decimal"/></label><div class="form-actions"><button class="secondary">安排工作明细</button></div>
+   <FormModal :open="executionAction==='plan'" title="安排本次执行明细" :error="visibleError" @close="executionAction=''">
+       <form v-form-validation novalidate @submit.prevent="addExecutionPlan" class="form-grid">
+    <label class="wide"><span class="field-caption">安排批准范围</span><select v-model="execScopeId" required><option value="">请选择</option><option v-for="s in eligibleExecutionScopes" :key="s.id" :value="s.id">{{s.demand_no}} · {{s.line_name_snapshot}} {{s.tower_no_snapshot}}</option></select></label>
+    <label><span class="field-caption">本批次拟完成工作量</span><input v-model="execQuantity" data-validate="quantity" required inputmode="decimal"/></label><div class="form-actions"><button class="secondary">安排工作明细</button></div>
    </form>
    </FormModal>
    <div v-if="roleWrite" class="form-actions">
@@ -445,15 +448,15 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <section class="panel"><div class="section-header"><div><h2>允许访问的 IP</h2><p class="muted">逐个配置具体IP地址；保存后无需重启服务</p></div></div>
       <p class="muted">服务器识别到本次连接的地址：<strong class="mono">{{currentClientIP}}</strong>。本机 127.0.0.1 和 ::1 永久允许，用于初始化和应急管理。其他地址未加入列表时默认拒绝。</p>
       <button class="primary" @click="ipDialog=true">＋ 添加允许 IP</button>
-      <FormModal :open="ipDialog" title="添加允许访问的 IP" :error="error" @close="ipDialog=false">
-             <form class="form-grid" @submit.prevent="addAllowedIP">
-        <label>IP 地址<input v-model.trim="ipInput" required placeholder="例如 192.168.1.105 或 2001:db8::1"/></label>
-        <label>设备 / 用途备注<input v-model.trim="ipNote" placeholder="例如 运检班组办公电脑"/></label>
+      <FormModal :open="ipDialog" title="添加允许访问的 IP" :error="visibleError" @close="ipDialog=false">
+             <form v-form-validation novalidate class="form-grid" @submit.prevent="addAllowedIP">
+        <label><span class="field-caption">IP 地址</span><input v-model.trim="ipInput" required placeholder="例如 192.168.1.105 或 2001:db8::1"/></label>
+        <label><span class="field-caption">设备 / 用途备注</span><input v-model.trim="ipNote" placeholder="例如 运检班组办公电脑"/></label>
         <button class="primary" :disabled="busy||!ipInput">添加允许 IP</button>
       </form>
       </FormModal>
 
-      <FormModal :open="!!pendingRemoveIP" title="移除 IP 访问权限" :error="error" @close="pendingRemoveIP=null">
+      <FormModal :open="!!pendingRemoveIP" title="移除 IP 访问权限" :error="visibleError" @close="pendingRemoveIP=null">
        <p>确定撤销 <strong class="mono">{{pendingRemoveIP?.ip}}</strong> 的访问授权吗？撤销后，新连接将立即被拒绝。</p>
        <div class="form-actions"><button class="light" @click="pendingRemoveIP=null">取消</button><button class="primary" @click="removeAllowedIP">确认移除</button></div>
       </FormModal>
@@ -462,43 +465,40 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <p class="muted minor">只允许精确 IP 地址，不允许填网段、IP 范围或域名。验证使用真实 TCP 连接地址，不相信浏览器传入的代理头。IP 授权不能替代账号登录；Windows 防火墙仍需单独放行服务端口。</p>
     </section>
   </template>
-  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>数据字典管理</h2><button class="primary" @click="editDict()">新增选项</button></div><p v-if="dictionaryType==='voltage'" class="muted">电压等级属于系统基础字典。线路引用同一份字典，停用后不再允许新增线路选用，已有线路关联保留。</p><div class="toolbar"><label>类别<select v-model="dictionaryType" @change="stage='';edit=null"><option value="voltage">电压等级</option><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th>编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in dictionaryRows" :key="x.id"><td class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><span class="tag">{{x.status==='active'?'启用':'停用'}}</span></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!dictionaryRows.length"><td colspan="6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
-<FormModal :open="stage==='dictionary'" :title="edit?'调整选项 v'+edit.version:'新增选项'" :error="error" size="wide" @close="stage='';edit=null">
-    <form class="form-grid" @submit.prevent="saveDict"><label>编码<input required v-model="form.code"/></label><label>名称<input required v-model="form.name"/></label><label>排序<input type="number" v-model.number="form.sort_order"/></label><label>状态<select v-model="form.status"><option value="active">启用</option><option value="inactive">停用</option></select></label>
-    <template v-if="dictionaryType==='operation'"><label>适用对象<select v-model="form.work_target_type"><option value="line">线路侧作业</option><option value="physical">共用实体作业</option><option value="both">两者适用</option></select></label><label>默认单位<select v-model="form.default_unit_id"><option value="">不设默认</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label>默认每项数量<input v-model="form.default_quantity" placeholder="1"/></label><label class="wide">默认完成标准<input v-model="form.completion_standard"/></label><label class="wide">字段模板 JSON<textarea v-model="form.fields_json" rows="2"/></label></template><div class="wide form-actions"><button type="button" class="light" @click="stage='';edit=null">取消</button><button class="primary" :disabled="busy">保存配置</button></div></form>
+  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>数据字典管理</h2><button class="primary" @click="editDict()">新增选项</button></div><p v-if="dictionaryType==='voltage'" class="muted">电压等级属于系统基础字典。线路引用同一份字典，停用后不再允许新增线路选用，已有线路关联保留。</p><div class="toolbar"><label><span class="field-caption">类别</span><select v-model="dictionaryType" @change="stage='';edit=null"><option value="voltage">电压等级</option><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th>编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in dictionaryRows" :key="x.id"><td class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><span class="tag">{{x.status==='active'?'启用':'停用'}}</span></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!dictionaryRows.length"><td colspan="6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
+<FormModal :open="stage==='dictionary'" :title="edit?'调整选项 v'+edit.version:'新增选项'" :error="visibleError" size="wide" @close="stage='';edit=null">
+    <form v-form-validation novalidate class="form-grid" @submit.prevent="saveDict"><label><span class="field-caption">编码</span><input required v-model="form.code"/></label><label><span class="field-caption">名称</span><input required v-model="form.name"/></label><label><span class="field-caption">排序</span><input type="number" v-model.number="form.sort_order"/></label><label><span class="field-caption">状态</span><select v-model="form.status"><option value="active">启用</option><option value="inactive">停用</option></select></label>
+    <template v-if="dictionaryType==='operation'"><label><span class="field-caption">适用对象</span><select v-model="form.work_target_type"><option value="line">线路侧作业</option><option value="physical">共用实体作业</option><option value="both">两者适用</option></select></label><label><span class="field-caption">默认单位</span><select v-model="form.default_unit_id"><option value="">不设默认</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">默认每项数量</span><input v-model="form.default_quantity" data-validate="quantity" placeholder="1"/></label><label class="wide"><span class="field-caption">默认完成标准</span><input v-model="form.completion_standard"/></label><label class="wide"><span class="field-caption">字段模板 JSON</span><textarea v-model="form.fields_json" data-validate="json" rows="2"/></label></template><div class="wide form-actions"><button type="button" class="light" @click="stage='';edit=null">取消</button><button class="primary" :disabled="busy">保存配置</button></div></form>
    </FormModal>
   </template>
   <template v-if="nav==='entry'">
-   <div class="entry-main">
-    <section v-if="roleWrite" class="panel"><div class="section-header"><h2>{{currentDraft?'正在编辑草稿 v'+currentDraft.version:'需求草稿'}}</h2><button class="secondary" @click="draftsOpen=!draftsOpen;loadDrafts()">{{draftsOpen?'收起草稿':'查看草稿'}}（{{drafts.length}}）</button></div>
-     <div v-if="draftsOpen"><p v-if="!drafts.length" class="muted">暂无未提交草稿</p><div v-for="draft in drafts" :key="draft.id" class="scope-item"><span>{{draft.updated_at}} · v{{draft.version}} · {{draft.id.slice(0,8)}}</span><button class="link" @click="restoreDraft(draft.id)">继续编辑</button></div></div>
+   <form v-form-validation novalidate class="entry-main" @submit.prevent="submitBatch(false)">
+    <section v-if="roleWrite" class="panel"><div class="section-header"><h2>{{currentDraft?'正在编辑草稿 v'+currentDraft.version:'需求草稿'}}</h2><button type="button" class="secondary" @click="draftsOpen=!draftsOpen;loadDrafts()">{{draftsOpen?'收起草稿':'查看草稿'}}（{{drafts.length}}）</button></div>
+     <div v-if="draftsOpen"><p v-if="!drafts.length" class="muted">暂无未提交草稿</p><div v-for="draft in drafts" :key="draft.id" class="scope-item"><span>{{draft.updated_at}} · v{{draft.version}} · {{draft.id.slice(0,8)}}</span><button type="button" class="link" @click="restoreDraft(draft.id)">继续编辑</button></div></div>
     </section>
     <div class="entry-card">
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">01</span><h2>选择位置</h2></div><span class="section-note">可跨线路追加</span></div>
-      <label class="field-full">选择线路 <span class="required-star">*</span>
-       <select v-model="selectedLine"><option value="">请选择线路</option><option v-for="l in lines.filter(x=>x.status==='active')" :value="l.id" :key="l.id">{{l.voltage_name}} · {{l.name}}</option></select>
+      <label class="field-full"><span class="field-caption">选择线路 <span class="required-star" aria-hidden="true">*</span></span><select v-model="selectedLine" required><option value="">请选择线路</option><option v-for="l in lines.filter(x=>x.status==='active')" :value="l.id" :key="l.id">{{l.voltage_name}} · {{l.name}}</option></select>
       </label>
       <p class="field-hint">切换线路后已选位置仍保留，选择1基即可单条创建。</p>
       <div class="selection-tools">
        <strong>本线路已选 {{thisLineSelected}} / {{thisLineTotal}} 基</strong>
        <div class="selection-actions">
-        <button class="text-button" @click="selectVisible" :disabled="!selectedLine">全选本线路</button>
-        <button class="text-button" @click="removeSelectedLine" :disabled="!selectedLine">清空本线路</button>
-        <button class="text-button" @click="rangeOpen=!rangeOpen">{{rangeOpen?'收起按杆段选择':'按杆段选择'}}</button>
+        <button type="button" class="text-button" @click="selectVisible" :disabled="!selectedLine">全选本线路</button>
+        <button type="button" class="text-button" @click="removeSelectedLine" :disabled="!selectedLine">清空本线路</button>
+        <button type="button" class="text-button" @click="rangeOpen=!rangeOpen">{{rangeOpen?'收起按杆段选择':'按杆段选择'}}</button>
        </div>
       </div>
       <div v-if="rangeOpen" class="range-picker">
-       <label>杆段起点<select v-model="fromRank"><option value="">请选择</option><option v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</option></select></label>
-       <label>杆段终点<select v-model="toRank"><option value="">请选择</option><option v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</option></select></label>
-       <button class="secondary" @click="selectRange">追加选择</button>
+       <label><span class="field-caption">杆段起点</span><select v-model="fromRank"><option value="">请选择</option><option v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</option></select></label>
+       <label><span class="field-caption">杆段终点</span><select v-model="toRank"><option value="">请选择</option><option v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</option></select></label>
+       <button type="button" class="secondary" @click="selectRange">追加选择</button>
       </div>
-      <label class="field-full tower-filter">筛选杆塔
-       <input v-model="towerSearch" placeholder="输入杆塔号或位置编码"/>
+      <label class="field-full tower-filter"><span class="field-caption">筛选杆塔</span><input v-model="towerSearch" placeholder="输入杆塔号或位置编码"/>
       </label>
       <div class="tower-grid" aria-label="杆塔选择">
-       <label v-for="x in thisLineTowers" :key="x.id" class="tower-card" :class="{checked:selected[x.id]&&!excluded[x.id]}">
-        <input type="checkbox" :checked="!!selected[x.id]&&!excluded[x.id]" @change="(e)=>{selected[x.id]=(e.target as HTMLInputElement).checked;delete excluded[x.id]}"/>
+       <label v-for="x in thisLineTowers" :key="x.id" class="tower-card" :class="{checked:selected[x.id]&&!excluded[x.id]}"><input type="checkbox" :checked="!!selected[x.id]&&!excluded[x.id]" @change="(e)=>{selected[x.id]=(e.target as HTMLInputElement).checked;delete excluded[x.id]}"/>
         <span><strong>{{x.tower_no}}</strong><small v-if="x.circuit_position">{{x.circuit_position}}</small></span>
        </label>
        <p v-if="!thisLineTowers.length" class="empty">当前筛选下暂无可选的启用杆塔</p>
@@ -510,24 +510,24 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
 
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">02</span><h2>共同工作内容</h2></div><span class="section-note">应用于本批需求</span></div>
-      <label class="field-full">作业对象 <span class="required-star">*</span></label>
+      <label class="field-full">作业对象 <span class="required-star" aria-hidden="true">*</span></label>
       <div class="segmented-work" role="group" aria-label="作业对象">
-       <button :class="{chosen:common.work_target_type==='line'}" @click="common.work_target_type='line';common.operation_id=''">线路侧设备</button>
-       <button :class="{chosen:common.work_target_type==='physical'}" @click="common.work_target_type='physical';common.operation_id=''">共用物理杆塔</button>
+       <button type="button" :class="{chosen:common.work_target_type==='line'}" @click="common.work_target_type='line';common.operation_id=''">线路侧设备</button>
+       <button type="button" :class="{chosen:common.work_target_type==='physical'}" @click="common.work_target_type='physical';common.operation_id=''">共用物理杆塔</button>
       </div>
       <p class="field-hint">{{common.work_target_type==='line'?'各线路杆塔独立生成需求，不因共塔自动合并。':'共塔同部位的作业必须明确选择一个主位置，其他回路在关联位置中记录。'}}</p>
       <div class="form-grid entry-fields">
        <div class="field-label-group">
-        <div class="inline-field-top"><span class="field-title">操作类型 <span class="required-star">*</span></span><button v-if="roleAdmin" class="text-button small" @click="openNav('dictionary')">管理选项</button></div>
-        <select aria-label="操作类型" v-model="common.operation_id"><option value="">请选择操作类型</option><option v-for="op in ops" :key="op.id" :value="op.id">{{op.name}}</option></select>
+        <div class="inline-field-top"><span class="field-title">操作类型 <span class="required-star" aria-hidden="true">*</span></span><button type="button" v-if="roleAdmin" class="text-button small" @click="openNav('dictionary')">管理选项</button></div>
+        <select aria-label="操作类型" v-model="common.operation_id" required><option value="">请选择操作类型</option><option v-for="op in ops" :key="op.id" :value="op.id">{{op.name}}</option></select>
        </div>
-       <label>共同处理部位 <span class="required-star">*</span><input v-model="common.target_object" placeholder="例如 横担上部"/></label>
-       <div class="field-label-group"><div class="inline-field-top"><span class="field-title">每基工作量 <span class="required-star">*</span></span><button class="text-button small" @click="applyDefault">应用操作默认值</button></div>
-        <div class="quantity-inputs"><input aria-label="每基工作量" v-model="common.quantity" inputmode="decimal" placeholder="1"/><select v-model="common.unit_id" aria-label="计量单位"><option value="">单位</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></div>
+       <label><span class="field-caption">共同处理部位 <span class="required-star" aria-hidden="true">*</span></span><input v-model="common.target_object" required placeholder="例如 横担上部"/></label>
+       <div class="field-label-group"><div class="inline-field-top"><span class="field-title">每基工作量 <span class="required-star" aria-hidden="true">*</span></span><button type="button" class="text-button small" @click="applyDefault">应用操作默认值</button></div>
+        <div class="quantity-inputs"><input aria-label="每基工作量" v-model="common.quantity" required data-validate="quantity" inputmode="decimal" placeholder="1"/><select v-model="common.unit_id" required aria-label="计量单位"><option value="">单位</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></div>
         <p class="field-hint">如每基安装{{common.quantity||'—'}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}，选{{selectedRows.length}}基共{{Number(totalQty.toFixed(4))}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}。</p>
        </div>
-       <label>完成标准 <span class="required-star">*</span><input v-model="common.completion_standard" placeholder="按核定部位完成安装并验收合格"/></label>
-       <label class="wide">问题描述 / 实施必要性 <span class="required-star">*</span><textarea v-model="common.problem_description" rows="3" placeholder="说明存在的问题、实施必要性及作业背景"/></label>
+       <label><span class="field-caption">完成标准 <span class="required-star" aria-hidden="true">*</span></span><input v-model="common.completion_standard" required placeholder="按核定部位完成安装并验收合格"/></label>
+       <label class="wide"><span class="field-caption">问题描述 / 实施必要性 <span class="required-star" aria-hidden="true">*</span></span><textarea v-model="common.problem_description" required rows="3" placeholder="说明存在的问题、实施必要性及作业背景"/></label>
       </div>
       <CustomFields :definitions="fieldDefinitions" v-model="common.custom_fields"/>
      </section>
@@ -537,18 +537,18 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div v-for="(source,index) in batchSources" :key="index" class="source-card">
        <div class="source-card-head"><strong>来源 {{index+1}}</strong><button v-if="batchSources.length>1" class="text-button danger" @click="removeSource(index)">移除来源</button></div>
        <div class="form-grid entry-fields">
-        <label>来源类型 <span class="required-star">*</span><select v-model="source.type_id"><option value="">请选择</option><option v-for="x in sources" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-        <label>发现 / 提出日期 <span class="required-star">*</span><input type="date" v-model="source.discovered_on"/></label>
-        <label>提出单位 / 人员 <span class="required-star">*</span><input v-model="source.proposed_by" placeholder="填写提出单位或人员"/></label>
-        <label>来源依据编号<input v-model="source.external_ref" placeholder="工单、缺陷单或检查编号"/></label>
-        <label class="wide">来源说明<textarea v-model="source.description" rows="2" placeholder="记录来源内容与原始依据"/></label>
+        <label><span class="field-caption">来源类型 <span class="required-star" aria-hidden="true">*</span></span><select v-model="source.type_id" required><option value="">请选择</option><option v-for="x in sources" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
+        <label><span class="field-caption">发现 / 提出日期 <span class="required-star" aria-hidden="true">*</span></span><input type="date" v-model="source.discovered_on" required/></label>
+        <label><span class="field-caption">提出单位 / 人员 <span class="required-star" aria-hidden="true">*</span></span><input v-model="source.proposed_by" required placeholder="填写提出单位或人员"/></label>
+        <label><span class="field-caption">来源依据编号</span><input v-model="source.external_ref" placeholder="工单、缺陷单或检查编号"/></label>
+        <label class="wide"><span class="field-caption">来源说明</span><textarea v-model="source.description" rows="2" placeholder="记录来源内容与原始依据"/></label>
        </div>
       </div>
-      <button class="secondary source-add" @click="addSource">＋ 添加一条来源</button>
-      <div class="entry-advanced"><button class="text-button" @click="entryAdvancedOpen=!entryAdvancedOpen">{{entryAdvancedOpen?'收起附加信息':'填写优先级、期望时间'}}</button>
+      <button type="button" class="secondary source-add" @click="addSource">＋ 添加一条来源</button>
+      <div class="entry-advanced"><button type="button" class="text-button" @click="entryAdvancedOpen=!entryAdvancedOpen">{{entryAdvancedOpen?'收起附加信息':'填写优先级、期望时间'}}</button>
        <div v-if="entryAdvancedOpen" class="form-grid entry-fields advanced-fields">
-        <label>优先级<select v-model="common.priority_id"><option value="">未设置</option><option v-for="x in priorities" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-        <label>期望完成日期<input type="date" v-model="common.expected_on"/></label>
+        <label><span class="field-caption">优先级</span><select v-model="common.priority_id"><option value="">未设置</option><option v-for="x in priorities" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
+        <label><span class="field-caption">期望完成日期</span><input type="date" v-model="common.expected_on"/></label>
        </div>
       </div>
      </section>
@@ -556,19 +556,19 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">04</span><h2>逐基预览与调整</h2></div><span class="section-note">{{selectedRows.length}} 条独立需求</span></div>
       <p class="field-hint">共同字段已填入每条需求；单独修改部位或数量仅影响对应杆塔。预览确认后提交待核实。</p>
-      <div class="table-wrap"><table class="preview-table"><thead><tr><th>位置</th><th>处理部位</th><th>工作量</th><th v-if="fieldDefinitions.length">扩展字段</th><th></th></tr></thead>
-       <tbody><tr v-for="x in selectedRows" :key="x.id"><td><strong>{{x.tower_no}}</strong><small>{{x.line_name}}</small></td><td><input class="compact" :aria-label="'处理部位 '+x.tower_no" :value="x.target_object" @input="overrides[x.id]={...overrides[x.id],target_object:($event.target as HTMLInputElement).value}"/></td><td><input class="compact num" :aria-label="'工作量 '+x.tower_no" inputmode="decimal" :value="x.quantity" @input="overrides[x.id]={...overrides[x.id],quantity:($event.target as HTMLInputElement).value}"/></td><td v-if="fieldDefinitions.length"><details><summary>逐基调整</summary><CustomFields :definitions="fieldDefinitions" :prefix="x.tower_no+' '" :model-value="x.custom_fields" @update:model-value="overrides[x.id]={...overrides[x.id],custom_fields:$event}"/></details></td><td><button class="text-button danger" @click="excluded[x.id]=true">排除</button></td></tr>
+      <div class="table-wrap"><table class="preview-table"><thead><tr><th>位置</th><th>处理部位 <span class="required-star" aria-hidden="true">*</span></th><th>工作量 <span class="required-star" aria-hidden="true">*</span></th><th v-if="fieldDefinitions.length">扩展字段</th><th></th></tr></thead>
+       <tbody><tr v-for="(x,index) in selectedRows" :key="x.id" :data-row-index="index"><td><strong>{{x.tower_no}}</strong><small>{{x.line_name}}</small></td><td><input class="compact" :aria-label="'处理部位 '+x.tower_no" :value="x.target_object" required @input="overrides[x.id]={...overrides[x.id],target_object:($event.target as HTMLInputElement).value}"/></td><td><input class="compact num" :aria-label="'工作量 '+x.tower_no" inputmode="decimal" :value="x.quantity" required data-validate="quantity" @input="overrides[x.id]={...overrides[x.id],quantity:($event.target as HTMLInputElement).value}"/></td><td v-if="fieldDefinitions.length"><details><summary>逐基调整</summary><CustomFields :definitions="fieldDefinitions" :prefix="x.tower_no+' '" :model-value="x.custom_fields" @update:model-value="overrides[x.id]={...overrides[x.id],custom_fields:$event}"/></details></td><td><button type="button" class="text-button danger" @click="excluded[x.id]=true">排除</button></td></tr>
         <tr v-if="!selectedRows.length"><td colspan="4" class="empty">请先在上方勾选杆塔</td></tr></tbody></table></div>
       <div class="batch-review">
        <div><strong>本批 {{selectedRows.length}} 条需求</strong><small>{{selectedLines.length}} 条线路 · {{batchSources.length}} 条来源依据 · 独立生成</small></div>
-       <div class="form-actions"><button class="light" @click="resetBatch">清空重填</button><button class="secondary" :disabled="busy" @click="submitBatch(true)">保存草稿</button><button class="primary" :disabled="busy||!roleWrite||!selectedRows.length" @click="submitBatch(false)">提交 {{selectedRows.length}} 条核实</button></div>
+       <div class="form-actions"><button type="button" class="light" @click="resetBatch">清空重填</button><button type="button" class="secondary" :disabled="busy" @click="submitBatch(true)">保存草稿</button><button type="submit" class="primary" :disabled="busy||!roleWrite||!selectedRows.length">提交 {{selectedRows.length}} 条核实</button></div>
       </div>
       <p v-if="lastResult" class="saved-batch">批次 {{lastResult.batch_id}} 已保存，共 {{lastResult.count}} 条。重复提交不会重复建立记录。</p>
      </section>
     </div>
-   </div>
+   </form>
   </template>
-  <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><button class="secondary" @click="exportDemands">Excel 导出</button><button v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</button></div></div><div class="toolbar"><label>状态<select v-model="statusFilter"><option value="">全部</option><option value="pending">待核实</option><option value="active">有效</option><option value="returned">退回</option><option value="cancelled">取消</option></select></label><label>线路<select v-model="lineFilter"><option value="">全部线路</option><option v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label>关键词<input v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><table><thead><tr><th>编号</th><th>位置</th><th>操作与部位</th><th>工作量</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="d in demands" :key="d.id"><td class="mono">{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><span class="tag">{{statusName(d.status)}}</span></td><td><button class="link" @click="showDemand(d.id)">详情</button></td></tr><tr v-if="!demands.length"><td colspan="6" class="empty">没有符合筛选条件的需求</td></tr></tbody></table></div></section></template>
+  <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><button class="secondary" @click="exportDemands">Excel 导出</button><button v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</button></div></div><div class="toolbar"><label><span class="field-caption">状态</span><select v-model="statusFilter"><option value="">全部</option><option value="pending">待核实</option><option value="active">有效</option><option value="returned">退回</option><option value="cancelled">取消</option></select></label><label><span class="field-caption">线路</span><select v-model="lineFilter"><option value="">全部线路</option><option v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">关键词</span><input v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><table><thead><tr><th>编号</th><th>位置</th><th>操作与部位</th><th>工作量</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="d in demands" :key="d.id"><td class="mono">{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><span class="tag">{{statusName(d.status)}}</span></td><td><button class="link" @click="showDemand(d.id)">详情</button></td></tr><tr v-if="!demands.length"><td colspan="6" class="empty">没有符合筛选条件的需求</td></tr></tbody></table></div></section></template>
   <section v-if="detail" class="detail-overlay" @click.self="detail=null"><div class="detail-panel"><div class="section-header"><h2>{{detail.demand_no?'需求 '+detail.demand_no:'台账详情'}}</h2><button class="light" @click="detail=null">关闭 ×</button></div>
     <template v-if="detail.demand_no"><div class="info-grid"><div><small>原始线路快照</small><strong>{{detail.line_name_snapshot}} {{detail.tower_no_snapshot}}</strong></div><div><small>物理塔快照</small><strong>{{detail.physical_code_snapshot}}</strong></div><div><small>操作与版本</small><strong>{{detail.operation_snapshot}} v{{detail.operation_version}}</strong></div><div><small>工作量</small><strong>{{fmtQty(detail.quantity_scaled)}} {{detail.unit_snapshot}}</strong></div><div><small>当前状态</small><strong>{{detail.status}}</strong></div><div><small>当前版本</small><strong>v{{detail.version}}</strong></div></div>
       <p v-if="detail.project_references?.length" class="muted">已关联项目：{{detail.project_references.map((x:Rec)=>x.code).join('、')}}。工作范围保留历史依据；范围变更须办理项目变更。</p>
@@ -579,32 +579,34 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       </div>
       <div v-if="detail.field_definitions?.length" class="scope-item"><strong>附加业务字段</strong><CustomFields :definitions="detail.field_definitions||[]" :model-value="detail.custom_fields||{}" :disabled="true"/></div>
       <div v-if="roleWrite&&detail.status!=='cancelled'" class="form-actions"><button class="secondary" @click="openDemandEdit">编辑需求</button></div>
-      <FormModal :open="!!demandEdit" title="修订需求" :error="error" size="wide" @close="demandEdit=null">
-       <form v-if="demandEdit" class="form-grid" @submit.prevent="saveDemandEdit">
-        <label>具体部位<input v-model="demandEdit.target_object" required/></label>
-        <label>工作量（{{demandEdit.unit_snapshot}}）<input v-model="demandEdit.quantity" inputmode="decimal" required/></label>
-        <label class="wide">问题说明<textarea v-model="demandEdit.problem_description" rows="3" required/></label>
-        <label class="wide">完成标准<textarea v-model="demandEdit.completion_standard" rows="2" required/></label>
+      <FormModal :open="!!demandEdit" title="修订需求" :error="visibleError" size="wide" @close="demandEdit=null">
+       <form v-form-validation novalidate v-if="demandEdit" class="form-grid" @submit.prevent="saveDemandEdit">
+        <label><span class="field-caption">具体部位</span><input v-model="demandEdit.target_object" required/></label>
+        <label><span class="field-caption">工作量（{{demandEdit.unit_snapshot}}）</span><input v-model="demandEdit.quantity" data-validate="quantity" inputmode="decimal" required/></label>
+        <label class="wide"><span class="field-caption">问题说明</span><textarea v-model="demandEdit.problem_description" rows="3" required/></label>
+        <label class="wide"><span class="field-caption">完成标准</span><textarea v-model="demandEdit.completion_standard" rows="2" required/></label>
         <div class="wide"><CustomFields :definitions="demandEdit.field_definitions||[]" v-model="demandEdit.custom_fields"/></div>
-        <label class="wide">修订原因<input v-model="demandEdit.change_reason" required/></label>
+        <label class="wide"><span class="field-caption">修订原因</span><input v-model="demandEdit.change_reason" required/></label>
         <div class="form-actions"><button type="button" class="light" @click="demandEdit=null">取消</button><button class="primary">保存修订并留痕</button></div>
        </form>
       </FormModal>
       <h3>来源与核实</h3><p v-for="x in detail.sources" :key="x.id">{{x.discovered_on}} · {{x.proposed_by}} · {{x.type_snapshot}} · {{x.description||x.external_ref||'—'}}</p><div v-if="roleVerify&&detail.status!=='cancelled'" class="form-actions"><button class="primary" @click="openReason('verify:active')">确认有效</button><button class="secondary" @click="openReason('verify:returned')">退回补充</button><button class="light" @click="openReason('verify:cancelled')">取消</button></div>
       <h3>附件依据</h3>
       <button v-if="roleWrite" class="secondary" @click="attachmentDialog=true">上传附件</button>
-      <FormModal :open="attachmentDialog" title="上传需求附件" :error="error" @close="attachmentDialog=false">
-       <label>选择附件（最多15MB）<input type="file" :disabled="busy" @change="uploadAttachment"/></label>
+      <FormModal :open="attachmentDialog" title="上传需求附件" :error="visibleError" @close="attachmentDialog=false">
+       <form v-form-validation novalidate @submit.prevent>
+       <label><span class="field-caption">选择附件（最多15MB）</span><input type="file" required :disabled="busy" @change="uploadAttachment"/></label>
        <p class="field-hint">选中文件后立即上传，完成后自动关闭此窗口。</p>
        <div class="form-actions"><button class="light" type="button" @click="attachmentDialog=false">取消</button></div>
+       </form>
       </FormModal><p v-for="file in detail.attachments" :key="file.id"><a :href="'/api/attachments/'+file.id">{{file.filename}}</a> · {{file.bytes}} 字节</p>
       <h3>历史修订</h3><p v-for="rev in detail.revisions" :key="rev.id" class="history">{{rev.changed_at}} · v{{rev.version}} · {{rev.reason}}</p>
     </template><template v-else><pre class="json-preview">{{JSON.stringify(detail,null,2)}}</pre></template>
   </div></section>
   <FormModal :open="!!reasonAction" :title="reasonTitle" @close="reasonAction=''">
-   <form class="form-grid" @submit.prevent="submitReason">
-    <label class="wide">操作依据 / 说明<textarea v-model="reasonValue" rows="3" required placeholder="请填写本次操作的依据"></textarea></label>
-    <p v-if="error" role="alert" class="form-modal-error">{{error}}</p>
+   <form v-form-validation novalidate class="form-grid" @submit.prevent="submitReason">
+    <label class="wide"><span class="field-caption">操作依据 / 说明</span><textarea v-model="reasonValue" rows="3" required placeholder="请填写本次操作的依据"></textarea></label>
+    <p v-if="visibleError" role="alert" class="form-modal-error">{{visibleError}}</p>
     <div class="form-actions"><button type="button" class="light" @click="reasonAction=''">取消</button><button class="primary" :disabled="busy">确认</button></div>
    </form>
   </FormModal>

@@ -31,9 +31,13 @@ try{
  await panels.nth(1).getByLabel('操作类型').selectOption(op.id);
  await panels.nth(1).getByLabel('共同处理部位').fill('横担');await panels.nth(1).getByLabel('每基工作量').fill('0.0001');await panels.nth(1).getByLabel('计量单位').selectOption(unit.id);
  await panels.nth(1).getByLabel('完成标准').fill('按核定部位验收');await panels.nth(1).getByLabel('问题描述').fill('现场鸟害风险');
- await panels.nth(1).getByLabel('相位',{exact:true}).selectOption('A');await panels.nth(1).getByLabel('高度',{exact:true}).fill('12.5');
+ await panels.nth(1).getByLabel('高度',{exact:true}).fill('12.5');
  const second=panels.nth(3).locator('tbody tr').filter({hasText:'#2'});await second.locator('summary').click();await second.getByLabel('#2 相位',{exact:true}).selectOption('B');
  await panels.nth(2).getByLabel('来源类型').selectOption({label:'巡视'});await panels.nth(2).getByLabel('提出单位 / 人员').fill('审计班组');
+ await page.getByRole('button',{name:'提交 2 条核实'}).click();
+ assert.equal(await panels.nth(1).getByLabel('相位',{exact:true}).getAttribute('aria-invalid'),'true');
+ await panels.nth(1).getByLabel('相位',{exact:true}).selectOption('A');
+ await panels.nth(1).locator('.field-error').waitFor({state:'detached'});
  await page.getByRole('button',{name:'保存草稿'}).click();await page.getByRole('status').filter({hasText:'草稿已保存'}).waitFor();
  let drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);const id=drafts[0].id;
  await page.reload();await entry();await page.getByRole('button',{name:/查看草稿/}).click();await page.getByRole('button',{name:'继续编辑'}).click();

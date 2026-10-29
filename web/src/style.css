@@ -221,3 +221,10 @@ td{color:#496457}
 .form-modal-content .scope-editor{border:0;background:#fff;padding:0}
 .form-modal-error{color:#b4403a;font-size:12px;margin-top:10px;grid-column:1/-1}
 @media(max-width:740px){.form-modal-backdrop{padding:12px}.form-modal-dialog{max-height:94vh}.form-modal-header{padding:17px 18px}.form-modal-content{padding:20px 18px}}
+
+/* Field validation stays next to its control, including inside modal forms. */
+.required-star{color:#c33434;font-weight:700;margin-left:3px}
+.field-error{display:block;flex-basis:100%;color:#c33434;font-size:12px;font-weight:400;line-height:1.5;margin:5px 0 0;white-space:normal;overflow-wrap:anywhere}
+input[aria-invalid="true"],select[aria-invalid="true"],textarea[aria-invalid="true"]{border-color:#c33434!important}
+input[aria-invalid="true"]:focus,select[aria-invalid="true"]:focus,textarea[aria-invalid="true"]:focus{box-shadow:0 0 0 3px #c334341a}
+.form-submit-error{grid-column:1/-1}
