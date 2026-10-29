@@ -1,0 +1,91 @@
+{
+  "audit_data_isolated": true,
+  "findings": [
+    {
+      "case": "operation_required_custom_field",
+      "configured_field": {
+        "key": "phase",
+        "label": "相位",
+        "type": "text",
+        "required": true
+      },
+      "submission_without_field": "accepted",
+      "created": 2
+    },
+    {
+      "case": "four_decimal_quantity",
+      "status": 422,
+      "result": {
+        "error": "批量预检失败",
+        "details": [
+          {
+            "row": 1,
+            "message": "工作量为正数且最多三位小数"
+          }
+        ]
+      }
+    },
+    {
+      "case": "attachment_upload",
+      "status": 500,
+      "result": {
+        "error": "服务器内部错误"
+      },
+      "persisted_attachments": 0,
+      "remaining_files": []
+    },
+    {
+      "case": "approved_execution_references_mutable_demand",
+      "before": {
+        "operation": "安装防鸟装置",
+        "target": "原横担",
+        "unit": "套",
+        "planned": 2000
+      },
+      "after": {
+        "operation": "更换绝缘子",
+        "target": "新左相绝缘子",
+        "unit": "串",
+        "planned": 2000
+      },
+      "demand_after": {
+        "status": "pending",
+        "quantity": 1000
+      },
+      "project_status": "approved",
+      "project_scope_quantity": 2000
+    },
+    {
+      "case": "start_execution_after_demand_changed",
+      "status": 200,
+      "result": "running"
+    },
+    {
+      "case": "completion_exceeds_now_revised_demand",
+      "status": 201,
+      "demand_quantity": 1000,
+      "completed": 2000
+    },
+    {
+      "case": "cannot_resolve_changed_physical_during_verification",
+      "first_attempt": 409,
+      "revision_kept_old_physical": true,
+      "second_attempt": 409,
+      "result": {
+        "error": "实体关联已变化，请修订后重新提交核实"
+      }
+    },
+    {
+      "case": "zero_completion_evidence",
+      "status": 422,
+      "result": {
+        "error": "工作量必须大于零"
+      }
+    },
+    {
+      "case": "draft_resume",
+      "saved": true,
+      "list_status": 404
+    }
+  ]
+}

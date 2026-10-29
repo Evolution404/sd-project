@@ -1,0 +1,22 @@
+[
+  {
+    "origin": "http://127.0.0.1:48321",
+    "secure": true,
+    "randomUUID": "function",
+    "bodyText": "SD\n输电项目全流程管理\n\n使用本地服务器账号登录\n\n用户名\n密码\n登录系统\n\n首次部署请在服务器运行「初始化管理员.cmd」",
+    "inputs": 2,
+    "errors": [
+      "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    ]
+  },
+  {
+    "origin": "http://audit-lan.test",
+    "secure": false,
+    "randomUUID": "undefined",
+    "bodyText": "",
+    "inputs": 0,
+    "errors": [
+      "TypeError: crypto.randomUUID is not a function\n    at setup (http://audit-lan.test/assets/index-CwKCCfy8.js:2:9051)\n    at wn (http://audit-lan.test/assets/index-CwKCCfy8.js:1:21263)\n    at xu (http://audit-lan.test/assets/index-CwKCCfy8.js:1:58344)\n    at Su (http://audit-lan.test/assets/index-CwKCCfy8.js:1:58133)\n    at Ye (http://audit-lan.test/assets/index-CwKCCfy8.js:1:45805)\n    at vt (http://audit-lan.test/assets/index-CwKCCfy8.js:1:45695)\n    at J (http://audit-lan.test/assets/index-CwKCCfy8.js:1:42326)\n    at http://audit-lan.test/assets/index-CwKCCfy8.js:1:51440\n    at Cr (http://audit-lan.test/assets/index-CwKCCfy8.js:1:23183)\n    at Cn (http://audit-lan.test/assets/index-CwKCCfy8.js:1:51388)"
+    ]
+  }
+]

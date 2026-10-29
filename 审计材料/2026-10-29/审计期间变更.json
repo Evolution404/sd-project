@@ -1,0 +1,16 @@
+{
+  "audited_original_files": 26,
+  "changed_during_audit": [
+    "scripts/init-admin.mjs",
+    "scripts/first-run.ps1",
+    "README.md"
+  ],
+  "new_source_files": [
+    "scripts/dev-start.mjs"
+  ],
+  "makefile_added": true,
+  "critical_audited_server_and_vue_unchanged": true,
+  "current_package_compared_files": 20,
+  "current_package_mismatches": [],
+  "current_zip_sha256": "73d051f8b8abb6041dd1159003fcb78d340c06dc36e423990c4de9dc050aecf0"
+}

@@ -1,0 +1,30 @@
+node_modules/
+dist/
+data/
+.env
+*.db
+*.db-*
+.DS_Store
+test-results/
+
+# Local macOS test database and server output
+.local-test-data/
+.local-test-server.log
+.local-test-server.pid
+
+# Generated release bundles, runtime downloads, and browser artifacts
+release/
+playwright-report/
+coverage/
+
+# Local business databases and sidecar files
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+
+# Local configuration and process output
+.env.*
+!.env.example
+*.log
+*.pid

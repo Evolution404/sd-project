@@ -1,0 +1,14 @@
+{
+  "zip_sha256": "73d051f8b8abb6041dd1159003fcb78d340c06dc36e423990c4de9dc050aecf0",
+  "zip_bytes": 52277460,
+  "zip_entries": 6731,
+  "crc_bad_entry": null,
+  "compared_app_files": 20,
+  "mismatches": [],
+  "packaged_runtime": "v24.13.0",
+  "windows_pe_x64": true,
+  "runtime_manifest_matches": true,
+  "host_node_for_tests": "v26.12.0",
+  "windows_execution_verified": false,
+  "original_business_database_accessed": false
+}
