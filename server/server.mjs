@@ -10,7 +10,9 @@ import { db, dataRoot, one, all, exec, uid, now, transaction, audit } from './db
 import ExcelJS from 'exceljs';
 import {listExecutions,executionDetail,createExecution,addExecutionItem,changeExecutionStage,confirmCompletion} from './executions.mjs';
 import {normalizeIP,isPermittedIP,isLoopback} from './ip-access.mjs';
-import {listFrameworks,createFramework,listAgreements,createAgreement,listProjects,createProject,projectDetail,addScope,changeScope,bindAgreement,advanceProject} from './projects.mjs';
+import {previewWholeTowerReplacement,replaceWholeTower} from './tower-replacements.mjs';
+import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder} from './change-orders.mjs';
+import {listFrameworks,createFramework,listAgreements,createAgreement,listProjects,createProject,projectDetail,addScope,changeScope,bindAgreement,advanceProject,savePreliminaryEstimate} from './projects.mjs';
 
 class Problem extends Error { constructor(status,message,details){super(message);this.status=status;this.details=details;} }
 const fail=(status,message,details)=>{throw new Problem(status,message,details)};
@@ -23,7 +25,7 @@ const verifyPassword=(pass,hash)=>{
  const expected=Buffer.from(hex,'hex');return expected.length===64&&timingSafeEqual(expected,scryptSync(pass,salt,64));
 };
 const publicUser=u=>({id:u.id,username:u.username,role:u.role});
-const roleSets={view:['admin','editor','verifier','viewer'],write:['admin','editor'],verify:['admin','verifier'],admin:['admin']};
+const roleSets={view:['admin','editor','verifier','viewer'],write:['admin','editor'],verify:['admin','verifier'],stock:['admin'],approve:['admin'],admin:['admin']};
 const route=(req)=>new URL(req.url,'http://localhost');
 function authenticate(req){
  const cookie=(req.headers.cookie||'').split(';').map(x=>x.trim()).find(x=>x.startsWith('sd_session='));
@@ -133,7 +135,11 @@ function updateTowerData(table,id,body,user){
  if(table==='transmission_lines'&&next.status!=='active'){
   if(one("SELECT 1 FROM logical_towers WHERE line_id=? AND status='active' LIMIT 1",id))fail(422,'线路下有启用逻辑节点，请先处理');
  }
- if(table==='logical_towers'&&old.physical_tower_id!==next.physical_tower_id&&!required(body.reason,'实体变化原因'))fail(422,'需要原因');
+ if(table==='logical_towers'&&old.physical_tower_id!==next.physical_tower_id){
+  required(body.reason,'实体变化原因');
+  if(body.change_kind!=='correction')fail(409,'整塔更换必须使用物理杆塔整体换塔流程；单回路关联修正请明确标为 correction');
+ }
+
  const t=now();next.version=old.version+1;next.updated_at=t;changes.version=next.version;changes.updated_at=t
  transaction(()=>{
   const keys=Object.keys(changes);exec('UPDATE '+table+' SET '+keys.map(k=>k+'=?').join(',')+' WHERE id=?',...keys.map(k=>changes[k]),id);
@@ -257,6 +263,20 @@ function validateRows(body){
  }
  return {rows,op,unit,sourceData,priority,standard,problem,workType};
 }
+function duplicateCandidates({tower,location,target},workType,operationId){
+ const position=location?.span?.id||tower.id;
+ if(!position)return [];
+ const clause=workType==='physical'
+   ? "d.observed_physical_tower_id=?"
+   : location?"d.span_id=?":"d.logical_tower_id=?";
+ const value=workType==='physical'?tower.physical_tower_id:position;
+ return all(`SELECT d.id,d.demand_no,d.status,d.target_object,d.quantity_scaled,
+  d.operation_snapshot,d.line_name_snapshot,d.tower_no_snapshot,d.created_at
+  FROM demands d WHERE d.work_target_type=? AND d.operation_id=?
+  AND LOWER(TRIM(d.target_object))=LOWER(TRIM(?))
+  AND ${clause} AND d.status IN ('pending','active')
+  ORDER BY d.created_at DESC,d.id DESC LIMIT 20`,workType,operationId,target,value);
+}
 function submitBatch(body,user){
  const key=required(body.idempotency_key,'幂等键');if(key.length>160)fail(422,'幂等键过长');
  const payload=JSON.stringify({...body,idempotency_key:undefined});const digest=sha(payload);
@@ -276,13 +296,35 @@ function submitBatch(body,user){
   }
   if(draft)exec("UPDATE demand_batches SET draft_json=?,status='submitted',version=version+1,idempotency_key=?,payload_sha256=?,source_id=?,updated_at=? WHERE id=?",JSON.stringify(body),key,digest,sourceIds[0],t,batchId);
   else exec('INSERT INTO demand_batches VALUES(?,?,?,?,?,?,?,?,?,?)',batchId,JSON.stringify(body),'submitted',1,key,digest,sourceIds[0],user.id,t,t);
-  const ids=[];
+  const ids=[],linkedIds=[];
   for(const row of v.rows){
    // Revalidate inside the write lock: no stale objects/options accepted
    const tower=ensureLogical(row.tower.id);
    const op=ensureItem(v.op.id,'operation');const unit=ensureItem(v.unit.id,'unit');
    const priority=v.priority?ensureItem(v.priority.id,'priority'):null;
    for(const source of v.sourceData)ensureItem(source.src.id,'source');
+   const candidates=duplicateCandidates(row,v.workType,op.id);
+   const submitted=body.rows[row.originalIndex];
+   const review=submitted?.duplicate_review;
+   let reviewed=null;
+   if(candidates.length){
+    if(!review||!['link','separate'].includes(review.decision)||!review.reason?.trim())
+      fail(409,'发现疑似重复需求：'+candidates.map(x=>x.demand_no).join('、')+'。请由核实人员明确关联原需求或登记新发需求，并填写依据');
+    const matched=candidates.find(x=>x.id===review.candidate_id);
+    if(!matched)fail(409,'重复候选已发生变化，请重新核对');
+    reviewed={decision:review.decision,reason:review.reason.trim(),matched};
+    if(review.decision==='link'){
+     if(!['admin','verifier'].includes(user.role))fail(403,'关联已有需求来源需核实权限');
+     for(const sourceId of sourceIds){
+      exec('INSERT OR IGNORE INTO demand_sources VALUES(?,?)',matched.id,sourceId);
+      exec('INSERT INTO batch_demand_sources VALUES(?,?,?)',batchId,matched.id,sourceId);
+     }
+     exec('INSERT INTO demand_duplicate_reviews VALUES(?,?,?,?,?,?,?,?)',uid(),batchId,matched.id,null,'link',reviewed.reason,user.id,now());
+     audit(user.id,'demands',matched.id,'attach_source',null,{batch_id:batchId,source_ids:sourceIds,duplicate_review:reviewed.reason},reviewed.reason);
+     linkedIds.push(matched.id);
+     continue;
+    }
+   }else if(review?.decision==='link')fail(409,'原需求候选已变化，不能再关联来源');
    const id=uid(),seq=one('SELECT COUNT(*) AS n FROM demands').n+1;
    const no='XQ-'+String(seq).padStart(7,'0');
    const item={id,demand_no:no,batch_id:batchId,logical_tower_id:tower.id,observed_physical_tower_id:tower.physical_tower_id,line_name_snapshot:tower.line_name,tower_no_snapshot:tower.tower_no,physical_code_snapshot:tower.tower_code,work_target_type:v.workType,operation_id:op.id,operation_version:op.version,operation_snapshot:op.name,target_object:row.target,quantity_scaled:row.quantity,unit_id:unit.id,unit_version:unit.version,unit_snapshot:unit.name,completion_standard:v.standard,problem_description:v.problem,priority_id:priority?.id||null,priority_snapshot:priority?.name||null,expected_on:body.expected_on||null,status:'pending',version:1,confirmed_at:null,created_by:user.id,created_at:t,updated_at:t};
@@ -290,18 +332,28 @@ function submitBatch(body,user){
    item.location_kind=row.location?'span':'tower';item.location_line_id=row.location?.line.id||tower.line_id;item.span_id=row.location?.span.id||null;item.span_version=row.location?.span.version||null;item.span_snapshot_json=row.location?JSON.stringify(row.location.snapshot):null;
    if(row.location){item.line_name_snapshot=row.location.line.name;item.tower_no_snapshot=row.location.start.tower_no+'—'+row.location.end.tower_no;}
    exec('INSERT INTO demands('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
-   for(const sourceId of sourceIds)exec('INSERT INTO demand_sources VALUES(?,?)',id,sourceId);
+   for(const sourceId of sourceIds){
+    exec('INSERT INTO demand_sources VALUES(?,?)',id,sourceId);
+    exec('INSERT INTO batch_demand_sources VALUES(?,?,?)',batchId,id,sourceId);
+   }
+   if(reviewed)exec('INSERT INTO demand_duplicate_reviews VALUES(?,?,?,?,?,?,?,?)',
+      uid(),batchId,reviewed.matched.id,id,'separate',reviewed.reason,user.id,now());
    for(const relatedId of row.related)if(relatedId!==tower.id)exec('INSERT INTO demand_related_logical_towers VALUES(?,?)',id,relatedId);
    postAudit(user,'demands',item,'submit');
    ids.push(id);
   }
   postAudit(user,'demand_batches',{id:batchId,status:'submitted',demand_count:ids.length},'submit');
-  return {batch_id:batchId,source_id:sourceIds[0],source_ids:sourceIds,count:ids.length,ids};
+  return {batch_id:batchId,source_id:sourceIds[0],source_ids:sourceIds,count:ids.length,ids,linked_ids:linkedIds};
  });
 }
 function batchResult(id){
  const batch=one('SELECT * FROM demand_batches WHERE id=?',id);if(!batch)fail(404,'批次不存在');
- return {batch_id:id,source_id:batch.source_id,source_ids:all('SELECT DISTINCT source_id AS id FROM demand_sources WHERE demand_id IN (SELECT id FROM demands WHERE batch_id=?) ORDER BY source_id',id).map(x=>x.id),count:one('SELECT COUNT(*) n FROM demands WHERE batch_id=?',id).n,ids:all('SELECT id FROM demands WHERE batch_id=? ORDER BY created_at',id).map(x=>x.id)};
+ const tracked=all('SELECT DISTINCT source_id AS id FROM batch_demand_sources WHERE batch_id=? ORDER BY source_id',id);
+ return {batch_id:id,source_id:batch.source_id,
+ source_ids:(tracked.length?tracked:all('SELECT DISTINCT source_id AS id FROM demand_sources WHERE demand_id IN (SELECT id FROM demands WHERE batch_id=?) ORDER BY source_id',id)).map(x=>x.id),
+ count:one('SELECT COUNT(*) n FROM demands WHERE batch_id=?',id).n,
+ ids:all('SELECT id FROM demands WHERE batch_id=? ORDER BY created_at',id).map(x=>x.id),
+ linked_ids:all("SELECT matched_demand_id id FROM demand_duplicate_reviews WHERE batch_id=? AND decision='link'",id).map(x=>x.id)};
 }
 function demandDetail(id){
  const d=one(`SELECT d.*,l.name AS current_line_name,t.tower_no AS current_tower_no,pt.tower_code AS current_physical_code
@@ -440,6 +492,9 @@ async function dispatch(req,res){
   transaction(()=>{exec('DELETE FROM allowed_ips WHERE id=?',previous.id);audit(user.id,'allowed_ips',previous.id,'remove',previous,null,'IP访问授权撤销')});
   return json(res,200,{removed:previous.ip});
  }
+ const wholeTower=pathname.match(/^\/api\/physical-towers\/([^/]+)\/replace$/);
+ if(wholeTower&&method==='GET'){permit(user,'view');return json(res,200,previewWholeTowerReplacement(wholeTower[1]))}
+ if(wholeTower&&method==='POST'){permit(user,'write');return json(res,200,replaceWholeTower(wholeTower[1],await parseJson(req),user))}
  if(pathname.startsWith('/api/ledger/')){
   permit(user,method==='GET'?'view':'write');
   const parts=pathname.split('/').filter(Boolean),[, ,entity,id,action,subAction]=parts;
@@ -465,6 +520,13 @@ async function dispatch(req,res){
  if(pathname==='/api/frameworks'&&method==='POST'){permit(user,'write');return json(res,201,createFramework(await parseJson(req),user))}
  if(pathname==='/api/agreements'&&method==='GET'){permit(user,'view');return json(res,200,listAgreements())}
  if(pathname==='/api/agreements'&&method==='POST'){permit(user,'write');return json(res,201,createAgreement(await parseJson(req),user))}
+ const projectApproval=pathname.match(/^\/api\/projects\/([^/]+)\/approval-versions$/);
+ if(projectApproval&&method==='GET'){permit(user,'view');return json(res,200,approvalVersions(projectApproval[1]))}
+ const changeList=pathname.match(/^\/api\/projects\/([^/]+)\/change-orders$/);
+ if(changeList&&method==='GET'){permit(user,'view');return json(res,200,listChangeOrders(changeList[1]))}
+ if(changeList&&method==='POST'){permit(user,'write');return json(res,201,createChangeDraft(changeList[1],await parseJson(req),user))}
+ const changeDetail=pathname.match(/^\/api\/change-orders\/([^/]+)$/);
+ if(changeDetail&&method==='GET'){permit(user,'view');return json(res,200,getChangeOrder(changeDetail[1]))}
  if(pathname==='/api/projects'&&method==='GET'){permit(user,'view');return json(res,200,listProjects())}
  if(pathname==='/api/projects'&&method==='POST'){permit(user,'write');return json(res,201,createProject(await parseJson(req),user))}
  const projectParts=pathname.split('/').filter(Boolean);
@@ -475,8 +537,9 @@ async function dispatch(req,res){
   if(method==='POST'&&action==='scopes'&&!scopeId)return json(res,201,addScope(id,await parseJson(req),user));
   if(method==='PATCH'&&action==='scopes'&&scopeId)return json(res,200,changeScope(id,scopeId,await parseJson(req),user));
   if(method==='POST'&&action==='agreement')return json(res,200,bindAgreement(id,await parseJson(req),user));
-  if(method==='POST'&&action==='stock')return json(res,200,advanceProject(id,'stocked',await parseJson(req),user));
-  if(method==='POST'&&action==='approve')return json(res,200,advanceProject(id,'approved',await parseJson(req),user));
+  if(method==='POST'&&action==='preliminary-estimate')return json(res,200,savePreliminaryEstimate(id,await parseJson(req),user));
+  if(method==='POST'&&action==='stock'){permit(user,'stock');return json(res,200,advanceProject(id,'stocked',await parseJson(req),user))}
+  if(method==='POST'&&action==='approve'){permit(user,'approve');return json(res,200,advanceProject(id,'approved',await parseJson(req),user))}
  }
  if(pathname.startsWith('/api/projects/')&&pathname.endsWith('/executions')){
   const id=pathname.split('/')[3];
@@ -528,6 +591,12 @@ async function dispatch(req,res){
  const batch=pathname.match(/^\/api\/demand-batches\/([^/]+)$/);
  if(batch&&method==='GET'){permit(user,'write');return json(res,200,ownedBatch(batch[1],user))}
  if(batch&&method==='PATCH'){permit(user,'write');return json(res,200,updateDraft(batch[1],await parseJson(req),user))}
+ if(pathname==='/api/demands/duplicate-candidates'&&method==='POST'){
+  permit(user,'view');
+  const body=await parseJson(req),v=validateRows(body);
+  return json(res,200,{rows:v.rows.map(x=>({index:x.originalIndex,
+   candidates:duplicateCandidates(x,v.workType,v.op.id)}))});
+ }
  if(pathname==='/api/demands'&&method==='GET'){permit(user,'view');return json(res,200,listDemands(searchParams))}
  if(pathname==='/api/demands/export.xlsx'&&method==='GET'){permit(user,'view');const buf=await exportExcel(listDemands(searchParams));res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':"attachment; filename*=UTF-8''demands.xlsx",'Content-Length':buf.length,'Cache-Control':'no-store'});return res.end(buf)}
  const d=pathname.match(/^\/api\/demands\/([^/]+)(?:\/(verify|revisions|revalidate-location))?$/);

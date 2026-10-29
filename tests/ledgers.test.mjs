@@ -34,7 +34,14 @@ test('shared tower bindings and shared property edits retain ownership, require 
  await api('/ledger/shared/bind','POST',{pairs,reason:'核实同塔',change_kind:'correction'});let detail=await api('/ledger/towers/'+y.id);assert.equal(detail.physical.id,x.physical_tower_id);assert.equal(detail.shared_with.length,2);assert.equal(detail.bindings.length,2);
  const edit={version:detail.version,physical_version:detail.physical.version,physical:{model:'新型号'},reason:'公共型号核对'};await api('/ledger/towers/'+y.id,'PATCH',edit,422);await api('/ledger/towers/'+y.id,'PATCH',{...edit,confirm_shared:true});assert.equal((await api('/ledger/towers/'+x.id)).physical.model,'新型号');
  detail=await api('/ledger/towers/'+y.id);await api('/ledger/towers/'+y.id,'PATCH',{version:detail.version,tower_no:'028A',reason:'本线编号修订'});assert.equal((await api('/ledger/towers/'+x.id)).tower_no,'015');
- detail=await api('/ledger/towers/'+y.id);await api('/ledger/towers/'+y.id,'PATCH',{version:detail.version,replace_physical:true,physical:{model:'实际新塔'},reason:'本位置换塔'});detail=await api('/ledger/towers/'+y.id);assert.notEqual(detail.physical.id,x.physical_tower_id);assert.equal(detail.bindings[0].change_kind,'replacement');assert.equal((await api('/ledger/towers/'+x.id)).physical.id,x.physical_tower_id);
+ detail=await api('/ledger/towers/'+y.id);
+ await api('/ledger/towers/'+y.id,'PATCH',{version:detail.version,replace_physical:true,physical:{model:'实际新塔'},reason:'不允许仅移动共塔单回路'},409);
+ const target=await api('/physical-towers','POST',{tower_code:'PH-WHOLE-'+a.n},201);
+ const impact=await api('/physical-towers/'+x.physical_tower_id+'/replace');
+ assert.equal(impact.affected.length,2);
+ await api('/physical-towers/'+x.physical_tower_id+'/replace','POST',{source_version:impact.source.version,target_physical_tower_id:target.id,confirmed_towers:impact.affected.map(t=>({id:t.id,version:t.version})),reason:'两回路全部复核，整塔更新'});
+ detail=await api('/ledger/towers/'+y.id);assert.equal(detail.physical.id,target.id);
+ assert.equal(detail.bindings[0].change_kind,'replacement');assert.equal((await api('/ledger/towers/'+x.id)).physical.id,target.id);
 });
 test('spans only store length; correct endpoints, unknown length, duplicate guards and reorder do not alter confirmed connections',async()=>{
  const {l,w}=await fixture();let preview=await api('/ledger/lines/'+l.id+'/spans/preview','POST',{version:w.line.version});assert.equal(preview.candidates.length,2);let result=await api('/ledger/lines/'+l.id+'/spans','POST',{version:w.line.version,rows:preview.candidates.map((s,i)=>({...s,length:i?'':'123.4567'}))},201);let ws=await api('/ledger/lines/'+l.id);assert.equal(ws.spans[0].length_scaled,1234567);assert.equal(ws.spans[1].length_scaled,null);assert.equal(ws.spans[1].status,'draft');

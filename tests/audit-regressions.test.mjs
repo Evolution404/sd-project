@@ -40,9 +40,11 @@ async function approve(f,d){
  d=await api('/demands/'+d.id+'/verify','POST',{version:d.version,status:'active',reason:'现场核实'});
  const frame=await api('/frameworks','POST',{code:'F'+f.n,name:'框架',limit_yuan:'10000'},201);
  const ag=await api('/agreements','POST',{code:'A'+f.n,name:'协议',framework_id:frame.id,limit_yuan:'10000'},201);
+ const cat=await api('/dictionary-items','POST',{type_id:'project_category',code:'CAT'+f.n,name:'修理类'},201);
  let p=await api('/projects','POST',{code:'P'+f.n,name:'项目',agreement_id:ag.id},201);
  p=await api('/projects/'+p.id+'/scopes','POST',{version:p.version,demand_id:d.id,quantity:'2'},201);
  p=await api('/projects/'+p.id+'/scopes/'+p.scopes[0].id,'PATCH',{version:p.version,unit_price_yuan:'100.01',price_source:'定额',price_date:'2026-10-29',tax_mode:'inclusive'});
+ p=await api('/projects/'+p.id+'/preliminary-estimate','POST',{version:p.version,category_id:cat.id,amount_yuan:'200.02',basis:'修理项目初步估算资料'});
  p=await api('/projects/'+p.id+'/stock','POST',{version:p.version,reason:'储备入库'});
  p=await api('/projects/'+p.id+'/approve','POST',{version:p.version,reason:'批准'});
  return {p,d};
@@ -73,7 +75,7 @@ test('F02: stocked/approved scope facts and execution location stay immutable; m
  await api('/demands/'+d.id,'PATCH',{version:d.version,reason:'改变验收范围',completion_standard:'更换绝缘子验收'},409);
  await api('/demands/'+d.id+'/verify','POST',{version:d.version,reason:'撤销已有批准范围',status:'cancelled'},409);
  const moved=await api('/physical-towers','POST',{tower_code:'MOVED'+f.n},201);
- await api('/logical-towers/'+f.tower.id,'PATCH',{version:1,physical_tower_id:moved.id,change_kind:'replacement',reason:'更换实体'});
+ await api('/logical-towers/'+f.tower.id,'PATCH',{version:1,physical_tower_id:moved.id,change_kind:'correction',reason:'实体关联纠错'});
  await api('/demands/'+d.id+'/revalidate-location','POST',{version:d.version,reason:'批准后重新定位'},409);
  let second=await api('/projects/'+p.id+'/executions','POST',{number:'EX2'},201);
  second=await api('/executions/'+second.id+'/items','POST',{version:second.version,scope_id:p.scopes[0].id,quantity:'1'},201);

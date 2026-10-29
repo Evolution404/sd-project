@@ -11,6 +11,7 @@ const loading=ref(false),busy=ref(false),error=ref(''),success=ref(''),tab=ref(p
 const filter=ref(''),voltageFilter=ref(''),query=ref(''),queryLine=ref(''),queryPage=ref(1),towerSearch=ref(''),showRetired=ref(false);
 const selectedTowers=reactive<Record<string,boolean>>({}),selectedSpans=reactive<Record<string,boolean>>({}),highlight=ref<string[]>([]);
 const editor=ref(''),form=reactive<Rec>({}),rows=ref<Rec[]>([]),common=reactive<Rec>({}),preview=ref<Rec|null>(null),previewHash=ref(''),initialSnapshot=ref(''),discard=ref(false),requestKey=ref('');
+const replacementTargets=ref<Rec[]>([]);
 const towerView=ref<Rec|null>(null),sourceLine=ref(''),rangeStart=ref('1'),rangeEnd=ref('10'),numberWidth=ref('3'),numberPrefix=ref(''),pasteNumbers=ref(''),inputMode=ref('range'),pasteLengths=ref('');
 const lineChoice=computed(()=>workspace.value?.line||null),canWrite=computed(()=>['admin','editor'].includes(props.user.role));
 const visibleError=computed(()=>error.value===inlineErrorMessage.value?'':error.value);
@@ -28,7 +29,7 @@ const lookup=computed(()=>allTowers.value.filter(t=>t.status==='active'&&t.physi
 const endpointOptions=computed(()=>nodes.value.filter(t=>t.status==='active'));
 const ready=computed(()=>lineChoice.value?.status==='active'&&lineChoice.value?.setup_status==='ready');
 const commonChanged=computed(()=>editor.value==='tower-edit'&&towerView.value&&JSON.stringify(physicalForm(towerView.value.physical))!==JSON.stringify(form.physical));
-const title=computed(()=>({line:form.id?'编辑线路':'新建线路','tower-add':'新增杆塔','tower-batch':'批量添加杆塔','tower-edit':'编辑杆塔','tower-replace':'实际换塔',shared:'关联共塔',reorder:'调整沿线顺序','span-add':'新增档距','span-edit':'编辑档距长度','span-batch':'按杆塔顺序生成档距',replace:'拆档 / 合档变更',delete:'确认删除'} as Rec)[editor.value]||'');
+const title=computed(()=>({line:form.id?'编辑线路':'新建线路','tower-add':'新增杆塔','tower-batch':'批量添加杆塔','tower-edit':'编辑杆塔','tower-replace':'本线路单回路换塔','whole-replace':'整塔更换（确认全部共塔回路）',shared:'关联共塔',reorder:'调整沿线顺序','span-add':'新增档距','span-edit':'编辑档距长度','span-batch':'按杆塔顺序生成档距',replace:'拆档 / 合档变更',delete:'确认删除'} as Rec)[editor.value]||'');
 const selectedRows=computed(()=>rows.value.filter(r=>r.selected!==false&&!r.existing_id));
 function snapshot(){return JSON.stringify({form,rows:rows.value,common,inputMode:inputMode.value,rangeStart:rangeStart.value,rangeEnd:rangeEnd.value,numberWidth:numberWidth.value,numberPrefix:numberPrefix.value,pasteNumbers:pasteNumbers.value})}
 const dirty=computed(()=>!!editor.value&&snapshot()!==initialSnapshot.value);
@@ -64,7 +65,33 @@ function applyCommon(overwrite=false){for(const row of rows.value)if(!overwrite|
 function towerPayload(){return {version:lineChoice.value!.version,topology_token:workspace.value!.topology_token,after_tower_id:form.after_tower_id||null,common:{...common},rows:rows.value.map(r=>({...r,physical_tower_id:form.mode==='existing'||editor.value==='tower-batch'?r.physical_tower_id||null:null})),idempotency_key:requestKey.value}}
 async function saveTowers(){busy.value=true;error.value='';try{const body=towerPayload(),fingerprint=JSON.stringify(body);if(editor.value==='tower-batch'&&previewHash.value!==fingerprint){preview.value=await api('/ledger/lines/'+props.lineId+'/towers/preview','POST',body);previewHash.value=fingerprint;return}const r=await api('/ledger/lines/'+props.lineId+'/towers','POST',body);await saved(r,'已保存 '+r.count+' 基杆塔')}catch(e){report(e)}finally{busy.value=false}}
 async function showTower(id:string){try{towerView.value=await api('/ledger/towers/'+id)}catch(e){report(e)}}
-async function editTower(row:Rec,replace=false){await showTower(row.id);if(!towerView.value)return;resetEditor(replace?'tower-replace':'tower-edit',{id:row.id,version:towerView.value.version,tower_no:towerView.value.tower_no,circuit_position:towerView.value.circuit_position||'',status:towerView.value.status,physical_version:towerView.value.physical?.version,physical:replace?physicalForm():physicalForm(towerView.value.physical),reason:'',confirm_shared:false})}
+async function editTower(row:Rec,replace=false){await showTower(row.id);if(!towerView.value)return;
+ if(replace&&towerView.value.shared_with.filter((r:Rec)=>r.status==='active').length>1){await openWholeReplacement();return}
+ resetEditor(replace?'tower-replace':'tower-edit',{id:row.id,version:towerView.value.version,tower_no:towerView.value.tower_no,circuit_position:towerView.value.circuit_position||'',status:towerView.value.status,physical_version:towerView.value.physical?.version,physical:replace?physicalForm():physicalForm(towerView.value.physical),reason:'',confirm_shared:false})}
+async function openWholeReplacement(){
+ if(!towerView.value?.physical?.id)return;
+ error.value='';busy.value=true;
+ try{
+  const id=towerView.value.physical.id;
+  const [impact,allPhysical]=await Promise.all([api('/physical-towers/'+id+'/replace'),api('/physical-towers')]);
+  replacementTargets.value=allPhysical.filter((x:Rec)=>x.id!==id&&x.status==='active');
+  resetEditor('whole-replace',{source_id:id,source_version:impact.source.version,
+    target_physical_tower_id:'',reason:''},impact.affected.map((x:Rec)=>({...x,checked:false})));
+ }catch(e){report(e)}finally{busy.value=false}
+}
+async function saveWholeReplacement(){
+ if(rows.value.some((x:Rec)=>!x.checked)){error.value='必须逐条勾选确认全部受影响回路';return}
+ busy.value=true;error.value='';
+ try{
+  await api('/physical-towers/'+form.source_id+'/replace','POST',{
+   source_version:form.source_version,target_physical_tower_id:form.target_physical_tower_id,
+   confirmed_towers:rows.value.map((x:Rec)=>({id:x.id,version:x.version})),reason:form.reason
+  });
+  editor.value='';await loadData(props.lineId);emit('changed');
+  if(towerView.value)await showTower(towerView.value.id);
+  notify('整塔更换完成，共塔回路已在同一事务更新，历史保留');
+ }catch(e){report(e)}finally{busy.value=false}
+}
 async function saveTower(){busy.value=true;error.value='';try{const r=await api('/ledger/towers/'+form.id,'PATCH',{...form,replace_physical:editor.value==='tower-replace',idempotency_key:requestKey.value});await saved(r,'杆塔变更已保存并留痕');await showTower(r.id)}catch(e){report(e)}finally{busy.value=false}}
 function openReorder(){resetEditor('reorder',{reason:''},ownTowers.value.filter(t=>t.status!=='inactive').map(t=>({...t})))}
 function move(index:number,delta:number){const target=index+delta;if(target<0||target>=rows.value.length)return;const [r]=rows.value.splice(index,1);rows.value.splice(target,0,r)}
@@ -142,6 +169,22 @@ watch([query,queryLine,()=>props.view],()=>queryPage.value=1);
     <label v-if="form.mode==='existing'||editor==='tower-batch'"><span class="field-caption">查找已有杆塔的线路</span><select v-model="sourceLine"><option value="">其他全部线路</option><option v-for="l in lines.filter(l=>l.id!==lineId)" :key="l.id" :value="l.id">{{l.name}}</option></select></label>
     <div class="table-wrap"><table><thead><tr><th v-if="editor==='tower-batch'">应用共同属性</th><th>杆塔号 <span class="required-star">*</span></th><th v-if="editor==='tower-batch'">结构 / 型号</th><th v-if="editor==='tower-batch'||form.mode==='existing'">关联已有杆塔</th><th>回路位置</th><th v-if="editor==='tower-batch'"></th></tr></thead><tbody><tr v-for="(r,index) in rows" :key="index" :data-row-index="index"><td v-if="editor==='tower-batch'"><input v-model="r.selected" type="checkbox" :aria-label="'应用共同属性 '+(index+1)"/></td><td><input v-model="r.tower_no" :aria-label="'杆塔号 '+(index+1)" required/></td><td v-if="editor==='tower-batch'"><input v-model="r.tower_type" :aria-label="'结构类型 '+(index+1)" list="ledger-structures"/><input v-model="r.model" :aria-label="'型号 '+(index+1)"/></td><td v-if="editor==='tower-batch'||form.mode==='existing'"><select v-model="r.physical_tower_id" :required="form.mode==='existing'" :aria-label="'关联已有杆塔 '+(index+1)"><option value="">{{editor==='tower-batch'?'新建实际杆塔':'请选择'}}</option><option v-for="t in lookup" :key="t.id" :value="t.physical_tower_id">{{t.line_name}} {{t.tower_no}} · {{t.model||t.tower_type||'未填写型号'}}</option></select><small v-if="r.physical_tower_id">采用该实际杆塔的公共属性</small></td><td><input v-model="r.circuit_position" :aria-label="'回路位置 '+(index+1)" placeholder="左、右等，可留空"/></td><td v-if="editor==='tower-batch'"><button type="button" class="link" @click="rows.splice(index,1);preview=null">移除</button></td></tr></tbody></table></div>
     <p v-if="preview&&previewHash===JSON.stringify(towerPayload())" class="alert ok">预检通过，共 {{rows.length}} 基。确认编号、顺序和共塔关系后保存。</p><div class="form-actions"><button type="button" class="light" @click="closeEditor">取消</button><button class="primary" :disabled="busy||!rows.length">{{editor==='tower-batch'?(previewHash===JSON.stringify(towerPayload())?'确认保存 '+rows.length+' 基':'预检并继续'):'保存杆塔'}}</button></div>
+   </form>
+   <form v-if="editor==='whole-replace'" v-form-validation novalidate class="form-grid" @submit.prevent="saveWholeReplacement">
+     <p class="muted wide">该实体塔关联多个线路位置，实际整塔更换须逐项确认全部回路。单回路资料关联错误请使用“关联共塔”中的纠错功能。</p>
+     <label class="wide"><span class="field-caption">目标实体塔</span>
+       <select v-model="form.target_physical_tower_id" required><option value="">请选择已登记的目标实体塔</option>
+        <option v-for="t in replacementTargets" :key="t.id" :value="t.id">{{t.tower_code}} · {{t.model||t.tower_type||'未填写型号'}}</option>
+       </select>
+     </label>
+     <div class="wide scope-item"><strong>受影响的全部在用回路（{{rows.length}}）</strong>
+       <label v-for="t in rows" :key="t.id" class="ledger-check">
+        <input v-model="t.checked" type="checkbox" :aria-label="'确认更换 '+t.line_name+' '+t.tower_no" required/>
+        {{t.line_name}} · {{t.tower_no}}（版本 {{t.version}}）
+       </label>
+     </div>
+     <label class="wide"><span class="field-caption">整体更换依据</span><textarea v-model="form.reason" required rows="3" placeholder="现场依据及影响范围核实情况"/></label>
+     <div class="wide form-actions"><button type="button" class="light" @click="closeEditor">取消</button><button class="primary" :disabled="busy||rows.some((t:Rec)=>!t.checked)">确认整塔更换</button></div>
    </form>
    <form v-if="['tower-edit','tower-replace'].includes(editor)" v-form-validation novalidate class="form-grid" @submit.prevent="saveTower">
     <p class="wide muted">所属线路：{{lineChoice?.name}}。{{editor==='tower-replace'?'为当前线路位置登记新的实际杆塔，原实体及业务依据保留历史。':'杆塔号只修改当前线路，公共属性修改会影响关联线路。'}}</p>

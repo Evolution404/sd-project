@@ -14,7 +14,7 @@ test('v4 migration preserves quantity, budget, historical facts, draft strings a
    import {db,one} from './server/db.mjs';
    import {projectDetail} from './server/projects.mjs';
    import {executionDetail,confirmCompletion} from './server/executions.mjs';
-   assert.equal(one('PRAGMA user_version').user_version,8);
+   assert.equal(one('PRAGMA user_version').user_version,11);
    assert.equal(one('SELECT quantity_scaled FROM demands').quantity_scaled,20000);
    assert.equal(one('SELECT default_quantity_scaled FROM dictionary_items WHERE id=?','op').default_quantity_scaled,20000);
    const p=projectDetail('pr');assert.equal(p.approved_budget_fen,20002);assert.equal(p.estimate.known_total_fen,20002);
@@ -22,6 +22,10 @@ test('v4 migration preserves quantity, budget, historical facts, draft strings a
    assert.equal(p.scopes[0].demand_snapshot.quantity_scaled,20000);
    const stage=JSON.parse(p.events[0].snapshot_json);assert.equal(stage.scopes[0].quantity_scaled,20000);assert.equal(stage.scopes[0].demand_snapshot.problem_description,'原始问题');
    const e=executionDetail('ex');assert.equal(e.items[0].planned_quantity_scaled,5000);assert.equal(e.items[0].completed_quantity_scaled,2500);
+   assert.equal(one('SELECT version_no FROM project_approval_versions WHERE project_id=?','pr').version_no,1);
+   assert.equal(e.approval_version_id,one('SELECT id FROM project_approval_versions WHERE project_id=?','pr').id);
+   assert.ok(e.items[0].scope_snapshot_json,'legacy execution scope must retain immutable snapshot after migration');
+
    confirmCompletion('ex','item',{quantity:'0.25',occurred_on:'2026-10-01',evidence:'验收',idempotency_key:'completion'},{id:'u'});
    assert.equal(one('SELECT COUNT(*) n FROM completion_records').n,1);
    assert.equal(JSON.parse(one('SELECT draft_json FROM demand_batches').draft_json).quantity,'2');

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
+import {createHash} from 'node:crypto';
 import { once } from 'node:events';
 const root=mkdtempSync(join(tmpdir(),'sd-project-integration-'));
 process.env.DATA_DIR=root;
@@ -30,7 +31,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/auth/me','GET',undefined,401);
   const login=await request('/auth/login','POST',{username:'tester',password:'Test-Secure-Passw0rd-36'});
   assert.equal(login.user.role,'admin');
-  assert.equal(one('PRAGMA user_version').user_version,8);
+  assert.equal(one('PRAGMA user_version').user_version,11);
   assert.equal(isPermittedIP('127.0.0.1'),true);
   assert.equal(isPermittedIP('::1'),true);
   assert.equal(isPermittedIP('::ffff:127.0.0.1'),true);
@@ -83,6 +84,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   const unit=await request('/dictionary-items','POST',{type_id:'unit',code:'SET',name:'套',sort_order:1},201);
   const op=await request('/dictionary-items','POST',{type_id:'operation',code:'INSTALL',name:'安装防鸟装置',work_target_type:'line',default_unit_id:unit.id,default_quantity:'2',completion_standard:'验收合格'},201);
   const src=await request('/dictionary-items','POST',{type_id:'source',code:'PATROL',name:'巡视发现'},201);
+  const projectCategory=await request('/dictionary-items','POST',{type_id:'project_category',code:'REPAIR',name:'修理项目'},201);
   assert.equal(op.default_quantity_scaled,20000);
   const payload={idempotency_key:'batch-001',work_target_type:'line',operation_id:op.id,unit_id:unit.id,target_object:'防鸟装置',quantity:'2',completion_standard:'验收合格',problem_description:'合成巡视测试',source:{type_id:src.id,proposed_by:'测试班组',discovered_on:'2026-10-29',description:'一次巡视'},rows:[{logical_tower_id:lt1.id,quantity:'2'},{logical_tower_id:lt2.id,target_object:'横担部位',quantity:'3'},{logical_tower_id:lt3.id,quantity:'2'}]};
   const result=await request('/demand-batches/submit','POST',payload,201);
@@ -105,6 +107,17 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   detail=await request('/projects/'+project.id+'/scopes','POST',{version:detail.version,demand_id:d.id,quantity:'1'},201);
   assert.equal(detail.estimate.missing_price_count,1);
   await request('/projects/'+project.id+'/approve','POST',{version:detail.version,reason:'不能越级'},409);
+  const adminCookie=cookie,editorToken='editor-session-test-only';
+  const editorId='editor_test_id',nowTest=new Date().toISOString();
+  db.prepare('INSERT INTO users(id,username,password_hash,role,status,created_at) VALUES(?,?,?,?,?,?)').run(editorId,'editing_only','unused','editor','active',nowTest);
+  db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)').run(createHash('sha256').update(editorToken).digest('hex'),editorId,'2099-01-01T00:00:00.000Z',nowTest);
+  cookie='sd_session='+editorToken;
+  await request('/projects/'+project.id+'/stock','POST',{version:detail.version,reason:'编辑人员无权入库'},403);
+  await request('/projects/'+project.id+'/approve','POST',{version:detail.version,reason:'编辑人员无权立项'},403);
+  cookie=adminCookie;
+  await request('/projects/'+project.id+'/stock','POST',{version:detail.version,reason:'缺类别和初步估算不得入库'},422);
+  detail=await request('/projects/'+project.id+'/preliminary-estimate','POST',{version:detail.version,
+   category_id:projectCategory.id,amount_yuan:'150.25',basis:'现场初步测算与历史定额依据'},200);
   detail=await request('/projects/'+project.id+'/stock','POST',{version:detail.version,reason:'纳入正式储备库，价格待核'},200);
   assert.equal(detail.status,'stocked');
   await request('/projects/'+project.id+'/approve','POST',{version:detail.version,reason:'缺协议'},422);
@@ -115,19 +128,41 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   },200);
   detail=await request('/projects/'+project.id+'/approve','POST',{version:detail.version,reason:'预算资料核实并批准'},200);
   assert.equal(detail.status,'approved');assert.equal(detail.approved_budget_fen,15025);
-  assert.equal(detail.events.length,2,'stock and approval snapshots each retained');
+  assert.equal(detail.events.length,2,'stock and approval snapshots each retained');  const approvalVersions=await request('/projects/'+project.id+'/approval-versions');
+  assert.equal(approvalVersions.length,1);
+  assert.equal(approvalVersions[0].approved_budget_fen,15025);
+  const change=await request('/projects/'+project.id+'/change-orders','POST',{
+   code:'CHG-001',base_approval_version_id:approvalVersions[0].id,
+   reason:'现场发现新增工作内容，提出范围调整但尚未审批',
+   changes:[{action:'adjust',scope_id:detail.scopes[0].id,quantity:'0.8',unit_price_yuan:'200',evidence:'现场复核资料'}]
+  },201);
+  assert.equal(change.status,'draft');
+  assert.equal((await request('/projects/'+project.id+'/change-orders')).length,1);
+  assert.equal((await request('/change-orders/'+change.id)).id,change.id);
+  await request('/projects/'+project.id+'/change-orders','POST',{
+    code:'CHG-BAD',base_approval_version_id:approvalVersions[0].id,reason:'无效工作范围',
+    changes:[{action:'adjust',scope_id:'nonexistent',quantity:'1',evidence:'资料'}]
+  },422);
+  assert.equal((await request('/projects/'+project.id)).approved_budget_fen,15025,'change draft must not alter approved budget');
+
   const ex1=await request('/projects/'+project.id+'/executions','POST',{number:'EX1',description:'第一次作业',planned_on:'2026-10-30'},201);
   assert.equal(ex1.status,'planned');
+  assert.equal(ex1.approval_version_id,approvalVersions[0].id,'execution must bind immutable approval version');
+
   const ex2=await request('/projects/'+project.id+'/executions','POST',{number:'EX2',description:'第二次作业'},201);
-  const firstItem=await request('/executions/'+ex1.id+'/items','POST',{version:ex1.version,scope_id:detail.scopes[0].id,quantity:'0.5'},201);
+  const firstItem=await request('/executions/'+ex1.id+'/items','POST',{version:ex1.version,scope_id:detail.scopes[0].id,quantity:'1'},201);
   assert.equal(firstItem.items.length,1);
-  const secondItem=await request('/executions/'+ex2.id+'/items','POST',{version:ex2.version,scope_id:detail.scopes[0].id,quantity:'0.5'},201);
-  assert.equal(secondItem.items.length,1);
+  assert.equal(firstItem.items[0].demand_snapshot.id,d.id);
+  assert.equal(JSON.parse(firstItem.items[0].scope_snapshot_json).quantity_scaled,10000);
+
+  await request('/executions/'+ex2.id+'/items','POST',{version:ex2.version,scope_id:detail.scopes[0].id,quantity:'0.5'},409);
+  const secondItem=null;
+
   await request('/projects/'+project.id+'/executions','POST',{number:'EX2'},409);
   const third=await request('/projects/'+project.id+'/executions','POST',{number:'EX3'},201);
   await request('/executions/'+third.id+'/items','POST',{version:third.version,scope_id:detail.scopes[0].id,quantity:'0.1'},409);
   let running=await request('/executions/'+ex1.id+'/start','POST',{version:firstItem.version,reason:'实际开工'},200);
-  await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.6',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-too-large'},409);
+  await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'1.1',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-too-large'},409);
   running=await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.5',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-001'},201);
   assert.equal(running.items[0].completed_quantity_scaled,5000);
   const replay=await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'0.5',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-001'},201);
@@ -136,11 +171,19 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   running=await request('/executions/'+ex1.id+'/finish','POST',{version:running.version,reason:'本批完成并归档'},200);
   assert.equal(running.status,'finished');
   assert.equal((await request('/projects/'+project.id+'/executions')).length,3);
+  assert.equal(one('SELECT planned_quantity_scaled FROM execution_items WHERE id=?',running.items[0].id).planned_quantity_scaled,10000,'historic plan preserved');
+  const releaseAudit=all("SELECT after_json FROM audit_events WHERE entity='executions' AND entity_id=? AND action='stage_finished'",ex1.id);
+  assert.equal(JSON.parse(releaseAudit[0].after_json).closing_quantities[0].released_quantity_scaled,5000,'uncompleted quantity audited');
+  const secondAfterRelease=await request('/executions/'+ex2.id+'/items','POST',{version:ex2.version,scope_id:detail.scopes[0].id,quantity:'0.5'},201);
+  assert.equal(secondAfterRelease.items[0].planned_quantity_scaled,5000,'second batch reuses released remainder');
+  await request('/executions/'+third.id+'/items','POST',{version:third.version,scope_id:detail.scopes[0].id,quantity:'0.1'},409);
 
   assert.equal((await request('/frameworks')).find(x=>x.id===fw.id).approved_project_budget_fen,15025,'real-time rollup from distinct projects');
   await request('/projects/'+project.id+'/agreement','POST',{version:detail.version,agreement_id:ag.id},409);
   const parallel=await request('/projects','POST',{code:'P-SECOND',name:'重复范围候选'},201);
   let p2=await request('/projects/'+parallel.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'2'},201);
+  p2=await request('/projects/'+parallel.id+'/preliminary-estimate','POST',{version:p2.version,
+   category_id:projectCategory.id,amount_yuan:'400',basis:'估算依据：同类工程参考'},200);
   p2=await request('/projects/'+parallel.id+'/stock','POST',{version:p2.version,reason:'候选项目入库'},200);
   p2=await request('/projects/'+parallel.id+'/agreement','POST',{version:p2.version,agreement_id:ag.id},200);
   p2=await request('/projects/'+parallel.id+'/scopes/'+p2.scopes[0].id,'PATCH',{
@@ -151,7 +194,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/demands/'+d.id+'/verify','POST',{status:'active',version:d.version,reason:'重复确认'},409);
   const renamed=await request('/logical-towers/'+lt1.id,'PATCH',{version:1,tower_no:'#1A',reason:'命名修正'});
   assert.equal(renamed.tower_no,'#1A');
-  const changed=await request('/logical-towers/'+lt1.id,'PATCH',{version:2,physical_tower_id:otherPhysical.id,change_kind:'replacement',reason:'换塔'});
+  const changed=await request('/logical-towers/'+lt1.id,'PATCH',{version:2,physical_tower_id:otherPhysical.id,change_kind:'correction',reason:'单回路实体关联纠错'});
   assert.equal(changed.physical_tower_id,otherPhysical.id);
   const history=await request('/logical-towers/'+lt1.id);
   assert.equal(history.name_history.length,2);
@@ -182,12 +225,46 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
    ]
   },201);
   assert.equal(replaySources.batch_id,multiSources.batch_id);
+  const possibleDuplicate={...payload,idempotency_key:'duplicate-manual-check',rows:[{logical_tower_id:lt1.id,target_object:'防鸟装置',quantity:'1'}]};
+  await request('/demand-batches/submit','POST',possibleDuplicate,409);
+  const suggestions=await request('/demands/duplicate-candidates','POST',possibleDuplicate);
+  assert.equal(suggestions.rows[0].candidates[0].id,d.id,'previous batch is detected');
+  const separate={...possibleDuplicate,rows:[{...possibleDuplicate.rows[0],
+   duplicate_review:{decision:'separate',candidate_id:d.id,reason:'与上次不同的新增现场缺陷，需要另行核实'}}]};
+  const reoccur=await request('/demand-batches/submit','POST',separate,201);
+  assert.equal(reoccur.count,1);
+  assert.equal(one("SELECT decision FROM demand_duplicate_reviews WHERE batch_id=?",reoccur.batch_id).decision,'separate');
+  assert.equal((await request('/demands/'+reoccur.ids[0])).status,'pending');
+  const beforeLink=one('SELECT COUNT(*) n FROM demands').n;
+  const linked={...possibleDuplicate,idempotency_key:'duplicate-link-sources',
+   rows:[{...possibleDuplicate.rows[0],duplicate_review:{decision:'link',candidate_id:d.id,reason:'同一问题的第二份巡视来源'}}]};
+  const linkedResult=await request('/demand-batches/submit','POST',linked,201);
+  assert.equal(linkedResult.count,0,'linking an existing demand must not generate a second work quantity');
+  assert.deepEqual(linkedResult.linked_ids,[d.id]);
+  assert.equal(one('SELECT COUNT(*) n FROM demands').n,beforeLink);
+  assert.equal((await request('/demands/'+d.id)).sources.length,2);
+  assert.deepEqual((await request('/demand-batches/submit','POST',linked,201)).linked_ids,[d.id],'source link remains idempotent');
   await request('/dictionary-items/'+unit.id,'PATCH',{version:1,name:'装置套',status:'inactive'},200);
   assert.equal((await request('/demands/'+result.ids[1])).unit_snapshot,'套','option rename retains original text');
   await request('/demand-batches/submit','POST',{...payload,idempotency_key:'batch-002'},422);
   const exported=await fetch(base+'/api/demands/export.xlsx?status=pending',{headers:{cookie}});
   assert.equal(exported.status,200);assert.equal(exported.headers.get('content-type'),'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   assert.equal(Buffer.from(await exported.arrayBuffer()).subarray(0,2).toString(),'PK');
+  const sharedAgain=await request('/logical-towers','POST',{logical_code:'L01-SHARED-EXTRA',line_id:line1.id,physical_tower_id:physical.id,tower_no:'#88',sort_rank:188},201);
+  const effect=await request('/physical-towers/'+physical.id+'/replace');
+  assert.equal(effect.affected.length,2,'all shared active circuits must be identified');
+  const replacementArgs={source_version:effect.source.version,target_physical_tower_id:otherPhysical.id,
+   confirmed_towers:effect.affected.map(x=>({id:x.id,version:x.version})),reason:'整基实体更换，逐回路确认'};
+  await request('/physical-towers/'+physical.id+'/replace','POST',{...replacementArgs,confirmed_towers:replacementArgs.confirmed_towers.slice(0,1)},409);
+  assert.equal(one('SELECT physical_tower_id FROM logical_towers WHERE id=?',lt2.id).physical_tower_id,physical.id,'partial confirmations cannot move any tower');
+  await request('/logical-towers/'+lt2.id,'PATCH',{version:1,physical_tower_id:otherPhysical.id,change_kind:'replacement',reason:'单回路绕过'},409);
+  const swapped=await request('/physical-towers/'+physical.id+'/replace','POST',replacementArgs);
+  assert.equal(swapped.affected.length,2);
+  assert.equal(one('SELECT physical_tower_id FROM logical_towers WHERE id=?',lt2.id).physical_tower_id,otherPhysical.id);
+  assert.equal(one('SELECT physical_tower_id FROM logical_towers WHERE id=?',sharedAgain.id).physical_tower_id,otherPhysical.id);
+  assert.equal(one('SELECT change_kind FROM logical_tower_physical_history WHERE logical_tower_id=? AND valid_to IS NULL',lt2.id).change_kind,'replacement');
+  await request('/physical-towers/'+physical.id+'/replace','POST',replacementArgs,409);
+  assert.equal((await request('/demands/'+result.ids[1])).observed_physical_tower_id,physical.id,'historic demand location must not drift');
   assert.equal(one('PRAGMA foreign_keys').foreign_keys,1);
   assert.equal(one('PRAGMA integrity_check').integrity_check,'ok');
   assert.ok(all('SELECT * FROM audit_events').length>12);

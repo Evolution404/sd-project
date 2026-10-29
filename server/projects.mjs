@@ -73,14 +73,35 @@ export function createProject(body,user){
  const ag=body.agreement_id?agreement(body.agreement_id):null;
  if(ag&&ag.status!=='active')fault(422,'执行协议不可用');
  if(body.category_id){
-  const item=one("SELECT * FROM dictionary_items WHERE id=? AND type_id='category' AND status='active'",body.category_id);
+  const item=one("SELECT * FROM dictionary_items WHERE id=? AND type_id='project_category' AND status='active'",body.category_id);
   if(!item)fault(422,'无效的项目类别');
  }
  const t=now(),item={id:uid(),code:required(body.code,'项目编号'),name:required(body.name,'项目名称'),
  agreement_id:ag?.id||null,category_id:body.category_id||null,status:'reserve',version:1,estimate_fen:null,approved_budget_fen:null,created_by:user.id,created_at:t,updated_at:t};
  return transaction(()=>{
-  exec('INSERT INTO projects VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
+  exec('INSERT INTO projects('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
   event(user,'projects',item.id,'create',null,item);return item;
+ });
+}
+/** Estimate and category may be refined while the project is still a draft. */
+export function savePreliminaryEstimate(id,body,user){
+ const p=project(id);versionOf(p,body);
+ if(p.status!=='reserve')fault(409,'只有储备草稿可以修改初步估算和项目类别');
+ const amount=yuanToFen(body.amount_yuan,'初步估算');
+ if(amount<=0)fault(422,'初步估算必须大于零');
+ const basis=required(body.basis,'初步估算依据');
+ if(!body.category_id)fault(422,'须选定正式项目类别');
+ const category=one("SELECT * FROM dictionary_items WHERE id=? AND type_id='project_category' AND status='active'",body.category_id);
+ if(!category)fault(422,'项目类别不存在或已停用');
+ return transaction(()=>{
+  const t=now(),next={...p,category_id:category.id,
+   preliminary_estimate_fen:amount,preliminary_estimate_basis:basis,
+   preliminary_estimate_at:t,preliminary_estimate_by:user.id,
+   updated_at:t,version:p.version+1};
+  exec('UPDATE projects SET category_id=?,preliminary_estimate_fen=?,preliminary_estimate_basis=?,preliminary_estimate_at=?,preliminary_estimate_by=?,updated_at=?,version=? WHERE id=?',
+   next.category_id,next.preliminary_estimate_fen,next.preliminary_estimate_basis,next.preliminary_estimate_at,next.preliminary_estimate_by,t,next.version,id);
+  event(user,'projects',id,'preliminary_estimate',p,next,basis);
+  return projectDetail(id);
  });
 }
 export function listProjects(){
@@ -157,7 +178,7 @@ export function bindAgreement(id,body,user){
  });
 }
 function stageSnapshot(p,items,stage,reason,user){
- return {project_id:p.id,project_code:p.code,project_name:p.name,stage,agreement_id:p.agreement_id,
+ return {project_id:p.id,project_code:p.code,project_name:p.name,stage,agreement_id:p.agreement_id,category_id:p.category_id,preliminary_estimate_fen:p.preliminary_estimate_fen,preliminary_estimate_basis:p.preliminary_estimate_basis,
  scopes:items.map(x=>({scope_id:x.id,demand_id:x.demand_id,demand_version:x.demand_version,demand_snapshot:x.demand_snapshot,quantity_scaled:x.quantity_scaled,unit_price_fen:x.unit_price_fen,price_source:x.price_source,price_date:x.price_date,tax_mode:x.tax_mode,amount_fen:lineEstimate(x)})),
  created_at:now(),reason,actor_id:user.id};
 }
@@ -174,6 +195,12 @@ export function advanceProject(id,stage,body,user){
    if(latest.status==='reserve'&&d.version!==x.demand_version)fault(409,'需求已发生修订，必须核对范围版本');
   }
   const estimate=summary(items);
+  if(stage==='stocked'){
+   const category=one("SELECT status FROM dictionary_items WHERE id=? AND type_id='project_category'",latest.category_id);
+   if(!category||category.status!=='active')fault(422,'正式入库前必须选择启用的项目类别');
+   if(!latest.preliminary_estimate_fen||!latest.preliminary_estimate_basis?.trim())
+    fault(422,'正式入库前必须填写有依据的初步估算，缺价不得视为零');
+  }
   if(stage==='approved'){
    if(!latest.agreement_id)fault(422,'立项前必须绑定唯一执行协议');
    const ag=agreement(latest.agreement_id),fw=framework(ag.framework_id);
@@ -190,9 +217,13 @@ export function advanceProject(id,stage,body,user){
    }
   }
   const t=now(),newVersion=latest.version+1;
-  exec('UPDATE projects SET status=?,version=?,estimate_fen=?,approved_budget_fen=?,updated_at=? WHERE id=?',stage,newVersion,estimate.complete?estimate.known_total_fen:null,stage==='approved'?estimate.known_total_fen:null,t,id);
+  exec('UPDATE projects SET status=?,version=?,estimate_fen=?,approved_budget_fen=?,updated_at=? WHERE id=?',stage,newVersion,stage==='approved'?estimate.known_total_fen:latest.preliminary_estimate_fen,stage==='approved'?estimate.known_total_fen:null,t,id);
   const snapshot=stageSnapshot(latest,items,stage,reason,user);
   exec('INSERT INTO project_stage_events VALUES(?,?,?,?,?,?,?,?)',uid(),id,stage,newVersion,JSON.stringify(snapshot),reason,user.id,t);
+  if(stage==='approved'){
+   exec('INSERT INTO project_approval_versions VALUES(?,?,?,?,?,?,?)',
+    uid(),id,1,JSON.stringify(snapshot),estimate.known_total_fen,user.id,t);
+  }
   event(user,'projects',id,'stage_'+stage,latest,{...latest,status:stage,version:newVersion,estimate},reason);
   return projectDetail(id);
  });

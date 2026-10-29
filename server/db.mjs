@@ -19,7 +19,7 @@ if(migrationVersion===0){
     for(const [id,title] of types) db.prepare('INSERT INTO dictionary_types(id,title) VALUES(?,?)').run(id,title);
     db.exec("PRAGMA user_version=1"); db.exec('COMMIT');
   }catch(error){db.exec('ROLLBACK');throw error}
-}else if(migrationVersion>8){throw Error('不支持的数据库版本 '+migrationVersion)}
+}else if(migrationVersion>11){throw Error('不支持的数据库版本 '+migrationVersion)}
 if(migrationVersion<2){
  db.exec('BEGIN IMMEDIATE');
  try{
@@ -57,6 +57,41 @@ if(migrationVersion<8){
  db.exec('BEGIN IMMEDIATE');
  try{db.exec(readFileSync(new URL('./migration-008.sql',import.meta.url),'utf8'));db.exec('PRAGMA user_version=8');db.exec('COMMIT')}
  catch(e){db.exec('ROLLBACK');throw e}
+}
+if(migrationVersion<9){
+ db.exec('BEGIN IMMEDIATE');
+ try{db.exec(readFileSync(new URL('./migration-009.sql',import.meta.url),'utf8'));db.exec('PRAGMA user_version=9');db.exec('COMMIT')}
+ catch(e){db.exec('ROLLBACK');throw e}
+}
+if(migrationVersion<10){
+ db.exec('BEGIN IMMEDIATE');
+ try{db.exec(readFileSync(new URL('./migration-010.sql',import.meta.url),'utf8'));db.exec('PRAGMA user_version=10');db.exec('COMMIT')}
+ catch(e){db.exec('ROLLBACK');throw e}
+}
+if(migrationVersion<11){
+ db.exec('BEGIN IMMEDIATE');
+ try{
+  db.exec(readFileSync(new URL('./migration-011.sql',import.meta.url),'utf8'));
+  const approved=db.prepare("SELECT * FROM projects WHERE status IN ('approved','closed')").all();
+  for(const p of approved){
+   const stage=db.prepare("SELECT * FROM project_stage_events WHERE project_id=? AND stage='approved'").get(p.id);
+   if(!stage||!p.approved_budget_fen&&p.approved_budget_fen!==0)
+    throw Error('已立项项目缺少不可变的批准事件或批准预算，停止迁移：'+p.id);
+   const versionId=randomUUID();
+   db.prepare('INSERT INTO project_approval_versions VALUES(?,?,?,?,?,?,?)').run(
+    versionId,p.id,1,stage.snapshot_json,p.approved_budget_fen,stage.actor_id,stage.created_at);
+   db.prepare('UPDATE executions SET approval_version_id=? WHERE project_id=?').run(versionId,p.id);
+  }
+  for(const i of db.prepare('SELECT * FROM execution_items').all()){
+   const scope=db.prepare('SELECT * FROM project_demand_scopes WHERE id=?').get(i.project_scope_id);
+   if(!scope||!scope.demand_snapshot_json)throw Error('执行历史快照缺失，停止迁移：'+i.id);
+   db.prepare('UPDATE execution_items SET scope_snapshot_json=? WHERE id=?').run(
+    JSON.stringify({demand_snapshot_json:scope.demand_snapshot_json,quantity_scaled:scope.quantity_scaled,
+      unit_price_fen:scope.unit_price_fen,price_source:scope.price_source,price_date:scope.price_date,
+      tax_mode:scope.tax_mode}),i.id);
+  }
+  db.exec('PRAGMA user_version=11');db.exec('COMMIT');
+ }catch(e){db.exec('ROLLBACK');throw e}
 }
 export const now=()=>new Date().toISOString();
 export const uid=()=>randomUUID();

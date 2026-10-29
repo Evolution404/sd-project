@@ -46,8 +46,8 @@ try{
  await second.locator('summary').click();assert.equal(await second.getByLabel('#2 相位',{exact:true}).inputValue(),'B');
  await panels.nth(1).getByLabel('问题描述').fill('恢复草稿后补充风险');await page.getByRole('button',{name:'保存草稿'}).click();
  await page.getByRole('heading',{name:'正在编辑草稿 v2',exact:true}).waitFor();drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);assert.equal(drafts[0].id,id);
- await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'成功创建 2 条'}).waitFor();
- await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'成功创建 2 条'}).waitFor();
+ await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'新建 2 条'}).waitFor();
+ await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'新建 2 条'}).waitFor();
  const demands=await api('/demands');assert.equal(demands.length,2);assert.equal((await api('/demand-batches/'+id)).status,'submitted');
  const first=demands.find(d=>d.tower_no_snapshot==='#1'),detail=await api('/demands/'+first.id);assert.equal(detail.quantity_scaled,1);assert.equal(detail.custom_fields.phase,'A');assert.equal(detail.custom_fields.height,12.5);
  const other=await api('/demands/'+demands.find(d=>d.tower_no_snapshot==='#2').id);assert.equal(other.custom_fields.phase,'B');

@@ -137,6 +137,8 @@ export function updateLedgerTower(id,body,user){return mutate(user,body,()=>{
  if(status!=='active'&&(one("SELECT 1 FROM line_spans WHERE (start_tower_id=? OR end_tower_id=?) AND status<>'retired'",id,id)||one("SELECT 1 FROM transmission_lines WHERE junction_tower_id=? AND status='active' AND setup_status='ready'",id)))fail(409,'杆塔仍连接有效档距或作为支线接入点，请先处理关联');
  if(old.physical_tower_id&&body.physical&&!body.replace_physical)savePhysical(physical(old.physical_tower_id),physicalValues(body.physical,physical(old.physical_tower_id)),body,user);
  let newPhysicalId=old.physical_tower_id;
+ if(body.replace_physical&&old.physical_tower_id&&one("SELECT 1 FROM logical_towers WHERE physical_tower_id=? AND id<>? AND status='active'",old.physical_tower_id,id))
+  fail(409,'共塔实体实际更换必须核对所有在用回路并使用物理杆塔整体换塔接口，不能只移动单回路');
  if(body.replace_physical){newPhysicalId=uid();const attrs=physicalValues(body.physical||{});insert('physical_towers',{id:newPhysicalId,tower_code:'PT-'+newPhysicalId.replaceAll('-',''),...attrs,status:'active',version:1,created_at:now(),updated_at:now()});const t=now();exec('UPDATE logical_tower_physical_history SET valid_to=? WHERE logical_tower_id=? AND valid_to IS NULL',t,id);insert('logical_tower_physical_history',{id:uid(),logical_tower_id:id,physical_tower_id:newPhysicalId,valid_from:t,valid_to:null,change_kind:'replacement',changed_by:user.id,reason})}
  const t=now(),changes={physical_tower_id:newPhysicalId,tower_no:number,circuit_position:body.circuit_position===undefined?old.circuit_position:optional(body.circuit_position),status,version:old.version+1,updated_at:t};update('logical_towers',id,changes);
  if(number!==old.tower_no){exec('UPDATE logical_tower_name_history SET valid_to=? WHERE logical_tower_id=? AND valid_to IS NULL',t,id);insert('logical_tower_name_history',{id:uid(),logical_tower_id:id,tower_no:number,display_name:old.display_name,valid_from:t,valid_to:null,changed_by:user.id,reason})}
@@ -160,7 +162,7 @@ function sharedRows(body){
 }
 export function previewShared(body){return transaction(()=>({pairs:sharedRows(body)}))}
 export function bindShared(body,user){return mutate(user,body,()=>{
- const pairs=sharedRows(body),reason=text(body.reason,'关联依据');if(!['correction','replacement'].includes(body.change_kind))fail(422,'请区分关联纠错与实际换塔');
+ const pairs=sharedRows(body),reason=text(body.reason,'关联依据');if(body.change_kind!=='correction')fail(409,'此接口仅处理关联纠错。整塔实际更换必须核对全部关联回路并使用整塔换塔流程');
  for(const {source,target} of pairs){if(source.physical_tower_id===target.physical_tower_id)continue;const t=now();exec('UPDATE logical_tower_physical_history SET valid_to=? WHERE logical_tower_id=? AND valid_to IS NULL',t,source.id);insert('logical_tower_physical_history',{id:uid(),logical_tower_id:source.id,physical_tower_id:target.physical_tower_id,valid_from:t,valid_to:null,change_kind:body.change_kind,changed_by:user.id,reason});update('logical_towers',source.id,{physical_tower_id:target.physical_tower_id,version:source.version+1,updated_at:t});touch(source.line_id);record(user,source.line_id,'bind_shared',source,{...source,physical_tower_id:target.physical_tower_id},reason)}
  return {count:pairs.length,line_ids:[...new Set(pairs.map(p=>p.source.line_id))]};
 })}
