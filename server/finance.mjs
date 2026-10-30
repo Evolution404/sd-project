@@ -41,16 +41,17 @@ export function projectProgress(projectId){
 export function registerSettlement(projectId,body,user){
  return transaction(()=>{
   const p=project(projectId);
-  if(p.status!=='approved')reject(409,'项目尚未批准或已关闭，不可登记结算');
-  const scope=one('SELECT * FROM project_demand_scopes WHERE id=? AND project_id=? AND status=?',body.scope_id,projectId,'active');
-  if(!scope)reject(422,'结算必须属于当前有效的项目需求范围');
+  const entryKind=body.entry_kind||'payment';
+  if(!['payment','reversal'].includes(entryKind))reject(422,'结算登记类型错误');
+  if(entryKind==='payment'&&p.status!=='approved')reject(409,'项目尚未批准或已关闭，不可新增正向结算');
+  const scope=one('SELECT * FROM project_demand_scopes WHERE id=? AND project_id=?',body.scope_id,projectId);
+  if(!scope)reject(422,'结算范围必须属于当前子项目');
+  if(entryKind==='payment'&&scope.status!=='active')reject(409,'已退出的专业需求范围不允许新增正向结算');
   const itemId=body.execution_item_id==null?null:required(body.execution_item_id,'检修计划工作项');
   const planItem=itemId?one(`SELECT i.id,i.project_scope_id,e.project_id,e.status AS plan_status
     FROM execution_items i JOIN executions e ON e.id=i.execution_id WHERE i.id=?`,itemId):null;
   if(itemId&&(!planItem||planItem.project_id!==projectId||planItem.project_scope_id!==scope.id))
    reject(422,'检修计划工作项与当前项目、专业需求不匹配');
-  const entryKind=body.entry_kind||'payment';
-  if(!['payment','reversal'].includes(entryKind))reject(422,'结算登记类型错误');
   if(planItem?.plan_status==='cancelled'&&entryKind==='payment')reject(409,'已取消的检修计划不允许新增正向结算，历史凭证仍可冲销');
   const sum=yuanToFen(body.amount_yuan,'结算金额');
   if(sum<=0)reject(422,'结算金额须大于零');
@@ -80,9 +81,11 @@ export function registerSettlement(projectId,body,user){
     if(!finished)reject(409,'正式终结结算必须先有该需求已结束批次的实际完成记录');
    }
   }
-  const approved=one('SELECT id FROM project_approval_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1',projectId);
-  if(!approved)reject(409,'未找到有效批准版本');
-  const item={id:uid(),project_id:projectId,project_scope_id:scope.id,approval_version_id:approved.id,
+  const approvalId=original?.approval_version_id || (itemId
+   ?one('SELECT e.approval_version_id id FROM executions e JOIN execution_items i ON i.execution_id=e.id WHERE i.id=?',itemId)?.id
+   :one('SELECT id FROM project_approval_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1',projectId)?.id);
+  if(!approvalId)reject(409,'未找到结算对应的批准版本');
+  const item={id:uid(),project_id:projectId,project_scope_id:scope.id,approval_version_id:approvalId,
    execution_item_id:itemId,settlement_no:settlementNo,entry_kind:entryKind,settlement_type:kind,
    amount_fen:sum,reversal_of:original?.id||null,occurred_on:date,
    evidence,recorded_by:user.id,created_at:now()};

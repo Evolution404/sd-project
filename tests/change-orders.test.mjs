@@ -83,6 +83,21 @@ test('C06: submit/approve produces B2, preserves E1 facts, enforces release, quo
  e2=await api('/executions/'+e2.id+'/items','POST',{version:e2.version,scope_id:f.scope.id,quantity:'1'},201);
  assert.equal(JSON.parse(e2.items[0].scope_snapshot_json).quantity_scaled,15000);
  assert.equal((await api('/agreements')).find(x=>x.id===f.ag.id).approved_budget_fen,18000);
+ // Closing an old-version plan does not rewrite which approval facts its
+ // subsequently recorded settlement belongs to.
+ const settledOldPlan=await api('/executions/'+e1.id+'/settlements','POST',{
+  execution_item_id:e1.items[0].id,settlement_no:f.tag+'B1-SETTLED',
+  settlement_type:'progress',amount_yuan:'10',occurred_on:'2026-10-30',evidence:'B1对应的检修工作实际结算'
+ },201);
+ assert.equal(settledOldPlan.approval_version_id,b1.id,'old plan voucher must use plan approval version, not project B2');
+ const revertedOld=await api('/executions/'+e1.id+'/settlements','POST',{
+  execution_item_id:e1.items[0].id,settlement_no:f.tag+'B1-REV',
+  entry_kind:'reversal',reversal_of:settledOldPlan.id,
+  amount_yuan:'10',occurred_on:'2026-10-30',evidence:'B1结算凭证冲销'
+ },201);
+ assert.equal(revertedOld.approval_version_id,b1.id,'reversal must retain original approved version');
+ assert.equal((await api('/executions/'+e1.id+'/settlements')).settled_fen,0);
+
  assert.throws(()=>db.prepare('UPDATE project_approval_versions SET approved_budget_fen=1 WHERE id=?').run(b1.id),/不可修改/);
  assert.throws(()=>db.prepare('DELETE FROM project_approval_versions WHERE id=?').run(b1.id),/不可删除/);
  assert.throws(()=>db.prepare('DELETE FROM completion_records WHERE execution_item_id=?').run(e1.items[0].id),/不可删除/);

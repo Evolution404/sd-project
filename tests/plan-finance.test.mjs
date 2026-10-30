@@ -138,4 +138,17 @@ test('W5: two plans, separately attributed vouchers, unallocated advance, revers
  assert.equal((await api('/projects/'+project.id+'/settlement-summary')).settled_fen,35000);
  assert.throws(()=>db.prepare('DELETE FROM project_settlement_entries WHERE id=?').run(final.id),/不可删除/);
  assert.throws(()=>db.prepare('UPDATE project_settlement_entries SET amount_fen=1 WHERE id=?').run(final.id),/不可修改/);
+ // Read-only historical scope/project state must not make corrections impossible.
+ // Simulate an approved closeout and retirement, then reverse the old receipt.
+ db.prepare("UPDATE project_demand_scopes SET status='retired' WHERE id=?").run(scope.id);
+ db.prepare("UPDATE projects SET status='closed' WHERE id=?").run(project.id);
+ await api('/executions/'+a.id+'/settlements','POST',{
+  ...voucher('CLOSED-POSITIVE',1),execution_item_id:ai
+ },409);
+ const closedReversal=await api('/executions/'+a.id+'/settlements','POST',{
+  ...voucher('CLOSED-HISTORY-REVERSE',100,{entry_kind:'reversal',reversal_of:final.id}),execution_item_id:ai
+ },201);
+ assert.equal(closedReversal.approval_version_id,final.approval_version_id);
+ assert.equal((await api('/projects/'+project.id+'/settlement-summary')).settled_fen,25000);
+
 });
