@@ -54,3 +54,21 @@ test('details are first-class in-flow pages, never drawer or fixed side overlay'
  assert.match(app,/class="demand-detail-page"/);
  assert.match(app,/class="business-detail-page/);
 });
+
+
+test('desktop header has no environment badge and all tables use one global blue-gray theme',()=>{
+ const root=resolve(fileURLToPath(new URL('../web/src/',import.meta.url)));
+ const read=path=>readFileSync(join(root,path),'utf8');
+ assert.doesNotMatch(read('components/ApplicationShell.vue'),/内网桌面系统/);
+ assert.match(read('main.ts'),/import '\.\/styles\/table-theme\.css'/);
+ const theme=read('styles/table-theme.css');
+ const tokens=read('styles/ui-tokens.css');
+ assert.match(theme,/\.el-table th\.el-table__cell/);
+ assert.doesNotMatch(theme,/\.dictionary-ui\s+\.el-table/);
+ for(const token of ['--app-table-header-bg','--app-table-header-text','--app-table-border','--app-table-body-text','--app-table-hover-bg','--app-table-selected-bg']){
+  assert.ok(tokens.includes(token),token+' must be declared centrally');
+  assert.ok(theme.includes('var('+token+')'),token+' must be consumed by the global table theme');
+ }
+ assert.doesNotMatch(read('styles/dictionary.css'),/\.dictionary-ui\s+\.el-table\s*\{/);
+ assert.match(read('style.css'),/th\{[^}]*var\(--app-table-header-text\)[^}]*var\(--app-table-header-bg\)/);
+});

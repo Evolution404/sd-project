@@ -1,6 +1,12 @@
 /* Single Element Plus token source. Legacy native selectors are removed in G7. */
 :root{
  --el-color-primary:#3478f6;
+ --app-table-header-bg:#f5f8fc;
+ --app-table-header-text:#64738c;
+ --app-table-border:#eef2f8;
+ --app-table-body-text:#607089;
+ --app-table-hover-bg:#f6f9ff;
+ --app-table-selected-bg:#eef5ff;
  --el-color-danger:#dc384a;
  --el-color-success:#27834c;
  --el-color-warning:#b47827;

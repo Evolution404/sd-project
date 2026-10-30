@@ -1,0 +1,30 @@
+/* Unified Element Plus business table appearance.
+   Global by design: ElDialog appends dialogs to body, outside .dictionary-ui.
+   Do not scope this rule to the left navigation shell or a single workspace. */
+.el-table{
+ --el-table-border-color:var(--app-table-border);
+ --el-table-header-bg-color:var(--app-table-header-bg);
+ --el-table-header-text-color:var(--app-table-header-text);
+ --el-table-row-hover-bg-color:var(--app-table-hover-bg);
+ --el-table-current-row-bg-color:var(--app-table-selected-bg);
+ font-size:12px;
+}
+.el-table table{border-collapse:separate;margin:0}
+.el-table td.el-table__cell,.el-table th.el-table__cell{
+ padding:11px 0;
+ border-bottom:1px solid var(--app-table-border);
+ white-space:normal;
+}
+.el-table td.el-table__cell{
+ background:var(--el-table-tr-bg-color);
+ color:var(--app-table-body-text);
+ font-weight:400;
+}
+.el-table th.el-table__cell{
+ background:var(--app-table-header-bg);
+ color:var(--app-table-header-text);
+ font-size:12px;
+ font-weight:600;
+ padding:12px 0;
+}
+.el-table .cell{padding:0 8px;line-height:1.6}

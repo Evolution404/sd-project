@@ -4,6 +4,7 @@ import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import './styles/element-plus';
 import './styles/ui-tokens.css';
 import './style.css';
+import './styles/table-theme.css';
 import App from './App.vue';
 
 // Single application-wide Element Plus provider.

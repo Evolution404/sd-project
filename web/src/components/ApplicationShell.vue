@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {computed,nextTick,ref,watch} from 'vue';
-import {ElAside,ElAvatar,ElBreadcrumb,ElBreadcrumbItem,ElButton,ElConfigProvider,ElContainer,ElHeader,ElIcon,ElMain,ElMenu,ElMenuItem,ElSubMenu,ElTag,type MenuInstance} from 'element-plus';
+import {ElAside,ElAvatar,ElBreadcrumb,ElBreadcrumbItem,ElButton,ElConfigProvider,ElContainer,ElHeader,ElIcon,ElMain,ElMenu,ElMenuItem,ElSubMenu,type MenuInstance} from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
 import {Collection,Connection,Document,FolderOpened,HomeFilled,Lightning,List,Location,Setting,Tools} from '@element-plus/icons-vue';
 import '../styles/element-plus';
@@ -20,7 +20,7 @@ watch(()=>props.nav,async value=>{await nextTick();const group=groupOf(value);if
    <ElHeader class="application-header" height="64px">
     <div class="application-brand"><span class="application-brand-icon"><ElIcon><Lightning/></ElIcon></span><strong>输电项目管理系统</strong></div>
     <ElBreadcrumb class="application-breadcrumb" separator="/"><ElBreadcrumbItem>{{section}}</ElBreadcrumbItem><ElBreadcrumbItem>{{title}}</ElBreadcrumbItem></ElBreadcrumb>
-    <div class="application-header-actions"><ElTag type="info" effect="plain" round>内网桌面系统</ElTag><ElButton v-if="user.role==='admin'" text :icon="Setting" @click="emit('navigate','access')">系统设置</ElButton><span class="application-header-divider"/><ElAvatar :size="30">{{user.username.substring(0,1).toUpperCase()}}</ElAvatar><span class="application-user-name">{{user.username}}</span></div>
+    <div class="application-header-actions"><ElButton v-if="user.role==='admin'" text :icon="Setting" @click="emit('navigate','access')">系统设置</ElButton><span class="application-header-divider"/><ElAvatar :size="30">{{user.username.substring(0,1).toUpperCase()}}</ElAvatar><span class="application-user-name">{{user.username}}</span></div>
    </ElHeader>
    <ElContainer class="application-body">
     <ElAside class="sidebar application-sidebar" width="208px">

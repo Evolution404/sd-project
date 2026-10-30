@@ -10,7 +10,7 @@ body{min-width:1180px}
 .application-header .application-breadcrumb{font-size:12px;line-height:1.8;min-width:0;flex:1}
 .application-header .el-breadcrumb__inner{color:#8393aa;font-weight:400}.application-header .el-breadcrumb__item:last-child .el-breadcrumb__inner{color:#48617e;font-weight:500}
 .application-header .el-breadcrumb__separator{color:#c4cdd9;margin:0 14px}
-.application-header-actions{display:flex;align-items:center;gap:12px;flex:none}.application-header-actions .el-tag{font-size:11px}.application-header-actions .el-avatar{background:#eaf2ff;color:#4378d4;font-size:12px}
+.application-header-actions{display:flex;align-items:center;gap:12px;flex:none}.application-header-actions .el-avatar{background:#eaf2ff;color:#4378d4;font-size:12px}
 .application-header-divider{height:20px;border-left:1px solid #e7edf5;margin:0 4px}.application-user-name{font-size:12px;color:#536b86;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .application-body{flex:1;min-height:0;overflow:hidden}
 .application-shell .application-sidebar{display:flex;flex-direction:column;align-self:stretch;position:relative;top:auto;width:var(--el-aside-width,208px);height:100%;min-height:0;flex:none;gap:0;padding:19px 10px 0;background:#fff;border-right:1px solid #e3ebf5;overflow:hidden}
@@ -43,7 +43,6 @@ body{min-width:1180px}
  .application-brand{width:auto;max-width:220px}
  .application-header .application-breadcrumb{display:none}
  .application-header-actions{margin-left:auto;min-width:0}
- .application-header-actions .el-tag{display:none}
  .application-scroll>.main{padding:18px 16px 30px}
 }
 @media(max-width:800px){

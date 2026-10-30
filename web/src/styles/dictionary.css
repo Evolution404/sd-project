@@ -64,11 +64,6 @@
 .dictionary-table-heading p{font-size:11px;color:#8b9bb1;line-height:1.7;margin:0}
 .dictionary-tags{display:flex;gap:7px;flex-wrap:wrap;margin-top:13px}
 .dictionary-table-card .el-card__body{padding:0 10px 12px}
-.dictionary-ui .el-table{--el-table-border-color:#eef2f8;--el-table-header-bg-color:#f5f8fc;--el-table-header-text-color:#64738c;--el-table-row-hover-bg-color:#f6f9ff;--el-table-current-row-bg-color:#eef5ff;font-size:12px}
-.dictionary-ui .el-table table{border-collapse:separate;margin:0}
-.dictionary-ui .el-table td.el-table__cell,.dictionary-ui .el-table th.el-table__cell{background:var(--el-table-tr-bg-color);padding:11px 0;color:#607089;border-bottom:1px solid var(--el-table-border-color);font-weight:400;white-space:normal}
-.dictionary-ui .el-table th.el-table__cell{background:#f5f8fc;font-weight:600;font-size:11px;padding:12px 0}
-.dictionary-ui .el-table .cell{padding:0 8px;line-height:1.6}
 .dictionary-item-name{font-size:12px;color:#32445f;font-weight:500}
 .dictionary-domain{font-size:11px;color:#8190a5}
 .dictionary-attention{display:block;color:#d78a35;font-size:10px}

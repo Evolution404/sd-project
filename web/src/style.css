@@ -82,10 +82,10 @@ button.small{font-size:12px}
 .toolbar label{min-width:150px;flex:1;max-width:330px}
 .table-wrap{overflow:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;color:#758d7e;font-weight:650;background:#f8faf8}
-td,th{padding:12px 11px;border-bottom:1px solid #e8eeea;white-space:nowrap}
+th{text-align:left;color:var(--app-table-header-text);font-weight:600;background:var(--app-table-header-bg)}
+td,th{padding:12px 11px;border-bottom:1px solid var(--app-table-border);white-space:nowrap}
 tr:last-child td{border-bottom:none}
-td{color:#496457}
+td{color:var(--app-table-body-text)}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}
 .tag{display:inline-block;border:1px solid #d6e6da;background:#f2f8f3;color:#517c60;border-radius:6px;padding:4px 8px;font-size:11px}
 .empty{text-align:center;padding:28px;color:#96a99b;line-height:1.6}
@@ -163,8 +163,8 @@ td{color:#496457}
 .entry-advanced{margin-top:15px}
 .advanced-fields{padding:8px 0}
 .preview-table th{font-size:12px}
-.preview-table td:first-child strong{display:block;font-size:13px;color:#3f5b4c}
-.preview-table td:first-child small{display:block;color:#98a99e;margin-top:4px}
+.preview-table td:first-child strong{display:block;font-size:13px;color:#304b6c}
+.preview-table td:first-child small{display:block;color:var(--app-table-header-text);margin-top:4px}
 .compact{min-height:38px;padding:7px 10px;width:min(220px,100%)}
 .compact.num{width:94px}
 .batch-review{border-top:1px solid #e6eee7;margin-top:20px;padding-top:20px;display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}
