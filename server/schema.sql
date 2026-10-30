@@ -453,6 +453,8 @@ CREATE TABLE project_settlement_entries (
  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  project_scope_id TEXT NOT NULL REFERENCES project_demand_scopes(id) ON DELETE RESTRICT,
  approval_version_id TEXT NOT NULL REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
+ -- NULL means project-level payment that has not been explicitly allocated to a maintenance plan.
+ execution_item_id TEXT REFERENCES execution_items(id) ON DELETE RESTRICT,
  settlement_no TEXT NOT NULL UNIQUE,
  entry_kind TEXT NOT NULL CHECK(entry_kind IN ('payment','reversal')),
  settlement_type TEXT CHECK(settlement_type IN ('advance','progress','final')),
@@ -467,6 +469,7 @@ CREATE TABLE project_settlement_entries (
 );
 CREATE INDEX idx_settlement_project ON project_settlement_entries(project_id,occurred_on);
 CREATE INDEX idx_settlement_scope ON project_settlement_entries(project_scope_id);
+CREATE INDEX idx_settlement_execution_item ON project_settlement_entries(execution_item_id,occurred_on);
 CREATE INDEX idx_settlement_reverse ON project_settlement_entries(reversal_of);
 
 CREATE TRIGGER immutable_settlement_update

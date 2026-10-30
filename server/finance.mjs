@@ -44,8 +44,14 @@ export function registerSettlement(projectId,body,user){
   if(p.status!=='approved')reject(409,'项目尚未批准或已关闭，不可登记结算');
   const scope=one('SELECT * FROM project_demand_scopes WHERE id=? AND project_id=? AND status=?',body.scope_id,projectId,'active');
   if(!scope)reject(422,'结算必须属于当前有效的项目需求范围');
+  const itemId=body.execution_item_id==null?null:required(body.execution_item_id,'检修计划工作项');
+  const planItem=itemId?one(`SELECT i.id,i.project_scope_id,e.project_id,e.status AS plan_status
+    FROM execution_items i JOIN executions e ON e.id=i.execution_id WHERE i.id=?`,itemId):null;
+  if(itemId&&(!planItem||planItem.project_id!==projectId||planItem.project_scope_id!==scope.id))
+   reject(422,'检修计划工作项与当前项目、专业需求不匹配');
   const entryKind=body.entry_kind||'payment';
   if(!['payment','reversal'].includes(entryKind))reject(422,'结算登记类型错误');
+  if(planItem?.plan_status==='cancelled'&&entryKind==='payment')reject(409,'已取消的检修计划不允许新增正向结算，历史凭证仍可冲销');
   const sum=yuanToFen(body.amount_yuan,'结算金额');
   if(sum<=0)reject(422,'结算金额须大于零');
   const date=required(body.occurred_on,'结算日期');
@@ -55,6 +61,7 @@ export function registerSettlement(projectId,body,user){
   if(entryKind==='reversal'){
    original=one("SELECT * FROM project_settlement_entries WHERE id=? AND entry_kind='payment' AND project_scope_id=?",body.reversal_of,scope.id);
    if(!original)reject(422,'请选择当前范围的原始正向结算凭证');
+   if((original.execution_item_id||null)!==itemId)reject(409,'冲销必须保留原凭证的检修计划归属');
    const reversed=one("SELECT COALESCE(SUM(amount_fen),0) n FROM project_settlement_entries WHERE reversal_of=?",original.id).n;
    if(reversed+sum>original.amount_fen)reject(409,'冲销金额不能超过原始凭证未冲销余额');
   }else{
@@ -65,15 +72,18 @@ export function registerSettlement(projectId,body,user){
    if(total+sum>p.approved_budget_fen)reject(409,'项目累计结算超过当前批准预算');
    if(net(scope.id)+sum>amountForScope(scope))reject(409,'本需求结算金额超过当前批准范围金额');
    if(kind==='final'){
-    const finished=one(`SELECT 1 FROM completion_records c JOIN execution_items i ON c.execution_item_id=i.id
-      JOIN executions e ON e.id=i.execution_id WHERE i.project_scope_id=? AND e.status='finished' LIMIT 1`,scope.id);
+    const finished=itemId
+     ?one(`SELECT 1 FROM completion_records c JOIN execution_items i ON c.execution_item_id=i.id
+       JOIN executions e ON e.id=i.execution_id WHERE i.id=? AND e.status='finished' LIMIT 1`,itemId)
+     :one(`SELECT 1 FROM completion_records c JOIN execution_items i ON c.execution_item_id=i.id
+       JOIN executions e ON e.id=i.execution_id WHERE i.project_scope_id=? AND e.status='finished' LIMIT 1`,scope.id);
     if(!finished)reject(409,'正式终结结算必须先有该需求已结束批次的实际完成记录');
    }
   }
   const approved=one('SELECT id FROM project_approval_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1',projectId);
   if(!approved)reject(409,'未找到有效批准版本');
   const item={id:uid(),project_id:projectId,project_scope_id:scope.id,approval_version_id:approved.id,
-   settlement_no:settlementNo,entry_kind:entryKind,settlement_type:kind,
+   execution_item_id:itemId,settlement_no:settlementNo,entry_kind:entryKind,settlement_type:kind,
    amount_fen:sum,reversal_of:original?.id||null,occurred_on:date,
    evidence,recorded_by:user.id,created_at:now()};
   exec('INSERT INTO project_settlement_entries('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
