@@ -72,3 +72,16 @@ test('desktop header has no environment badge and all tables use one global blue
  assert.doesNotMatch(read('styles/dictionary.css'),/\.dictionary-ui\s+\.el-table\s*\{/);
  assert.match(read('style.css'),/th\{[^}]*var\(--app-table-header-text\)[^}]*var\(--app-table-header-bg\)/);
 });
+
+
+test('G8 blue theme: old green structural tokens cannot reappear in line ledger',()=>{
+ const base=resolve(fileURLToPath(new URL('../web/src/',import.meta.url)));
+ const rootCss=readFileSync(join(base,'style.css'),'utf8');
+ const shellCss=readFileSync(join(base,'styles/application-shell.css'),'utf8');
+ const ledger=readFileSync(join(base,'components/LedgerWorkspace.vue'),'utf8');
+ assert.doesNotMatch(rootCss,/--green(?:-dark|-light)?\s*:/);
+ assert.doesNotMatch(shellCss,/--green(?:-dark|-light)?\s*:/);
+ assert.match(rootCss,/--brand-primary:#3478f6/);
+ assert.match(ledger,/<ElTag type="primary" effect="light"/);
+ assert.doesNotMatch(ledger,/#(?:e7f1e9|215d45|e5f0e8|185239|edf7ef|789080)\b/i);
+});

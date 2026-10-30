@@ -1,5 +1,5 @@
 /* The viewport is the application frame. Only the content and menu panes scroll. */
-:root{--green:#3478f6;--green-dark:#2463d5;--green-light:#edf4ff;--text:#304561;--muted:#8493a8;--line:#e3ebf5;--canvas:#f5f8fc;color:#304561;background:#f5f8fc}
+:root{--brand-primary:#3478f6;--brand-hover:#2463d5;--brand-soft:#edf4ff;--text:#304561;--muted:#8493a8;--line:#e3ebf5;--canvas:#f5f8fc;color:#304561;background:#f5f8fc}
 html,body,#app{height:100%;overflow:hidden}
 body{min-width:1180px}
 .application-shell{height:100vh;min-height:0;min-width:1180px;overflow:hidden;flex-direction:column;background:#f5f8fc}

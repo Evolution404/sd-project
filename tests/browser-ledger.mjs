@@ -25,6 +25,28 @@ try{
  await page.getByRole('button',{name:'批量添加杆塔',exact:true}).click();d=page.getByRole('dialog',{name:'批量添加杆塔'});await d.getByLabel('编号起点',{exact:true}).fill('1');await d.getByLabel('编号终点',{exact:true}).fill('3');await d.getByLabel('结构类型',{exact:true}).fill('角钢塔');await d.getByLabel('型号',{exact:true}).fill('MODEL-A');await d.getByRole('button',{name:'生成逐基预览',exact:true}).click();await d.getByLabel('杆塔号 2',{exact:true}).fill('001A');await d.getByLabel('型号',{exact:true}).fill('MODEL-B');await d.getByRole('button',{name:'共同属性仅填空值',exact:true}).click();assert.equal(await d.getByLabel('型号 1',{exact:true}).inputValue(),'MODEL-A');await d.getByLabel('应用共同属性 1',{exact:true}).uncheck();await d.getByLabel('应用共同属性 3',{exact:true}).uncheck();await d.getByRole('button',{name:'共同属性覆盖勾选行',exact:true}).click();assert.equal(await d.getByLabel('型号 2',{exact:true}).inputValue(),'MODEL-B');await d.getByRole('button',{name:'预检并继续',exact:true}).click();await d.getByRole('button',{name:'确认保存 3 基',exact:true}).click();await d.waitFor({state:'hidden'});
  let ls=await api('/ledger/lines'),main=ls.find(l=>l.name==='主线甲'),branch=ls.find(l=>l.name==='甲线支线'),w=await api('/ledger/lines/'+main.id);assert.deepEqual(w.towers.map(t=>t.tower_no),['001','001A','003']);assert.equal(w.towers[1].model,'MODEL-B');
  await tab('档距');await page.getByRole('button',{name:'按杆塔顺序生成',exact:true}).click();d=page.getByRole('dialog',{name:'按杆塔顺序生成档距'});await d.getByRole('button',{name:'确认建立 2 档',exact:true}).click();await d.waitFor({state:'hidden'});w=await api('/ledger/lines/'+main.id);assert.equal(w.spans.filter(s=>s.status==='active').length,2);assert.equal(w.spans[0].length_scaled,null);
+ const ledgerTheme=await page.evaluate(()=>{
+  const css=selector=>{
+   const el=document.querySelector(selector);
+   if(!el)throw Error('Missing ledger theme element: '+selector);
+   const v=getComputedStyle(el);
+   return {background:v.backgroundColor,color:v.color,border:v.borderTopColor};
+  };
+  return {selected:css('.ledger-directory .ledger-line.selected'),tab:css('.ledger-tabs .el-button.active'),badge:css('.ledger-summary .el-tag'),canvas:css('.application-scroll'),buttons:[...document.querySelectorAll('.ledger-main .el-button.secondary')].slice(0,2).map(el=>({color:getComputedStyle(el).color,border:getComputedStyle(el).borderTopColor}))};
+ });
+ console.log('LEDGER_BLUE_THEME',JSON.stringify(ledgerTheme));
+ assert.equal(ledgerTheme.selected.background,'rgb(234, 242, 255)','selected line must use blue highlight');
+ assert.equal(ledgerTheme.selected.color,'rgb(36, 99, 213)','selected line name must use blue, not green');
+ assert.equal(ledgerTheme.tab.color,'rgb(52, 120, 246)','active tab must use primary blue');
+ assert.equal(ledgerTheme.badge.color.includes('green'),false);
+ for(const color of [ledgerTheme.selected.background,ledgerTheme.selected.color,ledgerTheme.tab.background,ledgerTheme.tab.color]){
+  assert.ok(!['rgb(231, 241, 233)','rgb(33, 93, 69)','rgb(229, 240, 232)','rgb(24, 82, 57)'].includes(color),'obsolete green palette remains: '+color);
+ }
+ await page.locator('.el-overlay:visible').first().waitFor({state:'hidden',timeout:6000});
+ assert.equal(await page.locator('.el-overlay:visible').count(),0,'Theme screenshot must not contain a closing dialog overlay');
+ mkdirSync('release',{recursive:true});
+ await page.screenshot({path:join(process.cwd(),'release','ledger-spans-blue-theme.png'),fullPage:false});
+
  const countBefore=await api('/physical-towers');await selectLine('甲线支线');await page.getByRole('button',{name:'编辑线路',exact:true}).click();d=page.getByRole('dialog',{name:'编辑线路'});await selectUiOption(d.getByLabel('接入杆塔',{exact:true}),w.towers[1].id);await d.getByLabel('变更原因',{exact:true}).fill('确认支线接入主线001A');await d.getByRole('button',{name:'保存线路',exact:true}).click();await d.waitFor({state:'hidden'});assert.equal((await api('/physical-towers')).length,countBefore.length);
  await tab('杆塔');await page.getByRole('button',{name:'新增杆塔',exact:true}).click();d=page.getByRole('dialog',{name:'新增杆塔'});await d.getByLabel('杆塔号 1',{exact:true}).fill('001');await d.getByRole('button',{name:'保存杆塔',exact:true}).click();await d.waitFor({state:'hidden'});await tab('档距');await page.getByRole('button',{name:'按杆塔顺序生成',exact:true}).click();d=page.getByRole('dialog',{name:'按杆塔顺序生成档距'});await d.getByRole('button',{name:'确认建立 1 档',exact:true}).click();await d.waitFor({state:'hidden'});
  await createLine('主线乙');await tab('杆塔');await page.getByRole('button',{name:'新增杆塔',exact:true}).click();d=page.getByRole('dialog',{name:'新增杆塔'});await d.getByLabel('杆塔号 1',{exact:true}).fill('028');await selectUiOption(d.getByLabel('实际杆塔',{exact:true}),'existing');await selectUiOption(d.getByLabel('查找已有杆塔的线路',{exact:true}),main.id);await selectUiOption(d.getByLabel('关联已有杆塔 1',{exact:true}),w.towers[0].physical_tower_id);await d.getByRole('button',{name:'保存杆塔',exact:true}).click();await d.waitFor({state:'hidden'});ls=await api('/ledger/lines');const other=ls.find(l=>l.name==='主线乙');let ow=await api('/ledger/lines/'+other.id);assert.equal(ow.towers[0].physical_tower_id,w.towers[0].physical_tower_id);
