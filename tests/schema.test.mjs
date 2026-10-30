@@ -12,7 +12,7 @@ test('canonical schema: one-time bootstrap, persistent reopen, foreign keys and 
  const dir=mkdtempSync(join(tmpdir(),'sd-canonical-'));
  const code=`import {db,one,all} from './server/db.mjs';
  import assert from 'node:assert/strict';
- assert.equal(one('PRAGMA user_version').user_version,104);
+ assert.equal(one('PRAGMA user_version').user_version,105);
  assert.equal(one('PRAGMA foreign_keys').foreign_keys,1);
  assert.equal(one('PRAGMA integrity_check').integrity_check,'ok');
  assert.equal(all('PRAGMA foreign_key_check').length,0);

@@ -11,6 +11,7 @@ import StructureCreateModal from './components/StructureCreateModal.vue';
 const AuditWorkspace=defineAsyncComponent(()=>import('./components/AuditWorkspace.vue'));
 const FundingWorkspace=defineAsyncComponent(()=>import('./components/FundingWorkspace.vue'));
 const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
+const SettlementVoucherWorkspace=defineAsyncComponent(()=>import('./components/SettlementVoucherWorkspace.vue'));
 const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./components/PlanSettlementWorkspace.vue'));
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
@@ -29,8 +30,8 @@ const scopePrice=reactive<Rec>({unit_price_yuan:'',price_source:'',price_date:ne
 const agreementSelection=ref('');
 const preliminaryAmount=ref(''),preliminaryBasis=ref(''),preliminaryCategory=ref('');
 const projectApprovalVersions=ref<Rec[]>([]),projectChangeOrders=ref<Rec[]>([]);
-const projectProgress=ref<Rec|null>(null),settlementRecords=ref<Rec[]>([]),projectSettlementTotals=ref<Rec|null>(null);
-const settlementDialog=ref(false),settlementForm=reactive<Rec>({});
+const projectProgress=ref<Rec|null>(null),projectSettlementTotals=ref<Rec|null>(null);
+const settlementDialog=ref(false),settlementForm=reactive<Rec>({}),settlementRefreshKey=ref(0);
 const changeDecision=ref<Rec|null>(null),changeDecisionReason=ref('');
 const changeDraft=reactive<Rec>({reason:'',action:'adjust',scope_id:'',demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
 const approvedDemandOptions=ref<Rec[]>([]);
@@ -129,12 +130,12 @@ async function openProject(item:Rec){projectAction.value='';scopePriceEdit.value
  await loadProjectFinancials(item.id);
 }
 async function loadProjectFinancials(projectId:string){
- const [progress,records,totals]=await Promise.all([
-  api('/projects/'+projectId+'/progress'),api('/projects/'+projectId+'/settlements'),
+ const [progress,totals]=await Promise.all([
+  api('/projects/'+projectId+'/progress'),
   api('/projects/'+projectId+'/settlement-summary')
  ]);
  if(projectView.value?.id!==projectId)return;
- projectProgress.value=progress;settlementRecords.value=records;projectSettlementTotals.value=totals;
+ projectProgress.value=progress;projectSettlementTotals.value=totals;settlementRefreshKey.value++;
 }
 async function refreshPlanFinancials(){
  if(!projectView.value)return;
@@ -447,7 +448,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   :form="form" :frameworks="frameworks" :agreements="agreements" :categories="options('project_category')"
   @save="saveStructure" @close="stage='';edit=null"/>
   </template>
-  <section v-if="projectView" class="detail-overlay" @click.self="projectView=null"><div class="detail-panel">
+  <section v-if="projectView" class="detail-overlay project-overlay" @click.self="projectView=null"><div class="detail-panel">
    <div class="section-header"><div><h2>{{projectView.name}}</h2><StatusTag :status="projectView.status"/></div><button class="light" @click="projectView=null">关闭 ×</button></div>
    <div class="info-grid"><div><small>已知估算（元）</small><strong>{{money(projectView.estimate.known_total_fen)}}</strong></div><div><small>待定价项</small><strong>{{projectView.estimate.missing_price_count}}</strong></div><div><small>批准预算（元）</small><strong>{{money(projectView.approved_budget_fen)}}</strong></div><div><small>需求范围条数</small><strong>{{projectView.estimate.total}}</strong></div></div>
    <h3>项目类别与初步估算</h3>
@@ -582,18 +583,10 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     </div>
     <button v-if="roleStageApprove&&projectView.status==='approved'" class="secondary" @click="openSettlement(scope)">登记项目级未归集凭证</button>
    </div>
-   <div v-if="settlementRecords.length" class="scope-item"><strong>结算凭证（包含冲销）</strong>
-    <div v-for="entry in settlementRecords" :key="entry.id" class="history">
-     {{entry.occurred_on}} · {{entry.settlement_no}} · {{entry.entry_kind==='reversal'?'冲销 −':'结算 +'}}{{money(entry.amount_fen)}} 元
-     · {{entry.demand_no}} · {{entry.evidence}}
-     <span class="muted">{{entry.execution_item_id?' · 检修计划 '+(entry.plan_number||'历史计划')+'（在计划内冲销）':' · 项目级未归集'}}</span>
-     <button v-if="roleStageApprove&&entry.entry_kind==='payment'&&!entry.execution_item_id" class="link"
-      @click="openSettlement(projectProgress?.scopes.find((x:Rec)=>x.id===entry.project_scope_id)||{id:entry.project_scope_id},entry)">登记冲销</button>
-    </div>
-   </div>
+   <SettlementVoucherWorkspace :project-id="projectView.id" :can-settle="roleStageApprove" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials" @reverse="entry=>entry.execution_item_id?openExecution(entry.execution_id):openSettlement(projectProgress?.scopes.find((s:Rec)=>s.id===entry.project_scope_id)||{id:entry.project_scope_id},entry)"/>
    <FormModal :open="settlementDialog" :title="settlementForm.entry_kind==='reversal'?'登记结算冲销':'登记结算凭证'" :error="visibleError" @close="settlementDialog=false">
     <form v-form-validation novalidate class="form-grid" @submit.prevent="saveSettlement">
-     <p class="wide muted">本入口登记项目级未归集凭证，不自动计入任何检修计划；已明确归属检修计划的结算请进入对应计划。原始凭证留存，允许通过冲销更正。当前仅管理员可登记。</p>
+     <p class="wide muted">本入口登记项目级未归集凭证，不自动计入任何检修计划；已明确归属检修计划的结算请进入对应计划。原始凭证留存，支持冲销、更正、撤销及历史查询。当前仅管理员可登记。</p>
      <label><span class="field-caption">凭证编号</span><input v-model="settlementForm.settlement_no" required/></label>
      <label v-if="settlementForm.entry_kind==='payment'"><span class="field-caption">结算性质</span>
       <select v-model="settlementForm.settlement_type" required>

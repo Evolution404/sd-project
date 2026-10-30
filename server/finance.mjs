@@ -1,24 +1,28 @@
 import {uid,now,one,all,exec,audit,transaction} from './db.mjs';
 import {yuanToFen,amountFen} from './money.mjs';
+import {validateSettlementDate,ensureSettlementNumber} from './settlement-validation.mjs';
 const reject=(status,message)=>{const e=new Error(message);e.status=status;throw e};
 const required=(value,label)=>{if(typeof value!=='string'||!value.trim())reject(422,label+'不能为空');return value.trim()};
 const project=id=>one('SELECT * FROM projects WHERE id=?',id)||reject(404,'项目不存在');
 const net=scopeId=>one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
- FROM project_settlement_entries WHERE project_scope_id=?`,scopeId).n;
+ FROM effective_settlement_entries WHERE project_scope_id=?`,scopeId).n;
 export const netSettledForScope=net;
 function amountForScope(scope){
  if(scope.unit_price_fen===null)reject(409,'工作范围缺少核定单价');
  return amountFen(scope.quantity_scaled,scope.unit_price_fen);
 }
-export function settlementEntries(projectId){
+export function settlementEntries(projectId,filters={}){
  project(projectId);
- return all(`SELECT se.*,s.demand_id,d.demand_no,e.number AS plan_number,e.plan_type AS plan_type
- FROM project_settlement_entries se
+ return all(`SELECT se.*,s.demand_id,d.demand_no,e.id AS execution_id,e.number AS plan_number,e.plan_type AS plan_type
+ FROM settlement_current se
  JOIN project_demand_scopes s ON s.id=se.project_scope_id
  JOIN demands d ON d.id=s.demand_id
  LEFT JOIN execution_items i ON i.id=se.execution_item_id
  LEFT JOIN executions e ON e.id=i.execution_id WHERE se.project_id=?
- ORDER BY se.occurred_on DESC,se.created_at DESC,se.id DESC`,projectId);
+ AND (?='all' OR se.status=?) AND (?='' OR se.settlement_no LIKE ? OR se.evidence LIKE ?)
+ AND (?='' OR e.id=?)
+ ORDER BY se.occurred_on DESC,se.created_at DESC,se.id DESC`,projectId,
+ filters.status||'active',filters.status||'active',filters.q||'', '%'+(filters.q||'')+'%', '%'+(filters.q||'')+'%',filters.execution_id||'',filters.execution_id||'');
 }
 export function projectProgress(projectId){
  const p=project(projectId);
@@ -36,7 +40,7 @@ export function projectProgress(projectId){
    dual_status:(done>0?'implemented':'unimplemented')+'_'+(paid>0?'settled':'unsettled')};
  });
  const totalSettled=one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
- FROM project_settlement_entries WHERE project_id=?`,projectId).n;
+ FROM effective_settlement_entries WHERE project_id=?`,projectId).n;
  return {project_id:projectId,approved_budget_fen:p.approved_budget_fen,
   settled_fen:totalSettled,unsettled_approved_fen:p.approved_budget_fen===null?null:p.approved_budget_fen-totalSettled,
   scopes:result};
@@ -59,20 +63,21 @@ export function registerSettlement(projectId,body,user){
   const sum=yuanToFen(body.amount_yuan,'结算金额');
   if(sum<=0)reject(422,'结算金额须大于零');
   const date=required(body.occurred_on,'结算日期');
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date)))reject(422,'结算日期无效');
+  validateSettlementDate(date);
   const settlementNo=required(body.settlement_no,'结算凭证编号'),evidence=required(body.evidence,'结算凭证依据');
+  ensureSettlementNumber(settlementNo);
   let original=null,kind=null;
   if(entryKind==='reversal'){
-   original=one("SELECT * FROM project_settlement_entries WHERE id=? AND entry_kind='payment' AND project_scope_id=?",body.reversal_of,scope.id);
+   original=one("SELECT * FROM effective_settlement_entries WHERE id=? AND entry_kind='payment' AND project_scope_id=?",body.reversal_of,scope.id);
    if(!original)reject(422,'请选择当前范围的原始正向结算凭证');
    if((original.execution_item_id||null)!==itemId)reject(409,'冲销必须保留原凭证的检修计划归属');
-   const reversed=one("SELECT COALESCE(SUM(amount_fen),0) n FROM project_settlement_entries WHERE reversal_of=?",original.id).n;
+   const reversed=one("SELECT COALESCE(SUM(amount_fen),0) n FROM effective_settlement_entries WHERE reversal_of=?",original.id).n;
    if(reversed+sum>original.amount_fen)reject(409,'冲销金额不能超过原始凭证未冲销余额');
   }else{
    kind=required(body.settlement_type,'结算性质');
    if(!['advance','progress','final'].includes(kind))reject(422,'结算性质无效');
    const total=one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
-    FROM project_settlement_entries WHERE project_id=?`,projectId).n;
+    FROM effective_settlement_entries WHERE project_id=?`,projectId).n;
    if(total+sum>p.approved_budget_fen)reject(409,'项目累计结算超过当前批准预算');
    if(net(scope.id)+sum>amountForScope(scope))reject(409,'本需求结算金额超过当前批准范围金额');
    if(kind==='final'){

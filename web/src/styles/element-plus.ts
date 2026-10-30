@@ -1,7 +1,8 @@
-// Import only the Element Plus widgets used by the dictionary workspace.
+// Shared mature widgets used by the desktop workspaces.
 import 'element-plus/es/components/alert/style/css';
 import 'element-plus/es/components/button/style/css';
 import 'element-plus/es/components/card/style/css';
+import 'element-plus/es/components/checkbox/style/css';
 import 'element-plus/es/components/descriptions/style/css';
 import 'element-plus/es/components/dialog/style/css';
 import 'element-plus/es/components/form/style/css';

@@ -21,7 +21,7 @@ function related(kind,id){
  const projects=all('SELECT id,name,status,framework_id,agreement_id,approved_budget_fen FROM projects WHERE '+(kind==='frameworks'?'framework_id':'agreement_id')+'=? ORDER BY created_at,id',id);
  const approved=projects.filter(p=>['approved','closed'].includes(p.status));
  const settled=one(`SELECT COALESCE(SUM(CASE WHEN s.entry_kind='payment' THEN s.amount_fen ELSE -s.amount_fen END),0) n
- FROM project_settlement_entries s JOIN projects p ON p.id=s.project_id WHERE p.${kind==='frameworks'?'framework_id':'agreement_id'}=?`,id).n;
+ FROM effective_settlement_entries s JOIN projects p ON p.id=s.project_id WHERE p.${kind==='frameworks'?'framework_id':'agreement_id'}=?`,id).n;
  return {agreements:agreements.map(a=>({...a,status:fundingDeletion('agreements',a.id)?'deleted':a.status})),projects,
   approved_count:approved.length,approved_budget_fen:approved.reduce((sum,p)=>sum+(p.approved_budget_fen||0),0),settled_fen:settled,
   agreement_limit_fen:agreements.reduce((sum,a)=>sum+a.limit_fen,0)};

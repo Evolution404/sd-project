@@ -18,8 +18,7 @@ import {listExecutions,executionDetail,createExecution,addExecutionItem,changeEx
 import {normalizeIP,isPermittedIP,isLoopback} from './ip-access.mjs';
 import {previewWholeTowerReplacement,replaceWholeTower} from './tower-replacements.mjs';
 import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder,submitChangeOrder,rejectChangeOrder,approveChangeOrder} from './change-orders.mjs';
-import {settlementEntries,projectProgress,registerSettlement} from './finance.mjs';
-import {planSettlementSummary,registerPlanSettlement,projectSettlementSummary,agreementSettlementSummary,frameworkSettlementSummary} from './plan-finance.mjs';
+import {financeRoutes} from './finance-routes.mjs';
 import {listReferencePrices,referencePriceVersions,createReferencePrice,reviseReferencePrice,setReferencePriceStatus,applicableReferencePrices,applyReferencePrice} from './reference-prices.mjs';
 import {listFrameworks,createFramework,listAgreements,createAgreement,listProjects,createProject,projectDetail,addScope,changeScope,bindAgreement,advanceProject,savePreliminaryEstimate} from './projects.mjs';
 import {seedSystemDictionaries} from './dictionary-defaults.mjs';
@@ -585,22 +584,7 @@ async function dispatch(req,res){
   if(method==='PATCH'&&!action)return json(res,200,updateFunding(kind,id,await parseJson(req),user));
   if(method==='DELETE'&&!action)return json(res,200,deleteFunding(kind,id,await parseJson(req),user));
  }
- const progressRoute=pathname.match(/^\/api\/projects\/([^/]+)\/progress$/);
- if(progressRoute&&method==='GET'){permit(user,'view');return json(res,200,projectProgress(progressRoute[1]))}
- const projectFinancial=pathname.match(/^\/api\/projects\/([^/]+)\/settlement-summary$/);
- if(projectFinancial&&method==='GET'){permit(user,'view');return json(res,200,projectSettlementSummary(projectFinancial[1]))}
- const agreementFinancial=pathname.match(/^\/api\/agreements\/([^/]+)\/settlement-summary$/);
- if(agreementFinancial&&method==='GET'){permit(user,'view');return json(res,200,agreementSettlementSummary(agreementFinancial[1]))}
- const frameworkFinancial=pathname.match(/^\/api\/frameworks\/([^/]+)\/settlement-summary$/);
- if(frameworkFinancial&&method==='GET'){permit(user,'view');return json(res,200,frameworkSettlementSummary(frameworkFinancial[1]))}
- const planFinancial=pathname.match(/^\/api\/executions\/([^/]+)\/settlements$/);
- if(planFinancial){
-  if(method==='GET'){permit(user,'view');return json(res,200,planSettlementSummary(planFinancial[1]))}
-  if(method==='POST'){permit(user,'settle');return json(res,201,registerPlanSettlement(planFinancial[1],await parseJson(req),user))}
- }
- const settlementRoute=pathname.match(/^\/api\/projects\/([^/]+)\/settlements$/);
- if(settlementRoute&&method==='GET'){permit(user,'view');return json(res,200,settlementEntries(settlementRoute[1]))}
- if(settlementRoute&&method==='POST'){permit(user,'settle');return json(res,201,registerSettlement(settlementRoute[1],await parseJson(req),user))}
+ if(await financeRoutes({pathname,method,user,url:route(req),permit,parseJson,req,res,json}))return;
  const projectApproval=pathname.match(/^\/api\/projects\/([^/]+)\/approval-versions$/);
  if(projectApproval&&method==='GET'){permit(user,'view');return json(res,200,approvalVersions(projectApproval[1]))}
  const changeList=pathname.match(/^\/api\/projects\/([^/]+)\/change-orders$/);

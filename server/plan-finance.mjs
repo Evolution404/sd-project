@@ -4,7 +4,7 @@ import {registerSettlement} from './finance.mjs';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status})};
 const plan=id=>one('SELECT * FROM executions WHERE id=?',id)||fail(404,'检修计划不存在');
 const project=id=>one('SELECT * FROM projects WHERE id=?',id)||fail(404,'子项目不存在');
-const netQuery="SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) amount FROM project_settlement_entries";
+const netQuery="SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) amount FROM effective_settlement_entries";
 function estimate(snapshot,quantity){
  if(!snapshot)return null;
  try {const p=JSON.parse(snapshot);return p.unit_price_fen==null?null:amountFen(quantity,p.unit_price_fen)}
@@ -18,13 +18,13 @@ export function planSettlementSummary(planId){
   d.demand_no,
   COALESCE((SELECT SUM(c.quantity_scaled) FROM completion_records c WHERE c.execution_item_id=i.id),0) completed_quantity_scaled,
   COALESCE((SELECT SUM(CASE WHEN se.entry_kind='payment' THEN se.amount_fen ELSE -se.amount_fen END)
-    FROM project_settlement_entries se WHERE se.execution_item_id=i.id),0) settled_fen
+    FROM effective_settlement_entries se WHERE se.execution_item_id=i.id),0) settled_fen
   FROM execution_items i
   JOIN project_demand_scopes s ON s.id=i.project_scope_id
   JOIN demands d ON d.id=s.demand_id
   WHERE i.execution_id=? ORDER BY i.created_at,i.id`,planId)
  .map(i=>({...i,planned_estimate_fen:estimate(i.scope_snapshot_json,i.planned_quantity_scaled)}));
- const entries=all(`SELECT se.* FROM project_settlement_entries se
+ const entries=all(`SELECT se.* FROM effective_settlement_entries se
   JOIN execution_items i ON i.id=se.execution_item_id
   WHERE i.execution_id=? ORDER BY se.occurred_on DESC,se.created_at DESC,se.id DESC`,planId);
  return {execution_id:e.id,project_id:e.project_id,number:e.number,plan_type:e.plan_type,

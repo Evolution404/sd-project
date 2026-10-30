@@ -474,7 +474,60 @@ CREATE INDEX idx_settlement_reverse ON project_settlement_entries(reversal_of);
 
 CREATE TRIGGER immutable_settlement_update
 BEFORE UPDATE ON project_settlement_entries
-BEGIN SELECT RAISE(ABORT,'结算凭证不可修改，请登记冲销'); END;
+BEGIN SELECT RAISE(ABORT,'原始结算事实不可修改，请通过凭证更正处理'); END;
 CREATE TRIGGER immutable_settlement_delete
 BEFORE DELETE ON project_settlement_entries
-BEGIN SELECT RAISE(ABORT,'结算凭证不可删除，请登记冲销'); END;
+BEGIN SELECT RAISE(ABORT,'原始结算事实不可删除，请通过凭证撤销处理'); END;
+
+-- R01: append-only maintenance of voucher facts. Original ownership never changes.
+CREATE TABLE settlement_commands (
+ id TEXT PRIMARY KEY,
+ request_key TEXT NOT NULL UNIQUE,
+ request_hash TEXT NOT NULL,
+ target_id TEXT NOT NULL REFERENCES project_settlement_entries(id) ON DELETE RESTRICT,
+ action TEXT NOT NULL CHECK(action IN ('correct','void')),
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ result_json TEXT NOT NULL,
+ created_at TEXT NOT NULL
+);
+CREATE TABLE settlement_revisions (
+ id TEXT PRIMARY KEY,
+ entry_id TEXT NOT NULL REFERENCES project_settlement_entries(id) ON DELETE RESTRICT,
+ version INTEGER NOT NULL CHECK(version>=2),
+ command_id TEXT NOT NULL REFERENCES settlement_commands(id) DEFERRABLE INITIALLY DEFERRED,
+ action TEXT NOT NULL CHECK(action IN ('correct','void')),
+ status TEXT NOT NULL CHECK(status IN ('active','voided')),
+ settlement_no TEXT NOT NULL,
+ settlement_type TEXT CHECK(settlement_type IN ('advance','progress','final')),
+ amount_fen INTEGER NOT NULL CHECK(amount_fen>0),
+ occurred_on TEXT NOT NULL,
+ evidence TEXT NOT NULL,
+ reason TEXT NOT NULL,
+ changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ changed_at TEXT NOT NULL,
+ UNIQUE(entry_id,version),
+ CHECK((action='correct' AND status='active') OR (action='void' AND status='voided'))
+);
+CREATE INDEX idx_settlement_revision_number ON settlement_revisions(settlement_no);
+CREATE TRIGGER immutable_settlement_revision_update BEFORE UPDATE ON settlement_revisions
+BEGIN SELECT RAISE(ABORT,'凭证更正历史不可修改'); END;
+CREATE TRIGGER immutable_settlement_revision_delete BEFORE DELETE ON settlement_revisions
+BEGIN SELECT RAISE(ABORT,'凭证更正历史不可删除'); END;
+CREATE TRIGGER immutable_settlement_command_update BEFORE UPDATE ON settlement_commands
+BEGIN SELECT RAISE(ABORT,'凭证操作历史不可修改'); END;
+CREATE TRIGGER immutable_settlement_command_delete BEFORE DELETE ON settlement_commands
+BEGIN SELECT RAISE(ABORT,'凭证操作历史不可删除'); END;
+CREATE VIEW settlement_current AS
+SELECT e.id,e.project_id,e.project_scope_id,e.approval_version_id,e.execution_item_id,
+ e.entry_kind,e.reversal_of,e.recorded_by,e.created_at,
+ COALESCE(r.version,1) AS version,COALESCE(r.status,'active') AS status,
+ COALESCE(r.settlement_no,e.settlement_no) AS settlement_no,
+ CASE WHEN r.id IS NULL THEN e.settlement_type ELSE r.settlement_type END AS settlement_type,
+ COALESCE(r.amount_fen,e.amount_fen) AS amount_fen,
+ COALESCE(r.occurred_on,e.occurred_on) AS occurred_on,
+ COALESCE(r.evidence,e.evidence) AS evidence,
+ COALESCE(r.changed_at,e.created_at) AS updated_at
+FROM project_settlement_entries e LEFT JOIN settlement_revisions r
+ ON r.entry_id=e.id AND r.version=(SELECT MAX(v.version) FROM settlement_revisions v WHERE v.entry_id=e.id);
+-- Single accounting projection used by all limits and management rollups.
+CREATE VIEW effective_settlement_entries AS SELECT * FROM settlement_current WHERE status='active';

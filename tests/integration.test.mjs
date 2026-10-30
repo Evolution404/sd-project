@@ -31,7 +31,7 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   await request('/auth/me','GET',undefined,401);
   const login=await request('/auth/login','POST',{username:'tester',password:'Test-Secure-Passw0rd-36'});
   assert.equal(login.user.role,'admin');
-  assert.equal(one('PRAGMA user_version').user_version,104);
+  assert.equal(one('PRAGMA user_version').user_version,105);
   assert.equal(isPermittedIP('127.0.0.1'),true);
   assert.equal(isPermittedIP('::1'),true);
   assert.equal(isPermittedIP('::ffff:127.0.0.1'),true);

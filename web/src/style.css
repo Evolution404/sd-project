@@ -114,6 +114,7 @@ td{color:#496457}
 .scope-item p{font-size:12px;margin:3px 0}
 .scope-editor{border-radius:10px;padding:16px;background:#f4f8f4;border:1px solid #d8e8d9;margin-top:15px}
 .execution-overlay{z-index:30}
+.project-overlay>.detail-panel,.execution-overlay>.detail-panel{width:min(1180px,calc(100vw - 220px))}
 /* Screenshot-aligned demand entry */
 .entry-main{max-width:930px}
 .entry-card{background:#fff;border:1px solid #dbe5dd;border-radius:15px;box-shadow:0 4px 20px #2348360b;overflow:hidden}

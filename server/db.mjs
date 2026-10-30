@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 
-const SCHEMA_VERSION=104; // One canonical development schema, no legacy upgrades.
+const SCHEMA_VERSION=105; // One canonical development schema, no legacy upgrades.
 const ROOT=process.env.DATA_DIR||(process.platform==='win32'
   ?join(process.env.LOCALAPPDATA||homedir(),'SDProject')
   :join(homedir(),'.local','share','sd-project'));
@@ -23,7 +23,7 @@ if(current===0){
  try{
   db.exec(readFileSync(new URL('./schema.sql',import.meta.url),'utf8'));
   const types=[
-   ['operation','操作类型'],['unit','工作单位'],['source','来源类型'],
+   ['operation','操作类型'],['unit','计量单位'],['source','来源类型'],
    ['priority','优先级'],['category','需求类别'],['project_category','项目类别'],
    ['team','运维班组'],['erection','架设方式'],
    ['tower_structure','杆塔结构类型'],['tower_purpose','杆塔用途']

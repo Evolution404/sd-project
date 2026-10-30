@@ -50,7 +50,7 @@ try{
   await panel.getByRole('button',{name:'保存配置'}).click();
   await panel.waitFor({state:'hidden'});
  }
- await addDict('工作单位','BROWSER-SET','套');
+ await addDict('计量单位','BROWSER-SET','套');
  await addDict('来源类型','BROWSER-PATROL','巡视');
  await addDict('操作类型','INSTALL','安装防鸟装置',{unit:'套'});
  await addDict('项目类别','MAINTAIN','维修项目');

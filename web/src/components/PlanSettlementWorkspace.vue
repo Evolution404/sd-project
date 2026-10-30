@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import {computed,reactive,ref,watch} from 'vue';
 import FormModal from './FormModal.vue';
+import SettlementVoucherWorkspace from './SettlementVoucherWorkspace.vue';
 import {vFormValidation} from '../utils/form-validation';
 
 type Row=Record<string,any>;
@@ -9,7 +10,7 @@ const props=defineProps<{executionId:string;canSettle:boolean}>();
 const emit=defineEmits<{changed:[]}>();
 const summary=ref<PlanSummary|null>(null);
 const error=ref(''),formError=ref(''),notice=ref('');
-const loading=ref(false),saving=ref(false);
+const loading=ref(false),saving=ref(false),refreshKey=ref(0);
 const dialog=ref<''|'record'|'reverse'>('');
 const form=reactive<Row>({});
 const money=(fen:number|null|undefined)=>fen==null?'—':(fen/100).toFixed(2);
@@ -41,7 +42,7 @@ async function refresh(){
  loading.value=true;error.value='';
  try{
   const result=await api('/executions/'+encodeURIComponent(requested)+'/settlements');
-  if(props.executionId===requested)summary.value=result as PlanSummary;
+  if(props.executionId===requested){summary.value=result as PlanSummary;refreshKey.value++}
  }catch(e){if(props.executionId===requested)error.value=(e as Error).message}
  finally{if(props.executionId===requested)loading.value=false}
 }
@@ -56,7 +57,7 @@ function openRecord(itemId?:string){
 }
 function openReversal(original?:Row){
  if(!props.canSettle||!remainingByOriginal.value.length)return;
- const row=original||remainingByOriginal.value[0];
+ const row=(original&&remainingByOriginal.value.find(e=>e.id===original.id))||remainingByOriginal.value[0];
  Object.keys(form).forEach(k=>delete form[k]);
  Object.assign(form,{execution_item_id:row.execution_item_id,reversal_of:row.id,
   settlement_no:'',amount_yuan:money(row.remaining_fen),occurred_on:date(),evidence:''});
@@ -120,24 +121,7 @@ async function submit(){
      </tbody>
     </table>
    </div>
-   <h4>凭证记录</h4>
-   <div class="table-wrap">
-    <table>
-     <thead><tr><th>凭证编号</th><th>性质</th><th>工作项</th><th>金额（元）</th><th>日期</th><th>依据</th><th v-if="canSettle">操作</th></tr></thead>
-     <tbody>
-      <tr v-for="entry in summary.entries" :key="entry.id">
-       <td class="mono">{{entry.settlement_no}}</td>
-       <td>{{entry.entry_kind==='reversal'?'冲销':settlementName(entry.settlement_type)}}</td>
-       <td>{{itemName(entry.execution_item_id)}}</td>
-       <td class="mono" :class="entry.entry_kind==='reversal'?'plan-finance-reversal':''">{{entry.entry_kind==='reversal'?'-':''}}{{money(entry.amount_fen)}}</td>
-       <td>{{entry.occurred_on}}</td>
-       <td class="plan-finance-evidence">{{entry.evidence}}</td>
-       <td v-if="canSettle"><button v-if="entry.entry_kind==='payment'&&remainingByOriginal.some(x=>x.id===entry.id)" type="button" class="link" @click="openReversal(entry)">冲销余额</button></td>
-      </tr>
-      <tr v-if="!summary.entries.length"><td :colspan="canSettle?7:6" class="empty">尚无检修计划归属的结算凭证</td></tr>
-     </tbody>
-    </table>
-   </div>
+   <SettlementVoucherWorkspace :project-id="summary.project_id" :execution-id="executionId" :can-settle="canSettle" :refresh-key="refreshKey" @reverse="openReversal" @changed="refresh();emit('changed')"/>
   </template>
  </section>
  <FormModal :open="dialog==='record'" title="登记检修计划结算" :error="formError" size="wide" @close="!saving&&(dialog='')">
@@ -152,7 +136,7 @@ async function submit(){
    <label><span class="field-caption">结算金额（元）</span><input v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
    <label><span class="field-caption">凭证日期</span><input v-model="form.occurred_on" type="date" required/></label>
    <label class="wide"><span class="field-caption">结算依据</span><textarea v-model.trim="form.evidence" rows="3" required/></label>
-   <p class="wide muted">最终结算要求本计划对应工作项已有结束后的实际完成记录。所有凭证不可直接覆盖或删除。</p>
+   <p class="wide muted">最终结算要求本计划对应工作项已有结束后的实际完成记录。凭证支持更正、撤销和历史查询，原始登记继续保留。</p>
    <div class="wide form-actions"><button type="button" class="light" :disabled="saving" @click="dialog=''">取消</button><button class="primary" :disabled="saving">确认登记</button></div>
   </form>
  </FormModal>
@@ -188,5 +172,5 @@ async function submit(){
 .plan-finance-reversal{color:#a32929}
 .plan-finance-evidence{max-width:240px;word-break:break-word}
 .plan-finance h4{margin:12px 0 0}
-@media (max-width:680px){.plan-finance-metrics{grid-template-columns:1fr}.plan-finance-heading{flex-wrap:wrap}}
+
 </style>

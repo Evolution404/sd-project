@@ -97,7 +97,7 @@ function materializeChanges(order,p,baseline){
      err(409,'该范围存在未结束的执行批次，必须先完成或取消，才能批准涉及此范围的变更');
    const consumed=actualCommitted(old.id);
    const settled=one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
-    FROM project_settlement_entries WHERE project_scope_id=?`,old.id).n;
+    FROM effective_settlement_entries WHERE project_scope_id=?`,old.id).n;
    if(change.action==='remove'&&settled>0)err(409,'范围存在未冲销结算凭证，不能直接移除');
    if(change.action==='remove'){
     if(consumed>0)err(409,'已有实际完成工作量，不能完全移除该范围；可改为不低于已完成量');
@@ -155,7 +155,7 @@ export function approveChangeOrder(id,body,user){
   const others=one("SELECT COALESCE(SUM(approved_budget_fen),0) n FROM projects WHERE agreement_id=? AND id<>? AND status IN ('approved','closed')",ag.id,p.id).n;
   if(BigInt(others)+BigInt(applied.budget)>BigInt(ag.limit_fen))err(409,'变更后的有效项目预算超过执行协议可用额度');
   const settled=one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
-   FROM project_settlement_entries WHERE project_id=?`,p.id).n;
+   FROM effective_settlement_entries WHERE project_id=?`,p.id).n;
   if(applied.budget<settled)err(409,'变更后的预算不能低于已登记净结算金额');
   const t=now();
   for(const x of applied.updates)exec('UPDATE project_demand_scopes SET quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,reference_price_version_id=?,updated_at=? WHERE id=?',
