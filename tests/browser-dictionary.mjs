@@ -45,7 +45,10 @@ try{
  async function select(panel,label,value){await panel.getByRole('combobox',{name:label,exact:true}).press('Enter');await page.locator('.el-select-dropdown:visible').getByRole('option',{name:value,exact:true}).first().click()}
  const workspace=page.locator('.dictionary-workspace');
  assert.equal(await workspace.getByRole('columnheader',{name:'应用领域',exact:true}).count(),0);
- assert.equal(await workspace.locator('.dictionary-categories > .el-card__body > .el-menu > .el-sub-menu').count(),4);
+ const groupLabels=await workspace.locator('.dictionary-categories > .el-card__body > .el-menu > .el-sub-menu .el-sub-menu__title').allTextContents();
+ for(const label of ['通用基础','需求与项目','财务费用','杆塔台账','其他扩展']){
+  assert.ok(groupLabels.some(text=>text.includes(label)),'missing dictionary group: '+label);
+ }
  await workspace.getByRole('button',{name:'新增词条',exact:true}).click();let modal=page.getByRole('dialog',{name:'新增词条',exact:true});
  assert.equal(await modal.getByLabel('编码',{exact:true}).count(),0);assert.equal(await modal.getByLabel('排序',{exact:true}).count(),0);
  await modal.getByRole('button',{name:'保存配置'}).click();await modal.getByText('请填写名称',{exact:true}).waitFor();
