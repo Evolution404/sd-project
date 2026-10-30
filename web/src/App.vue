@@ -12,6 +12,7 @@ const AuditWorkspace=defineAsyncComponent(()=>import('./components/AuditWorkspac
 const FundingWorkspace=defineAsyncComponent(()=>import('./components/FundingWorkspace.vue'));
 const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
 const SettlementVoucherWorkspace=defineAsyncComponent(()=>import('./components/SettlementVoucherWorkspace.vue'));
+const PlanBudgetWorkspace=defineAsyncComponent(()=>import('./components/PlanBudgetWorkspace.vue'));
 const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./components/PlanSettlementWorkspace.vue'));
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
@@ -177,7 +178,7 @@ async function createChangeDraft(){
     unit_price_yuan:changeDraft.unit_price_yuan,price_source:changeDraft.price_source,price_date:changeDraft.price_date,tax_mode:changeDraft.tax_mode,evidence:changeDraft.evidence}]
  });
  await loadProjectChanges(projectView.value.id);
- projectAction.value='';notify('变更单草稿已保存。批准流程尚未定案，不会修改现有批准预算或执行范围');
+ projectAction.value='';notify('变更单草稿已保存，管理员批准后才更新项目预算和范围');
  }catch(e){error.value=errorMessage(e)}
 }
 function openChangeDecision(order:Rec,action:'submit'|'approve'|'reject'){
@@ -401,7 +402,7 @@ function openReason(kind:string){reasonValue.value='';error.value='';reasonActio
 const reasonTitle=computed(()=>reasonAction.value.startsWith('verify:')?'需求核实意见':
  reasonAction.value==='revise'?'需求修订依据':reasonAction.value==='revalidate'?'位置重新核实依据':
  reasonAction.value==='project:stock'?'确认项目入库':reasonAction.value==='project:approve'?'确认立项批准':
- reasonAction.value==='execution:start'?'确认开工':reasonAction.value==='execution:finish'?'结束本次执行':'业务确认依据');
+ reasonAction.value==='execution:start'?'确认开工':reasonAction.value==='execution:finish'?'结束本次执行':reasonAction.value==='execution:cancel'?'取消未开工批次':'业务确认依据');
 async function submitReason(){
  const kind=reasonAction.value,reason=reasonValue.value.trim();if(!kind||!reason)return;
  error.value='';
@@ -562,6 +563,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     </form>
    </FormModal>
    <h3>检修计划</h3>
+   <p v-if="projectSettlementTotals" class="muted" data-testid="plan-budget-allocation-summary">已核定计划预算 {{money(projectSettlementTotals.allocated_plan_budget_fen)}} 元 · 子项目未分配预算 {{money(projectSettlementTotals.unallocated_plan_budget_fen)}} 元；计划结束或取消不自动释放。</p>
    <div v-if="!executionRows.length" class="empty">尚无检修计划</div>
    <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.plan_type==='outage'?'停电检修':'不停电检修'}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条工作明细 · 净结算 {{money(projectSettlementTotals?.plans?.find((p:Rec)=>p.execution_id===e.id)?.settled_fen)}} 元</p></div><button class="link" @click="openExecution(e.id)">进入执行</button></div><StatusTag :status="e.status"/></div>
    <button v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建检修计划</button>
@@ -629,8 +631,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <button v-if="executionView.status==='running'" class="primary" @click="openReason('execution:finish')">结束本次执行</button>
     <button v-if="executionView.status==='planned'" class="light" @click="openReason('execution:cancel')">取消未开工批次</button>
    </div>
+   <PlanBudgetWorkspace :execution-id="executionView.id" :can-write="!!roleWrite" :can-confirm="roleAdmin" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials"/>
    <PlanSettlementWorkspace :execution-id="executionView.id" :can-settle="roleStageApprove" @changed="refreshPlanFinancials"/>
-   <p class="muted minor">完成量按每项批准范围核对，超计划确认会被数据库事务拒绝。结算依据由独立凭证登记，不由完成量自动推算。</p>
+   <p class="muted minor">完成量按每项批准范围核对，不得超过本次计划数量。结算依据由独立凭证登记，不由完成量自动推算。</p>
   </div></section>
   <template v-if="nav==='access'">
     <section class="panel"><div class="section-header"><div><h2>允许访问的 IP</h2><p class="muted">逐个配置具体IP地址；保存后无需重启服务</p></div></div>

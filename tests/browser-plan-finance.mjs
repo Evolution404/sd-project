@@ -144,6 +144,7 @@ try{
  await embedded.getByText('W5-APP-INTEGRATED').waitFor();
  assert.match(await embedded.locator('.plan-finance-metrics strong').first().innerText(),/90\.00/);
  assert.equal((await fetchApi('/projects/'+project.id+'/settlement-summary')).allocated_fen,9000);
+ await page.locator('.execution-overlay [aria-label="检修计划预算"]').getByText('90.00',{exact:true}).waitFor();
  // R01: real Element Plus dialogs, inline validation, immutable history and family revocation.
  let voucherRow=embedded.getByRole('row').filter({hasText:'W5-UI-001'});
  await voucherRow.getByRole('button',{name:'更正',exact:true}).click();
@@ -183,6 +184,7 @@ try{
  await revocation.getByRole('button',{name:'确认撤销'}).click();
  await revocation.waitFor({state:'hidden'});
  await embedded.locator('.plan-finance-metrics strong').first().getByText(/30\.00/).waitFor();
+ await page.locator('.execution-overlay [aria-label="检修计划预算"]').getByText('30.00',{exact:true}).waitFor();
  await embedded.getByRole('combobox',{name:'凭证状态'}).press('Enter');
  await page.getByRole('option',{name:'已撤销凭证',exact:true}).click();
  await embedded.getByRole('row').filter({hasText:'W5-UI-001'}).getByText('已撤销',{exact:true}).waitFor();

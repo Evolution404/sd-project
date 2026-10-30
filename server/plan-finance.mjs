@@ -1,3 +1,4 @@
+import {projectPlanBudgetSummary} from './plan-budgets.mjs';
 import {one,all} from './db.mjs';
 import {amountFen} from './money.mjs';
 import {registerSettlement} from './finance.mjs';
@@ -41,12 +42,13 @@ export function registerPlanSettlement(executionId,body,user){
  return registerSettlement(e.project_id,{...body,scope_id:item.project_scope_id,execution_item_id:itemId},user);
 }
 export function projectSettlementSummary(projectId){
- const p=project(projectId);
+ const p=project(projectId),budgetAllocation=projectPlanBudgetSummary(projectId);
  const plans=all('SELECT id FROM executions WHERE project_id=? ORDER BY created_at,number',projectId)
   .map(row=>{
    const s=planSettlementSummary(row.id);
    return {execution_id:s.execution_id,number:s.number,plan_type:s.plan_type,status:s.status,
-    planned_estimate_fen:s.planned_estimate_fen,estimate_complete:s.estimate_complete,settled_fen:s.settled_fen};
+    planned_estimate_fen:s.planned_estimate_fen,estimate_complete:s.estimate_complete,settled_fen:s.settled_fen,
+    confirmed_budget_fen:budgetAllocation.plans.find(p=>p.execution_id===s.execution_id)?.confirmed_budget_fen??null};
   });
  const unallocated=one(netQuery+' WHERE project_id=? AND execution_item_id IS NULL',projectId).amount;
  const total=one(netQuery+' WHERE project_id=?',projectId).amount;
@@ -54,7 +56,8 @@ export function projectSettlementSummary(projectId){
  if(allocated+unallocated!==total)fail(409,'结算分配与项目总额对账失败');
  return {project_id:p.id,framework_id:p.framework_id,agreement_id:p.agreement_id,
   status:p.status,approved_budget_fen:p.approved_budget_fen,
-  settled_fen:total,allocated_fen:allocated,unallocated_fen:unallocated,plans};
+  settled_fen:total,allocated_fen:allocated,unallocated_fen:unallocated,
+  allocated_plan_budget_fen:budgetAllocation.allocated_budget_fen,unallocated_plan_budget_fen:budgetAllocation.unallocated_budget_fen,plans};
 }
 export function agreementSettlementSummary(agreementId){
  const a=one('SELECT * FROM agreements WHERE id=?',agreementId);
@@ -63,6 +66,7 @@ export function agreementSettlementSummary(agreementId){
   .map(p=>projectSettlementSummary(p.id));
  return {agreement_id:a.id,framework_id:a.framework_id,limit_fen:a.limit_fen,
   approved_budget_fen:projects.reduce((s,p)=>s+(['approved','closed'].includes(p.status)?p.approved_budget_fen||0:0),0),
+  allocated_plan_budget_fen:projects.reduce((s,p)=>s+p.allocated_plan_budget_fen,0),
   settled_fen:projects.reduce((s,p)=>s+p.settled_fen,0),
   unallocated_fen:projects.reduce((s,p)=>s+p.unallocated_fen,0),projects};
 }
@@ -72,9 +76,10 @@ export function frameworkSettlementSummary(frameworkId){
  const projects=all('SELECT id FROM projects WHERE framework_id=? ORDER BY created_at',frameworkId)
   .map(p=>projectSettlementSummary(p.id));
  const agreements=all('SELECT id,name,limit_fen FROM agreements WHERE framework_id=? ORDER BY created_at',frameworkId)
-  .map(a=>({...a,settled_fen:projects.filter(p=>p.agreement_id===a.id).reduce((s,p)=>s+p.settled_fen,0)}));
+  .map(a=>({...a,allocated_plan_budget_fen:projects.filter(p=>p.agreement_id===a.id).reduce((s,p)=>s+p.allocated_plan_budget_fen,0),settled_fen:projects.filter(p=>p.agreement_id===a.id).reduce((s,p)=>s+p.settled_fen,0)}));
  return {framework_id:f.id,limit_fen:f.limit_fen,
   approved_budget_fen:projects.reduce((s,p)=>s+(['approved','closed'].includes(p.status)?p.approved_budget_fen||0:0),0),
+  allocated_plan_budget_fen:projects.reduce((s,p)=>s+p.allocated_plan_budget_fen,0),
   settled_fen:projects.reduce((s,p)=>s+p.settled_fen,0),
   unallocated_fen:projects.reduce((s,p)=>s+p.unallocated_fen,0),
   projects_without_agreement:projects.filter(p=>!p.agreement_id).length,agreements,projects};

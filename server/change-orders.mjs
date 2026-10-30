@@ -1,3 +1,4 @@
+import {ensurePlanBudgetsFit} from './plan-budgets.mjs';
 import {systemCode} from './system-code.mjs';
 import {all,one,exec,transaction,audit,uid,now} from './db.mjs';
 import {quantityToScaled} from './quantity.mjs';
@@ -157,6 +158,7 @@ export function approveChangeOrder(id,body,user){
   const settled=one(`SELECT COALESCE(SUM(CASE WHEN entry_kind='payment' THEN amount_fen ELSE -amount_fen END),0) n
    FROM effective_settlement_entries WHERE project_id=?`,p.id).n;
   if(applied.budget<settled)err(409,'变更后的预算不能低于已登记净结算金额');
+  ensurePlanBudgetsFit(p.id,applied.budget);
   const t=now();
   for(const x of applied.updates)exec('UPDATE project_demand_scopes SET quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,reference_price_version_id=?,updated_at=? WHERE id=?',
    x.quantity_scaled,x.unit_price_fen,x.price_source,x.price_date,x.tax_mode,x.reference_price_version_id||null,t,x.scope_id);

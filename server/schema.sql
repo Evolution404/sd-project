@@ -531,3 +531,51 @@ FROM project_settlement_entries e LEFT JOIN settlement_revisions r
  ON r.entry_id=e.id AND r.version=(SELECT MAX(v.version) FROM settlement_revisions v WHERE v.entry_id=e.id);
 -- Single accounting projection used by all limits and management rollups.
 CREATE VIEW effective_settlement_entries AS SELECT * FROM settlement_current WHERE status='active';
+
+-- Explicitly confirmed plan allocations; estimates, settlements and payments remain separate.
+CREATE TABLE plan_budget_drafts (
+ id TEXT PRIMARY KEY,
+ execution_id TEXT NOT NULL REFERENCES executions(id) ON DELETE RESTRICT,
+ kind TEXT NOT NULL CHECK(kind IN ('set','release')),
+ amount_fen INTEGER NOT NULL CHECK(amount_fen>=0),
+ basis TEXT NOT NULL CHECK(length(trim(basis))>0),
+ base_budget_version INTEGER NOT NULL CHECK(base_budget_version>=0),
+ project_approval_version_id TEXT NOT NULL REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
+ version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),
+ status TEXT NOT NULL CHECK(status IN ('draft','confirmed','deleted')),
+ created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ created_at TEXT NOT NULL,
+ updated_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ updated_at TEXT NOT NULL,
+ CHECK((kind='set' AND amount_fen>0) OR (kind='release' AND amount_fen=0))
+);
+CREATE INDEX idx_plan_budget_drafts_plan ON plan_budget_drafts(execution_id,status);
+CREATE TRIGGER immutable_confirmed_budget_draft BEFORE UPDATE ON plan_budget_drafts
+WHEN OLD.status<>'draft'
+BEGIN SELECT RAISE(ABORT,'已确认或已删除的预算草稿保留历史，请另建调整草稿'); END;
+CREATE TRIGGER preserve_budget_draft_delete BEFORE DELETE ON plan_budget_drafts
+BEGIN SELECT RAISE(ABORT,'预算草稿请通过删除流程处理'); END;
+CREATE TABLE plan_budget_versions (
+ id TEXT PRIMARY KEY,
+ execution_id TEXT NOT NULL REFERENCES executions(id) ON DELETE RESTRICT,
+ proposal_id TEXT NOT NULL UNIQUE REFERENCES plan_budget_drafts(id) ON DELETE RESTRICT,
+ version_no INTEGER NOT NULL CHECK(version_no>0),
+ kind TEXT NOT NULL CHECK(kind IN ('set','release')),
+ amount_fen INTEGER NOT NULL CHECK(amount_fen>=0),
+ previous_amount_fen INTEGER,
+ basis TEXT NOT NULL,
+ project_approval_version_id TEXT NOT NULL REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
+ project_budget_fen INTEGER NOT NULL,
+ confirmed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ confirmed_at TEXT NOT NULL,
+ request_key TEXT NOT NULL UNIQUE,
+ request_hash TEXT NOT NULL,
+ UNIQUE(execution_id,version_no),
+ CHECK((kind='set' AND amount_fen>0) OR (kind='release' AND amount_fen=0))
+);
+CREATE TRIGGER immutable_plan_budget_version_update BEFORE UPDATE ON plan_budget_versions
+BEGIN SELECT RAISE(ABORT,'预算核定历史不可覆盖，请编制调整草稿'); END;
+CREATE TRIGGER immutable_plan_budget_version_delete BEFORE DELETE ON plan_budget_versions
+BEGIN SELECT RAISE(ABORT,'预算核定历史不可清除，请明确撤销当前预算'); END;
+CREATE VIEW plan_budget_current AS SELECT v.* FROM plan_budget_versions v
+ WHERE v.version_no=(SELECT MAX(h.version_no) FROM plan_budget_versions h WHERE h.execution_id=v.execution_id);

@@ -1,8 +1,23 @@
+import {planBudgetDetail,projectPlanBudgetSummary,createPlanBudgetDraft,updatePlanBudgetDraft,deletePlanBudgetDraft,planBudgetDraftDetail,confirmPlanBudget} from './plan-budgets.mjs';
 import {settlementEntries,projectProgress,registerSettlement} from './finance.mjs';
 import {planSettlementSummary,registerPlanSettlement,projectSettlementSummary,agreementSettlementSummary,frameworkSettlementSummary} from './plan-finance.mjs';
 import {settlementDetail,correctSettlement,settlementVoidPreview,voidSettlement} from './settlement-maintenance.mjs';
 // Caller owns authentication, JSON limits and response handling; finance owns its routes.
 export async function financeRoutes({pathname,method,user,url,permit,parseJson,req,res,json}){
+ const budget=pathname.match(/^\/api\/executions\/([^/]+)\/budget$/);
+ if(budget&&method==='GET'){permit(user,'view');json(res,200,planBudgetDetail(budget[1],Object.fromEntries(url.searchParams)));return true}
+ const allocation=pathname.match(/^\/api\/projects\/([^/]+)\/plan-budgets$/);
+ if(allocation&&method==='GET'){permit(user,'view');json(res,200,projectPlanBudgetSummary(allocation[1]));return true}
+ const createBudget=pathname.match(/^\/api\/executions\/([^/]+)\/budget-drafts$/);
+ if(createBudget&&method==='POST'){permit(user,'write');json(res,201,createPlanBudgetDraft(createBudget[1],await parseJson(req),user));return true}
+ const proposal=pathname.match(/^\/api\/plan-budget-drafts\/([^/]+)(?:\/(confirm))?$/);
+ if(proposal){
+  permit(user,method==='GET'?'view':proposal[2]?'admin':'write');
+  if(proposal[2]&&method==='POST'){json(res,200,confirmPlanBudget(proposal[1],await parseJson(req),user));return true}
+  if(!proposal[2]&&method==='GET'){json(res,200,planBudgetDraftDetail(proposal[1]));return true}
+  if(!proposal[2]&&method==='PATCH'){json(res,200,updatePlanBudgetDraft(proposal[1],await parseJson(req),user));return true}
+  if(!proposal[2]&&method==='DELETE'){json(res,200,deletePlanBudgetDraft(proposal[1],await parseJson(req),user));return true}
+ }
  const progress=pathname.match(/^\/api\/projects\/([^/]+)\/progress$/);
  if(progress&&method==='GET'){permit(user,'view');json(res,200,projectProgress(progress[1]));return true}
  const summary=pathname.match(/^\/api\/(projects|agreements|frameworks)\/([^/]+)\/settlement-summary$/);
