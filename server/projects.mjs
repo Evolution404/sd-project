@@ -152,12 +152,13 @@ export function changeScope(id,scopeId,body,user){
   if(body.tax_mode&&!['inclusive','exclusive','none'].includes(body.tax_mode))fault(422,'税口径无效');
   next.tax_mode=body.tax_mode||null;
  }
+ if(['unit_price_yuan','price_source','price_date','tax_mode'].some(key=>body[key]!==undefined))next.reference_price_version_id=null;
  if(body.note!==undefined)next.note=body.note;
  if(p.status==='reserve'){next.demand_version=d.version;next.demand_snapshot_json=JSON.stringify(captureDemand(d))}
  next.updated_at=now();
  return transaction(()=>{
-  exec('UPDATE project_demand_scopes SET demand_version=?,quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,note=?,updated_at=?,demand_snapshot_json=? WHERE id=?',
-  next.demand_version,next.quantity_scaled,next.unit_price_fen,next.price_source,next.price_date,next.tax_mode,next.note,next.updated_at,next.demand_snapshot_json,scopeId);
+  exec('UPDATE project_demand_scopes SET demand_version=?,quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,note=?,updated_at=?,demand_snapshot_json=?,reference_price_version_id=? WHERE id=?',
+  next.demand_version,next.quantity_scaled,next.unit_price_fen,next.price_source,next.price_date,next.tax_mode,next.note,next.updated_at,next.demand_snapshot_json,next.reference_price_version_id,scopeId);
   exec('UPDATE projects SET version=version+1,updated_at=? WHERE id=?',now(),id);
   event(user,'project_demand_scopes',scopeId,'update',old,next,body.reason||'估算明细调整');
   return projectDetail(id);
@@ -177,7 +178,7 @@ export function bindAgreement(id,body,user){
 }
 function stageSnapshot(p,items,stage,reason,user){
  return {project_id:p.id,project_code:p.code,project_name:p.name,stage,framework_id:p.framework_id,agreement_id:p.agreement_id,category_id:p.category_id,preliminary_estimate_fen:p.preliminary_estimate_fen,preliminary_estimate_basis:p.preliminary_estimate_basis,
- scopes:items.map(x=>({scope_id:x.id,demand_id:x.demand_id,demand_version:x.demand_version,demand_snapshot:x.demand_snapshot,quantity_scaled:x.quantity_scaled,unit_price_fen:x.unit_price_fen,price_source:x.price_source,price_date:x.price_date,tax_mode:x.tax_mode,amount_fen:lineEstimate(x)})),
+ scopes:items.map(x=>({scope_id:x.id,demand_id:x.demand_id,demand_version:x.demand_version,demand_snapshot:x.demand_snapshot,quantity_scaled:x.quantity_scaled,unit_price_fen:x.unit_price_fen,price_source:x.price_source,price_date:x.price_date,tax_mode:x.tax_mode,reference_price_version_id:x.reference_price_version_id,amount_fen:lineEstimate(x)})),
  created_at:now(),reason,actor_id:user.id};
 }
 export function advanceProject(id,stage,body,user){

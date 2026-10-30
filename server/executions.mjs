@@ -71,7 +71,8 @@ export function addExecutionItem(executionId,body,user){
    actual_physical_tower_id:approvedScope.demand_snapshot?.observed_physical_tower_id||null,created_at:now(),
    scope_snapshot_json:JSON.stringify({demand_snapshot_json:JSON.stringify(approvedScope.demand_snapshot),
     quantity_scaled:approvedScope.quantity_scaled,unit_price_fen:approvedScope.unit_price_fen,
-    price_source:approvedScope.price_source,price_date:approvedScope.price_date,tax_mode:approvedScope.tax_mode})};
+    price_source:approvedScope.price_source,price_date:approvedScope.price_date,tax_mode:approvedScope.tax_mode,
+    reference_price_version_id:approvedScope.reference_price_version_id||null})};
   exec('INSERT INTO execution_items('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
   exec('UPDATE executions SET version=version+1,updated_at=? WHERE id=?',now(),executionId);
   auditEvent(user,'execution_items',item.id,'plan',null,item);

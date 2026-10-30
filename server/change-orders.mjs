@@ -107,7 +107,8 @@ function materializeChanges(order,p,baseline){
     const price=change.unit_price_fen??before.unit_price_fen;
     const updated={...before,quantity_scaled:change.quantity_scaled,unit_price_fen:price,
      price_source:change.price_source||before.price_source,price_date:change.price_date||before.price_date,
-     tax_mode:change.tax_mode||before.tax_mode};
+     tax_mode:change.tax_mode||before.tax_mode,
+     reference_price_version_id:change.unit_price_fen!==null?null:(before.reference_price_version_id||null)};
     if(amount(updated.quantity_scaled,updated.unit_price_fen)<settled)
      err(409,'调整后的范围核定金额不能低于已有结算金额');
     scopes[index]=updated;updates.push(updated);
@@ -156,12 +157,12 @@ export function approveChangeOrder(id,body,user){
    FROM project_settlement_entries WHERE project_id=?`,p.id).n;
   if(applied.budget<settled)err(409,'变更后的预算不能低于已登记净结算金额');
   const t=now();
-  for(const x of applied.updates)exec('UPDATE project_demand_scopes SET quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,updated_at=? WHERE id=?',
-   x.quantity_scaled,x.unit_price_fen,x.price_source,x.price_date,x.tax_mode,t,x.scope_id);
+  for(const x of applied.updates)exec('UPDATE project_demand_scopes SET quantity_scaled=?,unit_price_fen=?,price_source=?,price_date=?,tax_mode=?,reference_price_version_id=?,updated_at=? WHERE id=?',
+   x.quantity_scaled,x.unit_price_fen,x.price_source,x.price_date,x.tax_mode,x.reference_price_version_id||null,t,x.scope_id);
   for(const x of applied.retire)exec("UPDATE project_demand_scopes SET status='retired',updated_at=? WHERE id=?",t,x.scope_id);
   for(const x of applied.add){
    if(x.reactivate)exec(`UPDATE project_demand_scopes SET demand_version=?,quantity_scaled=?,unit_price_fen=?,
-     price_source=?,price_date=?,tax_mode=?,note=?,updated_at=?,demand_snapshot_json=?,status='active'
+     price_source=?,price_date=?,tax_mode=?,reference_price_version_id=NULL,note=?,updated_at=?,demand_snapshot_json=?,status='active'
      WHERE id=? AND status='retired'`,
       x.demand_version,x.quantity_scaled,x.unit_price_fen,x.price_source,x.price_date,x.tax_mode,
       '由变更单 '+old.code+' 重新纳入',t,JSON.stringify(x.demand_snapshot),x.scope_id);

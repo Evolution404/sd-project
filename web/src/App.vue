@@ -6,6 +6,8 @@ import CustomFields from './components/CustomFields.vue';
 import LedgerWorkspace from './components/LedgerWorkspace.vue';
 import SidebarChevron from './components/SidebarChevron.vue';
 import StatusTag from './components/StatusTag.vue';
+import ReferencePriceWorkspace from './components/ReferencePriceWorkspace.vue';
+import StructureCreateModal from './components/StructureCreateModal.vue';
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
@@ -19,6 +21,7 @@ const overview=ref<Rec>({}),detail=ref<Rec|null>(null),edit=ref<Rec|null>(null);
 const allowedIPs=ref<Rec[]>([]), currentClientIP=ref(''), ipInput=ref(''), ipNote=ref('');
 const frameworks=ref<Rec[]>([]),agreements=ref<Rec[]>([]),projects=ref<Rec[]>([]);
 const projectView=ref<Rec|null>(null),scopeDemand=ref(''),scopeQuantity=ref('1'),scopePriceEdit=ref<Rec|null>(null);
+const referencePriceOptions=ref<Rec[]>([]),selectedReferencePrice=ref('');
 const scopePrice=reactive<Rec>({unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',reason:''});
 const agreementSelection=ref('');
 const preliminaryAmount=ref(''),preliminaryBasis=ref(''),preliminaryCategory=ref('');
@@ -54,7 +57,7 @@ const newCommon=():Rec=> ({work_target_type:'line',operation_id:'',target_object
 const common=reactive<Rec>(newCommon());
 const initialForm:Rec={};
 const form=reactive<Rec>({});
-const labels:Rec={overview:'工作台',lines:'线路台账',towers:'杆塔查询',spans:'档距查询',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备'};
+const labels:Rec={overview:'工作台',lines:'线路台账',towers:'杆塔查询',spans:'档距查询',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备',prices:'检修参考单价'};
 const tabs=['overview','entry','demands','lines','physical','logical','dictionary','access'];
 const ops=computed(()=>items.value.filter(x=>x.type_id==='operation'&&x.status==='active'&&(x.work_target_type===common.work_target_type||x.work_target_type==='both')));
 const units=computed(()=>items.value.filter(x=>x.type_id==='unit'&&x.status==='active'));
@@ -66,7 +69,7 @@ const totalQty=computed(()=>selectedRows.value.reduce((acc,x)=>acc+(Number(x.qua
 const thisLineSelected=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&selected[x.id]&&!excluded[x.id]).length);
 const thisLineTotal=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&x.status==='active').length);
 const selectedLines=computed(()=>lines.value.filter(l=>selectedRows.value.some(x=>x.line_id===l.id)));
-const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':['frameworks','agreements'].includes(nav.value)?'框架与协议':['lines','towers','spans'].includes(nav.value)?'基础台账':['dictionary','access'].includes(nav.value)?'系统管理':'项目全流程');
+const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':nav.value==='prices'?'参考单价':['frameworks','agreements'].includes(nav.value)?'框架与协议':['lines','towers','spans'].includes(nav.value)?'基础台账':['dictionary','access'].includes(nav.value)?'系统管理':'项目全流程');
 const displayTitle=computed(()=>nav.value==='entry'?'新建需求':nav.value==='projects'?'项目中心':nav.value==='overview'?'工作台':mediaTitle.value);
 const roleStageApprove=computed(()=>user.value?.role==='admin');
 const roleWrite=computed(()=>user.value&&['admin','editor'].includes(user.value.role));
@@ -238,9 +241,27 @@ async function addProjectScope(){if(!projectView.value)return;
  scopeDemand.value='';projectAction.value='';notify('已关联需求范围');
  }catch(e){error.value=errorMessage(e)}
 }
-function editScopePrice(scope:Rec){
- scopePriceEdit.value=scope;
+async function editScopePrice(scope:Rec){
+ scopePriceEdit.value=scope;selectedReferencePrice.value='';referencePriceOptions.value=[];error.value='';
  Object.assign(scopePrice,{unit_price_yuan:scope.unit_price_fen===null?'':money(scope.unit_price_fen),price_source:scope.price_source||'',price_date:scope.price_date||new Date().toLocaleDateString('en-CA'),tax_mode:scope.tax_mode||'inclusive',reason:''});
+ try{if(projectView.value)referencePriceOptions.value=await api('/projects/'+projectView.value.id+'/scopes/'+scope.id+'/reference-price-options')}catch(e){error.value=errorMessage(e)}
+}
+async function applyScopeReferencePrice(){
+ if(!projectView.value||!scopePriceEdit.value||!selectedReferencePrice.value)return;
+ const price=referencePriceOptions.value.find(x=>x.id===selectedReferencePrice.value);
+ if(!price)return;
+ error.value='';
+ try{
+  projectView.value=await api('/projects/'+projectView.value.id+'/scopes/'+scopePriceEdit.value.id+'/reference-price','POST',{
+   version:projectView.value.version,catalog_id:price.id,reference_price_version_id:price.reference_price_version_id
+  });
+  scopePriceEdit.value=null;selectedReferencePrice.value='';notify('已引用参考价版本并保存储备估算依据');
+ }catch(e){error.value=errorMessage(e)}
+}
+function fillPreliminaryFromDetails(){
+ if(!projectView.value?.estimate?.complete){error.value='尚有未估价需求，不能生成完整估算';return}
+ preliminaryAmount.value=money(projectView.value.estimate.known_total_fen);
+ preliminaryBasis.value='依据当前专业需求范围、已保存单价及价格来源逐项汇总测算；以各需求估算明细和价格版本记录为准。';
 }
 async function saveScopePrice(){if(!projectView.value||!scopePriceEdit.value)return;
  error.value='';try{
@@ -414,6 +435,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <button class="nav-primary" :class="{active:['entry','demands'].includes(nav)}" @click="openNav('demands')"><span class="nav-icon">▣</span>需求中心</button>
   <div v-if="['entry','demands'].includes(nav)" class="nav-submenu"><button :class="{active:nav==='entry'}" @click="openNav('entry')">新建需求</button><button :class="{active:nav==='demands'}" @click="openNav('demands')">需求台账</button></div>
   <button class="nav-primary" :class="{active:nav==='projects'}" @click="openNav('projects')"><span class="nav-icon">▱</span>项目中心</button>
+  <button class="nav-primary" :class="{active:nav==='prices'}" @click="openNav('prices')"><span class="nav-icon">▤</span>检修参考单价</button>
   <button class="nav-primary" :class="{active:['frameworks','agreements'].includes(nav)}" :aria-expanded="expandedGroup==='frameworks'" @click="toggleMenu('frameworks','frameworks')"><span class="nav-icon">♧</span>框架与协议<SidebarChevron :open="expandedGroup==='frameworks'"/></button>
   <div v-if="expandedGroup==='frameworks'" class="nav-submenu"><button :class="{active:nav==='frameworks'}" @click="openNav('frameworks')">项目框架</button><button :class="{active:nav==='agreements'}" @click="openNav('agreements')">执行协议</button></div>
   <button class="nav-primary" :class="{active:['lines','towers','spans'].includes(nav)}" :aria-expanded="expandedGroup==='masters'" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<SidebarChevron :open="expandedGroup==='masters'"/></button>
@@ -431,6 +453,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <p v-if="visibleError" role="alert" class="alert error">{{visibleError}} <button @click="error=''">×</button></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
   <template v-if="nav==='overview'"><div class="stats"><div v-for="(label,key) in {lines:'线路',physical:'实体杆塔',logical:'逻辑杆塔',pending:'待核实需求',active:'有效需求'}" :key="key" class="stat"><small>{{label}}</small><strong>{{overview[key]??0}}</strong></div></div><section class="panel"><div class="section-header"><div><h2>待核实事项</h2><p class="muted">基于当前数据库实际记录</p></div><button class="secondary" @click="openNav('demands')">进入需求中心</button></div><div v-if="!demands.filter(x=>x.status==='pending').length" class="empty">当前没有待核实需求</div><div v-else class="table-wrap"><table><thead><tr><th>需求编号</th><th>位置</th><th>操作</th><th>工作量</th><th></th></tr></thead><tbody><tr v-for="d in demands.filter(x=>x.status==='pending').slice(0,8)" :key="d.id"><td>{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><button class="link" @click="openNav('demands');showDemand(d.id)">查看</button></td></tr></tbody></table></div></section></template>
   <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands"/>
+  <ReferencePriceWorkspace v-if="nav==='prices'" :items="items" :voltage="voltage" :can-edit="roleAdmin"/>
   <template v-if="['frameworks','agreements','projects'].includes(nav)">
    <section class="panel">
     <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">管理：年度框架 → 子项目 → 检修计划 → 专业需求；资金：年度框架 → 协行协议 → 子项目 → 检修计划</p></div><button v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</button></div>
@@ -445,19 +468,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      </tbody>
     </table></div>
    </section>
-<FormModal :open="stage===nav" :title="'创建'+mediaTitle" :error="visibleError" size="normal" @close="stage='';edit=null">
-    <form v-form-validation novalidate class="form-grid" @submit.prevent="saveStructure">
-     <label><span class="field-caption">业务编码</span><input v-model.trim="form.code" required placeholder="唯一稳定业务编码"/></label>
-     <label><span class="field-caption">名称</span><input v-model.trim="form.name" required/></label>
-     <label v-if="nav==='frameworks'"><span class="field-caption">框架年度</span><input v-model.number="form.fiscal_year" type="number" min="2000" max="2100" required/></label>
-     <label v-if="nav!=='projects'"><span class="field-caption">授权额度（元）</span><input v-model.trim="form.limit_yuan" data-validate="money" required inputmode="decimal" placeholder="100000.00"/></label>
-     <label v-if="nav==='agreements'"><span class="field-caption">所属框架</span><select v-model="form.framework_id" required><option value="">请选择</option><option v-for="f in frameworks.filter(x=>x.status==='active')" :key="f.id" :value="f.id">{{f.name}}</option></select></label>
-     <label v-if="nav==='projects'"><span class="field-caption">所属年度框架</span><select v-model="form.framework_id" required @change="form.agreement_id=''"><option value="">请选择</option><option v-for="f in frameworks.filter(x=>x.status==='active')" :key="f.id" :value="f.id">{{f.fiscal_year}} · {{f.name}}</option></select></label>
-     <label v-if="nav==='projects'"><span class="field-caption">拟归属执行协议（储备阶段可不选）</span><select v-model="form.agreement_id"><option value="">待落实</option><option v-for="a in agreements.filter(x=>x.status==='active'&&x.framework_id===form.framework_id)" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
-     <label v-if="nav==='projects'"><span class="field-caption">储备类别</span><select v-model="form.category_id"><option value="">待分类</option><option v-for="c in options('project_category').filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</option></select></label>
-     <div class="wide form-actions"><button type="button" class="light" @click="stage=''">取消</button><button class="primary" :disabled="busy">保存</button></div>
-    </form>
-   </FormModal>
+ <StructureCreateModal :open="stage===nav" :type="nav" :title="mediaTitle" :error="visibleError" :busy="busy"
+  :form="form" :frameworks="frameworks" :agreements="agreements" :categories="options('project_category')"
+  @save="saveStructure" @close="stage='';edit=null"/>
   </template>
   <section v-if="projectView" class="detail-overlay" @click.self="projectView=null"><div class="detail-panel">
    <div class="section-header"><div><h2>{{projectView.code}} · {{projectView.name}}</h2><StatusTag :status="projectView.status" :version="projectView.version"/></div><button class="light" @click="projectView=null">关闭 ×</button></div>
@@ -482,6 +495,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <label class="wide"><span class="field-caption">估算依据</span>
        <textarea v-model="preliminaryBasis" required rows="3" placeholder="依据名称、定额或参考价格及测算说明"/>
       </label>
+      <div class="wide"><button type="button" class="secondary" :disabled="!projectView?.estimate?.complete" @click="fillPreliminaryFromDetails">按需求单价明细计算初步估算</button></div>
       <p class="muted wide">正式入库时保留此初步估算。单项价格可暂缺，但立项前必须逐项核定。</p>
       <div class="form-actions"><button type="button" class="light" @click="projectAction=''">取消</button><button class="primary">保存初步估算</button></div>
      </form>
@@ -510,6 +524,14 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </FormModal>
    <FormModal :open="!!scopePriceEdit" title="核定估价依据" :error="visibleError" @close="scopePriceEdit=null">
       <form v-form-validation novalidate class="form-grid scope-editor" @submit.prevent="saveScopePrice">
+    <div v-if="referencePriceOptions.length" class="wide toolbar">
+      <label><span class="field-caption">参考单价目录（储备估算）</span>
+       <select v-model="selectedReferencePrice"><option value="">选择适用参考价</option>
+        <option v-for="p in referencePriceOptions" :key="p.id" :value="p.id">{{p.title}} · {{money(p.unit_price_fen)}} 元 · v{{p.version_no}} · {{p.plan_type==='both'?'通用':p.plan_type==='outage'?'停电':'不停电'}}{{p.voltage_name?' · '+p.voltage_name:''}}</option>
+       </select>
+      </label>
+      <button type="button" class="secondary" :disabled="!selectedReferencePrice" @click="applyScopeReferencePrice">引用参考价</button>
+    </div>
     <label><span class="field-caption">核定单价（元）</span><input v-model="scopePrice.unit_price_yuan" data-validate="money" inputmode="decimal" placeholder="留空代表待估价"/></label>
     <label><span class="field-caption">价格依据</span><input v-model="scopePrice.price_source" placeholder="物资报价或有效定额编号"/></label>
     <label><span class="field-caption">依据日期</span><input type="date" v-model="scopePrice.price_date"/></label>

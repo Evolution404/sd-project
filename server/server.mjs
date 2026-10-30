@@ -13,6 +13,7 @@ import {normalizeIP,isPermittedIP,isLoopback} from './ip-access.mjs';
 import {previewWholeTowerReplacement,replaceWholeTower} from './tower-replacements.mjs';
 import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder,submitChangeOrder,rejectChangeOrder,approveChangeOrder} from './change-orders.mjs';
 import {settlementEntries,projectProgress,registerSettlement} from './finance.mjs';
+import {listReferencePrices,referencePriceVersions,createReferencePrice,reviseReferencePrice,setReferencePriceStatus,applicableReferencePrices,applyReferencePrice} from './reference-prices.mjs';
 import {listFrameworks,createFramework,listAgreements,createAgreement,listProjects,createProject,projectDetail,addScope,changeScope,bindAgreement,advanceProject,savePreliminaryEstimate} from './projects.mjs';
 
 class Problem extends Error { constructor(status,message,details){super(message);this.status=status;this.details=details;} }
@@ -516,6 +517,33 @@ async function dispatch(req,res){
   if(entity==='towers'&&id){if(method==='GET')return json(res,200,ledger.ledgerTowerDetail(id));if(method==='PATCH')return json(res,200,ledger.updateLedgerTower(id,body,user));if(method==='DELETE')return json(res,200,ledger.deleteLedgerTower(id,body,user))}
   if(entity==='spans'&&id){if(method==='PATCH')return json(res,200,ledger.updateLedgerSpan(id,body,user));if(method==='DELETE')return json(res,200,ledger.deleteLedgerSpan(id,body,user))}
   fail(404,'台账操作不存在');
+ }
+ if(pathname==='/api/reference-prices'&&method==='GET'){
+  permit(user,'view');
+  return json(res,200,listReferencePrices({
+   operation_id:searchParams.get('operation_id'),unit_id:searchParams.get('unit_id'),
+   status:searchParams.get('status')
+  }));
+ }
+ if(pathname==='/api/reference-prices'&&method==='POST'){
+  permit(user,'admin');return json(res,201,createReferencePrice(await parseJson(req),user));
+ }
+ const refHistory=pathname.match(/^\/api\/reference-prices\/([^/]+)\/versions$/);
+ if(refHistory&&method==='GET'){permit(user,'view');return json(res,200,referencePriceVersions(refHistory[1]))}
+ const refStatus=pathname.match(/^\/api\/reference-prices\/([^/]+)\/status$/);
+ if(refStatus&&method==='POST'){permit(user,'admin');return json(res,200,setReferencePriceStatus(refStatus[1],await parseJson(req),user))}
+ const refUpdate=pathname.match(/^\/api\/reference-prices\/([^/]+)$/);
+ if(refUpdate&&method==='PATCH'){permit(user,'admin');return json(res,200,reviseReferencePrice(refUpdate[1],await parseJson(req),user))}
+ const scopeReference=pathname.match(/^\/api\/projects\/([^/]+)\/scopes\/([^/]+)\/reference-price(?:-options)?$/);
+ if(scopeReference){
+  if(pathname.endsWith('/reference-price-options')&&method==='GET'){
+   permit(user,'view');return json(res,200,applicableReferencePrices(scopeReference[1],scopeReference[2]));
+  }
+  if(pathname.endsWith('/reference-price')&&method==='POST'){
+   permit(user,'write');
+   applyReferencePrice(scopeReference[1],scopeReference[2],await parseJson(req),user);
+   return json(res,200,projectDetail(scopeReference[1]));
+  }
  }
  if(pathname==='/api/frameworks'&&method==='GET'){permit(user,'view');return json(res,200,listFrameworks())}
  if(pathname==='/api/frameworks'&&method==='POST'){permit(user,'write');return json(res,201,createFramework(await parseJson(req),user))}

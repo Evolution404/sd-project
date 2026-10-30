@@ -201,6 +201,33 @@ CREATE TABLE projects (
  CHECK(status NOT IN ('approved','closed') OR agreement_id IS NOT NULL)
 );
 
+-- Reference prices are advisory estimates, never authoritative settlement tariffs.
+-- Catalog identity is stable; each quote revision is immutable evidence.
+CREATE TABLE reference_price_catalog (
+ id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE, title TEXT NOT NULL,
+ operation_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
+ unit_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
+ voltage_level_id TEXT REFERENCES voltage_levels(id) ON DELETE RESTRICT,
+ plan_type TEXT NOT NULL CHECK(plan_type IN ('outage','non_outage','both')),
+ specification TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive')),
+ version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),
+ created_by TEXT NOT NULL REFERENCES users(id), created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+
+CREATE TABLE reference_price_versions (
+ id TEXT PRIMARY KEY,
+ catalog_id TEXT NOT NULL REFERENCES reference_price_catalog(id) ON DELETE RESTRICT,
+ version_no INTEGER NOT NULL CHECK(version_no>0),
+ unit_price_fen INTEGER NOT NULL CHECK(unit_price_fen>0),
+ price_source TEXT NOT NULL, price_date TEXT NOT NULL,
+ tax_mode TEXT NOT NULL CHECK(tax_mode IN ('inclusive','exclusive','none')),
+ effective_on TEXT NOT NULL, basis TEXT NOT NULL,
+ reason TEXT NOT NULL,
+ created_by TEXT NOT NULL REFERENCES users(id),created_at TEXT NOT NULL,
+ UNIQUE(catalog_id,version_no)
+);
+
 CREATE TABLE project_demand_scopes (
  id TEXT PRIMARY KEY,
  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
@@ -212,7 +239,9 @@ CREATE TABLE project_demand_scopes (
  price_date TEXT,
  tax_mode TEXT CHECK(tax_mode IN ('inclusive','exclusive','none')),
  note TEXT NOT NULL DEFAULT '',
- created_at TEXT NOT NULL, updated_at TEXT NOT NULL, demand_snapshot_json TEXT, status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','retired')),
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, demand_snapshot_json TEXT,
+ reference_price_version_id TEXT REFERENCES reference_price_versions(id) ON DELETE RESTRICT,
+ status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','retired')),
  UNIQUE(project_id,demand_id)
 );
 
@@ -343,6 +372,9 @@ CREATE INDEX idx_projects_agreement ON projects(agreement_id,status);
 CREATE INDEX idx_projects_framework ON projects(framework_id,status);
 CREATE INDEX idx_executions_plan_type ON executions(project_id,plan_type,status);
 
+CREATE INDEX idx_reference_catalog_operation ON reference_price_catalog(operation_id,unit_id,status);
+CREATE INDEX idx_reference_scope_version ON project_demand_scopes(reference_price_version_id);
+
 CREATE INDEX idx_project_scope_demand ON project_demand_scopes(demand_id);
 
 CREATE INDEX idx_execution_project ON executions(project_id,status);
@@ -366,6 +398,11 @@ CREATE INDEX idx_demand_span ON demands(span_id);
 CREATE INDEX idx_duplicate_review_batch ON demand_duplicate_reviews(batch_id);
 
 CREATE INDEX idx_project_changes ON project_change_orders(project_id,status);
+
+CREATE TRIGGER immutable_reference_price_update BEFORE UPDATE ON reference_price_versions
+ BEGIN SELECT RAISE(ABORT,'历史参考单价版本不可修改'); END;
+CREATE TRIGGER immutable_reference_price_delete BEFORE DELETE ON reference_price_versions
+ BEGIN SELECT RAISE(ABORT,'历史参考单价版本不可删除'); END;
 
 CREATE TRIGGER frozen_scope_snapshot BEFORE UPDATE OF demand_snapshot_json ON project_demand_scopes
  WHEN (SELECT status FROM projects WHERE id=OLD.project_id)!='reserve' AND NEW.demand_snapshot_json IS NOT OLD.demand_snapshot_json
