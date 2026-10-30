@@ -1,3 +1,6 @@
+import {dictionaryWorkspace,changeDictionaryStatus,exportDictionary,dictionaryDeletionPreview,deleteDictionaryItem} from './dictionary-workspace.mjs';
+import {nextDictionaryOrder,reorderDictionary} from './dictionary-order.mjs';
+import {systemCode} from './system-code.mjs';
 import * as ledger from './ledgers.mjs';
 import {validateFieldDefinitions,validateFieldValues} from './custom-fields.mjs';
 import {protectDemandChange,frozenProjects} from './demand-snapshots.mjs';
@@ -15,6 +18,12 @@ import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder,submi
 import {settlementEntries,projectProgress,registerSettlement} from './finance.mjs';
 import {listReferencePrices,referencePriceVersions,createReferencePrice,reviseReferencePrice,setReferencePriceStatus,applicableReferencePrices,applyReferencePrice} from './reference-prices.mjs';
 import {listFrameworks,createFramework,listAgreements,createAgreement,listProjects,createProject,projectDetail,addScope,changeScope,bindAgreement,advanceProject,savePreliminaryEstimate} from './projects.mjs';
+import {seedSystemDictionaries} from './dictionary-defaults.mjs';
+
+// Add only missing factory options on startup; preserve customized, inactive and
+// renamed rows in existing databases. No schema upgrade or destructive reset.
+const dictionarySeedActor=one("SELECT id FROM users WHERE role='admin' ORDER BY created_at,id LIMIT 1");
+if(dictionarySeedActor)transaction(()=>seedSystemDictionaries(db,dictionarySeedActor.id));
 
 class Problem extends Error { constructor(status,message,details){super(message);this.status=status;this.details=details;} }
 const fail=(status,message,details)=>{throw new Problem(status,message,details)};
@@ -75,9 +84,9 @@ function csrf(req){
 }
 const listLookup=(table)=>all('SELECT * FROM '+table+' ORDER BY created_at DESC LIMIT 1000');
 function createVoltage(body,user){
- const order=Number(body.sort_order??100);
+ const order=Number(body.sort_order??nextDictionaryOrder('voltage'));
  if(!Number.isInteger(order))fail(422,'显示顺序必须为整数');
- const id=uid(),code=body.code===undefined||body.code===null||typeof body.code==='string'&&!body.code.trim()?'VL-'+id.replaceAll('-',''):required(body.code,'电压编码');
+ const id=uid(),code=systemCode(body.code,'VL');
  const item={id,code,name:required(body.name,'电压名称'),
   status:body.status||'active',version:1,sort_order:order,updated_at:now()};
  validStatus(item.status,['active','inactive']);
@@ -166,7 +175,8 @@ function updateTowerData(table,id,body,user){
 function createDictionary(body,user){
  const type=one('SELECT * FROM dictionary_types WHERE id=?',body.type_id);if(!type)fail(422,'未知字典类别');
  if(body.default_unit_id)ensureItem(body.default_unit_id,'unit');
- const item={id:uid(),type_id:type.id,code:required(body.code,'字典编码'),name:required(body.name,'字典名称'),status:body.status||'active',sort_order:Number(body.sort_order??100),version:1,work_target_type:type.id==='operation'?(body.work_target_type||'line'):null,default_unit_id:type.id==='operation'?(body.default_unit_id||null):null,default_quantity_scaled:type.id==='operation'&&body.default_quantity!=null?quantityToScaled(body.default_quantity):null,completion_standard:type.id==='operation'?(body.completion_standard||null):null,fields_json:JSON.stringify(validateFieldDefinitions(body.fields||[])),updated_at:now()};
+ const item={id:uid(),type_id:type.id,code:systemCode(body.code,'DICT'),name:required(body.name,'字典名称'),status:body.status||'active',sort_order:Number(body.sort_order??nextDictionaryOrder(type.id)),version:1,work_target_type:type.id==='operation'?(body.work_target_type||'line'):null,default_unit_id:type.id==='operation'?(body.default_unit_id||null):null,default_quantity_scaled:type.id==='operation'&&body.default_quantity!=null?quantityToScaled(body.default_quantity):null,completion_standard:type.id==='operation'?(body.completion_standard||null):null,fields_json:JSON.stringify(validateFieldDefinitions(body.fields||[])),updated_at:now()};
+ if(!Number.isSafeInteger(item.sort_order))fail(422,'显示顺序必须为整数');
  validStatus(item.status,['active','inactive']);
  if(item.work_target_type)validStatus(item.work_target_type,['line','physical','both']);
  transaction(()=>{exec('INSERT INTO dictionary_items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));exec('INSERT INTO dictionary_item_versions VALUES(?,?,?,?,?,?)',uid(),item.id,1,JSON.stringify(item),user.id,now());postAudit(user,'dictionary_items',item,'create')});return item;
@@ -178,8 +188,9 @@ function updateDictionary(id,body,user){
  for(const key of keys)if(body[key]!==undefined)next[key]=body[key];
  if(body.default_quantity!==undefined)next.default_quantity_scaled=body.default_quantity===null?null:quantityToScaled(body.default_quantity);
  if(body.fields!==undefined)next.fields_json=JSON.stringify(validateFieldDefinitions(body.fields));
- if(next.default_unit_id)ensureItem(next.default_unit_id,'unit');
+ if(next.default_unit_id&&next.default_unit_id!==old.default_unit_id)ensureItem(next.default_unit_id,'unit');
  if(next.work_target_type)validStatus(next.work_target_type,['line','physical','both']);
+ if(!Number.isSafeInteger(next.sort_order))fail(422,'显示顺序必须为整数');
  next.name=required(next.name,'选项名称');next.code=required(next.code,'选项编码');validStatus(next.status,['active','inactive']);next.version++;next.updated_at=now();
  transaction(()=>{
   exec('UPDATE dictionary_items SET code=?,name=?,status=?,sort_order=?,version=?,work_target_type=?,default_unit_id=?,default_quantity_scaled=?,completion_standard=?,fields_json=?,updated_at=? WHERE id=?',next.code,next.name,next.status,next.sort_order,next.version,next.work_target_type,next.default_unit_id,next.default_quantity_scaled,next.completion_standard,next.fields_json,next.updated_at,id);
@@ -599,10 +610,25 @@ async function dispatch(req,res){
   if(method==='POST'&&action==='items'&&itemId&&subAction==='complete')return json(res,201,confirmCompletion(id,itemId,await parseJson(req),user));
  }
  if(pathname==='/api/overview'&&method==='GET'){permit(user,'view');return json(res,200,{lines:one('SELECT COUNT(*) n FROM transmission_lines').n,physical:one('SELECT COUNT(*) n FROM physical_towers').n,logical:one('SELECT COUNT(*) n FROM logical_towers').n,pending:one("SELECT COUNT(*) n FROM demands WHERE status='pending'").n,active:one("SELECT COUNT(*) n FROM demands WHERE status='active'").n})}
+ const dictionaryDeleteMatch=pathname.match(/^\/api\/dictionary-deletion\/([^/]+)\/([^/]+)$/);
+ if(dictionaryDeleteMatch){
+  permit(user,'admin');const [,type,id]=dictionaryDeleteMatch;
+  if(method==='GET')return json(res,200,dictionaryDeletionPreview(type,id));
+  if(method==='DELETE')return json(res,200,deleteDictionaryItem(type,id,await parseJson(req),user));
+ }
+ if(pathname==='/api/dictionary-workspace'&&method==='GET'){permit(user,'admin');return json(res,200,dictionaryWorkspace())}
+ if(pathname==='/api/dictionary-workspace/export.xlsx'&&method==='GET'){
+  permit(user,'admin');const buffer=await exportDictionary(searchParams);
+  res.writeHead(200,{'Content-Type':'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','Content-Disposition':'attachment; filename="dictionary.xlsx"','Content-Length':buffer.length,'Cache-Control':'no-store'});return res.end(buffer);
+ }
+ const dictionaryStatusMatch=pathname.match(/^\/api\/dictionary-status\/([^/]+)$/);
+ if(dictionaryStatusMatch&&method==='POST'){permit(user,'admin');return json(res,200,changeDictionaryStatus(dictionaryStatusMatch[1],await parseJson(req),user))}
  if(pathname==='/api/dictionary-types'&&method==='GET')return json(res,200,all('SELECT * FROM dictionary_types WHERE id NOT IN (?,?) ORDER BY rowid','team','erection'));
  if(pathname==='/api/dictionary-items'&&method==='GET'){
   const type=searchParams.get('type');return json(res,200,type?all('SELECT * FROM dictionary_items WHERE type_id=? ORDER BY sort_order,name',type):all('SELECT * FROM dictionary_items ORDER BY type_id,sort_order,name'));
  }
+ const dictionaryOrderMatch=pathname.match(/^\/api\/dictionary-order\/([^/]+)$/);
+ if(dictionaryOrderMatch&&method==='POST'){permit(user,'admin');return json(res,200,reorderDictionary(dictionaryOrderMatch[1],await parseJson(req),user))}
  if(pathname==='/api/dictionary-items'&&method==='POST'){permit(user,'admin');return json(res,201,createDictionary(await parseJson(req),user))}
  const dictMatch=pathname.match(/^\/api\/dictionary-items\/([^/]+)$/);
  if(dictMatch&&method==='PATCH'){permit(user,'admin');return json(res,200,updateDictionary(dictMatch[1],await parseJson(req),user))}

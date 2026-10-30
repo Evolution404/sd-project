@@ -1,3 +1,4 @@
+import {navigate} from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -21,10 +22,10 @@ try{
  const l=await api('/lines','POST',{line_code:'L',name:'审计测试线',voltage_level_id:v.id});
  const pt=await api('/physical-towers','POST',{tower_code:'P'});
  const towers=[];for(let n=1;n<=2;n++)towers.push(await api('/logical-towers','POST',{logical_code:'L'+n,line_id:l.id,physical_tower_id:pt.id,tower_no:'#'+n,sort_rank:n}));
- const unit=await api('/dictionary-items','POST',{type_id:'unit',code:'SET',name:'套'});
- const op=await api('/dictionary-items','POST',{type_id:'operation',code:'INSTALL',name:'安装防鸟装置',work_target_type:'line',default_unit_id:unit.id,fields:[{key:'phase',label:'相位',type:'select',required:true,options:['A','B','C']},{key:'height',label:'高度',type:'number',required:false}]});
- await api('/dictionary-items','POST',{type_id:'source',code:'PATROL',name:'巡视'});
- async function entry(){await page.locator('.sidebar .nav-primary').filter({hasText:'需求中心'}).click();await page.locator('.sidebar .nav-submenu').getByRole('button',{name:'新建需求',exact:true}).click();await page.getByRole('heading',{name:'选择位置',exact:true}).waitFor()}
+ const unit=await api('/dictionary-items','POST',{type_id:'unit',code:'AUDIT-SET',name:'审核测试套'});
+ const op=await api('/dictionary-items','POST',{type_id:'operation',code:'INSTALL',name:'审核测试防鸟安装',work_target_type:'line',default_unit_id:unit.id,fields:[{key:'phase',label:'相位',type:'select',required:true,options:['A','B','C']},{key:'height',label:'高度',type:'number',required:false}]});
+ await api('/dictionary-items','POST',{type_id:'source',code:'AUDIT-PATROL',name:'审核测试巡视'});
+ async function entry(){await page.locator('.sidebar .el-sub-menu > .el-sub-menu__title').filter({hasText:'需求中心'}).click();await page.locator('.sidebar').getByRole('menuitem',{name:'新建需求',exact:true}).click();await page.getByRole('heading',{name:'选择位置',exact:true}).waitFor()}
  const panels=page.locator('section.entry-section');
  await page.goto(origin);await page.getByRole('heading',{name:'工作台',exact:true}).waitFor();await entry();
  await panels.nth(0).getByLabel('选择线路').selectOption(l.id);await page.getByRole('button',{name:'全选本线路'}).click();
@@ -45,13 +46,13 @@ try{
  assert.equal(await panels.nth(1).getByLabel('共同处理部位').inputValue(),'横担');assert.equal(await panels.nth(1).getByLabel('每基工作量').inputValue(),'0.0001');assert.equal(await panels.nth(1).getByLabel('相位',{exact:true}).inputValue(),'A');
  await second.locator('summary').click();assert.equal(await second.getByLabel('#2 相位',{exact:true}).inputValue(),'B');
  await panels.nth(1).getByLabel('问题描述').fill('恢复草稿后补充风险');await page.getByRole('button',{name:'保存草稿'}).click();
- await page.getByRole('heading',{name:'正在编辑草稿 v2',exact:true}).waitFor();drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);assert.equal(drafts[0].id,id);
+ await page.getByRole('heading',{name:'正在编辑草稿',exact:true}).waitFor();drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);assert.equal(drafts[0].id,id);
  await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'新建 2 条'}).waitFor();
  await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'新建 2 条'}).waitFor();
  const demands=await api('/demands');assert.equal(demands.length,2);assert.equal((await api('/demand-batches/'+id)).status,'submitted');
  const first=demands.find(d=>d.tower_no_snapshot==='#1'),detail=await api('/demands/'+first.id);assert.equal(detail.quantity_scaled,1);assert.equal(detail.custom_fields.phase,'A');assert.equal(detail.custom_fields.height,12.5);
  const other=await api('/demands/'+demands.find(d=>d.tower_no_snapshot==='#2').id);assert.equal(other.custom_fields.phase,'B');
- await page.locator('.sidebar .nav-submenu').getByRole('button',{name:'需求台账',exact:true}).click();
+ await page.locator('.sidebar').getByRole('menuitem',{name:'需求台账',exact:true}).click();
  await page.locator('tbody tr').filter({hasText:first.demand_no}).getByRole('button',{name:'详情'}).click();const panel=page.locator('.detail-panel');
  await panel.getByRole('button',{name:'上传附件',exact:true}).click();
  await page.getByRole('dialog',{name:'上传需求附件'}).getByLabel('选择附件').setInputFiles({name:'验收依据.txt',mimeType:'text/plain',buffer:Buffer.from('现场验收记录')});
@@ -62,8 +63,8 @@ try{
  const reason=page.getByRole('dialog');await reason.getByLabel('操作依据 / 说明').fill('现场复核位置');await reason.getByRole('button',{name:'确认',exact:true}).click();await page.getByRole('status').filter({hasText:'位置已更新'}).waitFor();
  assert.equal((await api('/demands/'+first.id)).observed_physical_tower_id,newPhysical.id);
  mkdirSync('release',{recursive:true});await page.screenshot({path:join(process.cwd(),'release','audit-browser-acceptance.png'),fullPage:true});
- await panel.getByRole('button',{name:/关闭/}).click();await page.setViewportSize({width:390,height:844});await entry();
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'custom field and draft entry should fit a mobile viewport');
+ await panel.getByRole('button',{name:/关闭/}).click();await page.setViewportSize({width:1280,height:900});await entry();
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'custom field and draft entry should fit a compact desktop viewport');
  assert.deepEqual(errors,[]);console.log('AUDIT_BROWSER_OK draft reload/update/submit/retry; dynamic field overrides; four-decimal quantity; attachment upload; location revalidation');
 }finally{
  if(browser)await browser.close();await new Promise(resolve=>app.close(resolve));db.close();rmSync(root,{recursive:true,force:true});

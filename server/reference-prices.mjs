@@ -1,3 +1,4 @@
+import {systemCode} from './system-code.mjs';
 import {uid,now,one,all,exec,transaction,audit} from './db.mjs';
 import {yuanToFen} from './money.mjs';
 
@@ -58,7 +59,7 @@ export function createReferencePrice(body,user){
  if(voltageId&&!one("SELECT id FROM voltage_levels WHERE id=? AND status='active'",voltageId))error(422,'所选电压等级不存在或已停用');
  const plan_type=enumValue(body.plan_type,['both','outage','non_outage'],'检修方式');
  const price=quote(body);
- const t=now(),item={id:uid(),code:required(body.code,'参考价编码'),
+ const t=now(),item={id:uid(),code:systemCode(body.code,'RP'),
   title:required(body.title,'参考价名称'),operation_id:operation.id,unit_id:unit.id,
   voltage_level_id:voltageId,plan_type,specification:String(body.specification||'').trim(),
   status:'active',version:1,created_by:user.id,created_at:t,updated_at:t};
@@ -126,7 +127,7 @@ export function applyReferencePrice(projectId,scopeId,body,user){
    error(422,'参考价的检修操作或计量单位与专业需求不匹配');
   if(price.voltage_level_id&&price.voltage_level_id!==demand.voltage_level_id)
    error(422,'参考价的适用电压等级与专业需求不匹配');
-  const t=now(),source='参考单价 '+price.code+' v'+price.version_no+' · '+price.price_source;
+  const t=now(),source='参考单价 '+price.title+' v'+price.version_no+' · '+price.price_source;
   exec(`UPDATE project_demand_scopes SET unit_price_fen=?,price_source=?,price_date=?,
     tax_mode=?,reference_price_version_id=?,updated_at=? WHERE id=?`,
    price.unit_price_fen,source,price.price_date,price.tax_mode,price.reference_price_version_id,t,scopeId);

@@ -33,10 +33,14 @@ export function createExecution(projectId,body,user){
  if(!approval)reject(409,'项目缺少有效的批准版本，不得创建执行批次');
  const planType=required(body.plan_type,'检修计划类型');
  if(!['outage','non_outage'].includes(planType))reject(422,'检修计划类型必须为停电或不停电');
- const item={id:uid(),project_id:projectId,number:required(body.number,'检修计划编号'),description:body.description||'',plan_type:planType,
+ const item={id:uid(),project_id:projectId,number:body.number==null||typeof body.number==='string'&&!body.number.trim()?null:required(body.number,'检修计划编号'),description:body.description||'',plan_type:planType,
  status:'planned',version:1,planned_on:body.planned_on||null,started_at:null,finished_at:null,close_reason:null,
  created_by:user.id,created_at:now(),updated_at:now(),approval_version_id:approval.id};
  return transaction(()=>{
+  if(!item.number){
+   let sequence=one('SELECT COUNT(*) n FROM executions WHERE project_id=?',projectId).n+1;
+   do{item.number='第'+sequence+++'次检修'}while(one('SELECT 1 FROM executions WHERE project_id=? AND number=?',projectId,item.number));
+  }
   exec('INSERT INTO executions('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
   auditEvent(user,'executions',item.id,'create',null,item);return executionDetail(item.id);
  });

@@ -1,3 +1,4 @@
+import {navigate} from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -24,8 +25,8 @@ try{
  assert.equal(features.secure,false);assert.equal(features.randomUUID,'undefined');
  await page.getByLabel('用户名').fill('lan-test');await page.getByLabel('密码').fill('test');await page.getByRole('button',{name:'登录系统'}).click();
  await page.getByRole('heading',{name:'工作台'}).waitFor();
- await page.locator('.sidebar .nav-primary').filter({hasText:'需求中心'}).click();
- await page.locator('.sidebar .nav-submenu').getByRole('button',{name:'新建需求',exact:true}).click();
+ await page.locator('.sidebar .el-sub-menu > .el-sub-menu__title').filter({hasText:'需求中心'}).click();
+ await page.locator('.sidebar').getByRole('menuitem',{name:'新建需求',exact:true}).click();
  await page.getByRole('button',{name:'清空重填'}).click();
  await page.getByRole('button',{name:'保存草稿'}).click();
  await page.getByRole('status').filter({hasText:'草稿已保存'}).waitFor();

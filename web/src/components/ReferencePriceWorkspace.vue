@@ -24,7 +24,7 @@ async function api(path:string,method='GET',body?:Row){
 async function refresh(){loading.value=true;error.value='';try{rows.value=await api('/reference-prices')}catch(e){error.value=(e as Error).message}finally{loading.value=false}}
 function defaults(){
  Object.keys(form).forEach(k=>delete form[k]);
- Object.assign(form,{code:'',title:'',operation_id:'',unit_id:'',voltage_level_id:'',plan_type:'both',
+ Object.assign(form,{title:'',operation_id:'',unit_id:'',voltage_level_id:'',plan_type:'both',
   specification:'',unit_price_yuan:'',price_source:'',price_date:date(),tax_mode:'inclusive',
   effective_on:date(),basis:'',reason:''});
 }
@@ -61,16 +61,16 @@ onMounted(refresh);
   </div>
   <div class="toolbar">
    <label><span class="field-caption">状态</span><select v-model="activeFilter"><option value="active">启用</option><option value="">全部</option><option value="inactive">停用</option></select></label>
-   <label><span class="field-caption">关键词</span><input v-model.trim="query" placeholder="编号、作业、名称或规格"/></label>
+   <label><span class="field-caption">关键词</span><input v-model.trim="query" placeholder="作业、名称或规格"/></label>
    <button class="secondary" @click="refresh">刷新</button>
   </div>
   <p v-if="error&&!dialog" role="alert" class="alert error">{{error}}</p>
   <p v-if="loading" class="muted">正在读取参考价目录</p>
   <div class="table-wrap"><table>
-   <thead><tr><th>编码 / 名称</th><th>检修操作</th><th>适用范围</th><th>参考单价</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
+   <thead><tr><th>名称</th><th>检修操作</th><th>适用范围</th><th>参考单价</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
    <tbody>
     <tr v-for="p in filtered" :key="p.id">
-     <td><strong>{{p.code}}</strong><div class="muted">{{p.title}}</div></td>
+     <td><strong>{{p.title}}</strong></td>
      <td>{{p.operation_name}}</td>
      <td>{{planName(p.plan_type)}} · {{p.voltage_name||'不限电压'}}<div v-if="p.specification" class="muted">{{p.specification}}</div></td>
      <td>{{money(p.unit_price_fen)}} 元 / {{p.unit_name}}<div class="muted">{{p.price_source}}</div></td>
@@ -88,7 +88,6 @@ onMounted(refresh);
  <FormModal :open="dialog==='new'||dialog==='revise'" :title="dialog==='new'?'新增检修参考价':'修订参考单价'" :error="error" size="wide" @close="dialog=''">
   <form v-form-validation novalidate class="form-grid" @submit.prevent="save">
    <template v-if="dialog==='new'">
-    <label><span class="field-caption">价格编码</span><input v-model.trim="form.code" required/></label>
     <label><span class="field-caption">价格项目名称</span><input v-model.trim="form.title" required/></label>
     <label><span class="field-caption">检修操作</span><select v-model="form.operation_id" required><option value="">请选择</option><option v-for="x in operations" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
     <label><span class="field-caption">计价单位</span><select v-model="form.unit_id" required><option value="">请选择</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
@@ -108,12 +107,12 @@ onMounted(refresh);
  </FormModal>
  <FormModal :open="dialog==='status'" :title="edit?.status==='active'?'停用参考价':'启用参考价'" :error="error" @close="dialog=''">
   <form v-form-validation novalidate class="form-grid" @submit.prevent="save">
-   <p class="wide">项目 {{edit?.code}} · {{edit?.title}}</p>
+   <p class="wide">项目 {{edit?.title}}</p>
    <label class="wide"><span class="field-caption">状态变更依据</span><textarea v-model.trim="form.reason" required/></label>
    <div class="wide form-actions"><button type="button" class="light" @click="dialog=''">取消</button><button class="primary">确认</button></div>
   </form>
  </FormModal>
- <FormModal :open="dialog==='versions'" :title="'价格历史：'+(edit?.code||'')" size="wide" @close="dialog=''">
+ <FormModal :open="dialog==='versions'" :title="'价格历史：'+(edit?.title||'')" size="wide" @close="dialog=''">
   <div v-for="v in versions" :key="v.id" class="scope-item">
    <strong>v{{v.version_no}} · {{money(v.unit_price_fen)}} 元 / {{edit?.unit_name}}</strong>
    <p class="muted">来源：{{v.price_source}} · 日期 {{v.price_date}} · {{v.tax_mode==='inclusive'?'含税':v.tax_mode==='exclusive'?'不含税':'不适用'}}</p>

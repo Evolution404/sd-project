@@ -81,10 +81,10 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   assert.equal((await request('/logical-towers')).filter(x=>x.physical_tower_id===physical.id).length,2,'cross-voltage sharing one physical');
   await request('/logical-towers','POST',{logical_code:'BAD',line_id:line1.id,tower_no:'#3',sort_rank:102},422);
   await request('/logical-towers','POST',{logical_code:'DUP',line_id:line1.id,physical_tower_id:physical.id,tower_no:'#99',sort_rank:100},409);
-  const unit=await request('/dictionary-items','POST',{type_id:'unit',code:'SET',name:'套',sort_order:1},201);
+  const unit=await request('/dictionary-items','POST',{type_id:'unit',code:'TEST-SET',name:'套',sort_order:1},201);
   const op=await request('/dictionary-items','POST',{type_id:'operation',code:'INSTALL',name:'安装防鸟装置',work_target_type:'line',default_unit_id:unit.id,default_quantity:'2',completion_standard:'验收合格'},201);
-  const src=await request('/dictionary-items','POST',{type_id:'source',code:'PATROL',name:'巡视发现'},201);
-  const projectCategory=await request('/dictionary-items','POST',{type_id:'project_category',code:'REPAIR',name:'修理项目'},201);
+  const src=await request('/dictionary-items','POST',{type_id:'source',code:'TEST-PATROL',name:'巡视发现'},201);
+  const projectCategory=await request('/dictionary-items','POST',{type_id:'project_category',code:'TEST-REPAIR',name:'修理项目'},201);
   assert.equal(op.default_quantity_scaled,20000);
   const payload={idempotency_key:'batch-001',work_target_type:'line',operation_id:op.id,unit_id:unit.id,target_object:'防鸟装置',quantity:'2',completion_standard:'验收合格',problem_description:'合成巡视测试',source:{type_id:src.id,proposed_by:'测试班组',discovered_on:'2026-10-29',description:'一次巡视'},rows:[{logical_tower_id:lt1.id,quantity:'2'},{logical_tower_id:lt2.id,target_object:'横担部位',quantity:'3'},{logical_tower_id:lt3.id,quantity:'2'}]};
   const result=await request('/demand-batches/submit','POST',payload,201);
@@ -98,15 +98,17 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   const d=await request('/demands/'+result.ids[0]);
   assert.equal(d.status,'pending');assert.equal(d.physical_code_snapshot,'PH-001');
   await request('/demands/'+d.id+'/verify','POST',{status:'active',version:d.version,reason:'现场核实完成'});
-  const fw=await request('/frameworks','POST',{code:'FW-TEST',name:'试验资金框架',limit_yuan:'100000.00'},201);
-  const ag=await request('/agreements','POST',{code:'AG-TEST',name:'测试执行协议',framework_id:fw.id,limit_yuan:'30000'},201);
+  const fw=await request('/frameworks','POST',{name:'试验资金框架',limit_yuan:'100000.00'},201);
+  const ag=await request('/agreements','POST',{name:'测试执行协议',framework_id:fw.id,limit_yuan:'30000'},201);
+  assert.match(fw.code,/^FW-[0-9a-f]{32}$/);assert.match(ag.code,/^AG-[0-9a-f]{32}$/);
   const otherFw=await request('/frameworks','POST',{code:'FW-OTHER',name:'另一年度框架',fiscal_year:2027,limit_yuan:'10000'},201);
   const otherAg=await request('/agreements','POST',{code:'AG-OTHER',name:'其他框架协议',framework_id:otherFw.id,limit_yuan:'5000'},201);
   await request('/projects','POST',{code:'P-MISSING-FRAMEWORK',name:'不可无框架的储备'},422);
   await request('/projects','POST',{code:'P-WRONG-FRAMEWORK',name:'跨框架错误',framework_id:fw.id,agreement_id:otherAg.id},422);
   await request('/agreements','POST',{code:'AG-TOO-LARGE',name:'超额协议',framework_id:fw.id,limit_yuan:'80000'},422);
-  const project=await request('/projects','POST',{code:'P-TEST',name:'防鸟装置施工项目',framework_id:fw.id},201);
+  const project=await request('/projects','POST',{name:'防鸟装置施工项目',framework_id:fw.id},201);
   assert.equal(project.agreement_id,null,'reserve may have unbound agreement');
+  assert.match(project.code,/^PJ-[0-9a-f]{32}$/);
   let detail=await request('/projects/'+project.id);
   detail=await request('/projects/'+project.id+'/scopes','POST',{version:detail.version,demand_id:d.id,quantity:'1'},201);
   assert.equal(detail.estimate.missing_price_count,1);
@@ -138,11 +140,11 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   assert.equal(approvalVersions[0].approved_budget_fen,15025);
   assert.equal(JSON.parse(approvalVersions[0].snapshot_json).framework_id,fw.id,'approved version freezes direct management framework');
   const change=await request('/projects/'+project.id+'/change-orders','POST',{
-   code:'CHG-001',base_approval_version_id:approvalVersions[0].id,
+   base_approval_version_id:approvalVersions[0].id,
    reason:'现场发现新增工作内容，提出范围调整但尚未审批',
    changes:[{action:'adjust',scope_id:detail.scopes[0].id,quantity:'0.8',unit_price_yuan:'200',evidence:'现场复核资料'}]
   },201);
-  assert.equal(change.status,'draft');
+  assert.equal(change.status,'draft');assert.match(change.code,/^CH-[0-9a-f]{32}$/);
   assert.equal((await request('/projects/'+project.id+'/change-orders')).length,1);
   assert.equal((await request('/change-orders/'+change.id)).id,change.id);
   await request('/projects/'+project.id+'/change-orders','POST',{
@@ -167,7 +169,8 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   const secondItem=null;
 
   await request('/projects/'+project.id+'/executions','POST',{number:'EX2',plan_type:'non_outage'},409);
-  const third=await request('/projects/'+project.id+'/executions','POST',{number:'EX3',plan_type:'outage'},201);
+  const third=await request('/projects/'+project.id+'/executions','POST',{plan_type:'outage'},201);
+  assert.equal(third.number,'第3次检修');
   await request('/executions/'+third.id+'/items','POST',{version:third.version,scope_id:detail.scopes[0].id,quantity:'0.1'},409);
   let running=await request('/executions/'+ex1.id+'/start','POST',{version:firstItem.version,reason:'实际开工'},200);
   await request('/executions/'+ex1.id+'/items/'+running.items[0].id+'/complete','POST',{quantity:'1.1',occurred_on:'2026-10-29',evidence:'验收记录A',idempotency_key:'completion-too-large'},409);

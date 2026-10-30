@@ -1,3 +1,4 @@
+import {systemCode} from './system-code.mjs';
 import {all,one,exec,transaction,audit,uid,now} from './db.mjs';
 import {quantityToScaled} from './quantity.mjs';
 import {yuanToFen,amountFen,sumFen} from './money.mjs';
@@ -46,7 +47,7 @@ export function createChangeDraft(projectId,body,user){
  if(p.status!=='approved')err(409,'项目须完成立项才能登记变更');
  const latest=latestApproval(projectId);
  if(body.base_approval_version_id&&body.base_approval_version_id!==latest.id)err(409,'批准版本已变化');
- const item={id:uid(),project_id:projectId,code:required(body.code,'变更单编号'),
+ const item={id:uid(),project_id:projectId,code:systemCode(body.code,'CH'),
   base_approval_version_id:latest.id,proposal_json:JSON.stringify({changes:changesFrom(body,latest),base_version_no:latest.version_no}),
   reason:required(body.reason,'变更原因'),status:'draft',created_by:user.id,created_at:now(),
   decided_by:null,decided_at:null,decision_reason:null};

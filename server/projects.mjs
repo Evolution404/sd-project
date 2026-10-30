@@ -1,3 +1,4 @@
+import {systemCode} from './system-code.mjs';
 import {spanDemandLocation} from './ledgers.mjs';
 import {captureDemand,readDemandSnapshot} from './demand-snapshots.mjs';
 import {quantityToScaled} from './quantity.mjs';
@@ -38,7 +39,7 @@ export function listFrameworks(){
 export function createFramework(body,user){
  const fiscalYear=body.fiscal_year===undefined?new Date().getFullYear():Number(body.fiscal_year);
  if(!Number.isInteger(fiscalYear)||fiscalYear<2000||fiscalYear>2100)fault(422,'框架年度必须是2000至2100之间的整数');
- const t=now(),item={id:uid(),code:required(body.code,'框架编码'),name:required(body.name,'框架名称'),fiscal_year:fiscalYear,
+ const t=now(),item={id:uid(),code:systemCode(body.code,'FW'),name:required(body.name,'框架名称'),fiscal_year:fiscalYear,
  limit_fen:yuanToFen(body.limit_yuan,'框架额度'),status:'active',version:1,created_at:t,updated_at:t};
  if(item.limit_fen<=0)fault(422,'框架额度必须大于零');
  return transaction(()=>{exec('INSERT INTO frameworks('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));event(user,'frameworks',item.id,'create',null,item);return item});
@@ -53,7 +54,7 @@ export function createAgreement(body,user){
  if(f.status!=='active')fault(422,'框架已停用，不能新增协议');
  const fen=yuanToFen(body.limit_yuan,'协议额度');
  if(fen<=0)fault(422,'协议额度必须大于零');
- const t=now(),item={id:uid(),code:required(body.code,'协议编号'),framework_id:f.id,
+ const t=now(),item={id:uid(),code:systemCode(body.code,'AG'),framework_id:f.id,
  name:required(body.name,'协议名称'),limit_fen:fen,status:'active',version:1,created_at:t,updated_at:t};
  return transaction(()=>{
   const used=one('SELECT COALESCE(SUM(limit_fen),0) n FROM agreements WHERE framework_id=?',f.id).n;
@@ -73,7 +74,7 @@ export function createProject(body,user){
   const item=one("SELECT * FROM dictionary_items WHERE id=? AND type_id='project_category' AND status='active'",body.category_id);
   if(!item)fault(422,'无效的项目类别');
  }
- const t=now(),item={id:uid(),code:required(body.code,'项目编号'),name:required(body.name,'项目名称'),framework_id:fw.id,
+ const t=now(),item={id:uid(),code:systemCode(body.code,'PJ'),name:required(body.name,'项目名称'),framework_id:fw.id,
  agreement_id:ag?.id||null,category_id:body.category_id||null,status:'reserve',version:1,estimate_fen:null,approved_budget_fen:null,created_by:user.id,created_at:t,updated_at:t};
  return transaction(()=>{
   exec('INSERT INTO projects('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));

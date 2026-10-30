@@ -1,19 +1,19 @@
 <script setup lang="ts">
-import {computed,onMounted,reactive,ref,watch} from 'vue';
+import {computed,defineAsyncComponent,onMounted,reactive,ref,watch} from 'vue';
 import {newClientId} from './utils/client-id';
 import FormModal from './components/FormModal.vue';
 import CustomFields from './components/CustomFields.vue';
 import LedgerWorkspace from './components/LedgerWorkspace.vue';
-import SidebarChevron from './components/SidebarChevron.vue';
+import ApplicationShell from './components/ApplicationShell.vue';
 import StatusTag from './components/StatusTag.vue';
 import ReferencePriceWorkspace from './components/ReferencePriceWorkspace.vue';
 import StructureCreateModal from './components/StructureCreateModal.vue';
+const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
 const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref(rememberedView('ledger-tab','towers')),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
 const nav=ref('overview'),page=ref('overview'),user=ref<Rec|null>(null);
-const expandedGroup=ref('');const sidebarMobile=ref(false);
 const username=ref(''),password=ref('');
 const busy=ref(false),error=ref(''),success=ref('');
 const voltage=ref<Rec[]>([]),lines=ref<Rec[]>([]),physical=ref<Rec[]>([]),logical=ref<Rec[]>([]),items=ref<Rec[]>([]),types=ref<Rec[]>([]),demands=ref<Rec[]>([]);
@@ -29,10 +29,10 @@ const projectApprovalVersions=ref<Rec[]>([]),projectChangeOrders=ref<Rec[]>([]);
 const projectProgress=ref<Rec|null>(null),settlementRecords=ref<Rec[]>([]);
 const settlementDialog=ref(false),settlementForm=reactive<Rec>({});
 const changeDecision=ref<Rec|null>(null),changeDecisionReason=ref('');
-const changeDraft=reactive<Rec>({code:'',reason:'',action:'adjust',scope_id:'',demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
+const changeDraft=reactive<Rec>({reason:'',action:'adjust',scope_id:'',demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
 const approvedDemandOptions=ref<Rec[]>([]);
 const executionRows=ref<Rec[]>([]),executionView=ref<Rec|null>(null);
-const executionNumber=ref(''),executionDescription=ref(''),executionPlanType=ref('outage'),execScopeId=ref(''),execQuantity=ref('1');
+const executionDescription=ref(''),executionPlanType=ref('outage'),execScopeId=ref(''),execQuantity=ref('1');
 const completeQuantity=ref(''),completeEvidence=ref(''),completeDate=ref(new Date().toLocaleDateString('en-CA'));
 const eligibleExecutionScopes=computed<Rec[]>(()=> (projectView.value?.scopes||[]).filter((x:Rec)=>!(executionView.value?.items||[]).some((i:Rec)=>i.project_scope_id===x.id)));
 const eligibleDemands=computed(()=>approvedDemandOptions.value.filter(x=>!(projectView.value?.scopes||[]).some((s:Rec)=>s.demand_id===x.id)));
@@ -43,7 +43,7 @@ const batchSources=ref<Rec[]>([{type_id:'',discovered_on:new Date().toLocaleDate
 const selected=reactive<Record<string,boolean>>({});
 const overrides=reactive<Record<string,{target_object?:string,quantity?:string,custom_fields?:Rec}>>({});
 const excluded=reactive<Record<string,boolean>>({});
-const stage=ref(''),dictionaryType=ref('voltage');
+const stage=ref('');
 const ipDialog=ref(false),projectAction=ref(''),executionAction=ref('');
 const completionItem=ref<Rec|null>(null);
 const demandEdit=ref<Rec|null>(null),pendingRemoveIP=ref<Rec|null>(null),attachmentDialog=ref(false);
@@ -78,7 +78,6 @@ const money=(value:any)=>value===null||value===undefined?'待核定':(Number(val
 const roleAdmin=computed(()=>user.value?.role==='admin');
 const mediaTitle=computed(()=>labels[nav.value]||'');
 const options=(type:string)=>items.value.filter(x=>x.type_id===type).sort((a,b)=>a.sort_order-b.sort_order);
-const dictionaryRows=computed(()=>dictionaryType.value==='voltage'?voltage.value:options(dictionaryType.value));
 const selectedOp=computed(()=>items.value.find(x=>x.id===common.operation_id));
 const fieldDefinitions=computed<Rec[]>(()=>{try{const fields=JSON.parse(selectedOp.value?.fields_json||'[]');return Array.isArray(fields)?fields:[]}catch{return []}});
 watch(()=>common.operation_id,()=>{common.custom_fields=Object.fromEntries(fieldDefinitions.value.filter(f=>f.default!==undefined).map(f=>[f.key,f.default]));for(const row of Object.values(overrides))delete row.custom_fields},{flush:'sync'});
@@ -107,12 +106,12 @@ async function loadStructure(){
  const [f,a,p,d]=await Promise.all([api('/frameworks'),api('/agreements'),api('/projects'),api('/demands?status=active')]);
  frameworks.value=f;agreements.value=a;projects.value=p;approvedDemandOptions.value=d;
 }
-function openStructureCreate(type:string){stage.value=type;edit.value=null;Object.keys(form).forEach(k=>delete form[k]);form.code='';form.name='';form.limit_yuan='';form.fiscal_year=new Date().getFullYear();form.framework_id='';form.agreement_id='';form.category_id='';}
+function openStructureCreate(type:string){stage.value=type;edit.value=null;Object.keys(form).forEach(k=>delete form[k]);form.name='';form.limit_yuan='';form.fiscal_year=new Date().getFullYear();form.framework_id='';form.agreement_id='';form.category_id='';}
 async function saveStructure(){
  error.value='';busy.value=true;
  try{
   const result=await api('/'+stage.value,'POST',{...form});
-  stage.value='';await loadStructure();notify('业务台账已保存：'+result.code);
+  stage.value='';await loadStructure();notify('业务台账已保存：'+result.name);
  }catch(e){error.value=errorMessage(e)}finally{busy.value=false}
 }
 async function openProject(item:Rec){projectAction.value='';scopePriceEdit.value=null;
@@ -159,7 +158,7 @@ async function createChangeDraft(){
  const latest=projectApprovalVersions.value[0];
  if(!latest)throw Error('缺少批准版本');
  await api('/projects/'+projectView.value.id+'/change-orders','POST',{
-  code:changeDraft.code,reason:changeDraft.reason,base_approval_version_id:latest.id,
+  reason:changeDraft.reason,base_approval_version_id:latest.id,
   changes:[{action:changeDraft.action,scope_id:changeDraft.action==='add'?undefined:changeDraft.scope_id,
     demand_id:changeDraft.action==='add'?changeDraft.demand_id:undefined,
     quantity:changeDraft.action==='remove'?undefined:changeDraft.quantity,
@@ -187,15 +186,15 @@ async function saveChangeDecision(){
  }catch(e){error.value=errorMessage(e)}
 }
 function openChangeDraft(){
- Object.assign(changeDraft,{code:'',reason:'',action:'adjust',scope_id:projectView.value?.scopes?.[0]?.id||'',
+ Object.assign(changeDraft,{reason:'',action:'adjust',scope_id:projectView.value?.scopes?.[0]?.id||'',
  demand_id:'',quantity:'',unit_price_yuan:'',price_source:'',price_date:new Date().toLocaleDateString('en-CA'),tax_mode:'inclusive',evidence:''});
  projectAction.value='change-order';error.value='';
 }
 async function loadExecutions(projectId:string){executionRows.value=await api('/projects/'+projectId+'/executions')}
 async function createProjectExecution(){if(!projectView.value)return;error.value='';
  try{
- const r=await api('/projects/'+projectView.value.id+'/executions','POST',{number:executionNumber.value,description:executionDescription.value,plan_type:executionPlanType.value});
- executionNumber.value='';executionDescription.value='';executionPlanType.value='outage';await loadExecutions(projectView.value.id);
+ const r=await api('/projects/'+projectView.value.id+'/executions','POST',{description:executionDescription.value,plan_type:executionPlanType.value});
+ executionDescription.value='';executionPlanType.value='outage';await loadExecutions(projectView.value.id);
  executionView.value=r;projectAction.value='';notify('检修计划已建立');
  }catch(e){error.value=errorMessage(e)}
 }
@@ -296,8 +295,7 @@ async function removeAllowedIP(){
 }
 async function loadDemands(){const query=new URLSearchParams();if(statusFilter.value)query.set('status',statusFilter.value);if(search.value)query.set('search',search.value);if(lineFilter.value)query.set('line_id',lineFilter.value);demands.value=await api('/demands?'+query.toString())}
 async function openNav(next:string){
- nav.value=next;detail.value=null;edit.value=null;error.value='';sidebarMobile.value=false;
- expandedGroup.value=['frameworks','agreements'].includes(next)?'frameworks':['lines','towers','spans'].includes(next)?'masters':['dictionary','access'].includes(next)?'system':'';
+ nav.value=next;detail.value=null;edit.value=null;error.value='';
  stage.value='';ipDialog.value=false;projectAction.value='';executionAction.value='';completionItem.value=null;reasonAction.value='';
  if(next==='entry'&&roleWrite.value)await loadDrafts();
  if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(next==='access')await loadAccess();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
@@ -308,34 +306,20 @@ async function seedLedgerDemands(value:Rec){
  else for(const t of value.rows)selected[t.id]=true;
  await refresh();await openNav('entry');notify('已带入 '+value.rows.length+' 个'+(value.kind==='span'?'档距':'杆塔')+'位置，请填写本次工作内容和工程量');
 }
-function toggleMenu(group:string,landing:string){
- if(nav.value===landing)expandedGroup.value=expandedGroup.value===group?'':group;
- else void openNav(landing);
-}
 function addSource(){batchSources.value.push({type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''});}
 function removeSource(index:number){if(batchSources.value.length>1)batchSources.value.splice(index,1);}
 function removeSelectedLine(){for(const item of logical.value.filter(x=>x.line_id===selectedLine.value))selected[item.id]=false;}
 function selectVisible(){for(const tower of thisLineTowers.value)selected[tower.id]=true;for(const tower of thisLineTowers.value)delete excluded[tower.id];}
 function sourcePayload(){return batchSources.value.map(item=>({...item}));}
-async function saveDict(){error.value='';busy.value=true;try{
- const voltageType=dictionaryType.value==='voltage';
- const body=voltageType?{name:form.name,status:form.status,sort_order:form.sort_order,version:form.version,reason:form.reason||'字典维护'}:{...form,type_id:dictionaryType.value,fields:form.fields_json?JSON.parse(form.fields_json):[]};
- const path=(voltageType?'/voltage-levels':'/dictionary-items')+(edit.value?'/'+edit.value.id:'');
- await api(path,edit.value?'PATCH':'POST',body);
- stage.value='';edit.value=null;notify('字典选项已持久化');await refresh()
- }catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
-function editDict(x?:Rec){
- edit.value=x||null;Object.keys(form).forEach(k=>delete form[k]);
- Object.assign(form,x||{code:'',name:'',status:'active',sort_order:100,work_target_type:'line',default_quantity:'1',fields_json:'[]'});
- if(x?.default_quantity_scaled)form.default_quantity=String(x.default_quantity_scaled/10000);
- stage.value='dictionary';
-}
-function applyDefault(){const op=selectedOp.value;if(!op)return;if(op.default_unit_id)common.unit_id=op.default_unit_id;if(op.default_quantity_scaled)common.quantity=String(op.default_quantity_scaled/10000);if(op.completion_standard)common.completion_standard=op.completion_standard;notify('已更新共同默认值；逐行自定义保留')}
+function applyDefault(){const op=selectedOp.value;if(!op)return;if(op.default_unit_id&&units.value.some(x=>x.id===op.default_unit_id))common.unit_id=op.default_unit_id;if(op.default_quantity_scaled)common.quantity=String(op.default_quantity_scaled/10000);if(op.completion_standard)common.completion_standard=op.completion_standard;notify('已更新共同默认值；逐行自定义保留')}
 function selectRange(){if(!fromRank.value||!toRank.value){error.value='请选择起止杆塔';return}const a=logical.value.find(x=>x.id===fromRank.value),b=logical.value.find(x=>x.id===toRank.value);if(!a||!b||a.line_id!==b.line_id)return;const min=Math.min(a.sort_rank,b.sort_rank),max=Math.max(a.sort_rank,b.sort_rank);for(const t of logical.value.filter(x=>x.line_id===a.line_id&&x.sort_rank>=min&&x.sort_rank<=max&&x.status==='active'))selected[t.id]=true;notify('已按台账顺序选择区段')}
 function toggleAll(){selectVisible();}
 function resetBatch(){duplicateDialog.value=false;duplicateFindings.value=[];Object.keys(duplicateChoices).forEach(k=>delete duplicateChoices[Number(k)]);demandLocationKind.value='tower';demandSpanRows.value=[];currentDraft.value=null;Object.assign(common,newCommon());batchSources.value=[{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}];Object.keys(selected).forEach(k=>delete selected[k]);Object.keys(excluded).forEach(k=>delete excluded[k]);Object.keys(overrides).forEach(k=>delete overrides[k]);batchKey.value=newClientId();lastResult.value=null;}
 function payload(){return {...common,source:{...sourcePayload()[0]},sources:sourcePayload(),location_kind:demandLocationKind.value,rows:selectedRows.value.map((x,index)=>({...((x.span_id)?{span_id:x.span_id,span_version:x.span_version}:{logical_tower_id:x.id}),target_object:x.target_object,quantity:x.quantity,custom_fields:overrides[x.id]?.custom_fields||{},
  duplicate_review:duplicateChoices[index]||undefined})),idempotency_key:batchKey.value,...(currentDraft.value?{draft_id:currentDraft.value.id,draft_version:currentDraft.value.version}:{})};}
+function draftSummary(draft:Rec){
+ try{const saved=JSON.parse(draft.draft_json);return (items.value.find(x=>x.id===saved.operation_id)?.name||'未选操作')+' · '+(saved.rows?.length||0)+' 个位置'}catch{return '待完善草稿'}
+}
 async function loadDrafts(){drafts.value=await api('/demand-batches?status=draft')}
 async function restoreDraft(id:string){error.value='';try{
  const draft=await api('/demand-batches/'+id),saved=JSON.parse(draft.draft_json);
@@ -354,7 +338,7 @@ async function submitBatch(draft:boolean,duplicateChecked=false){error.value='';
  if(draft){
   if(lastResult.value)throw Error('本批已提交，请清空重填后新建草稿');
   currentDraft.value=currentDraft.value?await api('/demand-batches/'+currentDraft.value.id,'PATCH',{version:currentDraft.value.version,draft:payload()}):await api('/demand-batches/drafts','POST',payload());
-  await loadDrafts();notify('草稿已保存，版本 v'+currentDraft.value!.version);return;
+  await loadDrafts();notify('草稿已保存');return;
  }
  if(!duplicateChecked&&!lastResult.value){
   const review=await api('/demands/duplicate-candidates','POST',payload());
@@ -423,29 +407,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
 </script>
 <template>
 <div v-if="!user" class="auth-bg"><div class="auth-card"><div class="logo">SD</div><h1>输电项目全流程管理</h1><p class="muted">使用本地服务器账号登录</p><form v-form-validation novalidate @submit.prevent="doLogin"><label><span class="field-caption">用户名</span><input v-model="username" autocomplete="username" required placeholder="输入用户名"/></label><label><span class="field-caption">密码</span><input v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码"/></label><p v-if="visibleError" class="error">{{visibleError}}</p><button class="primary full" :disabled="busy">登录系统</button></form><p class="minor">首次部署请在服务器运行「初始化管理员.cmd」</p></div></div>
-<div v-else class="shell">
- <header class="app-header">
-  <div class="app-brand"><div class="logo sm">输</div><strong>输电项目管理</strong></div>
-  <div class="header-right"><span>项目全流程</span><span class="header-separator">·</span><span>本地业务系统</span><button v-if="roleAdmin" class="header-link" @click="openNav('access')">系统管理</button><div class="user-initial" :title="user.username">{{user.username.substring(0,1).toUpperCase()}}</div></div>
- </header>
- <div class="app-body">
- <aside class="sidebar" :class="{'mobile-open':sidebarMobile}">
-  <div class="sidebar-label">项目全流程</div>
-  <button class="nav-primary" :class="{active:nav==='overview'}" @click="openNav('overview')"><span class="nav-icon">▦</span>工作台</button>
-  <button class="nav-primary" :class="{active:['entry','demands'].includes(nav)}" @click="openNav('demands')"><span class="nav-icon">▣</span>需求中心</button>
-  <div v-if="['entry','demands'].includes(nav)" class="nav-submenu"><button :class="{active:nav==='entry'}" @click="openNav('entry')">新建需求</button><button :class="{active:nav==='demands'}" @click="openNav('demands')">需求台账</button></div>
-  <button class="nav-primary" :class="{active:nav==='projects'}" @click="openNav('projects')"><span class="nav-icon">▱</span>项目中心</button>
-  <button class="nav-primary" :class="{active:nav==='prices'}" @click="openNav('prices')"><span class="nav-icon">▤</span>检修参考单价</button>
-  <button class="nav-primary" :class="{active:['frameworks','agreements'].includes(nav)}" :aria-expanded="expandedGroup==='frameworks'" @click="toggleMenu('frameworks','frameworks')"><span class="nav-icon">♧</span>框架与协议<SidebarChevron :open="expandedGroup==='frameworks'"/></button>
-  <div v-if="expandedGroup==='frameworks'" class="nav-submenu"><button :class="{active:nav==='frameworks'}" @click="openNav('frameworks')">项目框架</button><button :class="{active:nav==='agreements'}" @click="openNav('agreements')">执行协议</button></div>
-  <button class="nav-primary" :class="{active:['lines','towers','spans'].includes(nav)}" :aria-expanded="expandedGroup==='masters'" @click="toggleMenu('masters','lines')"><span class="nav-icon">⚑</span>基础台账<SidebarChevron :open="expandedGroup==='masters'"/></button>
-  <div v-if="expandedGroup==='masters'" class="nav-submenu"><button :class="{active:nav==='lines'}" @click="openNav('lines')">线路台账</button><button :class="{active:nav==='towers'}" @click="openNav('towers')">杆塔查询</button><button :class="{active:nav==='spans'}" @click="openNav('spans')">档距查询</button></div>
-  <button v-if="roleAdmin" class="nav-primary" :class="{active:['dictionary','access'].includes(nav)}" :aria-expanded="expandedGroup==='system'" @click="toggleMenu('system','access')"><span class="nav-icon">⚙</span>系统管理<SidebarChevron :open="expandedGroup==='system'"/></button>
-  <div v-if="roleAdmin&&expandedGroup==='system'" class="nav-submenu"><button :class="{active:nav==='dictionary'}" @click="openNav('dictionary')">数据字典</button><button :class="{active:nav==='access'}" @click="openNav('access')">IP访问管理</button></div>
-  <div class="sidebar-footer"><div><strong>{{user.username}}</strong><small>{{user.role}}</small></div><button class="light" @click="logout">退出</button></div>
- </aside>
- <main class="main">
-  <div class="page-heading">
+<ApplicationShell v-else :user="user" :nav="nav" :section="sectionLabel" :title="displayTitle" @navigate="openNav" @logout="logout">
+  <div v-if="nav!=='dictionary'" class="page-heading">
    <div class="breadcrumb"><span>{{sectionLabel}}</span><span class="breadcrumb-slash">/</span><strong>{{nav==='entry'?'新建需求':displayTitle}}</strong></div>
    <div class="page-heading-title"><h1>{{displayTitle}}</h1><span v-if="nav==='entry'" class="subtle-tag">逐基独立生成</span></div>
    <p class="page-description">{{nav==='entry'?'选择多个位置，共同内容填一次；逐基差异在预览中调整。':nav==='overview'?'掌握项目与需求的当前状态。':nav==='demands'?'查看、核实和跟踪每一条需求。':nav==='access'?'由管理员逐个配置允许访问服务器的 IP 地址。':nav==='projects'?'从项目储备到立项及分次执行的全过程管理。':'维护真实业务台账与版本历史。'}}</p>
@@ -458,13 +421,13 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <section class="panel">
     <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">管理：年度框架 → 子项目 → 检修计划 → 专业需求；资金：年度框架 → 协行协议 → 子项目 → 检修计划</p></div><button v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</button></div>
     <div class="table-wrap"><table>
-     <thead><tr><th>业务编码</th><th>名称</th><th v-if="nav!=='frameworks'">所属框架/协议</th><th>{{nav==='projects'?'已批准预算 (元)':'授权额度 (元)'}}</th><th>状态</th><th>操作</th></tr></thead>
+     <thead><tr><th>名称</th><th v-if="nav!=='frameworks'">所属框架/协议</th><th>{{nav==='projects'?'已批准预算 (元)':'授权额度 (元)'}}</th><th>状态</th><th>操作</th></tr></thead>
      <tbody>
       <tr v-for="x in nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects" :key="x.id">
-       <td class="mono">{{x.code}}</td><td>{{x.name}}</td><td v-if="nav!=='frameworks'">{{nav==='agreements'?x.framework_name:(x.framework_name+' / '+(x.agreement_name||'协议待落实'))}}</td>
+       <td>{{x.name}}</td><td v-if="nav!=='frameworks'">{{nav==='agreements'?x.framework_name:(x.framework_name+' / '+(x.agreement_name||'协议待落实'))}}</td>
        <td>{{money(nav==='projects'?x.approved_budget_fen:x.limit_fen)}}</td><td><StatusTag :status="x.status" :label="nav==='projects'?undefined:(x.status==='active'?'启用':'停用')"/></td>
        <td><button v-if="nav==='projects'" class="link" @click="openProject(x)">需求范围与阶段</button><span v-else class="muted">{{nav==='frameworks'?'协议额度：'+money(x.agreement_limit_fen):'已批准预算：'+money(x.approved_budget_fen)}}</span></td>
-      </tr><tr v-if="!(nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects).length"><td colspan="6" class="empty">暂无记录，请从创建框架开始</td></tr>
+      </tr><tr v-if="!(nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects).length"><td colspan="5" class="empty">暂无记录，请从创建框架开始</td></tr>
      </tbody>
     </table></div>
    </section>
@@ -473,7 +436,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   @save="saveStructure" @close="stage='';edit=null"/>
   </template>
   <section v-if="projectView" class="detail-overlay" @click.self="projectView=null"><div class="detail-panel">
-   <div class="section-header"><div><h2>{{projectView.code}} · {{projectView.name}}</h2><StatusTag :status="projectView.status" :version="projectView.version"/></div><button class="light" @click="projectView=null">关闭 ×</button></div>
+   <div class="section-header"><div><h2>{{projectView.name}}</h2><StatusTag :status="projectView.status"/></div><button class="light" @click="projectView=null">关闭 ×</button></div>
    <div class="info-grid"><div><small>已知估算（元）</small><strong>{{money(projectView.estimate.known_total_fen)}}</strong></div><div><small>待定价项</small><strong>{{projectView.estimate.missing_price_count}}</strong></div><div><small>批准预算（元）</small><strong>{{money(projectView.approved_budget_fen)}}</strong></div><div><small>需求范围条数</small><strong>{{projectView.estimate.total}}</strong></div></div>
    <h3>项目类别与初步估算</h3>
    <div class="toolbar">
@@ -567,7 +530,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </FormModal>
    <FormModal :open="projectAction==='change-order'" title="拟定项目变更单" :error="visibleError" size="wide" @close="projectAction=''">
     <form v-form-validation novalidate class="form-grid" @submit.prevent="createChangeDraft">
-     <label><span class="field-caption">变更单编号</span><input v-model="changeDraft.code" required placeholder="稳定唯一编号"/></label>
+
      <label><span class="field-caption">变更类型</span><select v-model="changeDraft.action" required>
       <option value="adjust">调整原批准范围</option><option value="add">新增有效需求</option><option value="remove">拟取消批准范围</option></select></label>
      <label v-if="changeDraft.action!=='add'" class="wide"><span class="field-caption">原批准范围</span>
@@ -586,11 +549,11 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </FormModal>
    <h3>检修计划</h3>
    <div v-if="!executionRows.length" class="empty">尚无检修计划</div>
-   <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.plan_type==='outage'?'停电检修':'不停电检修'}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条计划 · 确认工作量 {{fmtQty(e.completed_quantity_scaled)}}（不同单位不能合计核算）</p></div><button class="link" @click="openExecution(e.id)">进入执行</button></div><StatusTag :status="e.status"/></div>
+   <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.plan_type==='outage'?'停电检修':'不停电检修'}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条工作明细</p></div><button class="link" @click="openExecution(e.id)">进入执行</button></div><StatusTag :status="e.status"/></div>
    <button v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建检修计划</button>
    <FormModal :open="projectAction==='execution'" title="新建检修计划" :error="visibleError" @close="projectAction=''">
        <form v-form-validation novalidate class="form-grid" @submit.prevent="createProjectExecution">
-     <label><span class="field-caption">检修计划编号</span><input v-model="executionNumber" required placeholder="如 2026-01"/></label>
+
      <label><span class="field-caption">检修类型</span><select v-model="executionPlanType" required><option value="outage">停电检修</option><option value="non_outage">不停电检修</option></select></label>
      <label class="wide"><span class="field-caption">施工说明</span><input v-model="executionDescription" placeholder="本次检修任务"/></label><div class="wide form-actions"><button class="primary">创建检修计划</button></div>
    </form>
@@ -631,7 +594,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
   </div></section>
   <section v-if="executionView" class="detail-overlay execution-overlay" @click.self="executionView=null"><div class="detail-panel">
-   <div class="section-header"><div><h2>{{executionView.plan_type==='outage'?'停电检修':'不停电检修'}}计划 {{executionView.number}}</h2><StatusTag :status="executionView.status" :version="executionView.version"/></div><button class="light" @click="executionView=null">返回项目</button></div>
+   <div class="section-header"><div><h2>{{executionView.plan_type==='outage'?'停电检修':'不停电检修'}}计划 {{executionView.number}}</h2><StatusTag :status="executionView.status"/></div><button class="light" @click="executionView=null">返回项目</button></div>
    <p>{{executionView.description||'本次执行需求范围'}}</p>
    <div v-for="i in executionView.items" :key="i.id" class="scope-item">
     <h3>{{i.demand_no}} · {{i.line_name_snapshot}} {{i.tower_no_snapshot}}</h3>
@@ -681,16 +644,11 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <p class="muted minor">只允许精确 IP 地址，不允许填网段、IP 范围或域名。验证使用真实 TCP 连接地址，不相信浏览器传入的代理头。IP 授权不能替代账号登录；Windows 防火墙仍需单独放行服务端口。</p>
     </section>
   </template>
-  <template v-if="nav==='dictionary'"><section class="panel"><div class="section-header"><h2>数据字典管理</h2><button class="primary" @click="editDict()">新增选项</button></div><p v-if="dictionaryType==='voltage'" class="muted">电压等级属于系统基础字典。线路引用同一份字典，停用后不再允许新增线路选用，已有线路关联保留。</p><div class="toolbar"><label><span class="field-caption">类别</span><select v-model="dictionaryType" @change="stage='';edit=null"><option value="voltage">电压等级</option><option v-for="t in types" :key="t.id" :value="t.id">{{t.title}}</option></select></label></div><div class="table-wrap"><table><thead><tr><th v-if="dictionaryType!=='voltage'">编码</th><th>名称</th><th>版本</th><th>顺序</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="x in dictionaryRows" :key="x.id"><td v-if="dictionaryType!=='voltage'" class="mono">{{x.code}}</td><td>{{x.name}}</td><td>v{{x.version}}</td><td>{{x.sort_order}}</td><td><StatusTag :status="x.status" :label="x.status==='active'?'启用':'停用'"/></td><td><button class="link" @click="editDict(x)">配置</button></td></tr><tr v-if="!dictionaryRows.length"><td :colspan="dictionaryType==='voltage'?5:6" class="empty">尚未配置选项。请创建真实业务选项。</td></tr></tbody></table></div></section>
-<FormModal :open="stage==='dictionary'" :title="edit?'调整选项 v'+edit.version:'新增选项'" :error="visibleError" size="wide" @close="stage='';edit=null">
-    <form v-form-validation novalidate class="form-grid" @submit.prevent="saveDict"><label v-if="dictionaryType!=='voltage'"><span class="field-caption">编码</span><input required v-model="form.code"/></label><label><span class="field-caption">名称</span><input required v-model="form.name"/></label><label><span class="field-caption">排序</span><input type="number" v-model.number="form.sort_order"/></label><label><span class="field-caption">状态</span><select v-model="form.status"><option value="active">启用</option><option value="inactive">停用</option></select></label>
-    <template v-if="dictionaryType==='operation'"><label><span class="field-caption">适用对象</span><select v-model="form.work_target_type"><option value="line">线路侧作业</option><option value="physical">共用实体作业</option><option value="both">两者适用</option></select></label><label><span class="field-caption">默认单位</span><select v-model="form.default_unit_id"><option value="">不设默认</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">默认每项数量</span><input v-model="form.default_quantity" data-validate="quantity" placeholder="1"/></label><label class="wide"><span class="field-caption">默认完成标准</span><input v-model="form.completion_standard"/></label><label class="wide"><span class="field-caption">字段模板 JSON</span><textarea v-model="form.fields_json" data-validate="json" rows="2"/></label></template><div class="wide form-actions"><button type="button" class="light" @click="stage='';edit=null">取消</button><button class="primary" :disabled="busy">保存配置</button></div></form>
-   </FormModal>
-  </template>
+  <DictionaryWorkspace v-if="nav==='dictionary'" @changed="refresh"/>
   <template v-if="nav==='entry'">
    <form v-form-validation novalidate class="entry-main" @submit.prevent="submitBatch(false)">
-    <section v-if="roleWrite" class="panel"><div class="section-header"><h2>{{currentDraft?'正在编辑草稿 v'+currentDraft.version:'需求草稿'}}</h2><button type="button" class="secondary" @click="draftsOpen=!draftsOpen;loadDrafts()">{{draftsOpen?'收起草稿':'查看草稿'}}（{{drafts.length}}）</button></div>
-     <div v-if="draftsOpen"><p v-if="!drafts.length" class="muted">暂无未提交草稿</p><div v-for="draft in drafts" :key="draft.id" class="scope-item"><span>{{draft.updated_at}} · v{{draft.version}} · {{draft.id.slice(0,8)}}</span><button type="button" class="link" @click="restoreDraft(draft.id)">继续编辑</button></div></div>
+    <section v-if="roleWrite" class="panel"><div class="section-header"><h2>{{currentDraft?'正在编辑草稿':'需求草稿'}}</h2><button type="button" class="secondary" @click="draftsOpen=!draftsOpen;loadDrafts()">{{draftsOpen?'收起草稿':'查看草稿'}}（{{drafts.length}}）</button></div>
+     <div v-if="draftsOpen"><p v-if="!drafts.length" class="muted">暂无未提交草稿</p><div v-for="draft in drafts" :key="draft.id" class="scope-item"><span>{{draftSummary(draft)}} · {{draft.updated_at}}</span><button type="button" class="link" @click="restoreDraft(draft.id)">继续编辑</button></div></div>
     </section>
     <div class="entry-card">
      <section class="entry-section panel">
@@ -713,7 +671,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
        <label><span class="field-caption">杆段终点</span><select v-model="toRank"><option value="">请选择</option><option v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</option></select></label>
        <button type="button" class="secondary" @click="selectRange">追加选择</button>
       </div>
-      <label class="field-full tower-filter"><span class="field-caption">筛选杆塔</span><input v-model="towerSearch" placeholder="输入杆塔号或位置编码"/>
+      <label class="field-full tower-filter"><span class="field-caption">筛选杆塔</span><input v-model="towerSearch" placeholder="输入杆塔号"/>
       </label>
       <div class="tower-grid" aria-label="杆塔选择">
        <label v-for="x in thisLineTowers" :key="x.id" class="tower-card" :class="{checked:selected[x.id]&&!excluded[x.id]}"><input type="checkbox" :checked="!!selected[x.id]&&!excluded[x.id]" @change="(e)=>{selected[x.id]=(e.target as HTMLInputElement).checked;delete excluded[x.id]}"/>
@@ -813,9 +771,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   </FormModal>
   <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><button class="secondary" @click="exportDemands">Excel 导出</button><button v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</button></div></div><div class="toolbar"><label><span class="field-caption">状态</span><select v-model="statusFilter"><option value="">全部</option><option value="pending">待核实</option><option value="active">有效</option><option value="returned">退回</option><option value="cancelled">取消</option></select></label><label><span class="field-caption">线路</span><select v-model="lineFilter"><option value="">全部线路</option><option v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</option></select></label><label><span class="field-caption">关键词</span><input v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><table><thead><tr><th>编号</th><th>位置</th><th>操作与部位</th><th>工作量</th><th>状态</th><th>操作</th></tr></thead><tbody><tr v-for="d in demands" :key="d.id"><td class="mono">{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><StatusTag :status="d.status"/></td><td><button class="link" @click="showDemand(d.id)">详情</button></td></tr><tr v-if="!demands.length"><td colspan="6" class="empty">没有符合筛选条件的需求</td></tr></tbody></table></div></section></template>
   <section v-if="detail" class="detail-overlay" @click.self="detail=null"><div class="detail-panel"><div class="section-header"><h2>{{detail.demand_no?'需求 '+detail.demand_no:'台账详情'}}</h2><button class="light" @click="detail=null">关闭 ×</button></div>
-    <template v-if="detail.demand_no"><div class="info-grid"><div><small>原始线路快照</small><strong>{{detail.line_name_snapshot}} {{detail.tower_no_snapshot}}</strong></div><div><small>物理塔快照</small><strong>{{detail.physical_code_snapshot}}</strong></div><div><small>操作与版本</small><strong>{{detail.operation_snapshot}} v{{detail.operation_version}}</strong></div><div><small>工作量</small><strong>{{fmtQty(detail.quantity_scaled)}} {{detail.unit_snapshot}}</strong></div><div><small>当前状态</small><strong>{{detail.status}}</strong></div><div><small>当前版本</small><strong>v{{detail.version}}</strong></div></div>
+    <template v-if="detail.demand_no"><div class="info-grid"><div><small>需求位置</small><strong>{{detail.line_name_snapshot}} {{detail.tower_no_snapshot}}</strong></div><div><small>检修操作</small><strong>{{detail.operation_snapshot}}</strong></div><div><small>工作量</small><strong>{{fmtQty(detail.quantity_scaled)}} {{detail.unit_snapshot}}</strong></div><div><small>当前状态</small><StatusTag :status="detail.status"/></div></div>
       <p v-if="detail.project_references?.length" class="muted">已关联项目：{{detail.project_references.map((x:Rec)=>x.code).join('、')}}。工作范围保留历史依据；范围变更须办理项目变更。</p>
-      <p>当前台账：{{detail.current_line_name}} {{detail.current_tower_no}} · {{detail.current_physical_code}}</p><button v-if="roleWrite&&detail.status!=='cancelled'" class="secondary" @click="openReason('revalidate')">重新核实位置</button>
+      <p>当前台账：{{detail.current_line_name}} {{detail.current_tower_no}}</p><button v-if="roleWrite&&detail.status!=='cancelled'" class="secondary" @click="openReason('revalidate')">重新核实位置</button>
       <div class="scope-item"><strong>处理部位</strong><p>{{detail.target_object}}</p>
        <strong>问题说明</strong><p>{{detail.problem_description}}</p>
        <strong>完成标准</strong><p>{{detail.completion_standard}}</p>
@@ -853,7 +811,5 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <div class="form-actions"><button type="button" class="light" @click="reasonAction=''">取消</button><button class="primary" :disabled="busy">确认</button></div>
    </form>
   </FormModal>
- </main>
- </div>
-</div>
+</ApplicationShell>
 </template>

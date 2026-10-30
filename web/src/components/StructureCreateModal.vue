@@ -14,7 +14,6 @@ const availableAgreements=computed(()=>props.agreements.filter(x=>x.status==='ac
 <template>
  <FormModal :open="open" :title="'创建'+title" :error="error" @close="emit('close')">
   <form v-form-validation novalidate class="form-grid" @submit.prevent="emit('save')">
-   <label><span class="field-caption">业务编码</span><input v-model.trim="form.code" required placeholder="唯一稳定业务编码"/></label>
    <label><span class="field-caption">名称</span><input v-model.trim="form.name" required/></label>
    <label v-if="type==='frameworks'"><span class="field-caption">框架年度</span><input v-model.number="form.fiscal_year" type="number" min="2000" max="2100" required/></label>
    <label v-if="type!=='projects'"><span class="field-caption">授权额度（元）</span><input v-model.trim="form.limit_yuan" data-validate="money" required inputmode="decimal" placeholder="100000.00"/></label>

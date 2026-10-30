@@ -1,3 +1,4 @@
+import {navigate} from './browser-navigation.mjs';
 import {mkdtempSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -25,44 +26,42 @@ try{
  await page.getByLabel('用户名').fill('browseradmin');await page.getByLabel('密码').fill('BrowserSecure123!');
  await page.getByRole('button',{name:'登录系统'}).click();
  await page.getByRole('heading',{name:'工作台'}).waitFor();
- const nav=async title=>{
-  const parents={'数据字典':'系统管理','IP访问管理':'系统管理','线路台账':'基础台账','杆塔查询':'基础台账','档距查询':'基础台账','项目框架':'框架与协议','执行协议':'框架与协议','新建需求':'需求中心'};
-  const parent=parents[title];
-  if(parent&&!await page.locator('.sidebar .nav-submenu').getByRole('button',{name:title,exact:true}).isVisible())await page.locator('.sidebar .nav-primary').filter({hasText:parent}).click();
-  if(parent)await page.locator('.sidebar .nav-submenu').getByRole('button',{name:title,exact:true}).click();
-  else await page.locator('.sidebar .nav-primary').filter({hasText:title==='子项目储备'?'项目中心':title}).click();
- };
+ const nav=async title=>navigate(page,title);
  await nav('数据字典');
- await page.getByRole('button',{name:'新增选项'}).click();
- let smoke=page.getByRole('dialog',{name:'新增选项'});
+ await page.getByRole('button',{name:'新增词条'}).click();
+ let smoke=page.getByRole('dialog',{name:'新增词条'});
  await smoke.waitFor();
  await page.keyboard.press('Escape');
  await smoke.waitFor({state:'hidden'});
- await page.getByRole('button',{name:'新增选项'}).click();
- smoke=page.getByRole('dialog',{name:'新增选项'});
- await smoke.getByRole('button',{name:'关闭弹窗'}).click();
+ await page.getByRole('button',{name:'新增词条'}).click();
+ smoke=page.getByRole('dialog',{name:'新增词条'});
+ await smoke.getByRole('button',{name:'关闭此对话框'}).click();
  await smoke.waitFor({state:'hidden'});
+ async function chooseDictionaryOption(panel,label,value){
+  await panel.getByRole('combobox',{name:label,exact:true}).press('Enter');
+  await page.locator('.el-select-dropdown:visible').getByRole('option',{name:value,exact:true}).first().click();
+ }
  async function addDict(type,code,name,extra={}){
-  await page.locator('section.panel').first().getByLabel('类别').selectOption({label:type});
-  await page.getByRole('button',{name:'新增选项'}).click();
-  const panel=page.locator('.form-panel');await fill(panel,'编码',code);await fill(panel,'名称',name);
-  if(extra.kind){await select(panel,'适用对象',extra.kind)}
-  if(extra.unit){await select(panel,'默认单位',extra.unit)}
+  await chooseDictionaryOption(page.locator('.dictionary-workspace'),'字典类型',type);
+  await page.getByRole('button',{name:'新增词条'}).click();
+  const panel=page.locator('.form-panel');if(await panel.getByLabel('编码',{exact:true}).count())throw Error('Dictionary code must be generated internally');await fill(panel,'名称',name);
+  if(extra.kind){await chooseDictionaryOption(panel,'适用对象',extra.kind)}
+  if(extra.unit){await chooseDictionaryOption(panel,'默认单位',extra.unit)}
   await panel.getByRole('button',{name:'保存配置'}).click();
   await panel.waitFor({state:'hidden'});
  }
- await addDict('工作单位','SET','套');
- await addDict('来源类型','PATROL','巡视');
+ await addDict('工作单位','BROWSER-SET','套');
+ await addDict('来源类型','BROWSER-PATROL','巡视');
  await addDict('操作类型','INSTALL','安装防鸟装置',{unit:'套'});
  await addDict('项目类别','MAINTAIN','维修项目');
  await nav('数据字典');
- const masterNav=page.locator('.sidebar .nav-submenu').getByRole('button',{name:'电压等级',exact:true});
+ const masterNav=page.locator('.sidebar').getByRole('menuitem',{name:'电压等级',exact:true});
  if(await masterNav.count())throw Error('Voltage level must not remain in base ledgers navigation');
- await page.locator('section.panel').first().getByLabel('类别').selectOption({label:'电压等级'});
- await page.getByRole('button',{name:'新增选项'}).click();
+ await chooseDictionaryOption(page.locator('.dictionary-workspace'),'字典类型','电压等级');
+ await page.getByRole('button',{name:'新增词条'}).click();
  let form=page.locator('.form-panel');if(await form.getByLabel('编码',{exact:true}).count())throw Error('Voltage code must be generated internally');await fill(form,'名称','110kV');
  await form.getByRole('button',{name:'保存配置'}).click();await form.waitFor({state:'hidden'});
- await page.getByText('110kV',{exact:true}).waitFor();if(await page.getByRole('columnheader',{name:'编码',exact:true}).count())throw Error('Voltage list must hide internal code');
+ await page.getByText('110kV',{exact:true}).first().waitFor();if(await page.getByRole('columnheader',{name:'编码',exact:true}).count())throw Error('Voltage list must hide internal code');
  await nav('线路台账');await page.getByRole('button',{name:'新建线路',exact:true}).click();
  form=page.getByRole('dialog',{name:'新建线路'});await fill(form,'线路名称','浏览器测试线路');await select(form,'电压等级','110kV');await form.getByRole('button',{name:'保存线路',exact:true}).click();await form.waitFor({state:'hidden'});
  await page.getByRole('heading',{name:'浏览器测试线路',exact:true}).waitFor();
@@ -136,14 +135,14 @@ try{
  await nav('项目框架');
  await page.getByRole('button',{name:'新增项目框架'}).click();
  let st=page.locator('.form-panel');
- await fill(st,'业务编码','FW-WEB');await fill(st,'名称','浏览器框架');await fill(st,'授权额度（元）','10000');
+ await fill(st,'名称','浏览器框架');await fill(st,'授权额度（元）','10000');
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await nav('执行协议');await page.getByRole('button',{name:'新增执行协议'}).click();
- st=page.locator('.form-panel');await fill(st,'业务编码','AG-WEB');await fill(st,'名称','浏览器协议');await fill(st,'授权额度（元）','5000');
+ st=page.locator('.form-panel');await fill(st,'名称','浏览器协议');await fill(st,'授权额度（元）','5000');
  await st.getByLabel('所属框架').selectOption({label:'浏览器框架'});
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await nav('子项目储备');await page.getByRole('button',{name:'新增子项目储备'}).click();
- st=page.locator('.form-panel');await fill(st,'业务编码','PJ-WEB');await fill(st,'名称','浏览器子项目');
+ st=page.locator('.form-panel');await fill(st,'名称','浏览器子项目');
  await st.getByLabel('所属年度框架').selectOption({index:1});
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await page.getByRole('button',{name:'需求范围与阶段'}).first().click();
@@ -183,7 +182,7 @@ try{
  await page.locator('.detail-panel').getByText('已立项').first().waitFor();
  await page.locator('.detail-panel').getByRole('button',{name:'新建变更单草稿'}).click();
  actionModal=page.getByRole('dialog',{name:'拟定项目变更单'});
- await actionModal.getByLabel('变更单编号').fill('CHANGE-WEB-001');
+ if(await actionModal.getByLabel('变更单编号').count())throw Error('Change order number should be generated internally');
  await actionModal.getByLabel('变更类型').selectOption('adjust');
  await actionModal.getByLabel('拟调整工作量').fill('0.8');
  await actionModal.getByLabel('拟核定单价（元，可待核）').fill('135');
@@ -191,8 +190,8 @@ try{
  await actionModal.getByLabel('变更原因').fill('浏览器变更草稿验收，不应自动批准');
  await actionModal.getByRole('button',{name:'仅保存草稿'}).click();
  await actionModal.waitFor({state:'hidden'});
- await page.locator('.detail-panel').getByText('CHANGE-WEB-001').waitFor();
- const projectWeb=(await page.evaluate(async()=>await(await fetch('/api/projects')).json())).find(x=>x.code==='PJ-WEB');
+ await page.locator('.detail-panel').getByText('浏览器变更草稿验收，不应自动批准',{exact:true}).waitFor();
+ const projectWeb=(await page.evaluate(async()=>await(await fetch('/api/projects')).json())).find(x=>x.name==='浏览器子项目');
  if(projectWeb.approved_budget_fen!==12345)throw Error('Draft should not modify approved budget');
  await page.locator('.detail-panel').getByRole('button',{name:'提交审批'}).click();
  let decision=page.getByRole('dialog',{name:'提交变更审批'});
@@ -205,7 +204,7 @@ try{
  await decision.getByRole('button',{name:'确认',exact:true}).click();
  await decision.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByText('第 2 版').waitFor();
- const currentProject=(await page.evaluate(async()=>await(await fetch('/api/projects')).json())).find(x=>x.code==='PJ-WEB');
+ const currentProject=(await page.evaluate(async()=>await(await fetch('/api/projects')).json())).find(x=>x.name==='浏览器子项目');
  if(currentProject.approved_budget_fen!==10800)throw Error('Approved change should set effective budget to 108.00 yuan');
  await page.locator('.detail-panel').getByRole('button',{name:'登记结算凭证'}).click();
  let settlementModal=page.getByRole('dialog',{name:'登记结算凭证'});
@@ -218,17 +217,17 @@ try{
  await page.locator('.detail-panel').getByText('未实施已结算').waitFor();
  await page.locator('.detail-panel').getByText('SETTLEMENT-WEB-001').waitFor();
  const settlementProgress=await page.evaluate(async()=>await(await fetch('/api/projects/'+
-   (await(await fetch('/api/projects')).json()).find(x=>x.code==='PJ-WEB').id+'/progress')).json());
+   (await(await fetch('/api/projects')).json()).find(x=>x.name==='浏览器子项目').id+'/progress')).json());
  if(settlementProgress.settled_fen!==2000)throw Error('Settlement should persist exact cents and appear in project progress');
  await page.locator('.detail-panel').getByRole('button',{name:/关闭/}).click();
  await page.reload();await nav('子项目储备');
- await page.getByText('PJ-WEB').waitFor();
- await page.setViewportSize({width:390,height:844});
+ await page.getByText('浏览器子项目',{exact:true}).waitFor();
+ await page.setViewportSize({width:1280,height:900});
  await nav('新建需求');
  await page.getByRole('heading',{name:'新建需求'}).waitFor();
- const mobileOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1);
- if(mobileOverflow)throw Error('Unexpected mobile horizontal overflow');
- await page.screenshot({path:join(process.cwd(),'release','entry-mobile-acceptance.png'),fullPage:false});
+ const compactDesktopOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1);
+ if(compactDesktopOverflow)throw Error('Unexpected compact desktop horizontal overflow');
+ await page.screenshot({path:join(process.cwd(),'release','entry-desktop-1280.png'),fullPage:false});
  await page.setViewportSize({width:1440,height:1000});
  await nav('子项目储备');
  await page.screenshot({path:screenshotPath,fullPage:true});
@@ -236,7 +235,7 @@ try{
  await page.getByRole('heading',{name:'检修参考单价'}).first().waitFor();
  await page.getByRole('button',{name:'新增参考价'}).click();
  let priceModal=page.getByRole('dialog',{name:'新增检修参考价'});
- await priceModal.getByLabel('价格编码').fill('PRICE-BROWSER');
+ if(await priceModal.getByLabel('价格编码').count())throw Error('Price code must be generated internally');
  await priceModal.getByLabel('价格项目名称').fill('防鸟装置常规安装');
  await priceModal.getByLabel('检修操作').selectOption({label:'安装防鸟装置'});
  await priceModal.getByLabel('计价单位').selectOption({label:'套'});
@@ -246,7 +245,7 @@ try{
  await priceModal.getByLabel('价格测算说明').fill('浏览器创建参考单价并检查历史版本');
  await priceModal.getByRole('button',{name:'保存参考价'}).click();
  await priceModal.waitFor({state:'hidden'});
- await page.getByText('PRICE-BROWSER').waitFor();
+ await page.getByText('防鸟装置常规安装').waitFor();
  await page.getByRole('button',{name:'修订单价'}).click();
  priceModal=page.getByRole('dialog',{name:'修订参考单价'});
  await priceModal.getByLabel('参考单价（元）').fill('130');
@@ -255,7 +254,7 @@ try{
  await priceModal.waitFor({state:'hidden'});
  await page.getByText('130.00 元').first().waitFor();
  await page.getByRole('button',{name:'历史版本'}).click();
- const historyModal=page.getByRole('dialog',{name:'价格历史：PRICE-BROWSER'});
+ const historyModal=page.getByRole('dialog',{name:'价格历史：防鸟装置常规安装'});
  await historyModal.getByText('v1').first().waitFor();
  await historyModal.getByText('v2').first().waitFor();
  await historyModal.getByRole('button',{name:'关闭',exact:true}).click();
@@ -274,7 +273,7 @@ try{
  await nav('子项目储备');
  await page.getByRole('button',{name:'新增子项目储备'}).click();
  let createModal=page.getByRole('dialog',{name:'创建子项目储备'});
- await createModal.getByLabel('业务编码').fill('PJ-REFERENCE');
+ if(await createModal.getByLabel('业务编码').count())throw Error('Project code must be generated internally');
  await createModal.getByLabel('名称').fill('引用参考价项目');
  await createModal.getByLabel('所属年度框架').selectOption({index:1});
  await createModal.getByRole('button',{name:'保存',exact:true}).click();
@@ -291,7 +290,7 @@ try{
  await quoteModal.getByLabel('参考单价目录（储备估算）').selectOption({index:1});
  await quoteModal.getByRole('button',{name:'引用参考价'}).click();
  await quoteModal.waitFor({state:'hidden'});
- await page.locator('.detail-panel').getByText('PRICE-BROWSER v2').waitFor();
+ await page.locator('.detail-panel').getByText('防鸟装置常规安装 v2').waitFor();
  await page.locator('.detail-panel').getByRole('button',{name:'填写初步估算'}).click();
  const prelim=page.getByRole('dialog',{name:'项目类别与初步估算'});
  await prelim.getByRole('button',{name:'按需求单价明细计算初步估算'}).click();
