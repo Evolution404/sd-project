@@ -1,0 +1,125 @@
+/* Element Plus owns widget behavior; these styles only adapt the workspace layout
+   and isolate it from the legacy application's native control styles. */
+.dictionary-ui{--el-color-primary:#3478f6;--el-color-primary-light-3:#709ff9;--el-color-primary-light-5:#9bbcfb;--el-color-primary-light-7:#c2d6fc;--el-color-primary-light-8:#d6e4fe;--el-color-primary-light-9:#edf4ff;--el-color-primary-dark-2:#2463d5;--el-color-success:#249d72;--el-border-color:#e1e8f1;--el-border-color-light:#eaf0f7;--el-text-color-primary:#24344e;--el-text-color-regular:#52627a;--el-text-color-secondary:#8492a6;--el-font-family:inherit;color:#24344e;font-size:13px}
+.dictionary-ui .el-button{min-height:32px;padding:8px 13px;font-size:12px;font-weight:500;border-radius:6px}
+.dictionary-ui .el-button.is-link{min-height:24px;padding:0;border:0}
+.dictionary-ui .el-button+.el-button{margin-left:8px}
+.dictionary-ui .el-input__inner{min-height:0;width:100%;border:0;border-radius:0;padding:0;background:transparent;box-shadow:none;font-size:13px;color:var(--el-text-color-regular)}
+.dictionary-ui .el-input__inner:focus{border:0;box-shadow:none}
+.dictionary-ui .el-input__wrapper{min-height:36px;padding:1px 11px;border-radius:7px}
+.dictionary-ui .el-textarea__inner{min-height:74px;padding:8px 11px;border:0;border-radius:6px;color:var(--el-text-color-regular);font-size:13px}
+.dictionary-ui .el-select__wrapper{min-height:36px;border-radius:7px}
+.dictionary-ui .el-select__input{min-height:0;border:0;padding:0;box-shadow:none;background:transparent}
+.dictionary-ui .el-checkbox{gap:0;font-weight:400;flex-direction:row}
+.dictionary-ui .el-checkbox__original{min-height:0;padding:0}
+.dictionary-ui .el-checkbox__input{line-height:0}
+.dictionary-ui .el-card{border-color:#e3ebf7;border-radius:10px;box-shadow:0 4px 15px #386cac04}
+.dictionary-ui .el-card__header{padding:17px 15px;border-bottom-color:#edf1f7}
+.dictionary-ui .el-card__body{padding:16px}
+.dictionary-ui .el-tag{font-weight:500}
+.dictionary-ui .el-form-item__label{display:inline-flex;flex-direction:row;gap:0;color:#3d4d66;font-size:13px;font-weight:600;line-height:22px;margin-bottom:7px}
+.dictionary-ui .el-form-item__content{min-width:0}
+.dictionary-ui .el-form-item__error{font-size:12px;position:static;line-height:1.5;width:100%;margin-top:3px;color:#dc384a}
+.dictionary-ui .el-form-item{margin-bottom:18px;min-width:0}
+.dictionary-ui .el-form-item.is-error .el-input__wrapper{box-shadow:0 0 0 1px #dc384a inset}
+.dictionary-ui .el-form-item.is-required .el-form-item__label::before{color:#dc384a}
+.dictionary-ui .el-alert{margin-bottom:15px;border-radius:6px}
+.dictionary-heading{display:flex;align-items:center;gap:12px;margin-bottom:21px}
+.dictionary-heading-icon,.dictionary-category-symbol{display:grid;place-items:center;width:40px;height:40px;border-radius:10px;background:#eaf2ff;color:#3478f6;font-size:23px;flex:none}
+.dictionary-heading h1{color:#1f304e;font-size:25px;margin:0 0 5px}
+.dictionary-heading p{color:#8090a6;font-size:12px;margin:0}
+.dictionary-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:13px;margin-bottom:20px}
+.dictionary-metrics .el-card__body{padding:21px 17px}
+.dictionary-metric{display:flex;align-items:center;gap:14px}
+.dictionary-metric-icon{width:48px;height:48px;display:grid;place-items:center;border-radius:12px;font-size:26px;flex:none}
+.dictionary-metric-icon.blue{color:#3478f6;background:#e9f2ff}.dictionary-metric-icon.green{color:#249d72;background:#e5f7ef}.dictionary-metric-icon.purple{color:#8963ec;background:#f1ebff}.dictionary-metric-icon.orange{color:#f39b39;background:#fff1e2}
+.dictionary-metric .el-statistic__head{font-size:12px;font-weight:600;color:#40516b;line-height:1.5;margin:0}
+.dictionary-metric .el-statistic__number{font-size:28px;line-height:1.3;font-weight:700;color:#203555}
+.dictionary-metric small{display:block;color:#8d9bb0;font-size:10px;line-height:1.6;margin-top:5px}
+.dictionary-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:15px}
+.dictionary-toolbar>.el-input{flex:1;min-width:220px}
+.dictionary-toolbar>.el-select{width:130px}
+.dictionary-toolbar>.el-select:nth-of-type(2){width:108px}
+.dictionary-toolbar .el-segmented{--el-segmented-item-selected-bg-color:#3478f6;--el-segmented-item-selected-color:white;--el-segmented-bg-color:#fff;border:1px solid #e1e8f1;padding:3px;height:36px;font-size:12px}
+.dictionary-ui .el-segmented__item{display:flex;flex-direction:row;font-weight:500;padding:0 10px;gap:0}
+.dictionary-ui .el-segmented__item-input{min-height:0;padding:0}
+.dictionary-toolbar-actions{display:flex;align-items:center;margin-left:auto;gap:0}
+.dictionary-columns{display:grid;grid-template-columns:210px minmax(0,1fr) 245px;gap:13px;align-items:start}
+.dictionary-categories .el-card__body{padding:6px 8px 14px}
+.dictionary-categories .el-menu{border:0}
+.dictionary-categories .el-menu-item{white-space:normal;line-height:1.4;height:auto;min-height:64px;padding:10px 8px!important;border-radius:7px;margin:3px 0;gap:8px;border-left:3px solid transparent;color:#52627a}
+.dictionary-categories .el-menu-item.is-active{background:#eef5ff;border-left-color:#3478f6;color:#2862c6}
+.dictionary-categories .el-menu-item:hover{background:#f5f8fd}
+.dictionary-categories .el-menu-item>.el-icon{font-size:23px;width:28px;margin:0}
+.dictionary-category-copy{flex:1;min-width:0}
+.dictionary-category-copy>div{display:flex;justify-content:space-between;gap:6px;align-items:center}
+.dictionary-category-copy strong{font-size:12px}
+.dictionary-category-copy small{display:block;color:#8d9bb0;font-size:10px;margin-top:5px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dictionary-categories .el-tag{font-size:10px;height:20px;padding:0 6px}
+.dictionary-categories .el-button{margin:15px 0 0 8px}
+.dictionary-table-card{min-width:0}
+.dictionary-table-heading{display:flex;align-items:flex-start;gap:9px}
+.dictionary-table-heading .dictionary-category-symbol{width:31px;height:31px;font-size:19px;border-radius:8px}
+.dictionary-table-heading h2{font-size:15px;color:#243957;margin:0 0 5px}
+.dictionary-table-heading p{font-size:11px;color:#8b9bb1;line-height:1.7;margin:0}
+.dictionary-tags{display:flex;gap:7px;flex-wrap:wrap;margin-top:13px}
+.dictionary-table-card .el-card__body{padding:0 10px 12px}
+.dictionary-ui .el-table{--el-table-border-color:#eef2f8;--el-table-header-bg-color:#f5f8fc;--el-table-header-text-color:#64738c;--el-table-row-hover-bg-color:#f6f9ff;--el-table-current-row-bg-color:#eef5ff;font-size:12px}
+.dictionary-ui .el-table table{border-collapse:separate;margin:0}
+.dictionary-ui .el-table td.el-table__cell,.dictionary-ui .el-table th.el-table__cell{background:var(--el-table-tr-bg-color);padding:11px 0;color:#607089;border-bottom:1px solid var(--el-table-border-color);font-weight:400;white-space:normal}
+.dictionary-ui .el-table th.el-table__cell{background:#f5f8fc;font-weight:600;font-size:11px;padding:12px 0}
+.dictionary-ui .el-table .cell{padding:0 8px;line-height:1.6}
+.dictionary-item-name{font-size:12px;color:#32445f;font-weight:500}
+.dictionary-domain{font-size:11px;color:#8190a5}
+.dictionary-attention{display:block;color:#d78a35;font-size:10px}
+.dictionary-row-actions{display:flex;align-items:center;gap:8px}
+.dictionary-row-actions .el-button+.el-button{margin:0}
+.dictionary-row-actions .el-button{font-size:11px;min-height:24px}
+.dictionary-pagination{display:flex;align-items:center;justify-content:space-between;margin:16px 8px 0;gap:8px;color:#8c9ab0;font-size:11px}
+.dictionary-ui .el-pagination button{min-height:24px;padding:0 4px;border:0;border-radius:4px}
+.dictionary-explanation{display:grid;gap:13px}
+.dictionary-explanation .el-card__header{font-size:13px;padding:17px 13px}
+.dictionary-explanation .el-card__body{padding:13px}
+.dictionary-explanation h3{font-size:12px;color:#3e5474;margin:0 0 15px;display:flex;align-items:center;gap:6px}
+.dictionary-explanation h3 .el-icon{color:#3478f6}
+.dictionary-uses{list-style:none;margin:0;padding:0}
+.dictionary-uses li{display:flex;gap:9px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #eef2f8}
+.dictionary-uses li:last-child{border:0}
+.dictionary-uses li>span{width:22px;height:22px;border-radius:50%;background:#ecf3ff;color:#5085db;display:grid;place-items:center;flex:none;font-size:11px}
+.dictionary-uses strong{font-size:11px;color:#4b607c}
+.dictionary-uses p{font-size:10px;color:#8d9cb1;margin:5px 0 0;line-height:1.7}
+.dictionary-selection-hint{margin:12px 0 0;background:#f5f8fd;border-radius:6px;padding:10px;font-size:10px;color:#8a9aaf}
+.dictionary-reference{margin-top:12px;border-radius:6px;background:#f2f7ff;padding:12px;font-size:12px}
+.dictionary-reference p{font-size:11px;margin:8px 0;color:#667c9d}.dictionary-reference small{font-size:10px;color:#8b9bb0}
+.dictionary-ui .el-descriptions__body{background:transparent}
+.dictionary-ui .el-descriptions__table{margin:0;border-collapse:collapse}
+.dictionary-ui .el-descriptions__cell{padding:0 0 10px!important;border:0;background:transparent;white-space:normal}
+.dictionary-ui .el-descriptions__label{font-size:11px;line-height:1.6;color:#60728f;font-weight:600}
+.dictionary-ui .el-descriptions__content{font-size:11px;color:#8c9bb1;line-height:1.8}
+.dictionary-ui.dictionary-dialog{max-width:calc(100vw - 32px);border-radius:12px;padding:24px;margin-top:auto}
+.dictionary-dialog .el-dialog__header{padding-bottom:20px}.dictionary-dialog .el-dialog__title{font-size:18px;font-weight:600;color:#233956}
+.dictionary-dialog .el-dialog__headerbtn{padding:0;min-height:0}
+.dictionary-dialog .el-dialog__body{max-height:calc(90vh - 160px);overflow-y:auto;padding:3px 2px 0}
+.dictionary-dialog .el-dialog__footer{padding-top:20px}
+.dictionary-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 16px}
+.dictionary-dialog-footer{display:flex;justify-content:flex-end;gap:8px;padding-top:10px}
+.dictionary-form-error{font-size:12px;color:#dc384a;margin:8px 0;line-height:1.7}
+.dictionary-status-names{padding:10px;background:#f4f7fc;border-radius:6px;color:#536b8b;font-size:12px;max-height:120px;overflow:auto}
+.dictionary-field-editor,.dictionary-form-wide{grid-column:1/-1;min-width:0}
+.dictionary-field-editor-heading{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.dictionary-field-hint{font-size:11px;color:#8a9bb0;margin:5px 0 15px}
+.dictionary-custom-field{margin-bottom:12px}
+.dictionary-custom-field .el-card__header{padding:8px 13px}.dictionary-custom-field .el-card__body{padding:16px 13px 0}
+.dictionary-notice{font-size:12px;color:#249d72;margin:0 0 12px}
+@media(min-width:1700px){.dictionary-columns{grid-template-columns:225px minmax(0,1fr) 265px}}
+@media(max-width:1450px){.dictionary-columns{grid-template-columns:190px minmax(0,1fr) 225px;gap:12px}.dictionary-metric{gap:9px}.dictionary-metrics .el-card__body{padding:18px 12px}.dictionary-metric-icon{width:38px;height:42px;font-size:23px}}
+
+.dictionary-categories .el-sub-menu__title{height:42px;line-height:42px;padding:0 10px!important;font-size:12px;color:#667c99;border-radius:6px;margin:3px 0}
+.dictionary-categories .el-sub-menu .el-menu-item{height:45px;min-height:45px;padding:8px 10px 8px 13px!important;margin:2px 0;gap:7px}
+.dictionary-categories .el-sub-menu .el-menu-item>.el-icon{font-size:17px;width:20px}
+.dictionary-categories .el-sub-menu__icon-arrow{margin-top:-6px;right:8px;font-size:12px}
+.dictionary-group-count{margin-left:auto;margin-right:17px;font-size:10px;font-weight:400;color:#a4b1c2}
+.dictionary-categories .el-sub-menu.is-active>.el-sub-menu__title{color:#3e74c7}
+.dictionary-deletion-note{font-size:12px;color:#889bb4;margin-top:16px}
+
+.dictionary-ui.dictionary-dialog h3{color:#3e5474}

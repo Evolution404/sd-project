@@ -3,7 +3,7 @@
 .DEFAULT_GOAL := dev
 .PHONY: dev build test check
 
-DATA_DIR ?= $(CURDIR)/.local-test-data
+DATA_DIR ?= $(CURDIR)/.local-test-data/current-101
 HOST ?= 0.0.0.0
 PORT ?= 8787
 

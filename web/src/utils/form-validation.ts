@@ -81,6 +81,8 @@ export function presentFormError(message:string,details?:{row?:number,message:st
   const ranked=candidates.map(field=>{
    const label=normalize(fieldName(field));const text=normalize(item.message);
    const aliases=(field.dataset.errorMatch||'').split('|').filter(Boolean);
+   aliases.push(fieldName(field).replace(/\s+\d+$/,''));
+   if(field.dataset.validate==='quantity')aliases.push('工作量','数量','长度');
    if(label.includes('编码'))aliases.push('编码');
    if(/工作量|数量|确认量/.test(label))aliases.push('工作量','数量','确认量');
    if(label.includes('原因')||label.includes('依据说明'))aliases.push('原因','核实意见');
