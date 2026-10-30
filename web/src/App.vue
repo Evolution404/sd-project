@@ -12,6 +12,8 @@ import {newClientId} from './utils/client-id';
 import CustomFields from './components/CustomFields.vue';
 import LedgerWorkspace from './components/LedgerWorkspace.vue';
 import ApplicationShell from './components/ApplicationShell.vue';
+import LoginPage from './pages/LoginPage.vue';
+import DashboardPage from './pages/DashboardPage.vue';
 import StatusTag from './components/StatusTag.vue';
 import ReferencePriceWorkspace from './components/ReferencePriceWorkspace.vue';
 import StructureCreateModal from './components/StructureCreateModal.vue';
@@ -432,7 +434,7 @@ onMounted(async()=>{try{user.value=(await api('/auth/me')).user;await refresh()}
 watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands')loadDemands().catch(e=>error.value=errorMessage(e))});
 </script>
 <template>
-<div v-if="!user" class="auth-bg"><div class="auth-card"><div class="logo">SD</div><h1>输电项目全流程管理</h1><p class="muted">使用本地服务器账号登录</p><ElForm v-form-validation novalidate @submit.prevent="doLogin"><label><span class="field-caption">用户名</span><ElInput v-model="username" autocomplete="username" required placeholder="输入用户名"/></label><label><span class="field-caption">密码</span><ElInput v-model="password" type="password" autocomplete="current-password" required placeholder="输入密码"/></label><p v-if="visibleError" class="error">{{visibleError}}</p><ElButton native-type="submit" class="primary full" :disabled="busy">登录系统</ElButton></ElForm><p class="minor">首次部署请在服务器运行「初始化管理员.cmd」</p></div></div>
+<LoginPage v-if="!user" v-model:username="username" v-model:password="password" :busy="busy" :error="visibleError" @login="doLogin"/>
 <ApplicationShell v-else :user="user" :nav="nav" :section="sectionLabel" :title="displayTitle" @navigate="openNav" @logout="logout">
   <div v-if="nav!=='dictionary'" class="page-heading">
    <div class="breadcrumb"><span>{{sectionLabel}}</span><span class="breadcrumb-slash">/</span><strong>{{nav==='entry'?'新建需求':displayTitle}}</strong></div>
@@ -440,12 +442,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <p class="page-description">{{nav==='entry'?'选择多个位置，共同内容填一次；逐基差异在预览中调整。':nav==='overview'?'掌握项目与需求的当前状态。':nav==='demands'?'查看、核实和跟踪每一条需求。':nav==='access'?'由管理员逐个配置允许访问服务器的 IP 地址。':nav==='projects'?'从项目储备到立项及分次执行的全过程管理。':'维护真实业务台账与版本历史。'}}</p>
   </div>
   <p v-if="visibleError" role="alert" class="alert error">{{visibleError}} <ElButton @click="error=''">×</ElButton></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
-  <template v-if="nav==='overview'"><div class="stats"><div v-for="(label,key) in {lines:'线路',physical:'实体杆塔',logical:'逻辑杆塔',pending:'待核实需求',active:'有效需求'}" :key="key" class="stat"><small>{{label}}</small><strong>{{overview[key]??0}}</strong></div></div><section class="panel"><div class="section-header"><div><h2>待核实事项</h2><p class="muted">基于当前数据库实际记录</p></div><ElButton class="secondary" @click="openNav('demands')">进入需求中心</ElButton></div><div v-if="!demands.filter(x=>x.status==='pending').length" class="empty">当前没有待核实需求</div><div v-else class="table-wrap"><ElTable :data="demands.filter(x=>x.status==='pending').slice(0,8)" >
-<ElTableColumn><template #header>需求编号</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.demand_no}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>位置</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>操作</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.operation_snapshot}} · {{d.target_object}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>工作量</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header></template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div ><ElButton class="link" @click="openNav('demands');showDemand(d.id)">查看</ElButton></div></template></template></ElTableColumn></ElTable></div></section></template>
+  <DashboardPage v-if="nav==='overview'" :overview="overview" :demands="demands" @navigate="openNav" @open-demand="id=>{openNav('demands');showDemand(id)}"/>
   <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands"/>
   <ReferencePriceWorkspace v-if="nav==='prices'" :items="items" :voltage="voltage" :can-edit="roleAdmin"/>
   <FundingWorkspace v-if="['frameworks','agreements'].includes(nav)" :kind="nav" :can-write="!!roleWrite" :can-delete="roleAdmin" :can-authorize="roleAdmin" @changed="loadStructure"/>

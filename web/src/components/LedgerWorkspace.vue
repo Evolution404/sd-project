@@ -66,22 +66,32 @@ function notify(message:string){success.value=message}
 function report(e:any){error.value=e?.message||'请求失败';presentFormError(error.value,e?.details)}
 const api=(path:string,method='GET',body?:any)=>requestApi(path,method,body);
 let loadVersion=0;
-async function loadData(id=props.lineId){
- const ticket=++loadVersion;loading.value=true;
- try{const [ls,vs,ds]=await Promise.all([api('/ledger/lines'),api('/voltage-levels'),api('/dictionary-items')]);if(ticket!==loadVersion)return;lines.value=ls;voltage.value=vs;items.value=ds;
+let loadingLineId='';
+let mastersLoadedAt=0;
+async function loadData(id=props.lineId,forceMasters=false){
+ const ticket=++loadVersion;loadingLineId=id;loading.value=true;
+ try{
+  // Rapid switching between lines should not refetch global lists and dictionaries.
+  // Refresh metadata on edits and periodically for multi-user changes.
+  const fresh=forceMasters||!mastersLoadedAt||Date.now()-mastersLoadedAt>15000;
+  const [ls,vs,ds]=fresh
+   ?await Promise.all([api('/ledger/lines'),api('/voltage-levels'),api('/dictionary-items')])
+   :[lines.value,voltage.value,items.value];
+  if(ticket!==loadVersion)return;
+  if(fresh){lines.value=ls;voltage.value=vs;items.value=ds;mastersLoadedAt=Date.now()}
  if(props.view!=='lines')void loadQuery();
  const target=ls.some((l:Rec)=>l.id===id)?id:ls[0]?.id||'';if(target!==props.lineId)emit('update:lineId',target);
  const w=target?await api('/ledger/lines/'+target):null;if(ticket!==loadVersion)return;workspace.value=w;
  for(const key of Object.keys(selectedTowers))if(!w||!nodes.value.some(t=>t.id===key))delete selectedTowers[key];
  for(const key of Object.keys(selectedSpans))if(!w||!w.spans.some((s:Rec)=>s.id===key&&s.status!=='retired'))delete selectedSpans[key];
- }catch(e){if(ticket===loadVersion)report(e)}finally{if(ticket===loadVersion)loading.value=false}
+ }catch(e){if(ticket===loadVersion)report(e)}finally{if(ticket===loadVersion){loading.value=false;loadingLineId=''}}
 }
 async function selectLine(id:string){if(id===props.lineId&&workspace.value?.line.id===id)return;emit('update:lineId',id);Object.keys(selectedTowers).forEach(k=>delete selectedTowers[k]);Object.keys(selectedSpans).forEach(k=>delete selectedSpans[k]);towerView.value=null;highlight.value=[];towerSearch.value='';await loadData(id)}
 async function openQuery(row:Rec){const kind=props.view;emit('workspace',{lineId:row.line_id,tab:props.view==='towers'?'towers':'spans',towerId:props.view==='towers'?row.id:''});await selectLine(row.line_id);tab.value=kind==='towers'?'towers':'spans';if(row.tower_no)await showTower(row.id)}
 function resetEditor(kind:string,values:Rec={},list:Rec[]=[]){error.value='';editor.value=kind;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,values);rows.value=list;Object.keys(common).forEach(k=>delete common[k]);Object.assign(common,{tower_type:'',model:'',height:'',purpose:'',commissioned_on:'',longitude:'',latitude:'',management_department:'',maintenance_team:''});preview.value=null;previewHash.value='';sourceLine.value='';requestKey.value=newClientId();initialSnapshot.value=snapshot()}
 function closeEditor(){if(busy.value)return;if(dirty.value){discard.value=true;return}editor.value='';error.value=''}
 function discardEditor(){discard.value=false;editor.value='';error.value=''}
-async function saved(result:Rec,message:string){editor.value='';error.value='';highlight.value=result.ids||[];await loadData(result.line_id||result.id||props.lineId);emit('changed');notify(message)}
+async function saved(result:Rec,message:string){editor.value='';error.value='';highlight.value=result.ids||[];await loadData(result.line_id||result.id||props.lineId,true);emit('changed');notify(message)}
 function lineForm(branch=false){resetEditor('line',{line_kind:branch?'branch':'main',parent_line_id:branch?props.lineId:'',junction_tower_id:'',name:'',voltage_level_id:branch?lineChoice.value?.voltage_level_id:'',status:'active',setup_status:'ready'});if(branch)void ensureTowerLookup().catch(report)}
 function editLine(){if(lineChoice.value){resetEditor('line',{...lineChoice.value,reason:''});if(lineChoice.value.line_kind==='branch')void ensureTowerLookup().catch(report)}}
 async function validateLineRequired(){
@@ -121,7 +131,7 @@ async function saveWholeReplacement(){
    source_version:form.source_version,target_physical_tower_id:form.target_physical_tower_id,
    confirmed_towers:rows.value.map((x:Rec)=>({id:x.id,version:x.version})),reason:form.reason
   });
-  editor.value='';await loadData(props.lineId);emit('changed');
+  editor.value='';await loadData(props.lineId,true);emit('changed');
   if(towerView.value)await showTower(towerView.value.id);
   notify('整塔更换完成，共塔回路已在同一事务更新，历史保留');
  }catch(e){report(e)}finally{busy.value=false}
@@ -147,7 +157,7 @@ function launchDemands(kind:string){if(kind==='spans'){const spans=chosenSpans.v
 const actionLabel=(s:string)=>({create:'新建线路',update:'线路资料调整',delete:'删除线路',add_towers:'添加杆塔',update_tower:'杆塔调整',delete_tower:'删除杆塔',physical_update:'实际杆塔公共属性调整',bind_shared:'共塔关联变更',reorder:'沿线顺序调整',add_spans:'添加档距',update_span:'档距关系调整',delete_span:'删除档距',replace_spans:'拆档 / 合档'} as Rec)[s]||'台账变更';
 function unload(event:BeforeUnloadEvent){if(dirty.value){event.preventDefault();event.returnValue=''}}
 onMounted(()=>{void loadData();window.addEventListener('beforeunload',unload)});onBeforeUnmount(()=>{loadVersion++;window.removeEventListener('beforeunload',unload)});
-watch(()=>props.lineId,id=>{if(id&&workspace.value?.line.id!==id)void loadData(id)});
+watch(()=>props.lineId,id=>{if(id&&workspace.value?.line.id!==id&&loadingLineId!==id)void loadData(id)});
 watch(tab,value=>emit('update:focusTab',value));
 watch(()=>props.focusTab,value=>{if(value)tab.value=value});watch(()=>props.focusTower,id=>{if(id)void showTower(id)});
 watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()});watch(queryPage,()=>void loadQuery());
