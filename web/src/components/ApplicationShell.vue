@@ -11,7 +11,7 @@ const props=defineProps<{user:User;nav:string;section:string;title:string}>();
 const emit=defineEmits<{navigate:[value:string];logout:[]}>();
 const menu=ref<MenuInstance>();
 const roleName=computed(()=>({admin:'系统管理员',editor:'业务编制',verifier:'需求核实',viewer:'只读用户'} as Record<string,string>)[props.user.role]||'业务用户');
-const groupOf=(nav:string)=>['entry','demands'].includes(nav)?'demands-group':['lines','towers','spans'].includes(nav)?'masters':['frameworks','agreements'].includes(nav)?'frameworks-group':['dictionary','access'].includes(nav)?'system':'';
+const groupOf=(nav:string)=>['entry','demands'].includes(nav)?'demands-group':['lines','towers','spans'].includes(nav)?'masters':['frameworks','agreements'].includes(nav)?'frameworks-group':['dictionary','access','audit'].includes(nav)?'system':'';
 watch(()=>props.nav,async value=>{await nextTick();const group=groupOf(value);if(group)menu.value?.open(group)},{immediate:true});
 </script>
 <template>
@@ -32,7 +32,7 @@ watch(()=>props.nav,async value=>{await nextTick();const group=groupOf(value);if
       <ElMenuItem index="prices" aria-label="检修参考单价"><ElIcon><Tools/></ElIcon><span>检修参考单价</span></ElMenuItem>
       <ElSubMenu index="frameworks-group" aria-label="框架与协议"><template #title><ElIcon><Connection/></ElIcon><span>框架与协议</span></template><ElMenuItem index="frameworks" aria-label="项目框架">项目框架</ElMenuItem><ElMenuItem index="agreements" aria-label="执行协议">执行协议</ElMenuItem></ElSubMenu>
       <ElSubMenu index="masters" aria-label="基础台账"><template #title><ElIcon><Location/></ElIcon><span>基础台账</span></template><ElMenuItem index="lines" aria-label="线路台账">线路台账</ElMenuItem><ElMenuItem index="towers" aria-label="杆塔查询">杆塔查询</ElMenuItem><ElMenuItem index="spans" aria-label="档距查询">档距查询</ElMenuItem></ElSubMenu>
-      <ElSubMenu v-if="user.role==='admin'" index="system" aria-label="系统管理"><template #title><ElIcon><Setting/></ElIcon><span>系统管理</span></template><ElMenuItem index="dictionary" aria-label="数据字典"><ElIcon><Collection/></ElIcon>数据字典</ElMenuItem><ElMenuItem index="access" aria-label="IP访问管理"><ElIcon><List/></ElIcon>IP访问管理</ElMenuItem></ElSubMenu>
+      <ElSubMenu v-if="user.role==='admin'" index="system" aria-label="系统管理"><template #title><ElIcon><Setting/></ElIcon><span>系统管理</span></template><ElMenuItem index="dictionary" aria-label="数据字典"><ElIcon><Collection/></ElIcon>数据字典</ElMenuItem><ElMenuItem index="audit" aria-label="操作记录"><ElIcon><Document/></ElIcon>操作记录</ElMenuItem><ElMenuItem index="access" aria-label="IP访问管理"><ElIcon><List/></ElIcon>IP访问管理</ElMenuItem></ElSubMenu>
      </ElMenu>
      <footer class="application-sidebar-footer"><div><strong>{{user.username}}</strong><small>{{roleName}}</small></div><ElButton text size="small" @click="emit('logout')">退出</ElButton></footer>
     </ElAside>

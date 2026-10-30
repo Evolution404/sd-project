@@ -134,12 +134,12 @@ try{
  await page.locator('.detail-panel').getByRole('button',{name:/关闭/}).click();
  await nav('项目框架');
  await page.getByRole('button',{name:'新增项目框架'}).click();
- let st=page.locator('.form-panel');
+ let st=page.getByRole('dialog',{name:'创建项目框架'});
  await fill(st,'名称','浏览器框架');await fill(st,'授权额度（元）','10000');
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await nav('执行协议');await page.getByRole('button',{name:'新增执行协议'}).click();
- st=page.locator('.form-panel');await fill(st,'名称','浏览器协议');await fill(st,'授权额度（元）','5000');
- await st.getByLabel('所属框架').selectOption({label:'浏览器框架'});
+ st=page.getByRole('dialog',{name:'创建执行协议'});await fill(st,'名称','浏览器协议');await fill(st,'授权额度（元）','5000');
+ await chooseDictionaryOption(st,'所属框架','浏览器框架');
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await nav('子项目储备');await page.getByRole('button',{name:'新增子项目储备'}).click();
  st=page.locator('.form-panel');await fill(st,'名称','浏览器子项目');

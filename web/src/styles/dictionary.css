@@ -121,3 +121,5 @@
 .dictionary-group-count{margin-left:auto;margin-right:17px;font-size:10px;font-weight:400;color:#a4b1c2}
 .dictionary-categories .el-sub-menu.is-active>.el-sub-menu__title{color:#3e74c7}
 .dictionary-deletion-note{font-size:12px;color:#889bb4;margin-top:16px}
+
+.dictionary-ui.dictionary-dialog h3{color:#3e5474}

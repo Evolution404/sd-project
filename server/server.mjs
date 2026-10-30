@@ -1,3 +1,5 @@
+import {listAuditRecords,auditRecordDetail,createManualAudit,maintainAuditRecord} from './audit-records.mjs';
+import {fundingDetail,updateFunding,fundingDeletionPreview,deleteFunding,deletedFunding,filterFundingStatus} from './funding.mjs';
 import {dictionaryDeleted,currentDictionaryRows} from './dictionary-deletions.mjs';
 import {dictionaryWorkspace,changeDictionaryStatus,exportDictionary,dictionaryDeletionPreview,deleteDictionaryItem} from './dictionary-workspace.mjs';
 import {nextDictionaryOrder,reorderDictionary} from './dictionary-order.mjs';
@@ -484,6 +486,19 @@ async function dispatch(req,res){
  if(pathname==='/api/auth/me'&&method==='GET')return json(res,200,{user:publicUser(user)});
  if(pathname==='/api/auth/logout'&&method==='POST'){csrf(req);const token=(req.headers.cookie||'').split(';').find(x=>x.trim().startsWith('sd_session='))?.trim().slice(11);if(token)exec('DELETE FROM sessions WHERE token_hash=?',shaToken(token));return json(res,200,{ok:true},{'Set-Cookie':'sd_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0'})}
  if(method!=='GET')csrf(req);
+ if(pathname==='/api/audit-records'){
+  permit(user,'admin');
+  if(method==='GET')return json(res,200,listAuditRecords(searchParams));
+  if(method==='POST')return json(res,201,createManualAudit(await parseJson(req),user));
+ }
+ const auditRecordRoute=pathname.match(/^\/api\/audit-records\/([^/]+)(?:\/(restore))?$/);
+ if(auditRecordRoute){
+  permit(user,'admin');const [,id,action]=auditRecordRoute;
+  if(method==='GET'&&!action)return json(res,200,auditRecordDetail(id));
+  if(method==='PATCH'&&!action)return json(res,200,maintainAuditRecord(id,'annotate',await parseJson(req),user));
+  if(method==='DELETE'&&!action)return json(res,200,maintainAuditRecord(id,'hide',await parseJson(req),user));
+  if(method==='POST'&&action==='restore')return json(res,200,maintainAuditRecord(id,'show',await parseJson(req),user));
+ }
  if(pathname==='/api/access/ips'&&method==='GET'){
   permit(user,'admin');
   return json(res,200,{current_ip:normalizeIP(req.socket.remoteAddress),local_recovery:true,
@@ -557,10 +572,18 @@ async function dispatch(req,res){
    return json(res,200,projectDetail(scopeReference[1]));
   }
  }
- if(pathname==='/api/frameworks'&&method==='GET'){permit(user,'view');return json(res,200,listFrameworks())}
+ if(pathname==='/api/frameworks'&&method==='GET'){permit(user,'view');return json(res,200,searchParams.get('status')==='deleted'?deletedFunding('frameworks'):filterFundingStatus(listFrameworks(),searchParams.get('status')))}
  if(pathname==='/api/frameworks'&&method==='POST'){permit(user,'write');return json(res,201,createFramework(await parseJson(req),user))}
- if(pathname==='/api/agreements'&&method==='GET'){permit(user,'view');return json(res,200,listAgreements())}
+ if(pathname==='/api/agreements'&&method==='GET'){permit(user,'view');return json(res,200,searchParams.get('status')==='deleted'?deletedFunding('agreements'):filterFundingStatus(listAgreements(),searchParams.get('status')))}
  if(pathname==='/api/agreements'&&method==='POST'){permit(user,'write');return json(res,201,createAgreement(await parseJson(req),user))}
+ const fundingRoute=pathname.match(/^\/api\/(frameworks|agreements)\/([^/]+)(?:\/(deletion))?$/);
+ if(fundingRoute){
+  const [,kind,id,action]=fundingRoute;
+  permit(user,method==='GET'?'view':method==='DELETE'?'admin':'write');
+  if(method==='GET')return json(res,200,action?fundingDeletionPreview(kind,id):fundingDetail(kind,id));
+  if(method==='PATCH'&&!action)return json(res,200,updateFunding(kind,id,await parseJson(req),user));
+  if(method==='DELETE'&&!action)return json(res,200,deleteFunding(kind,id,await parseJson(req),user));
+ }
  const progressRoute=pathname.match(/^\/api\/projects\/([^/]+)\/progress$/);
  if(progressRoute&&method==='GET'){permit(user,'view');return json(res,200,projectProgress(progressRoute[1]))}
  const settlementRoute=pathname.match(/^\/api\/projects\/([^/]+)\/settlements$/);

@@ -1,3 +1,4 @@
+import {currentFunding,fundingDeletion} from './funding.mjs';
 import {systemCode} from './system-code.mjs';
 import {spanDemandLocation} from './ledgers.mjs';
 import {captureDemand,readDemandSnapshot} from './demand-snapshots.mjs';
@@ -31,10 +32,10 @@ function summary(items){
 }
 const event=(user,entity,id,action,before,after,reason='')=>audit(user.id,entity,id,action,before,after,reason);
 export function listFrameworks(){
- return all(`SELECT f.*, COALESCE((SELECT SUM(a.limit_fen) FROM agreements a WHERE a.framework_id=f.id),0) agreement_limit_fen,
+ return currentFunding('frameworks',all(`SELECT f.*, COALESCE((SELECT SUM(a.limit_fen) FROM agreements a WHERE a.framework_id=f.id),0) agreement_limit_fen,
  (SELECT COUNT(*) FROM agreements a WHERE a.framework_id=f.id) agreement_count,
  COALESCE((SELECT SUM(p.approved_budget_fen) FROM projects p WHERE p.framework_id=f.id AND p.status IN ('approved','closed')),0) approved_project_budget_fen
- FROM frameworks f ORDER BY f.created_at DESC`);
+ FROM frameworks f ORDER BY f.created_at DESC`));
 }
 export function createFramework(body,user){
  const fiscalYear=body.fiscal_year===undefined?new Date().getFullYear():Number(body.fiscal_year);
@@ -45,9 +46,9 @@ export function createFramework(body,user){
  return transaction(()=>{exec('INSERT INTO frameworks('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));event(user,'frameworks',item.id,'create',null,item);return item});
 }
 export function listAgreements(){
- return all(`SELECT a.*,f.name AS framework_name,f.code AS framework_code,
+ return currentFunding('agreements',all(`SELECT a.*,f.name AS framework_name,f.code AS framework_code,
  COALESCE((SELECT SUM(p.approved_budget_fen) FROM projects p WHERE p.agreement_id=a.id AND p.status IN ('approved','closed')),0) approved_budget_fen
- FROM agreements a JOIN frameworks f ON f.id=a.framework_id ORDER BY a.created_at DESC`);
+ FROM agreements a JOIN frameworks f ON f.id=a.framework_id ORDER BY a.created_at DESC`)).map(row=>({...row,framework_deleted:!!fundingDeletion('frameworks',row.framework_id)}));
 }
 export function createAgreement(body,user){
  const f=framework(body.framework_id);
@@ -110,7 +111,9 @@ export function listProjects(){
 }
 export function projectDetail(id){
  const p=project(id),items=scopes(id),events=all('SELECT * FROM project_stage_events WHERE project_id=? ORDER BY created_at',id);
- return {...p,scopes:items,estimate:summary(items),events};
+ const parent=one('SELECT name,fiscal_year FROM frameworks WHERE id=?',p.framework_id);
+ const ag=p.agreement_id?one('SELECT name FROM agreements WHERE id=?',p.agreement_id):null;
+ return {...p,framework_name:parent?.name,framework_year:parent?.fiscal_year,framework_deleted:!!fundingDeletion('frameworks',p.framework_id),agreement_name:ag?.name||null,agreement_deleted:!!(p.agreement_id&&fundingDeletion('agreements',p.agreement_id)),scopes:items,estimate:summary(items),events};
 }
 function demand(id){
  const d=one('SELECT * FROM demands WHERE id=?',id);

@@ -8,6 +8,8 @@ import ApplicationShell from './components/ApplicationShell.vue';
 import StatusTag from './components/StatusTag.vue';
 import ReferencePriceWorkspace from './components/ReferencePriceWorkspace.vue';
 import StructureCreateModal from './components/StructureCreateModal.vue';
+const AuditWorkspace=defineAsyncComponent(()=>import('./components/AuditWorkspace.vue'));
+const FundingWorkspace=defineAsyncComponent(()=>import('./components/FundingWorkspace.vue'));
 const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
 type Rec = Record<string,any>;
@@ -57,7 +59,7 @@ const newCommon=():Rec=> ({work_target_type:'line',operation_id:'',target_object
 const common=reactive<Rec>(newCommon());
 const initialForm:Rec={};
 const form=reactive<Rec>({});
-const labels:Rec={overview:'工作台',lines:'线路台账',towers:'杆塔查询',spans:'档距查询',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备',prices:'检修参考单价'};
+const labels:Rec={overview:'工作台',lines:'线路台账',towers:'杆塔查询',spans:'档距查询',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备',prices:'检修参考单价',audit:'操作记录'};
 const tabs=['overview','entry','demands','lines','physical','logical','dictionary','access'];
 const ops=computed(()=>items.value.filter(x=>x.type_id==='operation'&&x.status==='active'&&(x.work_target_type===common.work_target_type||x.work_target_type==='both')));
 const units=computed(()=>items.value.filter(x=>x.type_id==='unit'&&x.status==='active'));
@@ -69,7 +71,7 @@ const totalQty=computed(()=>selectedRows.value.reduce((acc,x)=>acc+(Number(x.qua
 const thisLineSelected=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&selected[x.id]&&!excluded[x.id]).length);
 const thisLineTotal=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&x.status==='active').length);
 const selectedLines=computed(()=>lines.value.filter(l=>selectedRows.value.some(x=>x.line_id===l.id)));
-const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':nav.value==='prices'?'参考单价':['frameworks','agreements'].includes(nav.value)?'框架与协议':['lines','towers','spans'].includes(nav.value)?'基础台账':['dictionary','access'].includes(nav.value)?'系统管理':'项目全流程');
+const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':nav.value==='prices'?'参考单价':['frameworks','agreements'].includes(nav.value)?'框架与协议':['lines','towers','spans'].includes(nav.value)?'基础台账':['dictionary','access','audit'].includes(nav.value)?'系统管理':'项目全流程');
 const displayTitle=computed(()=>nav.value==='entry'?'新建需求':nav.value==='projects'?'项目中心':nav.value==='overview'?'工作台':mediaTitle.value);
 const roleStageApprove=computed(()=>user.value?.role==='admin');
 const roleWrite=computed(()=>user.value&&['admin','editor'].includes(user.value.role));
@@ -417,17 +419,18 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <template v-if="nav==='overview'"><div class="stats"><div v-for="(label,key) in {lines:'线路',physical:'实体杆塔',logical:'逻辑杆塔',pending:'待核实需求',active:'有效需求'}" :key="key" class="stat"><small>{{label}}</small><strong>{{overview[key]??0}}</strong></div></div><section class="panel"><div class="section-header"><div><h2>待核实事项</h2><p class="muted">基于当前数据库实际记录</p></div><button class="secondary" @click="openNav('demands')">进入需求中心</button></div><div v-if="!demands.filter(x=>x.status==='pending').length" class="empty">当前没有待核实需求</div><div v-else class="table-wrap"><table><thead><tr><th>需求编号</th><th>位置</th><th>操作</th><th>工作量</th><th></th></tr></thead><tbody><tr v-for="d in demands.filter(x=>x.status==='pending').slice(0,8)" :key="d.id"><td>{{d.demand_no}}</td><td>{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</td><td>{{d.operation_snapshot}} · {{d.target_object}}</td><td>{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</td><td><button class="link" @click="openNav('demands');showDemand(d.id)">查看</button></td></tr></tbody></table></div></section></template>
   <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands"/>
   <ReferencePriceWorkspace v-if="nav==='prices'" :items="items" :voltage="voltage" :can-edit="roleAdmin"/>
-  <template v-if="['frameworks','agreements','projects'].includes(nav)">
+  <FundingWorkspace v-if="['frameworks','agreements'].includes(nav)" :kind="nav" :can-write="!!roleWrite" :can-delete="roleAdmin" :can-authorize="roleAdmin" @changed="loadStructure"/>
+  <template v-if="nav==='projects'">
    <section class="panel">
     <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">管理：年度框架 → 子项目 → 检修计划 → 专业需求；资金：年度框架 → 协行协议 → 子项目 → 检修计划</p></div><button v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</button></div>
     <div class="table-wrap"><table>
-     <thead><tr><th>名称</th><th v-if="nav!=='frameworks'">所属框架/协议</th><th>{{nav==='projects'?'已批准预算 (元)':'授权额度 (元)'}}</th><th>状态</th><th>操作</th></tr></thead>
+     <thead><tr><th>名称</th><th>所属框架/协议</th><th>已批准预算 (元)</th><th>状态</th><th>操作</th></tr></thead>
      <tbody>
-      <tr v-for="x in nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects" :key="x.id">
-       <td>{{x.name}}</td><td v-if="nav!=='frameworks'">{{nav==='agreements'?x.framework_name:(x.framework_name+' / '+(x.agreement_name||'协议待落实'))}}</td>
-       <td>{{money(nav==='projects'?x.approved_budget_fen:x.limit_fen)}}</td><td><StatusTag :status="x.status" :label="nav==='projects'?undefined:(x.status==='active'?'启用':'停用')"/></td>
-       <td><button v-if="nav==='projects'" class="link" @click="openProject(x)">需求范围与阶段</button><span v-else class="muted">{{nav==='frameworks'?'协议额度：'+money(x.agreement_limit_fen):'已批准预算：'+money(x.approved_budget_fen)}}</span></td>
-      </tr><tr v-if="!(nav==='frameworks'?frameworks:nav==='agreements'?agreements:projects).length"><td colspan="5" class="empty">暂无记录，请从创建框架开始</td></tr>
+      <tr v-for="x in projects" :key="x.id">
+       <td>{{x.name}}</td><td>{{x.framework_name}} / {{x.agreement_name||'协议待落实'}}</td>
+       <td>{{money(x.approved_budget_fen)}}</td><td><StatusTag :status="x.status"/></td>
+       <td><button class="link" @click="openProject(x)">需求范围与阶段</button></td>
+      </tr><tr v-if="!(projects).length"><td colspan="5" class="empty">暂无记录，请从创建框架开始</td></tr>
      </tbody>
     </table></div>
    </section>
@@ -463,13 +466,14 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div class="form-actions"><button type="button" class="light" @click="projectAction=''">取消</button><button class="primary">保存初步估算</button></div>
      </form>
    </FormModal>
+   <p class="muted">所属年度框架：{{projectView.framework_year}} · {{projectView.framework_name}}{{projectView.framework_deleted?'（已删除，不再允许新增立项）':''}}</p>
    <h3>关联执行协议</h3>
-   <div class="toolbar"><span class="muted">{{agreements.find(x=>x.id===projectView?.agreement_id)?.name||'暂未关联执行协议'}}</span>
+   <div class="toolbar"><span class="muted">{{projectView.agreement_name||agreements.find(x=>x.id===projectView?.agreement_id)?.name||'暂未关联执行协议'}}{{projectView.agreement_deleted?'（已删除，保留历史归属）':''}}</span>
     <button v-if="roleWrite&&['reserve','stocked'].includes(projectView.status)" class="secondary" @click="projectAction='agreement'">设置执行协议</button>
    </div>
    <FormModal :open="projectAction==='agreement'" title="选择执行协议" :error="visibleError" @close="projectAction=''">
     <form v-form-validation novalidate class="form-grid" @submit.prevent="bindProjectAgreement">
-     <label class="wide"><span class="field-caption">唯一执行协议</span><select v-model="agreementSelection" required><option value="">请选择</option><option v-for="a in agreements.filter(x=>x.status==='active')" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
+     <label class="wide"><span class="field-caption">唯一执行协议</span><select v-model="agreementSelection" required><option value="">请选择</option><option v-for="a in agreements.filter(x=>x.status==='active'&&x.framework_id===projectView?.framework_id)" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
      <div class="form-actions"><button type="button" class="light" @click="projectAction=''">取消</button><button class="primary">确认协议归属</button></div>
     </form>
    </FormModal>
@@ -644,6 +648,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <p class="muted minor">只允许精确 IP 地址，不允许填网段、IP 范围或域名。验证使用真实 TCP 连接地址，不相信浏览器传入的代理头。IP 授权不能替代账号登录；Windows 防火墙仍需单独放行服务端口。</p>
     </section>
   </template>
+  <AuditWorkspace v-if="nav==='audit'&&roleAdmin"/>
   <DictionaryWorkspace v-if="nav==='dictionary'" @changed="refresh"/>
   <template v-if="nav==='entry'">
    <form v-form-validation novalidate class="entry-main" @submit.prevent="submitBatch(false)">
