@@ -1,3 +1,4 @@
+import {selectUiOption} from './helpers/select-ui-option.mjs';
 import {navigate} from './browser-navigation.mjs';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,mkdirSync} from 'node:fs';
@@ -28,16 +29,16 @@ try{
  async function entry(){await page.locator('.sidebar .el-sub-menu > .el-sub-menu__title').filter({hasText:'需求中心'}).click();await page.locator('.sidebar').getByRole('menuitem',{name:'新建需求',exact:true}).click();await page.getByRole('heading',{name:'选择位置',exact:true}).waitFor()}
  const panels=page.locator('section.entry-section');
  await page.goto(origin);await page.getByRole('heading',{name:'工作台',exact:true}).waitFor();await entry();
- await panels.nth(0).getByLabel('选择线路').selectOption(l.id);await page.getByRole('button',{name:'全选本线路'}).click();
- await panels.nth(1).getByLabel('操作类型').selectOption(op.id);
- await panels.nth(1).getByLabel('共同处理部位').fill('横担');await panels.nth(1).getByLabel('每基工作量').fill('0.0001');await panels.nth(1).getByLabel('计量单位').selectOption(unit.id);
+ await selectUiOption(panels.nth(0).getByLabel('选择线路'),l.id);await page.getByRole('button',{name:'全选本线路'}).click();
+ await selectUiOption(panels.nth(1).getByLabel('操作类型'),op.id);
+ await panels.nth(1).getByLabel('共同处理部位').fill('横担');await panels.nth(1).getByLabel('每基工作量').fill('0.0001');await selectUiOption(panels.nth(1).getByLabel('计量单位'),unit.id);
  await panels.nth(1).getByLabel('完成标准').fill('按核定部位验收');await panels.nth(1).getByLabel('问题描述').fill('现场鸟害风险');
  await panels.nth(1).getByLabel('高度',{exact:true}).fill('12.5');
- const second=panels.nth(3).locator('tbody tr').filter({hasText:'#2'});await second.locator('summary').click();await second.getByLabel('#2 相位',{exact:true}).selectOption('B');
- await panels.nth(2).getByLabel('来源类型').selectOption({label:'巡视'});await panels.nth(2).getByLabel('提出单位 / 人员').fill('审计班组');
+ const second=panels.nth(3).locator('tbody tr').filter({hasText:'#2'});await second.locator('summary').click();await selectUiOption(second.getByLabel('#2 相位',{exact:true}),'B');
+ await selectUiOption(panels.nth(2).getByLabel('来源类型'),{label:'巡视'});await panels.nth(2).getByLabel('提出单位 / 人员').fill('审计班组');
  await page.getByRole('button',{name:'提交 2 条核实'}).click();
  assert.equal(await panels.nth(1).getByLabel('相位',{exact:true}).getAttribute('aria-invalid'),'true');
- await panels.nth(1).getByLabel('相位',{exact:true}).selectOption('A');
+ await selectUiOption(panels.nth(1).getByLabel('相位',{exact:true}),'A');
  await panels.nth(1).locator('.field-error').waitFor({state:'detached'});
  await page.getByRole('button',{name:'保存草稿'}).click();await page.getByRole('status').filter({hasText:'草稿已保存'}).waitFor();
  let drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);const id=drafts[0].id;

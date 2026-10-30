@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {ElTable,ElTableColumn} from 'element-plus';
+import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
+import {ElSelect,ElOption} from 'element-plus';
+import {ElButton} from 'element-plus';
 import {computed,reactive,ref,watch} from 'vue';
 import FormModal from './FormModal.vue';
 import SettlementVoucherWorkspace from './SettlementVoucherWorkspace.vue';
@@ -89,7 +93,7 @@ async function submit(){
  <section class="plan-finance" aria-label="检修计划结算">
   <div class="plan-finance-heading">
    <div><h3>检修计划结算</h3><p class="muted">凭证按具体检修工作明细归集。项目级未归集金额不会自动计入本计划。</p></div>
-   <button type="button" class="secondary" :disabled="loading" @click="refresh">刷新</button>
+   <ElButton native-type="button" class="secondary" :disabled="loading" @click="refresh">刷新</ElButton>
   </div>
   <p v-if="loading" class="muted" role="status">正在读取结算凭证</p>
   <p v-if="error" role="alert" class="plan-finance-error">{{error}}</p>
@@ -102,58 +106,51 @@ async function submit(){
    </div>
    <p class="plan-finance-disclaimer">计划工作量估算来源于批准范围单价快照，并非独立核定的计划预算；结算登记也不代表实际付款。</p>
    <div class="plan-finance-actions">
-    <button v-if="canRecord&&summary.items.length" type="button" class="primary" @click="openRecord()">登记结算凭证</button>
-    <button v-if="canSettle&&remainingByOriginal.length" type="button" class="secondary" @click="openReversal()">登记冲销</button>
+    <ElButton v-if="canRecord&&summary.items.length" native-type="button" class="primary" @click="openRecord()">登记结算凭证</ElButton>
+    <ElButton v-if="canSettle&&remainingByOriginal.length" native-type="button" class="secondary" @click="openReversal()">登记冲销</ElButton>
    </div>
    <h4>检修工作明细</h4>
    <div class="table-wrap">
-    <table>
-     <thead><tr><th>专业需求</th><th>计划工作量</th><th>实际完成量</th><th>工作量估算（元）</th><th>净结算（元）</th><th v-if="canSettle">操作</th></tr></thead>
-     <tbody>
-      <tr v-for="item in summary.items" :key="item.id">
-       <td>{{item.demand_no}}</td>
-       <td class="mono">{{qty(item.planned_quantity_scaled)}}</td>
-       <td class="mono">{{qty(item.completed_quantity_scaled)}}</td>
-       <td class="mono">{{money(item.planned_estimate_fen)}}</td>
-       <td class="mono">{{money(item.settled_fen)}}</td>
-       <td v-if="canSettle"><button v-if="canRecord" type="button" class="link" @click="openRecord(item.id)">登记结算</button></td>
-      </tr>
-      <tr v-if="!summary.items.length"><td :colspan="canSettle?6:5" class="empty">尚未安排检修工作明细</td></tr>
-     </tbody>
-    </table>
+    <ElTable :data="summary.items" >
+<ElTableColumn><template #header>专业需求</template><template #default="{row,$index}"><template v-for="([item]) in [[row,$index]]"><div >{{item.demand_no}}</div></template></template></ElTableColumn>
+<ElTableColumn><template #header>计划工作量</template><template #default="{row,$index}"><template v-for="([item]) in [[row,$index]]"><div class="mono">{{qty(item.planned_quantity_scaled)}}</div></template></template></ElTableColumn>
+<ElTableColumn><template #header>实际完成量</template><template #default="{row,$index}"><template v-for="([item]) in [[row,$index]]"><div class="mono">{{qty(item.completed_quantity_scaled)}}</div></template></template></ElTableColumn>
+<ElTableColumn><template #header>工作量估算（元）</template><template #default="{row,$index}"><template v-for="([item]) in [[row,$index]]"><div class="mono">{{money(item.planned_estimate_fen)}}</div></template></template></ElTableColumn>
+<ElTableColumn><template #header>净结算（元）</template><template #default="{row,$index}"><template v-for="([item]) in [[row,$index]]"><div class="mono">{{money(item.settled_fen)}}</div></template></template></ElTableColumn>
+<ElTableColumn v-if="canSettle"><template #header>操作</template><template #default="{row,$index}"><template v-for="([item]) in [[row,$index]]"><div ><ElButton v-if="canRecord" native-type="button" class="link" @click="openRecord(item.id)">登记结算</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">尚未安排检修工作明细</div></template></ElTable>
    </div>
    <SettlementVoucherWorkspace :project-id="summary.project_id" :execution-id="executionId" :can-settle="canSettle" :refresh-key="refreshKey" @reverse="openReversal" @changed="refresh();emit('changed')"/>
   </template>
  </section>
  <FormModal :open="dialog==='record'" title="登记检修计划结算" :error="formError" size="wide" @close="!saving&&(dialog='')">
   <form v-form-validation novalidate class="form-grid" @submit.prevent="submit">
-   <label class="wide"><span class="field-caption">检修工作项</span><select v-model="form.execution_item_id" required>
-     <option v-for="item in summary?.items||[]" :key="item.id" :value="item.id">{{item.demand_no}} · 计划 {{qty(item.planned_quantity_scaled)}}</option>
-   </select></label>
-   <label><span class="field-caption">结算性质</span><select v-model="form.settlement_type" required>
-    <option value="advance">预付款</option><option value="progress">进度结算</option><option value="final">最终结算</option>
-   </select></label>
-   <label><span class="field-caption">凭证编号</span><input v-model.trim="form.settlement_no" required maxlength="80"/></label>
-   <label><span class="field-caption">结算金额（元）</span><input v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
-   <label><span class="field-caption">凭证日期</span><input v-model="form.occurred_on" type="date" required/></label>
-   <label class="wide"><span class="field-caption">结算依据</span><textarea v-model.trim="form.evidence" rows="3" required/></label>
+   <label class="wide"><span class="field-caption">检修工作项</span><ElSelect v-model="form.execution_item_id" required>
+     <ElOption :label="String(item.demand_no) + ' · 计划 ' + String(qty(item.planned_quantity_scaled))" :data-option-value="item.id" v-for="item in summary?.items||[]" :key="item.id" :value="item.id">{{item.demand_no}} · 计划 {{qty(item.planned_quantity_scaled)}}</ElOption>
+   </ElSelect></label>
+   <label><span class="field-caption">结算性质</span><ElSelect v-model="form.settlement_type" required>
+    <ElOption :label="'预付款'" data-option-value="advance" value="advance">预付款</ElOption><ElOption :label="'进度结算'" data-option-value="progress" value="progress">进度结算</ElOption><ElOption :label="'最终结算'" data-option-value="final" value="final">最终结算</ElOption>
+   </ElSelect></label>
+   <label><span class="field-caption">凭证编号</span><ElInput v-model.trim="form.settlement_no" required maxlength="80"/></label>
+   <label><span class="field-caption">结算金额（元）</span><ElInput v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
+   <label><span class="field-caption">凭证日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.occurred_on"  required/></label>
+   <label class="wide"><span class="field-caption">结算依据</span><ElInput type="textarea" v-model.trim="form.evidence" :rows="3" required/></label>
    <p class="wide muted">最终结算要求本计划对应工作项已有结束后的实际完成记录。凭证支持更正、撤销和历史查询，原始登记继续保留。</p>
-   <div class="wide form-actions"><button type="button" class="light" :disabled="saving" @click="dialog=''">取消</button><button class="primary" :disabled="saving">确认登记</button></div>
+   <div class="wide form-actions"><ElButton native-type="button" class="light" :disabled="saving" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="saving">确认登记</ElButton></div>
   </form>
  </FormModal>
  <FormModal :open="dialog==='reverse'" title="冲销原始结算凭证" :error="formError" size="wide" @close="!saving&&(dialog='')">
   <form v-form-validation novalidate class="form-grid" @submit.prevent="submit">
    <label class="wide"><span class="field-caption">原始凭证（仅显示未全部冲销的正向凭证）</span>
-    <select v-model="form.reversal_of" required @change="updateReversal(form.reversal_of)">
-     <option v-for="entry in remainingByOriginal" :key="entry.id" :value="entry.id">{{entry.settlement_no}} · {{itemName(entry.execution_item_id)}} · 剩余 {{money(entry.remaining_fen)}} 元</option>
-    </select>
+    <ElSelect v-model="form.reversal_of" required @change="updateReversal(form.reversal_of)">
+     <ElOption :label="String(entry.settlement_no) + ' · ' + String(itemName(entry.execution_item_id)) + ' · 剩余 ' + String(money(entry.remaining_fen)) + ' 元'" :data-option-value="entry.id" v-for="entry in remainingByOriginal" :key="entry.id" :value="entry.id">{{entry.settlement_no}} · {{itemName(entry.execution_item_id)}} · 剩余 {{money(entry.remaining_fen)}} 元</ElOption>
+    </ElSelect>
    </label>
-   <label><span class="field-caption">冲销凭证编号</span><input v-model.trim="form.settlement_no" required maxlength="80"/></label>
-   <label><span class="field-caption">本次冲销金额（元）</span><input v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
-   <label><span class="field-caption">凭证日期</span><input v-model="form.occurred_on" type="date" required/></label>
-   <label class="wide"><span class="field-caption">冲销依据</span><textarea v-model.trim="form.evidence" rows="3" required/></label>
+   <label><span class="field-caption">冲销凭证编号</span><ElInput v-model.trim="form.settlement_no" required maxlength="80"/></label>
+   <label><span class="field-caption">本次冲销金额（元）</span><ElInput v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
+   <label><span class="field-caption">凭证日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.occurred_on"  required/></label>
+   <label class="wide"><span class="field-caption">冲销依据</span><ElInput type="textarea" v-model.trim="form.evidence" :rows="3" required/></label>
    <p class="wide muted">冲销保留原始凭证、批准版本和检修计划归属。不能超过该凭证的剩余未冲销金额。</p>
-   <div class="wide form-actions"><button type="button" class="light" :disabled="saving" @click="dialog=''">取消</button><button class="primary" :disabled="saving">确认冲销</button></div>
+   <div class="wide form-actions"><ElButton native-type="button" class="light" :disabled="saving" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="saving">确认冲销</ElButton></div>
   </form>
  </FormModal>
 </template>
