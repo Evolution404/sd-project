@@ -1,4 +1,9 @@
 <script setup lang="ts">
+import {ElForm} from 'element-plus';
+import {ElTable,ElTableColumn} from 'element-plus';
+import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
+import {ElSelect,ElOption} from 'element-plus';
+import {ElButton} from 'element-plus';
 import {computed,onMounted,reactive,ref} from 'vue';
 import FormModal from './FormModal.vue';
 import StatusTag from './StatusTag.vue';
@@ -57,60 +62,53 @@ onMounted(refresh);
  <section class="panel">
   <div class="section-header">
    <div><h2>检修参考单价</h2><p class="muted">用于储备估算，正式预算与结算另行核定。</p></div>
-   <button v-if="canEdit" class="primary" @click="openNew">新增参考价</button>
+   <ElButton v-if="canEdit" class="primary" @click="openNew">新增参考价</ElButton>
   </div>
   <div class="toolbar">
-   <label><span class="field-caption">状态</span><select v-model="activeFilter"><option value="active">启用</option><option value="">全部</option><option value="inactive">停用</option></select></label>
-   <label><span class="field-caption">关键词</span><input v-model.trim="query" placeholder="作业、名称或规格"/></label>
-   <button class="secondary" @click="refresh">刷新</button>
+   <label><span class="field-caption">状态</span><ElSelect v-model="activeFilter"><ElOption :label="'启用'" data-option-value="active" value="active">启用</ElOption><ElOption :label="'全部'" data-option-value="" value="">全部</ElOption><ElOption :label="'停用'" data-option-value="inactive" value="inactive">停用</ElOption></ElSelect></label>
+   <label><span class="field-caption">关键词</span><ElInput v-model.trim="query" placeholder="作业、名称或规格"/></label>
+   <ElButton class="secondary" @click="refresh">刷新</ElButton>
   </div>
   <p v-if="error&&!dialog" role="alert" class="alert error">{{error}}</p>
   <p v-if="loading" class="muted">正在读取参考价目录</p>
-  <div class="table-wrap"><table>
-   <thead><tr><th>名称</th><th>检修操作</th><th>适用范围</th><th>参考单价</th><th>版本</th><th>状态</th><th>操作</th></tr></thead>
-   <tbody>
-    <tr v-for="p in filtered" :key="p.id">
-     <td><strong>{{p.title}}</strong></td>
-     <td>{{p.operation_name}}</td>
-     <td>{{planName(p.plan_type)}} · {{p.voltage_name||'不限电压'}}<div v-if="p.specification" class="muted">{{p.specification}}</div></td>
-     <td>{{money(p.unit_price_fen)}} 元 / {{p.unit_name}}<div class="muted">{{p.price_source}}</div></td>
-     <td>v{{p.version_no}}<div class="muted">{{p.effective_on}} 起</div></td>
-     <td><StatusTag :status="p.status" :label="p.status==='active'?'启用':'停用'"/></td>
-     <td><button class="link" @click="openVersions(p)">历史版本</button>
-      <button v-if="canEdit&&p.status==='active'" class="link" @click="openRevision(p)">修订单价</button>
-      <button v-if="canEdit" class="link" @click="openStatus(p)">{{p.status==='active'?'停用':'启用'}}</button>
-     </td>
-    </tr>
-    <tr v-if="!filtered.length&&!loading"><td colspan="7" class="empty">暂无符合条件的参考价</td></tr>
-   </tbody>
-  </table></div>
+  <div class="table-wrap"><ElTable :data="filtered" >
+<ElTableColumn><template #header>名称</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div ><strong>{{p.title}}</strong></div></template></template></ElTableColumn>
+<ElTableColumn><template #header>检修操作</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div >{{p.operation_name}}</div></template></template></ElTableColumn>
+<ElTableColumn><template #header>适用范围</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div >{{planName(p.plan_type)}} · {{p.voltage_name||'不限电压'}}<div v-if="p.specification" class="muted">{{p.specification}}</div></div></template></template></ElTableColumn>
+<ElTableColumn><template #header>参考单价</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div >{{money(p.unit_price_fen)}} 元 / {{p.unit_name}}<div class="muted">{{p.price_source}}</div></div></template></template></ElTableColumn>
+<ElTableColumn><template #header>版本</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div >v{{p.version_no}}<div class="muted">{{p.effective_on}} 起</div></div></template></template></ElTableColumn>
+<ElTableColumn><template #header>状态</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div ><StatusTag :status="p.status" :label="p.status==='active'?'启用':'停用'"/></div></template></template></ElTableColumn>
+<ElTableColumn><template #header>操作</template><template #default="{row,$index}"><template v-for="([p]) in [[row,$index]]"><div ><ElButton class="link" @click="openVersions(p)">历史版本</ElButton>
+      <ElButton v-if="canEdit&&p.status==='active'" class="link" @click="openRevision(p)">修订单价</ElButton>
+      <ElButton v-if="canEdit" class="link" @click="openStatus(p)">{{p.status==='active'?'停用':'启用'}}</ElButton>
+     </div></template></template></ElTableColumn><template #empty><div class="empty">暂无符合条件的参考价</div></template></ElTable></div>
  </section>
  <FormModal :open="dialog==='new'||dialog==='revise'" :title="dialog==='new'?'新增检修参考价':'修订参考单价'" :error="error" size="wide" @close="dialog=''">
-  <form v-form-validation novalidate class="form-grid" @submit.prevent="save">
+  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="save">
    <template v-if="dialog==='new'">
-    <label><span class="field-caption">价格项目名称</span><input v-model.trim="form.title" required/></label>
-    <label><span class="field-caption">检修操作</span><select v-model="form.operation_id" required><option value="">请选择</option><option v-for="x in operations" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-    <label><span class="field-caption">计价单位</span><select v-model="form.unit_id" required><option value="">请选择</option><option v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-    <label><span class="field-caption">检修方式</span><select v-model="form.plan_type" required><option value="both">停电与不停电通用</option><option value="outage">停电检修</option><option value="non_outage">不停电检修</option></select></label>
-    <label><span class="field-caption">适用电压等级</span><select v-model="form.voltage_level_id"><option value="">不限电压等级</option><option v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</option></select></label>
-    <label class="wide"><span class="field-caption">适用设备 / 规格说明</span><input v-model.trim="form.specification"/></label>
+    <label><span class="field-caption">价格项目名称</span><ElInput v-model.trim="form.title" required/></label>
+    <label><span class="field-caption">检修操作</span><ElSelect v-model="form.operation_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in operations" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
+    <label><span class="field-caption">计价单位</span><ElSelect v-model="form.unit_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
+    <label><span class="field-caption">检修方式</span><ElSelect v-model="form.plan_type" required><ElOption :label="'停电与不停电通用'" data-option-value="both" value="both">停电与不停电通用</ElOption><ElOption :label="'停电检修'" data-option-value="outage" value="outage">停电检修</ElOption><ElOption :label="'不停电检修'" data-option-value="non_outage" value="non_outage">不停电检修</ElOption></ElSelect></label>
+    <label><span class="field-caption">适用电压等级</span><ElSelect v-model="form.voltage_level_id"><ElOption :label="'不限电压等级'" data-option-value="" value="">不限电压等级</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
+    <label class="wide"><span class="field-caption">适用设备 / 规格说明</span><ElInput v-model.trim="form.specification"/></label>
    </template>
-   <label><span class="field-caption">参考单价（元）</span><input v-model.trim="form.unit_price_yuan" data-validate="money" inputmode="decimal" required/></label>
-   <label><span class="field-caption">税口径</span><select v-model="form.tax_mode"><option value="inclusive">含税</option><option value="exclusive">不含税</option><option value="none">不适用</option></select></label>
-   <label><span class="field-caption">价格来源</span><input v-model.trim="form.price_source" required placeholder="定额、报价或历史结算依据"/></label>
-   <label><span class="field-caption">依据日期</span><input v-model="form.price_date" type="date" required/></label>
-   <label><span class="field-caption">生效日期</span><input v-model="form.effective_on" type="date" required/></label>
-   <label class="wide"><span class="field-caption">价格测算说明</span><textarea v-model.trim="form.basis" rows="2" required/></label>
-   <label v-if="dialog==='revise'" class="wide"><span class="field-caption">修订原因</span><textarea v-model.trim="form.reason" rows="2" required/></label>
-   <div class="wide form-actions"><button type="button" class="light" @click="dialog=''">取消</button><button class="primary">保存{{dialog==='new'?'参考价':'新版本'}}</button></div>
-  </form>
+   <label><span class="field-caption">参考单价（元）</span><ElInput v-model.trim="form.unit_price_yuan" data-validate="money" inputmode="decimal" required/></label>
+   <label><span class="field-caption">税口径</span><ElSelect v-model="form.tax_mode"><ElOption :label="'含税'" data-option-value="inclusive" value="inclusive">含税</ElOption><ElOption :label="'不含税'" data-option-value="exclusive" value="exclusive">不含税</ElOption><ElOption :label="'不适用'" data-option-value="none" value="none">不适用</ElOption></ElSelect></label>
+   <label><span class="field-caption">价格来源</span><ElInput v-model.trim="form.price_source" required placeholder="定额、报价或历史结算依据"/></label>
+   <label><span class="field-caption">依据日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.price_date"  required/></label>
+   <label><span class="field-caption">生效日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.effective_on"  required/></label>
+   <label class="wide"><span class="field-caption">价格测算说明</span><ElInput type="textarea" v-model.trim="form.basis" :rows="2" required/></label>
+   <label v-if="dialog==='revise'" class="wide"><span class="field-caption">修订原因</span><ElInput type="textarea" v-model.trim="form.reason" :rows="2" required/></label>
+   <div class="wide form-actions"><ElButton native-type="button" class="light" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary">保存{{dialog==='new'?'参考价':'新版本'}}</ElButton></div>
+  </ElForm>
  </FormModal>
  <FormModal :open="dialog==='status'" :title="edit?.status==='active'?'停用参考价':'启用参考价'" :error="error" @close="dialog=''">
-  <form v-form-validation novalidate class="form-grid" @submit.prevent="save">
+  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="save">
    <p class="wide">项目 {{edit?.title}}</p>
-   <label class="wide"><span class="field-caption">状态变更依据</span><textarea v-model.trim="form.reason" required/></label>
-   <div class="wide form-actions"><button type="button" class="light" @click="dialog=''">取消</button><button class="primary">确认</button></div>
-  </form>
+   <label class="wide"><span class="field-caption">状态变更依据</span><ElInput type="textarea" v-model.trim="form.reason" required/></label>
+   <div class="wide form-actions"><ElButton native-type="button" class="light" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary">确认</ElButton></div>
+  </ElForm>
  </FormModal>
  <FormModal :open="dialog==='versions'" :title="'价格历史：'+(edit?.title||'')" size="wide" @close="dialog=''">
   <div v-for="v in versions" :key="v.id" class="scope-item">
@@ -118,6 +116,6 @@ onMounted(refresh);
    <p class="muted">来源：{{v.price_source}} · 日期 {{v.price_date}} · {{v.tax_mode==='inclusive'?'含税':v.tax_mode==='exclusive'?'不含税':'不适用'}}</p>
    <p>{{v.basis}}</p><p class="muted">修订说明：{{v.reason}}</p>
   </div>
-  <div class="form-actions"><button class="secondary" @click="dialog=''">关闭</button></div>
+  <div class="form-actions"><ElButton class="secondary" @click="dialog=''">关闭</ElButton></div>
  </FormModal>
 </template>

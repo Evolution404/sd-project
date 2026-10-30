@@ -113,16 +113,16 @@ function createLogical(body,user){
  if(status==='active'&&(!physical||physical.status!=='active'))fail(422,'启用节点必须关联在用物理塔');
  if(body.physical_tower_id&&!physical)fail(422,'物理塔不存在');
  const sort_rank=Number(body.sort_rank);if(!Number.isInteger(sort_rank)||sort_rank<=0)fail(422,'沿线顺序必须为正整数');
- const t=now(),item={id:uid(),logical_code:required(body.logical_code,'逻辑位置编码'),line_id:line.id,physical_tower_id:physical?.id||null,tower_no:required(body.tower_no,'杆塔编号'),display_name:body.display_name||null,sort_rank,circuit_position:body.circuit_position||null,status,version:1,created_at:t,updated_at:t};
+ const t=now(),item={id:uid(),logical_code:required(body.logical_code,'逻辑位置编码'),line_id:line.id,physical_tower_id:physical?.id||null,tower_no:required(body.tower_no,'杆塔编号'),display_name:body.display_name||null,sort_rank,circuit_position:body.circuit_position||null,management_department:String(body.management_department||'').trim(),maintenance_team:String(body.maintenance_team||'').trim(),status,version:1,created_at:t,updated_at:t};
  transaction(()=>{
- exec('INSERT INTO logical_towers VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));
+ exec('INSERT INTO logical_towers('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
  exec('INSERT INTO logical_tower_name_history(id,logical_tower_id,tower_no,display_name,valid_from,valid_to,changed_by,reason) VALUES(?,?,?,?,?,NULL,?,?)',uid(),item.id,item.tower_no,item.display_name,t,user.id,'初始登记');
  if(physical)exec('INSERT INTO logical_tower_physical_history(id,logical_tower_id,physical_tower_id,valid_from,valid_to,change_kind,changed_by,reason) VALUES(?,?,?,?,NULL,?,?,?)',uid(),item.id,physical.id,t,'initial',user.id,'初始核实');
  postAudit(user,'logical_towers',item,'create')});return item;
 }
 function updateTowerData(table,id,body,user){
  if(table==='transmission_lines')return ledger.updateLedgerLine(id,{...body,reason:body.reason||'线路资料维护'},user);
- const whitelist={voltage_levels:['code','name','status','sort_order'],transmission_lines:['name','status'],physical_towers:['asset_no','tower_type','longitude','latitude','commissioned_on','status'],logical_towers:['tower_no','display_name','sort_rank','circuit_position','physical_tower_id','status']};
+ const whitelist={voltage_levels:['code','name','status','sort_order'],transmission_lines:['name','status'],physical_towers:['asset_no','tower_type','longitude','latitude','commissioned_on','status'],logical_towers:['tower_no','display_name','sort_rank','circuit_position','physical_tower_id','management_department','maintenance_team','status']};
  const old=one('SELECT * FROM '+table+' WHERE id=?',id);if(!old||table==='voltage_levels'&&dictionaryDeleted(db,table,id))fail(404,'台账不存在或已删除');
  if(body.version!==old.version)fail(409,'台账已被其他人修改，请刷新');
  const changes=Object.fromEntries(Object.entries(body).filter(([k,v])=>whitelist[table].includes(k)&&v!==undefined));

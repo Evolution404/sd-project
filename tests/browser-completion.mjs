@@ -1,3 +1,4 @@
+import {selectUiOption} from './helpers/select-ui-option.mjs';
 import {financeFixture} from './helpers/finance-fixture.mjs';
 import assert from 'node:assert/strict';
 import {mkdtempSync,rmSync,mkdirSync} from 'node:fs';
@@ -92,7 +93,7 @@ try{
  await page.locator('.execution-overlay .plan-finance tbody tr').first().getByText('1',{exact:true}).waitFor();
  const financial=page.locator('.execution-overlay .plan-finance');
  await financial.getByRole('button',{name:'登记结算凭证',exact:true}).click();modal=page.getByRole('dialog',{name:'登记检修计划结算',exact:true});
- await modal.getByLabel('结算性质').selectOption('final');await modal.getByLabel('凭证编号').fill('R02-UI-FINAL');await modal.getByLabel('结算金额（元）').fill('100');await modal.getByLabel('结算依据').fill('终结结算凭证');
+ await selectUiOption(modal.getByLabel('结算性质'),'final');await modal.getByLabel('凭证编号').fill('R02-UI-FINAL');await modal.getByLabel('结算金额（元）').fill('100');await modal.getByLabel('结算依据').fill('终结结算凭证');
  await modal.getByRole('button',{name:'确认登记',exact:true}).click();await modal.waitFor({state:'hidden'});
  await workspace.getByRole('row').filter({hasText:'R02复核完成一套'}).getByRole('button',{name:'撤销',exact:true}).click();modal=page.getByRole('dialog',{name:'撤销完成记录',exact:true});
  await modal.getByText('R02-UI-FINAL',{exact:true}).waitFor();await modal.getByRole('textbox',{name:'撤销依据',exact:true}).fill('核对错误完成记录');

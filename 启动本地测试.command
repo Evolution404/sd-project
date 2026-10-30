@@ -2,7 +2,7 @@
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
-export DATA_DIR="$ROOT/.local-test-data"
+export DATA_DIR="$HOME/.local/share/sd-project"
 export HOST="0.0.0.0"
 export PORT="8787"
 if ! command -v node >/dev/null 2>&1; then

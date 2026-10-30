@@ -10,7 +10,7 @@ SCHEMA_VERSION := $(shell sed -nE 's/^const SCHEMA_VERSION=([0-9]+);.*/\1/p' ser
 ifeq ($(strip $(SCHEMA_VERSION)),)
 $(error Cannot determine schema version from server/db.mjs)
 endif
-DATA_DIR ?= $(CURDIR)/.local-test-data/schema-$(SCHEMA_VERSION)
+DATA_DIR ?= $(HOME)/.local/share/sd-project
 HOST ?= 0.0.0.0
 PORT ?= 8787
 

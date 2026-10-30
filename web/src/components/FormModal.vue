@@ -1,40 +1,25 @@
 <script setup lang="ts">
-import {nextTick,ref,watch} from 'vue';
-import {ElButton} from 'element-plus';
-const props = withDefaults(defineProps<{open:boolean,title:string,description?:string,error?:string,size?:'normal'|'wide'}>(),{size:'normal'});
+import {ElDialog} from 'element-plus';
+withDefaults(defineProps<{
+ open:boolean;title:string;description?:string;error?:string;size?:'normal'|'wide'
+}>(),{size:'normal'});
 const emit=defineEmits<{close:[]}>();
-const panel=ref<HTMLElement|null>(null);
-let former:HTMLElement|null=null;
-function onKey(event:KeyboardEvent){
- if(event.key==='Escape'){event.preventDefault();event.stopPropagation();emit('close');return}
- if(event.key!=='Tab'||!panel.value)return;
- const focusable=[...panel.value.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])')]
- .filter(el=>el.getClientRects().length>0);
- if(!focusable.length){event.preventDefault();return}
- if(event.shiftKey&&(document.activeElement===focusable[0]||document.activeElement===panel.value)){
-  event.preventDefault();focusable[focusable.length-1].focus();
- } else if(!event.shiftKey&&document.activeElement===focusable[focusable.length-1]){
-  event.preventDefault();focusable[0].focus()
- }
-}
-watch(()=>props.open,async open=>{
- if(open){
-  former=document.activeElement instanceof HTMLElement?document.activeElement:null;
-  await nextTick();
-  (panel.value?.querySelector<HTMLElement>('input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled)')||panel.value)?.focus();
- }else{former?.focus();former=null}
-},{flush:'post'});
 </script>
 <template>
- <Teleport to="body">
-  <div v-if="open" class="form-modal-backdrop" @mousedown.self="emit('close')">
-   <section ref="panel" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" :class="['form-modal-dialog','form-panel',{'form-modal-wide':size==='wide'}]" @keydown="onKey">
-    <div class="form-modal-header">
-     <div><h2>{{title}}</h2><p v-if="description">{{description}}</p></div>
-     <ElButton text class="form-modal-close" aria-label="关闭弹窗" @click="emit('close')">×</ElButton>
-    </div>
-    <div class="form-modal-content"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p><slot/></div>
-   </section>
-  </div>
- </Teleport>
+ <ElDialog :model-value="open" :title="title" :width="size==='wide'?'860px':'620px'"
+  class="business-modal form-panel" :class="{'business-modal-wide':size==='wide'}"
+  :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true"
+  :lock-scroll="false" @close="emit('close')">
+  <p v-if="description" class="muted">{{description}}</p>
+  <p v-if="error" class="form-modal-error" role="alert">{{error}}</p>
+  <slot/>
+ </ElDialog>
 </template>
+<style>
+.business-modal.el-dialog{max-width:calc(100vw - 48px);border-radius:13px;padding:0;box-shadow:0 20px 70px #1a29422e}
+.business-modal .el-dialog__header{display:flex;align-items:center;padding:20px 25px;border-bottom:1px solid var(--line,#dfe5ec)}
+.business-modal .el-dialog__title{font-size:19px;font-weight:650;color:var(--green,#3478f6)}
+.business-modal .el-dialog__body{padding:24px 25px;max-height:calc(100vh - 170px);overflow:auto;overscroll-behavior:contain}
+.business-modal .form-actions{display:flex;justify-content:flex-end;gap:10px}
+.business-modal .form-modal-error{color:#b4403a;font-size:12px;margin:0 0 12px}
+</style>

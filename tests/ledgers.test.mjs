@@ -43,8 +43,8 @@ test('shared tower bindings and shared property edits retain ownership, require 
  detail=await api('/ledger/towers/'+y.id);assert.equal(detail.physical.id,target.id);
  assert.equal(detail.bindings[0].change_kind,'replacement');assert.equal((await api('/ledger/towers/'+x.id)).physical.id,target.id);
 });
-test('spans only store length; correct endpoints, unknown length, duplicate guards and reorder do not alter confirmed connections',async()=>{
- const {l,w}=await fixture();let preview=await api('/ledger/lines/'+l.id+'/spans/preview','POST',{version:w.line.version});assert.equal(preview.candidates.length,2);let result=await api('/ledger/lines/'+l.id+'/spans','POST',{version:w.line.version,rows:preview.candidates.map((s,i)=>({...s,length:i?'':'123.4567'}))},201);let ws=await api('/ledger/lines/'+l.id);assert.equal(ws.spans[0].length_scaled,1234567);assert.equal(ws.spans[1].length_scaled,null);assert.equal(ws.spans[1].status,'draft');
+test('spans store only endpoint links; length entries are ignored and topology is preserved',async()=>{
+ const {l,w}=await fixture();let preview=await api('/ledger/lines/'+l.id+'/spans/preview','POST',{version:w.line.version});assert.equal(preview.candidates.length,2);let result=await api('/ledger/lines/'+l.id+'/spans','POST',{version:w.line.version,rows:preview.candidates.map((s,i)=>({...s,length:i?'':'123.4567'}))},201);let ws=await api('/ledger/lines/'+l.id);assert.equal(ws.spans[0].length_scaled,null);assert.equal(ws.spans[1].length_scaled,null);assert.equal(ws.spans[1].status,'active');assert.equal(one("SELECT COUNT(*) n FROM pragma_table_info('line_spans') WHERE name='length_scaled'").n,0);
  await api('/ledger/lines/'+l.id+'/spans','POST',{version:ws.line.version,rows:[{...preview.candidates[0],length:'1'}]},422);
  await api('/ledger/lines/'+l.id+'/spans','POST',{version:ws.line.version,rows:[{start_tower_id:w.towers[0].id,end_tower_id:w.towers[0].id,length:'1'}]},422);
  const foreign=await fixture(['999']);await api('/ledger/lines/'+l.id+'/spans','POST',{version:ws.line.version,rows:[{start_tower_id:w.towers[0].id,end_tower_id:foreign.w.towers[0].id,length:'1'}]},422);
@@ -55,19 +55,67 @@ test('spans only store length; correct endpoints, unknown length, duplicate guar
 test('span demand and topology replacement preserve the adopted span version and prevent historical scope changes',async()=>{
  const {n,l,w}=await fixture(['001','003']);let made=await api('/ledger/lines/'+l.id+'/spans','POST',{version:w.line.version,rows:[{start_tower_id:w.towers[0].id,end_tower_id:w.towers[1].id,length:'200'}]},201);let ws=await api('/ledger/lines/'+l.id);const old=ws.spans[0];
  const u=await api('/dictionary-items','POST',{type_id:'unit',code:'U'+n,name:'米'},201),op=await api('/dictionary-items','POST',{type_id:'operation',code:'OP'+n,name:'清理通道',work_target_type:'line'},201),src=await api('/dictionary-items','POST',{type_id:'source',code:'SRC'+n,name:'现场'},201);
- const payload={idempotency_key:'span-demand-'+n,work_target_type:'line',operation_id:op.id,unit_id:u.id,target_object:'通道',quantity:'50',completion_standard:'验收',problem_description:'树障',source:{type_id:src.id,proposed_by:'班组',discovered_on:'2026-10-29'},rows:[{span_id:old.id,span_version:old.version}]};let demand=await api('/demand-batches/submit','POST',payload,201);let d=await api('/demands/'+demand.ids[0]);assert.equal(d.location_kind,'span');assert.equal(d.quantity_scaled,500000,'span length is not automatically the execution quantity');assert.equal(d.span_snapshot.length_scaled,2000000);
+ const payload={idempotency_key:'span-demand-'+n,work_target_type:'line',operation_id:op.id,unit_id:u.id,target_object:'通道',quantity:'50',completion_standard:'验收',problem_description:'树障',source:{type_id:src.id,proposed_by:'班组',discovered_on:'2026-10-29'},rows:[{span_id:old.id,span_version:old.version}]};let demand=await api('/demand-batches/submit','POST',payload,201);let d=await api('/demands/'+demand.ids[0]);assert.equal(d.location_kind,'span');assert.equal(d.quantity_scaled,500000,'span length is not automatically the execution quantity');assert.equal('length_scaled' in d.span_snapshot,false);
  await api('/ledger/spans/'+old.id,'DELETE',{version:old.version,reason:'已有引用'},409);
  await api('/ledger/lines/'+l.id+'/towers','POST',{version:ws.line.version,after_tower_id:w.towers[0].id,rows:[{tower_no:'002'}]},201);ws=await api('/ledger/lines/'+l.id);const middle=ws.towers.find(t=>t.tower_no==='002');
  await api('/ledger/lines/'+l.id+'/replace-spans','POST',{version:ws.line.version,topology_token:ws.topology_token,old_ids:[old.id],rows:[{start_tower_id:old.start_tower_id,end_tower_id:middle.id,length:'90'},{start_tower_id:middle.id,end_tower_id:old.end_tower_id,length:'110'}],reason:'插塔拆档'});assert.equal(one('SELECT status FROM line_spans WHERE id=?',old.id).status,'retired');
- d=await api('/demands/'+d.id);assert.equal(d.span_snapshot.length_scaled,2000000);assert.equal(d.span_id,old.id);assert.equal(d.span_version,1);
+ d=await api('/demands/'+d.id);assert.equal('length_scaled' in d.span_snapshot,false);assert.equal(d.span_id,old.id);assert.equal(d.span_version,1);
  await api('/demands/'+d.id+'/verify','POST',{version:d.version,status:'active',reason:'不应直接确认旧范围'},422);
  const rows=await api('/demands?line_id='+l.id);assert.equal(rows.length,1);assert.equal(one('PRAGMA foreign_keys').foreign_keys,1);assert.equal(one('PRAGMA integrity_check').integrity_check,'ok');
 });
-test('changed span length must be reverified before a new project can adopt the demand',async()=>{
+test('span version changes require revalidation, without persisting a length',async()=>{
  const {n,l,w}=await fixture(['001','002']);const created=await api('/ledger/lines/'+l.id+'/spans','POST',{version:w.line.version,rows:[{start_tower_id:w.towers[0].id,end_tower_id:w.towers[1].id,length:'10'}]},201);const id=created.ids[0];
  const unit=await api('/dictionary-items','POST',{type_id:'unit',code:'VU'+n,name:'米'},201),op=await api('/dictionary-items','POST',{type_id:'operation',code:'VO'+n,name:'通道作业',work_target_type:'line'},201),src=await api('/dictionary-items','POST',{type_id:'source',code:'VS'+n,name:'现场核实'},201);
  const batch=await api('/demand-batches/submit','POST',{idempotency_key:'verify-span-'+n,work_target_type:'line',operation_id:op.id,unit_id:unit.id,target_object:'通道',quantity:'5',completion_standard:'验收',problem_description:'树障',source:{type_id:src.id,proposed_by:'班组',discovered_on:'2026-10-29'},rows:[{span_id:id,span_version:1}]},201);let d=await api('/demands/'+batch.ids[0]);d=await api('/demands/'+d.id+'/verify','POST',{version:d.version,status:'active',reason:'核实通过'});
  const framework=await api('/frameworks','POST',{code:'SPAN-FW'+n,name:'档距检修年度框架',fiscal_year:2026,limit_yuan:'10000'},201);
- const project=await api('/projects','POST',{code:'SPAN-P'+n,name:'档距作业储备',framework_id:framework.id},201);await api('/ledger/spans/'+id,'PATCH',{version:1,length:'11',reason:'实测修正'});await api('/projects/'+project.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'5'},409);
- d=await api('/demands/'+d.id+'/revalidate-location','POST',{version:d.version,reason:'按新档距重新核实'});assert.equal(d.span_snapshot.length_scaled,110000);d=await api('/demands/'+d.id+'/verify','POST',{version:d.version,status:'active',reason:'复核通过'});await api('/projects/'+project.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'5'},201);
+ const project=await api('/projects','POST',{code:'SPAN-P'+n,name:'档距作业储备',framework_id:framework.id},201);await api('/ledger/spans/'+id,'PATCH',{version:1,reason:'复核档距端点'});await api('/projects/'+project.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'5'},409);
+ d=await api('/demands/'+d.id+'/revalidate-location','POST',{version:d.version,reason:'按新档距重新核实'});assert.equal('length_scaled' in d.span_snapshot,false);d=await api('/demands/'+d.id+'/verify','POST',{version:d.version,status:'active',reason:'复核通过'});await api('/projects/'+project.id+'/scopes','POST',{version:1,demand_id:d.id,quantity:'5'},201);
+});
+
+
+test('logical towers carry separate management departments and span distance follows endpoint coordinates',async()=>{
+ const n=++serial,v=await api('/voltage-levels','POST',{code:'GV'+n,name:'110kV'},201);
+ const l=await api('/ledger/lines','POST',{name:'分属管辖测试'+n,voltage_level_id:v.id},201);
+ await api('/ledger/lines/'+l.id+'/towers','POST',{version:l.version,rows:[
+  {tower_no:'001',management_department:'输电运检二班',longitude:118.8,latitude:32},
+  {tower_no:'002',management_department:'输电运检三班',longitude:118.8,latitude:32.001}
+ ]},201);
+ let w=await api('/ledger/lines/'+l.id);
+ assert.deepEqual(w.towers.map(t=>t.management_department),['输电运检二班','输电运检三班']);
+ const result=await api('/ledger/lines/'+l.id+'/spans','POST',{version:w.line.version,rows:[{
+  start_tower_id:w.towers[0].id,end_tower_id:w.towers[1].id,length:'99999'
+ }]},201);
+ assert.equal(result.ids.length,1);
+ w=await api('/ledger/lines/'+l.id);
+ assert.ok(Math.abs(w.spans[0].length_scaled/10000-111.195)<0.5);
+ assert.equal(one("SELECT COUNT(*) n FROM pragma_table_info('line_spans') WHERE name='length_scaled'").n,0);
+ const tower=w.towers[1];
+ await api('/ledger/towers/'+tower.id,'PATCH',{version:tower.version,physical_version:tower.physical_version,
+  tower_no:tower.tower_no,physical:{longitude:118.8,latitude:32.002},reason:'修正坐标'});
+ w=await api('/ledger/lines/'+l.id);
+ assert.ok(Math.abs(w.spans[0].length_scaled/10000-222.39)<0.5);
+ assert.equal(w.spans[0].version,1);
+ assert.deepEqual(w.towers.map(t=>t.management_department),['输电运检二班','输电运检三班']);
+});
+
+
+test('cross-line tower/span queries are server-paged and preserve counts and search filters',async()=>{
+ const {l,w}=await fixture(['101','102','103','104','105']);
+ const first=await api('/ledger/towers?page=1&page_size=2&line_id='+l.id);
+ assert.equal(first.total,5);assert.equal(first.rows.length,2);assert.equal(first.page,1);
+ const second=await api('/ledger/towers?page=2&page_size=2&line_id='+l.id);
+ assert.deepEqual(second.rows.map(r=>r.tower_no),['103','104']);
+ const last=await api('/ledger/towers?page=3&page_size=2&line_id='+l.id);
+ assert.deepEqual(last.rows.map(r=>r.tower_no),['105']);
+ const search=await api('/ledger/towers?page=1&page_size=30&search=104&line_id='+l.id);
+ assert.equal(search.total,1);assert.equal(search.rows[0].tower_no,'104');
+ await api('/ledger/towers?page=0', 'GET',undefined,422);
+ await api('/ledger/towers?page=1&page_size=201', 'GET',undefined,422);
+ await api('/ledger/lines/'+l.id+'/spans','POST',{
+  version:w.line.version,rows:[{start_tower_id:w.towers[0].id,end_tower_id:w.towers[1].id},
+  {start_tower_id:w.towers[1].id,end_tower_id:w.towers[2].id}]
+ },201);
+ const spans=await api('/ledger/spans?page=1&page_size=1&line_id='+l.id);
+ assert.equal(spans.total,2);assert.equal(spans.rows.length,1);assert.equal(spans.rows[0].distance_method,'coordinate-derived');
+ assert.equal('length_scaled' in all("SELECT name FROM pragma_table_info('line_spans')").map(x=>x.name),false);
 });

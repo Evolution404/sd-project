@@ -13,6 +13,18 @@ const line=id=>one('SELECT * FROM transmission_lines WHERE id=?',id)||fail(404,'
 const tower=id=>one('SELECT * FROM logical_towers WHERE id=?',id)||fail(404,'杆塔不存在');
 const physical=id=>one('SELECT * FROM physical_towers WHERE id=?',id)||fail(404,'实际杆塔不存在');
 const span=id=>one('SELECT * FROM line_spans WHERE id=?',id)||fail(404,'档距不存在');
+const rad=x=>x*Math.PI/180;
+export function computedSpanDistance(lonA,latA,lonB,latB){
+ if([lonA,latA,lonB,latB].some(v=>typeof v!=='number'||!Number.isFinite(v)))return null;
+ const dLat=rad(latB-latA),dLon=rad(lonB-lonA);
+ const a=Math.sin(dLat/2)**2+Math.cos(rad(latA))*Math.cos(rad(latB))*Math.sin(dLon/2)**2;
+ return Math.round(6371008.8*2*Math.atan2(Math.sqrt(a),Math.sqrt(Math.max(0,1-a)))*10000);
+}
+function endpointDistance(a,b){
+ const pa=a.physical_tower_id?one('SELECT longitude,latitude FROM physical_towers WHERE id=?',a.physical_tower_id):null;
+ const pb=b.physical_tower_id?one('SELECT longitude,latitude FROM physical_towers WHERE id=?',b.physical_tower_id):null;
+ return computedSpanDistance(pa?.longitude,pa?.latitude,pb?.longitude,pb?.latitude);
+}
 function writableLine(id){const l=line(id);if(l.status!=='active')fail(409,'线路已停用');if(l.setup_status!=='ready')fail(409,'请先确认支线接入杆塔');return l}
 function mutate(user,body,fn){return transaction(()=>{
  const key=body.idempotency_key;if(key!==undefined&&(typeof key!=='string'||!key.trim()||key.length>160))fail(422,'提交标识无效');
@@ -41,8 +53,7 @@ function lineValues(body,old=null){
  if(kind==='branch'&&junctionId){const t=tower(junctionId);if(t.line_id!==parentId||status==='active'&&setup==='ready'&&(t.status!=='active'||!t.physical_tower_id||physical(t.physical_tower_id).status!=='active'))fail(422,'接入杆塔必须是所属主线的在用杆塔')}
  if(kind==='branch'&&status==='active'&&setup==='ready'&&!junctionId)fail(422,'接入杆塔不能为空，可先保存支线草稿');
 
- return {name:text(body.name??old?.name,'线路名称'),voltage_level_id:voltageId,line_kind:kind,parent_line_id:parentId,junction_tower_id:junctionId,setup_status:setup,status,
-  ...Object.fromEntries(['start_label','end_label'].map(k=>[k,optional(body[k]??old?.[k])]))};
+ return {name:text(body.name??old?.name,'线路名称'),voltage_level_id:voltageId,line_kind:kind,parent_line_id:parentId,junction_tower_id:junctionId,setup_status:setup,status};
 }
 export function createLedgerLine(body,user){return mutate(user,body,()=>{
  const values=lineValues(body),id=uid(),t=now(),item={id,line_code:optional(body.line_code)||'XL-'+id.replaceAll('-',''),...values,version:1,created_at:t,updated_at:t};
@@ -63,17 +74,29 @@ export function deleteLedgerLine(id,body,user){return mutate(user,body,()=>{
  if(one('SELECT 1 FROM logical_towers WHERE line_id=?',id)||one('SELECT 1 FROM line_spans WHERE line_id=?',id)||one('SELECT 1 FROM transmission_lines WHERE parent_line_id=?',id)||one('SELECT 1 FROM demands WHERE location_line_id=?',id))fail(409,'线路已有杆塔、档距、支线或需求引用，请使用停用');
  exec('DELETE FROM line_name_history WHERE line_id=?',id);exec('DELETE FROM transmission_lines WHERE id=?',id);record(user,id,'delete',old,null,text(body.reason,'删除原因'));return {id};
 })}
+function ledgerPage(query,sql,args,convert=row=>row){
+ const raw=query.get('page');
+ if(raw===null)return all(sql,...args).map(convert);
+ const page=Number(raw),size=Number(query.get('page_size')||30);
+ if(!Number.isSafeInteger(page)||page<1||!Number.isSafeInteger(size)||size<1||size>200)fail(422,'分页参数无效');
+ const total=one('SELECT COUNT(*) n FROM ('+sql.replace(/ ORDER BY [\s\S]*$/,'')+')',...args).n;
+ const rows=all(sql+' LIMIT ? OFFSET ?',...args,size,(page-1)*size).map(convert);
+ return {rows,total,page,page_size:size};
+}
 export function ledgerTowers(query=new URLSearchParams()){
- const args=[],where=[];if(query.get('id')){where.push('t.id=?');args.push(query.get('id'))}if(query.get('line_id')){where.push('t.line_id=?');args.push(query.get('line_id'))}if(query.get('search')){where.push('(t.tower_no LIKE ? OR l.name LIKE ? OR p.tower_code LIKE ? OR p.model LIKE ?)');args.push(...Array(4).fill('%'+query.get('search')+'%'))}
- return all(`SELECT t.*,l.name AS line_name,l.line_kind,l.status AS line_status,l.setup_status,v.name AS voltage_name,p.tower_code AS physical_code,p.tower_type,p.model,p.height_scaled,p.purpose,p.asset_no,p.longitude,p.latitude,p.commissioned_on,p.version AS physical_version,
+ const args=[],where=[];if(query.get('id')){where.push('t.id=?');args.push(query.get('id'))}if(query.get('line_id')){where.push('t.line_id=?');args.push(query.get('line_id'))}if(query.get('search')){where.push('(t.tower_no LIKE ? OR l.name LIKE ? OR p.tower_code LIKE ? OR p.model LIKE ? OR t.management_department LIKE ?)');args.push(...Array(5).fill('%'+query.get('search')+'%'))}
+ return ledgerPage(query,`SELECT t.*,l.name AS line_name,l.line_kind,l.status AS line_status,l.setup_status,v.name AS voltage_name,p.tower_code AS physical_code,p.tower_type,p.model,p.height_scaled,p.purpose,p.asset_no,p.longitude,p.latitude,p.commissioned_on,p.version AS physical_version,
  (SELECT COUNT(*) FROM logical_towers x WHERE x.physical_tower_id=t.physical_tower_id) shared_count
- FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=t.physical_tower_id ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,t.sort_rank,t.id`,...args);
+ FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=t.physical_tower_id ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,t.sort_rank,t.id`,args);
 }
 export function ledgerSpans(query=new URLSearchParams()){
  const args=[],where=[];if(query.get('tower_id')){where.push('(s.start_tower_id=? OR s.end_tower_id=?)');args.push(query.get('tower_id'),query.get('tower_id'))}if(query.get('line_id')){where.push('s.line_id=?');args.push(query.get('line_id'))}if(query.get('status')!=='all')where.push("s.status<>'retired'");if(query.get('search')){where.push('(l.name LIKE ? OR a.tower_no LIKE ? OR b.tower_no LIKE ?)');args.push(...Array(3).fill('%'+query.get('search')+'%'))}
- return all(`SELECT s.*,l.name AS line_name,a.tower_no AS start_tower_no,b.tower_no AS end_tower_no,
+ return ledgerPage(query,`SELECT s.*,l.name AS line_name,a.tower_no AS start_tower_no,b.tower_no AS end_tower_no,
+ pa.longitude AS lon_a,pa.latitude AS lat_a,pb.longitude AS lon_b,pb.latitude AS lat_b,
  (SELECT COUNT(*) FROM demands WHERE span_id=s.id) demand_count
- FROM line_spans s JOIN transmission_lines l ON l.id=s.line_id JOIN logical_towers a ON a.id=s.start_tower_id JOIN logical_towers b ON b.id=s.end_tower_id ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,a.sort_rank,s.created_at,s.id`,...args);
+ FROM line_spans s JOIN transmission_lines l ON l.id=s.line_id JOIN logical_towers a ON a.id=s.start_tower_id JOIN logical_towers b ON b.id=s.end_tower_id
+ LEFT JOIN physical_towers pa ON pa.id=a.physical_tower_id LEFT JOIN physical_towers pb ON pb.id=b.physical_tower_id
+ ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,a.sort_rank,s.created_at,s.id`,args,({lon_a,lat_a,lon_b,lat_b,...item})=>({...item,length_scaled:computedSpanDistance(lon_a,lat_a,lon_b,lat_b),distance_method:'coordinate-derived'}));
 }
 export function ledgerTowerDetail(id){
  const t=tower(id),p=t.physical_tower_id?physical(t.physical_tower_id):null;
@@ -95,7 +118,7 @@ function inspectTowerRows(id,body){
  body.rows.forEach((raw,index)=>{try{
   if(!raw||typeof raw!=='object')fail(422,'杆塔行格式无效');const number=text(raw.tower_no,'杆塔号');if(existing.has(number))fail(422,'当前线路已存在或本批重复杆塔号：'+number);existing.add(number);
   const p=raw.physical_tower_id?physical(raw.physical_tower_id):null;if(p&&p.status!=='active')fail(422,'关联的实际杆塔已停用');
-  rows.push({tower_no:number,circuit_position:optional(raw.circuit_position),physical_tower_id:p?.id||null,physical:p||physicalValues({...body.common,...raw})});
+  rows.push({tower_no:number,circuit_position:optional(raw.circuit_position),physical_tower_id:p?.id||null,management_department:optional(raw.management_department??body.common?.management_department),maintenance_team:optional(raw.maintenance_team??body.common?.maintenance_team),physical:p||physicalValues({...body.common,...raw})});
  }catch(e){errors.push({row:index+1,message:e.message})}});
  if(body.after_tower_id){const anchor=tower(body.after_tower_id);if(anchor.line_id!==id||anchor.status==='inactive')fail(422,'插入位置必须属于当前线路')}
  if(errors.length)fail(422,'杆塔预检失败',errors);return rows;
@@ -108,7 +131,7 @@ function setOrder(id,ids,user){
  ids.forEach((tid,i)=>exec('UPDATE logical_towers SET sort_rank=?,version=version+1,updated_at=? WHERE id=?',(i+1)*100,now(),tid));
 }
 function newLogical(id,row,pid,user){const t=now(),tid=uid();const max=one('SELECT COALESCE(MAX(sort_rank),0) n FROM logical_towers WHERE line_id=?',id).n;
- const item={id:tid,logical_code:'WT-'+tid.replaceAll('-',''),line_id:id,physical_tower_id:pid,tower_no:row.tower_no,display_name:null,sort_rank:max+100,circuit_position:row.circuit_position||null,status:'active',version:1,created_at:t,updated_at:t};insert('logical_towers',item);
+ const item={id:tid,logical_code:'WT-'+tid.replaceAll('-',''),line_id:id,physical_tower_id:pid,tower_no:row.tower_no,display_name:null,sort_rank:max+100,circuit_position:row.circuit_position||null,management_department:row.management_department||'',maintenance_team:row.maintenance_team||'',status:'active',version:1,created_at:t,updated_at:t};insert('logical_towers',item);
  insert('logical_tower_name_history',{id:uid(),logical_tower_id:tid,tower_no:row.tower_no,display_name:null,valid_from:t,valid_to:null,changed_by:user.id,reason:'线路内登记'});
  insert('logical_tower_physical_history',{id:uid(),logical_tower_id:tid,physical_tower_id:pid,valid_from:t,valid_to:null,change_kind:'initial',changed_by:user.id,reason:'线路内登记'});return item;
 }
@@ -140,7 +163,7 @@ export function updateLedgerTower(id,body,user){return mutate(user,body,()=>{
  if(body.replace_physical&&old.physical_tower_id&&one("SELECT 1 FROM logical_towers WHERE physical_tower_id=? AND id<>? AND status='active'",old.physical_tower_id,id))
   fail(409,'共塔实体实际更换必须核对所有在用回路并使用物理杆塔整体换塔接口，不能只移动单回路');
  if(body.replace_physical){newPhysicalId=uid();const attrs=physicalValues(body.physical||{});insert('physical_towers',{id:newPhysicalId,tower_code:'PT-'+newPhysicalId.replaceAll('-',''),...attrs,status:'active',version:1,created_at:now(),updated_at:now()});const t=now();exec('UPDATE logical_tower_physical_history SET valid_to=? WHERE logical_tower_id=? AND valid_to IS NULL',t,id);insert('logical_tower_physical_history',{id:uid(),logical_tower_id:id,physical_tower_id:newPhysicalId,valid_from:t,valid_to:null,change_kind:'replacement',changed_by:user.id,reason})}
- const t=now(),changes={physical_tower_id:newPhysicalId,tower_no:number,circuit_position:body.circuit_position===undefined?old.circuit_position:optional(body.circuit_position),status,version:old.version+1,updated_at:t};update('logical_towers',id,changes);
+ const t=now(),changes={physical_tower_id:newPhysicalId,tower_no:number,circuit_position:body.circuit_position===undefined?old.circuit_position:optional(body.circuit_position),management_department:body.management_department===undefined?old.management_department:optional(body.management_department),maintenance_team:body.maintenance_team===undefined?old.maintenance_team:optional(body.maintenance_team),status,version:old.version+1,updated_at:t};update('logical_towers',id,changes);
  if(number!==old.tower_no){exec('UPDATE logical_tower_name_history SET valid_to=? WHERE logical_tower_id=? AND valid_to IS NULL',t,id);insert('logical_tower_name_history',{id:uid(),logical_tower_id:id,tower_no:number,display_name:old.display_name,valid_from:t,valid_to:null,changed_by:user.id,reason})}
  touch(old.line_id);record(user,old.line_id,'update_tower',old,{...old,...changes},reason);return {id,line_id:old.line_id};
 })}
@@ -170,19 +193,18 @@ function checkEndpoints(id,aId,bId){
  const l=writableLine(id),a=tower(aId),b=tower(bId);if(a.id===b.id)fail(422,'起点与终点不能为同一杆塔');
  for(const t of [a,b])if((t.line_id!==id&&t.id!==l.junction_tower_id)||t.status!=='active'||!t.physical_tower_id||physical(t.physical_tower_id).status!=='active')fail(422,'起止杆塔必须属于当前线路，或是已确认的支线接入杆塔');return {a,b};
 }
-const lengthValue=v=>v===undefined||v===null||v===''?null:quantityToScaled(v);
 export function previewSpans(id,body){return transaction(()=>{
  const l=writableLine(id);checkTopology(id,body);const own=all("SELECT * FROM logical_towers WHERE line_id=? AND status='active' ORDER BY sort_rank,id",id);const nodes=l.junction_tower_id?[tower(l.junction_tower_id),...own]:own;
  const selected=body.tower_ids;if(selected!==undefined&&(!Array.isArray(selected)||new Set(selected).size!==selected.length||selected.some(t=>!nodes.some(n=>n.id===t))))fail(422,'所选杆塔必须属于当前线路');
  const candidates=[];for(let i=1;i<nodes.length;i++){const a=nodes[i-1],b=nodes[i];if(selected&&(!selected.includes(a.id)||!selected.includes(b.id)))continue;
   const existing=one("SELECT * FROM line_spans WHERE line_id=? AND status<>'retired' AND ((start_tower_id=? AND end_tower_id=?) OR (start_tower_id=? AND end_tower_id=?))",id,a.id,b.id,b.id,a.id);
-  candidates.push({start_tower_id:a.id,end_tower_id:b.id,start_tower_no:a.tower_no,end_tower_no:b.tower_no,existing_id:existing?.id||null,length:existing?.length_scaled===null||!existing?'':String(existing.length_scaled/10000)});
+  candidates.push({start_tower_id:a.id,end_tower_id:b.id,start_tower_no:a.tower_no,end_tower_no:b.tower_no,existing_id:existing?.id||null,length_scaled:endpointDistance(a,b)});
  }return {candidates,topology_token:topology(id)};
 })}
 function spanRows(id,rows,ignore=[]){
  if(!Array.isArray(rows)||!rows.length||rows.length>500)fail(422,'每批需填写1至500条档距');const seen=new Set();const errors=[],out=[];
  rows.forEach((r,index)=>{try{if(!r||typeof r!=='object'||Array.isArray(r))fail(422,'档距行格式无效');checkEndpoints(id,r.start_tower_id,r.end_tower_id);const key=[r.start_tower_id,r.end_tower_id].sort().join('|');if(seen.has(key))fail(422,'本批档距重复');seen.add(key);
- const existing=one("SELECT id FROM line_spans WHERE line_id=? AND status<>'retired' AND ((start_tower_id=? AND end_tower_id=?) OR (start_tower_id=? AND end_tower_id=?))",id,r.start_tower_id,r.end_tower_id,r.end_tower_id,r.start_tower_id);if(existing&&!ignore.includes(existing.id))fail(409,'档距已经存在');const length=lengthValue(r.length);out.push({start_tower_id:r.start_tower_id,end_tower_id:r.end_tower_id,length_scaled:length,status:length===null?'draft':'active'});
+ const existing=one("SELECT id FROM line_spans WHERE line_id=? AND status<>'retired' AND ((start_tower_id=? AND end_tower_id=?) OR (start_tower_id=? AND end_tower_id=?))",id,r.start_tower_id,r.end_tower_id,r.end_tower_id,r.start_tower_id);if(existing&&!ignore.includes(existing.id))fail(409,'档距已经存在');out.push({start_tower_id:r.start_tower_id,end_tower_id:r.end_tower_id,status:'active'});
  }catch(e){errors.push({row:index+1,message:e.message})}});if(errors.length)fail(422,'档距预检失败',errors);return out;
 }
 export function addLedgerSpans(id,body,user){return mutate(user,body,()=>{
@@ -190,7 +212,7 @@ export function addLedgerSpans(id,body,user){return mutate(user,body,()=>{
 })}
 export function updateLedgerSpan(id,body,user){return mutate(user,body,()=>{
  const old=span(id);version(old,body,'档距');if(old.status==='retired')fail(409,'历史档距不能直接修改');if(body.start_tower_id&&body.start_tower_id!==old.start_tower_id||body.end_tower_id&&body.end_tower_id!==old.end_tower_id)fail(409,'端点调整请使用拆档或合档变更');
- checkEndpoints(old.line_id,old.start_tower_id,old.end_tower_id);const reason=text(body.reason,'调整依据'),length=lengthValue(body.length);const next={...old,length_scaled:length,status:length===null?'draft':'active',version:old.version+1,updated_at:now()};update('line_spans',id,{length_scaled:length,status:next.status,version:next.version,updated_at:next.updated_at});touch(old.line_id);record(user,old.line_id,'update_span',old,next,reason);return next;
+ checkEndpoints(old.line_id,old.start_tower_id,old.end_tower_id);const reason=text(body.reason,'调整依据');const next={...old,status:'active',version:old.version+1,updated_at:now()};update('line_spans',id,{status:next.status,version:next.version,updated_at:next.updated_at});touch(old.line_id);record(user,old.line_id,'update_span',old,next,reason);return next;
 })}
 export function deleteLedgerSpan(id,body,user){return mutate(user,body,()=>{
  const old=span(id);version(old,body,'档距');if(one('SELECT 1 FROM demands WHERE span_id=?',id))fail(409,'档距已被需求引用，请使用档距变更并保留历史');exec('DELETE FROM line_spans WHERE id=?',id);touch(old.line_id);record(user,old.line_id,'delete_span',old,null,text(body.reason,'删除原因'));return {id,line_id:old.line_id};
@@ -204,6 +226,6 @@ export function replaceLedgerSpans(id,body,user){return mutate(user,body,()=>{
  for(const s of old)update('line_spans',s.id,{status:'retired',version:s.version+1,updated_at:now()});const ids=[];for(const row of rows){const sid=uid();insert('line_spans',{id:sid,line_id:id,...row,version:1,created_by:user.id,created_at:now(),updated_at:now()});ids.push(sid)}touch(id);record(user,id,'replace_spans',old,{ids,rows},reason);return {line_id:id,ids,retired_ids:body.old_ids};
 })}
 export function spanDemandLocation(id){
- const s=span(id);if(s.status!=='active')fail(422,'档距长度未填写或已转为历史，请先完善档距');const {a,b}=checkEndpoints(s.line_id,s.start_tower_id,s.end_tower_id);const l=line(s.line_id);
- return {span:s,start:a,end:b,line:l,snapshot:{id:s.id,version:s.version,line_id:l.id,line_name:l.name,start_tower_id:a.id,end_tower_id:b.id,start_tower_no:a.tower_no,end_tower_no:b.tower_no,start_physical_tower_id:a.physical_tower_id,end_physical_tower_id:b.physical_tower_id,length_scaled:s.length_scaled}};
+ const s=span(id);if(s.status!=='active')fail(422,'档距尚未生效或已转为历史');const {a,b}=checkEndpoints(s.line_id,s.start_tower_id,s.end_tower_id);const l=line(s.line_id);
+ return {span:s,start:a,end:b,line:l,snapshot:{id:s.id,version:s.version,line_id:l.id,line_name:l.name,start_tower_id:a.id,end_tower_id:b.id,start_tower_no:a.tower_no,end_tower_no:b.tower_no,start_physical_tower_id:a.physical_tower_id,end_physical_tower_id:b.physical_tower_id,distance_method:'coordinate-derived'}};
 }

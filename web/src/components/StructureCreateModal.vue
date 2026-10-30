@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {ElForm} from 'element-plus';
+import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
+import {ElSelect,ElOption} from 'element-plus';
+import {ElButton} from 'element-plus';
 import {computed} from 'vue';
 import FormModal from './FormModal.vue';
 import {vFormValidation} from '../utils/form-validation';
@@ -13,15 +17,15 @@ const availableAgreements=computed(()=>props.agreements.filter(x=>x.status==='ac
 </script>
 <template>
  <FormModal :open="open" :title="'创建'+title" :error="error" @close="emit('close')">
-  <form v-form-validation novalidate class="form-grid" @submit.prevent="emit('save')">
-   <label><span class="field-caption">名称</span><input v-model.trim="form.name" required/></label>
-   <label v-if="type==='frameworks'"><span class="field-caption">框架年度</span><input v-model.number="form.fiscal_year" type="number" min="2000" max="2100" required/></label>
-   <label v-if="type!=='projects'"><span class="field-caption">授权额度（元）</span><input v-model.trim="form.limit_yuan" data-validate="money" required inputmode="decimal" placeholder="100000.00"/></label>
-   <label v-if="type==='agreements'"><span class="field-caption">所属框架</span><select v-model="form.framework_id" required><option value="">请选择</option><option v-for="f in availableFrameworks" :key="f.id" :value="f.id">{{f.name}}</option></select></label>
-   <label v-if="type==='projects'"><span class="field-caption">所属年度框架</span><select v-model="form.framework_id" required @change="form.agreement_id=''"><option value="">请选择</option><option v-for="f in availableFrameworks" :key="f.id" :value="f.id">{{f.fiscal_year}} · {{f.name}}</option></select></label>
-   <label v-if="type==='projects'"><span class="field-caption">拟归属执行协议（储备阶段可不选）</span><select v-model="form.agreement_id"><option value="">待落实</option><option v-for="a in availableAgreements" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</option></select></label>
-   <label v-if="type==='projects'"><span class="field-caption">储备类别</span><select v-model="form.category_id"><option value="">待分类</option><option v-for="c in categories.filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</option></select></label>
-   <div class="wide form-actions"><button type="button" class="light" @click="emit('close')">取消</button><button class="primary" :disabled="busy">保存</button></div>
-  </form>
+  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="emit('save')">
+   <label><span class="field-caption">名称</span><ElInput v-model.trim="form.name" required/></label>
+   <label v-if="type==='frameworks'"><span class="field-caption">框架年度</span><ElInput v-model.number="form.fiscal_year" type="number" min="2000" max="2100" required/></label>
+   <label v-if="type!=='projects'"><span class="field-caption">授权额度（元）</span><ElInput v-model.trim="form.limit_yuan" data-validate="money" required inputmode="decimal" placeholder="100000.00"/></label>
+   <label v-if="type==='agreements'"><span class="field-caption">所属框架</span><ElSelect v-model="form.framework_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(f.name)" :data-option-value="f.id" v-for="f in availableFrameworks" :key="f.id" :value="f.id">{{f.name}}</ElOption></ElSelect></label>
+   <label v-if="type==='projects'"><span class="field-caption">所属年度框架</span><ElSelect v-model="form.framework_id" required @change="form.agreement_id=''"><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(f.fiscal_year) + ' · ' + String(f.name)" :data-option-value="f.id" v-for="f in availableFrameworks" :key="f.id" :value="f.id">{{f.fiscal_year}} · {{f.name}}</ElOption></ElSelect></label>
+   <label v-if="type==='projects'"><span class="field-caption">拟归属执行协议（储备阶段可不选）</span><ElSelect v-model="form.agreement_id"><ElOption :label="'待落实'" data-option-value="" value="">待落实</ElOption><ElOption :label="String(a.name) + ' · ' + String(a.framework_name)" :data-option-value="a.id" v-for="a in availableAgreements" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</ElOption></ElSelect></label>
+   <label v-if="type==='projects'"><span class="field-caption">储备类别</span><ElSelect v-model="form.category_id"><ElOption :label="'待分类'" data-option-value="" value="">待分类</ElOption><ElOption :label="String(c.name)" :data-option-value="c.id" v-for="c in categories.filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</ElOption></ElSelect></label>
+   <div class="wide form-actions"><ElButton native-type="button" class="light" @click="emit('close')">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="busy">保存</ElButton></div>
+  </ElForm>
  </FormModal>
 </template>

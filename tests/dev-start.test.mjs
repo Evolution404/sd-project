@@ -10,12 +10,12 @@ import {setTimeout as delay} from 'node:timers/promises';
 const version=Number(readFileSync(new URL('../server/db.mjs',import.meta.url),'utf8')
  .match(/^const SCHEMA_VERSION=(\d+);/m)?.[1]);
 
-test('make dev selects an isolated directory matching the canonical schema, without migrating old data',{
+test('make dev uses the same persistent user-data directory as regular startup',{
  skip:process.platform==='win32'
 },()=>{
  assert.ok(version>0);
  const dry=execFileSync('make',['-n','dev'],{encoding:'utf8'});
- assert.match(dry,new RegExp('\\.local-test-data/schema-'+version+'\\b'));
+ assert.match(dry,/\.local\/share\/sd-project/);
  assert.doesNotMatch(dry,/current-101/);
 });
 

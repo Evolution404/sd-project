@@ -4,7 +4,7 @@ import {join} from 'node:path';
 import {homedir} from 'node:os';
 import {randomUUID} from 'node:crypto';
 
-const SCHEMA_VERSION=107; // One canonical development schema, no legacy upgrades.
+const SCHEMA_VERSION=109; // One canonical development schema, no legacy upgrades.
 const ROOT=process.env.DATA_DIR||(process.platform==='win32'
   ?join(process.env.LOCALAPPDATA||homedir(),'SDProject')
   :join(homedir(),'.local','share','sd-project'));

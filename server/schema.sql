@@ -20,7 +20,7 @@ CREATE TABLE transmission_lines (
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-, line_kind TEXT NOT NULL DEFAULT 'main' CHECK(line_kind IN ('main','branch')), parent_line_id TEXT REFERENCES transmission_lines(id) ON DELETE RESTRICT, junction_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT, setup_status TEXT NOT NULL DEFAULT 'ready' CHECK(setup_status IN ('draft','ready')), team TEXT NOT NULL DEFAULT '', erection_type TEXT NOT NULL DEFAULT '', start_label TEXT NOT NULL DEFAULT '', end_label TEXT NOT NULL DEFAULT '');
+, line_kind TEXT NOT NULL DEFAULT 'main' CHECK(line_kind IN ('main','branch')), parent_line_id TEXT REFERENCES transmission_lines(id) ON DELETE RESTRICT, junction_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT, setup_status TEXT NOT NULL DEFAULT 'ready' CHECK(setup_status IN ('draft','ready')), erection_type TEXT NOT NULL DEFAULT '');
 
 CREATE TABLE physical_towers (
     id TEXT NOT NULL PRIMARY KEY,
@@ -52,12 +52,38 @@ CREATE TABLE logical_towers (
     display_name TEXT,
     sort_rank INTEGER NOT NULL CHECK (sort_rank > 0),
     circuit_position TEXT,
+    management_department TEXT NOT NULL DEFAULT '',
+    maintenance_team TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'draft'
         CHECK (status IN ('draft', 'active', 'inactive')),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     CHECK (status <> 'active' OR physical_tower_id IS NOT NULL)
+);
+
+CREATE TABLE line_source_aliases (
+ line_id TEXT NOT NULL REFERENCES transmission_lines(id) ON DELETE RESTRICT,
+ source_name TEXT NOT NULL,
+ source_kind TEXT NOT NULL,
+ PRIMARY KEY(line_id,source_name,source_kind)
+);
+CREATE TABLE pms_import_issues (
+ id TEXT PRIMARY KEY,
+ entity_type TEXT NOT NULL,
+ source_name TEXT NOT NULL,
+ source_row INTEGER NOT NULL,
+ issue TEXT NOT NULL,
+ details_json TEXT,
+ created_at TEXT NOT NULL,
+ UNIQUE(entity_type,source_name,source_row,issue)
+);
+CREATE TABLE pms_import_runs (
+ id TEXT PRIMARY KEY,
+ source_fingerprint TEXT NOT NULL UNIQUE,
+ source_description TEXT NOT NULL,
+ result_json TEXT NOT NULL,
+ created_at TEXT NOT NULL
 );
 
 CREATE TABLE line_name_history (
@@ -287,11 +313,11 @@ CREATE TABLE line_spans (
  line_id TEXT NOT NULL REFERENCES transmission_lines(id) ON DELETE RESTRICT,
  start_tower_id TEXT NOT NULL REFERENCES logical_towers(id) ON DELETE RESTRICT,
  end_tower_id TEXT NOT NULL REFERENCES logical_towers(id) ON DELETE RESTRICT,
- length_scaled INTEGER CHECK(length_scaled IS NULL OR length_scaled>0),
+ -- No persisted length: derive from endpoint coordinate pairs at query time.
  status TEXT NOT NULL CHECK(status IN ('draft','active','retired')),
  version INTEGER NOT NULL DEFAULT 1,
  created_by TEXT NOT NULL REFERENCES users(id),created_at TEXT NOT NULL,updated_at TEXT NOT NULL,
- CHECK(start_tower_id<>end_tower_id),CHECK(status<>'active' OR length_scaled IS NOT NULL)
+ CHECK(start_tower_id<>end_tower_id)
 );
 
 CREATE TABLE ledger_requests (
@@ -410,13 +436,13 @@ CREATE TRIGGER frozen_scope_snapshot BEFORE UPDATE OF demand_snapshot_json ON pr
 
 CREATE TRIGGER valid_branch_insert BEFORE INSERT ON transmission_lines BEGIN
  SELECT CASE WHEN NEW.line_kind='main' AND (NEW.parent_line_id IS NOT NULL OR NEW.junction_tower_id IS NOT NULL) THEN RAISE(ABORT,'主线不能设置上级线路或接入杆塔') END;
- SELECT CASE WHEN NEW.line_kind='branch' AND NOT EXISTS(SELECT 1 FROM transmission_lines WHERE id=NEW.parent_line_id AND line_kind='main') THEN RAISE(ABORT,'支线必须归属主线') END;
+ SELECT CASE WHEN NEW.line_kind='branch' AND (NEW.parent_line_id IS NULL AND NEW.setup_status<>'draft' OR NEW.parent_line_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM transmission_lines WHERE id=NEW.parent_line_id AND line_kind='main')) THEN RAISE(ABORT,'支线必须归属主线') END;
  SELECT CASE WHEN NEW.line_kind='branch' AND NEW.status='active' AND NEW.setup_status='ready' AND NOT EXISTS(SELECT 1 FROM logical_towers WHERE id=NEW.junction_tower_id AND line_id=NEW.parent_line_id AND status='active') THEN RAISE(ABORT,'支线接入杆塔无效') END;
 END;
 
 CREATE TRIGGER valid_branch_update BEFORE UPDATE ON transmission_lines BEGIN
  SELECT CASE WHEN NEW.line_kind='main' AND (NEW.parent_line_id IS NOT NULL OR NEW.junction_tower_id IS NOT NULL) THEN RAISE(ABORT,'主线不能设置上级线路或接入杆塔') END;
- SELECT CASE WHEN NEW.line_kind='branch' AND NOT EXISTS(SELECT 1 FROM transmission_lines WHERE id=NEW.parent_line_id AND line_kind='main' AND id<>NEW.id) THEN RAISE(ABORT,'支线必须归属主线') END;
+ SELECT CASE WHEN NEW.line_kind='branch' AND (NEW.parent_line_id IS NULL AND NEW.setup_status<>'draft' OR NEW.parent_line_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM transmission_lines WHERE id=NEW.parent_line_id AND line_kind='main' AND id<>NEW.id)) THEN RAISE(ABORT,'支线必须归属主线') END;
  SELECT CASE WHEN NEW.line_kind='branch' AND NEW.status='active' AND NEW.setup_status='ready' AND NOT EXISTS(SELECT 1 FROM logical_towers WHERE id=NEW.junction_tower_id AND line_id=NEW.parent_line_id AND status='active') THEN RAISE(ABORT,'支线接入杆塔无效') END;
 END;
 

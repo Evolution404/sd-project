@@ -1,3 +1,4 @@
+import {selectUiOption} from './helpers/select-ui-option.mjs';
 import {navigate} from './browser-navigation.mjs';
 import {mkdtempSync,rmSync,existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -11,7 +12,7 @@ function port(){return new Promise((resolve,reject)=>{const s=createServer();s.o
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function wait(url){for(let i=0;i<80;i++){try{if((await fetch(url+'/api/health')).ok)return}catch{}await sleep(100)}throw Error('server startup timeout')}
 async function fill(panel,label,text){await panel.getByLabel(label).fill(text)}
-async function select(panel,label,value){await panel.getByLabel(label).selectOption({label:value})}
+async function select(panel,label,value){await selectUiOption(panel.getByLabel(label),{label:value})}
 const screenshotPath=join(process.cwd(),'release','browser-acceptance.png');
 try{
  execFileSync(process.execPath,['scripts/init-admin.mjs'],{env:{...process.env,DATA_DIR:data,SD_ADMIN_USER:'browseradmin',SD_ADMIN_PASSWORD:'BrowserSecure123!'}});
@@ -72,25 +73,24 @@ try{
  }
  await nav('新建需求');
  const panels=page.locator('section.entry-section');
- await panels.nth(0).getByLabel('选择线路').selectOption({label:'110kV · 浏览器测试线路'});
+ await selectUiOption(panels.nth(0).getByLabel('选择线路'),{label:'110kV · 浏览器测试线路'});
  await panels.nth(0).getByRole('button',{name:'全选本线路'}).click();
- await panels.nth(1).getByLabel('操作类型').selectOption({label:'安装防鸟装置'});
+ await selectUiOption(panels.nth(1).getByLabel('操作类型'),{label:'安装防鸟装置'});
  await fill(panels.nth(1),'共同处理部位','横担');
- await panels.nth(1).locator('.quantity-inputs input').fill('2');
- await panels.nth(1).getByLabel('计量单位').selectOption({label:'套'});
+ await panels.nth(1).locator('.quantity-inputs input:not([role=combobox])').fill('2');
+ await selectUiOption(panels.nth(1).getByLabel('计量单位'),{label:'套'});
  await fill(panels.nth(1),'完成标准','安装完成验收');
  await fill(panels.nth(1),'问题描述 / 实施必要性','浏览器合成数据核查');
- await panels.nth(2).getByLabel('来源类型').selectOption({label:'巡视'});
+ await selectUiOption(panels.nth(2).getByLabel('来源类型'),{label:'巡视'});
  await fill(panels.nth(2),'提出单位 / 人员','浏览器自动测试');
  await panels.nth(2).getByRole('button',{name:'添加一条来源'}).click();
- await panels.nth(2).getByLabel('来源类型').last().selectOption({label:'巡视'});
+ await selectUiOption(panels.nth(2).getByLabel('来源类型').last(),{label:'巡视'});
  await panels.nth(2).getByLabel('提出单位 / 人员').last().fill('附加检查单位');
  await page.evaluate(()=>window.scrollTo(0,0));
  await page.screenshot({path:join(process.cwd(),'release','entry-ui-acceptance.png'),fullPage:true});
  const desktopOverflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1);
  if(desktopOverflow)throw Error('Unexpected desktop horizontal scroll');
- await panels.nth(3).getByRole('button',{name:'提交 2 条核实'}).click();
- await page.getByText(/新建 2 条待核实需求/).waitFor();
+ await panels.nth(3).getByRole('button',{name:'提交 2 条核实'}).click();await page.getByText(/新建 2 条待核实需求/).waitFor();
  await nav('需求中心');
  await page.getByText('XQ-0000001').first().waitFor();
  await page.reload();
@@ -142,18 +142,18 @@ try{
  await chooseDictionaryOption(st,'所属框架','浏览器框架');
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await nav('子项目储备');await page.getByRole('button',{name:'新增子项目储备'}).click();
- st=page.locator('.form-panel');await fill(st,'名称','浏览器子项目');
- await st.getByLabel('所属年度框架').selectOption({index:1});
+ st=page.getByRole('dialog',{name:'创建子项目储备'});await fill(st,'名称','浏览器子项目');
+ await selectUiOption(st.getByLabel('所属年度框架'),{index:1});
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await page.getByRole('button',{name:'需求范围与阶段'}).first().click();
  await page.locator('.detail-panel').getByRole('button',{name:/关联需求范围/}).click();
  let actionModal=page.getByRole('dialog',{name:'关联需求范围'});
- await actionModal.getByLabel('纳入有效需求').selectOption({index:1});
+ await selectUiOption(actionModal.getByLabel('纳入有效需求'),{index:1});
  await actionModal.getByRole('button',{name:'关联需求'}).click();
  await actionModal.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByRole('button',{name:'填写初步估算'}).click();
  actionModal=page.getByRole('dialog',{name:'项目类别与初步估算'});
- await actionModal.getByLabel('项目类别').selectOption({label:'维修项目'});
+ await selectUiOption(actionModal.getByLabel('项目类别'),{label:'维修项目'});
  await actionModal.getByLabel('初步估算（元）').fill('200');
  await actionModal.getByLabel('估算依据').fill('浏览器测试：按定额和现场数量初步测算');
  await actionModal.getByRole('button',{name:'保存初步估算'}).click();
@@ -165,7 +165,7 @@ try{
  await reasonModal.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByRole('button',{name:'设置执行协议'}).click();
  actionModal=page.getByRole('dialog',{name:'选择执行协议'});
- await actionModal.getByLabel('唯一执行协议').selectOption({label:'浏览器协议 · 浏览器框架'});
+ await selectUiOption(actionModal.getByLabel('唯一执行协议'),{label:'浏览器协议 · 浏览器框架'});
  await actionModal.getByRole('button',{name:'确认协议归属'}).click();
  await actionModal.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByRole('button',{name:'估价依据'}).first().click();
@@ -183,7 +183,7 @@ try{
  await page.locator('.detail-panel').getByRole('button',{name:'新建变更单草稿'}).click();
  actionModal=page.getByRole('dialog',{name:'拟定项目变更单'});
  if(await actionModal.getByLabel('变更单编号').count())throw Error('Change order number should be generated internally');
- await actionModal.getByLabel('变更类型').selectOption('adjust');
+ await selectUiOption(actionModal.getByLabel('变更类型'),'adjust');
  await actionModal.getByLabel('拟调整工作量').fill('0.8');
  await actionModal.getByLabel('拟核定单价（元，可待核）').fill('135');
  await actionModal.getByLabel('变更事项的事实依据').fill('现场复查发现需要调整数量和报价');
@@ -209,7 +209,7 @@ try{
  await page.locator('.detail-panel').getByRole('button',{name:'登记项目级未归集凭证'}).click();
  let settlementModal=page.getByRole('dialog',{name:'登记结算凭证'});
  await settlementModal.getByLabel('凭证编号').fill('SETTLEMENT-WEB-001');
- await settlementModal.getByLabel('结算性质').selectOption('advance');
+ await selectUiOption(settlementModal.getByLabel('结算性质'),'advance');
  await settlementModal.getByLabel('金额（元）').fill('20');
  await settlementModal.getByLabel('结算依据').fill('浏览器测试的预付款凭证');
  await settlementModal.getByRole('button',{name:'确认登记'}).click();
@@ -237,9 +237,9 @@ try{
  let priceModal=page.getByRole('dialog',{name:'新增检修参考价'});
  if(await priceModal.getByLabel('价格编码').count())throw Error('Price code must be generated internally');
  await priceModal.getByLabel('价格项目名称').fill('防鸟装置常规安装');
- await priceModal.getByLabel('检修操作').selectOption({label:'安装防鸟装置'});
- await priceModal.getByLabel('计价单位').selectOption({label:'套'});
- await priceModal.getByLabel('适用电压等级').selectOption({label:'110kV'});
+ await selectUiOption(priceModal.getByLabel('检修操作'),{label:'安装防鸟装置'});
+ await selectUiOption(priceModal.getByLabel('计价单位'),{label:'套'});
+ await selectUiOption(priceModal.getByLabel('适用电压等级'),{label:'110kV'});
  await priceModal.getByLabel('参考单价（元）').fill('123.45');
  await priceModal.getByLabel('价格来源').fill('浏览器历史参考');
  await priceModal.getByLabel('价格测算说明').fill('浏览器创建参考单价并检查历史版本');
@@ -275,19 +275,19 @@ try{
  let createModal=page.getByRole('dialog',{name:'创建子项目储备'});
  if(await createModal.getByLabel('业务编码').count())throw Error('Project code must be generated internally');
  await createModal.getByLabel('名称').fill('引用参考价项目');
- await createModal.getByLabel('所属年度框架').selectOption({index:1});
+ await selectUiOption(createModal.getByLabel('所属年度框架'),{index:1});
  await createModal.getByRole('button',{name:'保存',exact:true}).click();
  await createModal.waitFor({state:'hidden'});
  await page.getByRole('button',{name:'需求范围与阶段'}).first().click();
  await page.locator('.detail-panel').getByRole('button',{name:/关联需求范围/}).click();
  const scopeModal=page.getByRole('dialog',{name:'关联需求范围'});
- await scopeModal.getByLabel('纳入有效需求').selectOption(pending.id);
+ await selectUiOption(scopeModal.getByLabel('纳入有效需求'),pending.id);
  await scopeModal.getByLabel('本项目拟覆盖工作量').fill('2');
  await scopeModal.getByRole('button',{name:'关联需求'}).click();
  await scopeModal.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByRole('button',{name:'估价依据'}).first().click();
  const quoteModal=page.getByRole('dialog',{name:'核定估价依据'});
- await quoteModal.getByLabel('参考单价目录（储备估算）').selectOption({index:1});
+ await selectUiOption(quoteModal.getByLabel('参考单价目录（储备估算）'),{index:1});
  await quoteModal.getByRole('button',{name:'引用参考价'}).click();
  await quoteModal.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByText('防鸟装置常规安装 v2').waitFor();

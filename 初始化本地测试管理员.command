@@ -2,7 +2,7 @@
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
-export DATA_DIR="$ROOT/.local-test-data"
+export DATA_DIR="$HOME/.local/share/sd-project"
 if ! command -v node >/dev/null 2>&1; then
   echo "未找到 Node.js，请先安装 Node.js 24 或以上版本。"
   read -r -p "按回车退出..." _pause
