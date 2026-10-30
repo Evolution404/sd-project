@@ -8,7 +8,7 @@ import {ElSelect,ElOption} from 'element-plus';
 import {ElButton} from 'element-plus';
 import {computed,reactive,ref,watch} from 'vue';
 import SettlementVoucherWorkspace from './SettlementVoucherWorkspace.vue';
-import {vFormValidation} from '../utils/form-validation';
+import {ElFormItem,type FormInstance} from 'element-plus';
 
 type Row=Record<string,any>;
 type PlanSummary=Row&{items:Row[],entries:Row[]};
@@ -19,6 +19,14 @@ const error=ref(''),formError=ref(''),notice=ref('');
 const loading=ref(false),saving=ref(false),refreshKey=ref(0);
 const dialog=ref<''|'record'|'reverse'>('');
 const form=reactive<Row>({});
+const recordRef=ref<FormInstance>(),reverseRef=ref<FormInstance>();
+const required=(name:string)=>[{required:true,message:'请填写'+name,trigger:'blur'}];
+const selected=(name:string)=>[{required:true,message:'请选择'+name,trigger:'change'}];
+const amountRules=[...required('结算金额'),{pattern:/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/,message:'金额最多两位小数',trigger:'blur'}];
+async function validateSubmit(instance:FormInstance|undefined){
+ if(await instance?.validate().catch(()=>false))await submit();
+}
+
 const money=(fen:number|null|undefined)=>fen==null?'—':(fen/100).toFixed(2);
 const qty=(scaled:number|null|undefined)=>scaled==null?'—':(scaled/10000).toFixed(4).replace(/\.?0+$/,'');
 const date=()=>new Date().toLocaleDateString('en-CA');
@@ -117,32 +125,32 @@ async function submit(){
   </template>
  </section>
  <ElDialog :model-value="dialog==='record'" title="登记检修计划结算"  width="860px" @close="!saving&&(dialog='')" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="formError" class="form-modal-error" role="alert">{{formError}}</p>
-  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="submit">
-   <label class="wide"><span class="field-caption">检修工作项</span><ElSelect v-model="form.execution_item_id" required>
+  <ElForm ref="recordRef" :model="form" label-position="top" novalidate class="form-grid" @submit.prevent="validateSubmit(recordRef)">
+   <ElFormItem class="wide" label="检修工作项" prop="execution_item_id" :rules="selected('检修工作项')"><ElSelect v-model="form.execution_item_id" required>
      <ElOption :label="String(item.demand_no) + ' · 计划 ' + String(qty(item.planned_quantity_scaled))" :data-option-value="item.id" v-for="item in summary?.items||[]" :key="item.id" :value="item.id">{{item.demand_no}} · 计划 {{qty(item.planned_quantity_scaled)}}</ElOption>
-   </ElSelect></label>
-   <label><span class="field-caption">结算性质</span><ElSelect v-model="form.settlement_type" required>
+   </ElSelect></ElFormItem>
+   <ElFormItem label="结算性质" prop="settlement_type" :rules="selected('结算性质')"><ElSelect v-model="form.settlement_type" required>
     <ElOption :label="'预付款'" data-option-value="advance" value="advance">预付款</ElOption><ElOption :label="'进度结算'" data-option-value="progress" value="progress">进度结算</ElOption><ElOption :label="'最终结算'" data-option-value="final" value="final">最终结算</ElOption>
-   </ElSelect></label>
-   <label><span class="field-caption">凭证编号</span><ElInput v-model.trim="form.settlement_no" required maxlength="80"/></label>
-   <label><span class="field-caption">结算金额（元）</span><ElInput v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
-   <label><span class="field-caption">凭证日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.occurred_on"  required/></label>
-   <label class="wide"><span class="field-caption">结算依据</span><ElInput type="textarea" v-model.trim="form.evidence" :rows="3" required/></label>
+   </ElSelect></ElFormItem>
+   <ElFormItem label="凭证编号" prop="settlement_no" :rules="required('凭证编号')"><ElInput v-model.trim="form.settlement_no" required maxlength="80"/></ElFormItem>
+   <ElFormItem label="结算金额（元）" prop="amount_yuan" :rules="amountRules"><ElInput v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></ElFormItem>
+   <ElFormItem label="凭证日期" prop="occurred_on" :rules="required('凭证日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.occurred_on"  required/></ElFormItem>
+   <ElFormItem class="wide" label="结算依据" prop="evidence" :rules="required('结算依据')"><ElInput type="textarea" v-model.trim="form.evidence" :rows="3" required/></ElFormItem>
    <p class="wide muted">最终结算要求本计划对应工作项已有结束后的实际完成记录。凭证支持更正、撤销和历史查询，原始登记继续保留。</p>
    <div class="wide form-actions"><ElButton native-type="button" class="light" :disabled="saving" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="saving">确认登记</ElButton></div>
   </ElForm>
  </ElDialog>
  <ElDialog :model-value="dialog==='reverse'" title="冲销原始结算凭证"  width="860px" @close="!saving&&(dialog='')" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="formError" class="form-modal-error" role="alert">{{formError}}</p>
-  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="submit">
-   <label class="wide"><span class="field-caption">原始凭证（仅显示未全部冲销的正向凭证）</span>
+  <ElForm ref="reverseRef" :model="form" label-position="top" novalidate class="form-grid" @submit.prevent="validateSubmit(reverseRef)">
+   <ElFormItem class="wide" label="原始凭证（仅显示未全部冲销的正向凭证）" prop="reversal_of" :rules="selected('原始凭证（仅显示未全部冲销的正向凭证）')">
     <ElSelect v-model="form.reversal_of" required @change="updateReversal(form.reversal_of)">
      <ElOption :label="String(entry.settlement_no) + ' · ' + String(itemName(entry.execution_item_id)) + ' · 剩余 ' + String(money(entry.remaining_fen)) + ' 元'" :data-option-value="entry.id" v-for="entry in remainingByOriginal" :key="entry.id" :value="entry.id">{{entry.settlement_no}} · {{itemName(entry.execution_item_id)}} · 剩余 {{money(entry.remaining_fen)}} 元</ElOption>
     </ElSelect>
-   </label>
-   <label><span class="field-caption">冲销凭证编号</span><ElInput v-model.trim="form.settlement_no" required maxlength="80"/></label>
-   <label><span class="field-caption">本次冲销金额（元）</span><ElInput v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></label>
-   <label><span class="field-caption">凭证日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.occurred_on"  required/></label>
-   <label class="wide"><span class="field-caption">冲销依据</span><ElInput type="textarea" v-model.trim="form.evidence" :rows="3" required/></label>
+   </ElFormItem>
+   <ElFormItem label="冲销凭证编号" prop="settlement_no" :rules="required('冲销凭证编号')"><ElInput v-model.trim="form.settlement_no" required maxlength="80"/></ElFormItem>
+   <ElFormItem label="本次冲销金额（元）" prop="amount_yuan" :rules="amountRules"><ElInput v-model.trim="form.amount_yuan" data-validate="money" required inputmode="decimal"/></ElFormItem>
+   <ElFormItem label="凭证日期" prop="occurred_on" :rules="required('凭证日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.occurred_on"  required/></ElFormItem>
+   <ElFormItem class="wide" label="冲销依据" prop="evidence" :rules="required('冲销依据')"><ElInput type="textarea" v-model.trim="form.evidence" :rows="3" required/></ElFormItem>
    <p class="wide muted">冲销保留原始凭证、批准版本和检修计划归属。不能超过该凭证的剩余未冲销金额。</p>
    <div class="wide form-actions"><ElButton native-type="button" class="light" :disabled="saving" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="saving">确认冲销</ElButton></div>
   </ElForm>

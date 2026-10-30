@@ -8,12 +8,16 @@ import {ElSelect,ElOption} from 'element-plus';
 import {ElButton} from 'element-plus';
 import {computed,onMounted,reactive,ref} from 'vue';
 import StatusTag from './StatusTag.vue';
-import {vFormValidation} from '../utils/form-validation';
+import {ElFormItem,type FormInstance} from 'element-plus';
 type Row=Record<string,any>;
 const props=defineProps<{items:Row[],voltage:Row[],canEdit:boolean}>();
 const rows=ref<Row[]>([]),versions=ref<Row[]>([]),loading=ref(false),error=ref(''),edit=ref<Row|null>(null),dialog=ref<'new'|'revise'|'status'|'versions'|''>('');
 const activeFilter=ref('active'),query=ref('');
 const form=reactive<Row>({});
+const editFormRef=ref<FormInstance>(),statusFormRef=ref<FormInstance>();
+const required=(name:string)=>[{required:true,message:'请填写'+name,trigger:'blur'}];
+const selected=(name:string)=>[{required:true,message:'请选择'+name,trigger:'change'}];
+const priceRules=[...required('参考单价'),{pattern:/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/,message:'金额最多两位小数',trigger:'blur'}];
 const date=()=>new Date().toLocaleDateString('en-CA');
 const operations=computed(()=>props.items.filter(x=>x.type_id==='operation'&&x.status==='active'));
 const units=computed(()=>props.items.filter(x=>x.type_id==='unit'&&x.status==='active'));
@@ -42,6 +46,7 @@ async function openVersions(item:Row){
  edit.value=item;error.value='';
  try{versions.value=await api('/reference-prices/'+item.id+'/versions');dialog.value='versions'}catch(e){error.value=(e as Error).message}
 }
+async function saveValidated(formInstance:FormInstance|undefined){if(await formInstance?.validate().catch(()=>false))await save()}
 async function save(){
  error.value='';
  try{
@@ -80,29 +85,29 @@ onMounted(refresh);
      </div></template></template></ElTableColumn><template #empty><div class="empty">暂无符合条件的参考价</div></template></ElTable></div>
  </section>
  <ElDialog :model-value="dialog==='new'||dialog==='revise'" :title="dialog==='new'?'新增检修参考价':'修订参考单价'"  width="860px" @close="dialog=''" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p>
-  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="save">
+  <ElForm ref="editFormRef" :model="form" label-position="top" novalidate class="form-grid" @submit.prevent="saveValidated(editFormRef)">
    <template v-if="dialog==='new'">
-    <label><span class="field-caption">价格项目名称</span><ElInput v-model.trim="form.title" required/></label>
-    <label><span class="field-caption">检修操作</span><ElSelect v-model="form.operation_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in operations" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
-    <label><span class="field-caption">计价单位</span><ElSelect v-model="form.unit_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
-    <label><span class="field-caption">检修方式</span><ElSelect v-model="form.plan_type" required><ElOption :label="'停电与不停电通用'" data-option-value="both" value="both">停电与不停电通用</ElOption><ElOption :label="'停电检修'" data-option-value="outage" value="outage">停电检修</ElOption><ElOption :label="'不停电检修'" data-option-value="non_outage" value="non_outage">不停电检修</ElOption></ElSelect></label>
-    <label><span class="field-caption">适用电压等级</span><ElSelect v-model="form.voltage_level_id"><ElOption :label="'不限电压等级'" data-option-value="" value="">不限电压等级</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
-    <label class="wide"><span class="field-caption">适用设备 / 规格说明</span><ElInput v-model.trim="form.specification"/></label>
+    <ElFormItem label="价格项目名称" prop="title" :rules="required('价格项目名称')"><ElInput v-model.trim="form.title" required/></ElFormItem>
+    <ElFormItem label="检修操作" prop="operation_id" :rules="selected('检修操作')"><ElSelect v-model="form.operation_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in operations" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></ElFormItem>
+    <ElFormItem label="计价单位" prop="unit_id" :rules="selected('计价单位')"><ElSelect v-model="form.unit_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></ElFormItem>
+    <ElFormItem label="检修方式" prop="plan_type" :rules="selected('检修方式')"><ElSelect v-model="form.plan_type" required><ElOption :label="'停电与不停电通用'" data-option-value="both" value="both">停电与不停电通用</ElOption><ElOption :label="'停电检修'" data-option-value="outage" value="outage">停电检修</ElOption><ElOption :label="'不停电检修'" data-option-value="non_outage" value="non_outage">不停电检修</ElOption></ElSelect></ElFormItem>
+    <ElFormItem label="适用电压等级" prop="voltage_level_id"><ElSelect v-model="form.voltage_level_id"><ElOption :label="'不限电压等级'" data-option-value="" value="">不限电压等级</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in voltage.filter(x=>x.status==='active')" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></ElFormItem>
+    <ElFormItem class="wide" label="适用设备 / 规格说明" prop="specification"><ElInput v-model.trim="form.specification"/></ElFormItem>
    </template>
-   <label><span class="field-caption">参考单价（元）</span><ElInput v-model.trim="form.unit_price_yuan" data-validate="money" inputmode="decimal" required/></label>
-   <label><span class="field-caption">税口径</span><ElSelect v-model="form.tax_mode"><ElOption :label="'含税'" data-option-value="inclusive" value="inclusive">含税</ElOption><ElOption :label="'不含税'" data-option-value="exclusive" value="exclusive">不含税</ElOption><ElOption :label="'不适用'" data-option-value="none" value="none">不适用</ElOption></ElSelect></label>
-   <label><span class="field-caption">价格来源</span><ElInput v-model.trim="form.price_source" required placeholder="定额、报价或历史结算依据"/></label>
-   <label><span class="field-caption">依据日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.price_date"  required/></label>
-   <label><span class="field-caption">生效日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.effective_on"  required/></label>
-   <label class="wide"><span class="field-caption">价格测算说明</span><ElInput type="textarea" v-model.trim="form.basis" :rows="2" required/></label>
-   <label v-if="dialog==='revise'" class="wide"><span class="field-caption">修订原因</span><ElInput type="textarea" v-model.trim="form.reason" :rows="2" required/></label>
+   <ElFormItem label="参考单价（元）" prop="unit_price_yuan" :rules="priceRules"><ElInput v-model.trim="form.unit_price_yuan" data-validate="money" inputmode="decimal" required/></ElFormItem>
+   <ElFormItem label="税口径" prop="tax_mode"><ElSelect v-model="form.tax_mode"><ElOption :label="'含税'" data-option-value="inclusive" value="inclusive">含税</ElOption><ElOption :label="'不含税'" data-option-value="exclusive" value="exclusive">不含税</ElOption><ElOption :label="'不适用'" data-option-value="none" value="none">不适用</ElOption></ElSelect></ElFormItem>
+   <ElFormItem label="价格来源" prop="price_source" :rules="required('价格来源')"><ElInput v-model.trim="form.price_source" required placeholder="定额、报价或历史结算依据"/></ElFormItem>
+   <ElFormItem label="依据日期" prop="price_date" :rules="required('依据日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.price_date"  required/></ElFormItem>
+   <ElFormItem label="生效日期" prop="effective_on" :rules="required('生效日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="form.effective_on"  required/></ElFormItem>
+   <ElFormItem class="wide" label="价格测算说明" prop="basis" :rules="required('价格测算说明')"><ElInput type="textarea" v-model.trim="form.basis" :rows="2" required/></ElFormItem>
+   <ElFormItem v-if="dialog==='revise'" class="wide" label="修订原因" prop="reason" :rules="required('修订原因')"><ElInput type="textarea" v-model.trim="form.reason" :rows="2" required/></ElFormItem>
    <div class="wide form-actions"><ElButton native-type="button" class="light" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary">保存{{dialog==='new'?'参考价':'新版本'}}</ElButton></div>
   </ElForm>
  </ElDialog>
  <ElDialog :model-value="dialog==='status'" :title="edit?.status==='active'?'停用参考价':'启用参考价'"  @close="dialog=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p>
-  <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="save">
+  <ElForm ref="statusFormRef" :model="form" label-position="top" novalidate class="form-grid" @submit.prevent="saveValidated(statusFormRef)">
    <p class="wide">项目 {{edit?.title}}</p>
-   <label class="wide"><span class="field-caption">状态变更依据</span><ElInput type="textarea" v-model.trim="form.reason" required/></label>
+   <ElFormItem class="wide" label="状态变更依据" prop="reason" :rules="required('状态变更依据')"><ElInput type="textarea" v-model.trim="form.reason" required/></ElFormItem>
    <div class="wide form-actions"><ElButton native-type="button" class="light" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary">确认</ElButton></div>
   </ElForm>
  </ElDialog>

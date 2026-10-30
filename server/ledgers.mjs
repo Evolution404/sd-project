@@ -36,9 +36,14 @@ function topology(id){return hash({line:line(id),towers:all('SELECT t.id,t.versi
 function checkTopology(id,body){const l=line(id);version(l,body,'线路');if(body.topology_token&&body.topology_token!==topology(id))fail(409,'杆塔或档距已变化，请重新预览');return l}
 const touch=id=>exec('UPDATE transmission_lines SET version=version+1,updated_at=? WHERE id=?',now(),id);
 export function listLedgerLines(){return all(`SELECT l.*,v.name AS voltage_name,p.name AS parent_name,t.tower_no AS junction_tower_no,
- (SELECT COUNT(*) FROM logical_towers WHERE line_id=l.id) tower_count,
- (SELECT COUNT(*) FROM line_spans WHERE line_id=l.id AND status<>'retired') span_count
- FROM transmission_lines l JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN transmission_lines p ON p.id=l.parent_line_id LEFT JOIN logical_towers t ON t.id=l.junction_tower_id ORDER BY l.name,l.id`)}
+ COALESCE(tc.n,0) tower_count,COALESCE(sc.n,0) span_count
+ FROM transmission_lines l
+ JOIN voltage_levels v ON v.id=l.voltage_level_id
+ LEFT JOIN transmission_lines p ON p.id=l.parent_line_id
+ LEFT JOIN logical_towers t ON t.id=l.junction_tower_id
+ LEFT JOIN (SELECT line_id,COUNT(*) n FROM logical_towers GROUP BY line_id) tc ON tc.line_id=l.id
+ LEFT JOIN (SELECT line_id,COUNT(*) n FROM line_spans WHERE status<>'retired' GROUP BY line_id) sc ON sc.line_id=l.id
+ ORDER BY l.name,l.id`)}
 function lineValues(body,old=null){
  const kind=body.line_kind??old?.line_kind??'main';if(!['main','branch'].includes(kind))fail(422,'线路类型只能是主线或支线');
  const status=body.status??old?.status??'active';if(!['active','inactive'].includes(status))fail(422,'线路状态无效');
@@ -86,16 +91,20 @@ function ledgerPage(query,sql,args,convert=row=>row){
 export function ledgerTowers(query=new URLSearchParams()){
  const args=[],where=[];if(query.get('id')){where.push('t.id=?');args.push(query.get('id'))}if(query.get('line_id')){where.push('t.line_id=?');args.push(query.get('line_id'))}if(query.get('search')){where.push('(t.tower_no LIKE ? OR l.name LIKE ? OR p.tower_code LIKE ? OR p.model LIKE ? OR t.management_department LIKE ?)');args.push(...Array(5).fill('%'+query.get('search')+'%'))}
  return ledgerPage(query,`SELECT t.*,l.name AS line_name,l.line_kind,l.status AS line_status,l.setup_status,v.name AS voltage_name,p.tower_code AS physical_code,p.tower_type,p.model,p.height_scaled,p.purpose,p.asset_no,p.longitude,p.latitude,p.commissioned_on,p.version AS physical_version,
- (SELECT COUNT(*) FROM logical_towers x WHERE x.physical_tower_id=t.physical_tower_id) shared_count
- FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=t.physical_tower_id ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,t.sort_rank,t.id`,args);
+ COALESCE(sc.n,0) shared_count
+ FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN voltage_levels v ON v.id=l.voltage_level_id
+ LEFT JOIN physical_towers p ON p.id=t.physical_tower_id
+ LEFT JOIN (SELECT physical_tower_id,COUNT(*) n FROM logical_towers WHERE physical_tower_id IS NOT NULL GROUP BY physical_tower_id) sc ON sc.physical_tower_id=t.physical_tower_id
+ ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,t.sort_rank,t.id`,args);
 }
 export function ledgerSpans(query=new URLSearchParams()){
  const args=[],where=[];if(query.get('tower_id')){where.push('(s.start_tower_id=? OR s.end_tower_id=?)');args.push(query.get('tower_id'),query.get('tower_id'))}if(query.get('line_id')){where.push('s.line_id=?');args.push(query.get('line_id'))}if(query.get('status')!=='all')where.push("s.status<>'retired'");if(query.get('search')){where.push('(l.name LIKE ? OR a.tower_no LIKE ? OR b.tower_no LIKE ?)');args.push(...Array(3).fill('%'+query.get('search')+'%'))}
  return ledgerPage(query,`SELECT s.*,l.name AS line_name,a.tower_no AS start_tower_no,b.tower_no AS end_tower_no,
  pa.longitude AS lon_a,pa.latitude AS lat_a,pb.longitude AS lon_b,pb.latitude AS lat_b,
- (SELECT COUNT(*) FROM demands WHERE span_id=s.id) demand_count
+ COALESCE(dc.n,0) demand_count
  FROM line_spans s JOIN transmission_lines l ON l.id=s.line_id JOIN logical_towers a ON a.id=s.start_tower_id JOIN logical_towers b ON b.id=s.end_tower_id
  LEFT JOIN physical_towers pa ON pa.id=a.physical_tower_id LEFT JOIN physical_towers pb ON pb.id=b.physical_tower_id
+ LEFT JOIN (SELECT span_id,COUNT(*) n FROM demands WHERE span_id IS NOT NULL GROUP BY span_id) dc ON dc.span_id=s.id
  ${where.length?'WHERE '+where.join(' AND '):''} ORDER BY l.name,a.sort_rank,s.created_at,s.id`,args,({lon_a,lat_a,lon_b,lat_b,...item})=>({...item,length_scaled:computedSpanDistance(lon_a,lat_a,lon_b,lat_b),distance_method:'coordinate-derived'}));
 }
 export function ledgerTowerDetail(id){

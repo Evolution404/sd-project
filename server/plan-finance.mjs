@@ -44,13 +44,14 @@ export function registerPlanSettlement(executionId,body,user){
 }
 export function projectSettlementSummary(projectId){
  const p=project(projectId),budgetAllocation=projectPlanBudgetSummary(projectId);
+ const budgetByExecution=new Map(budgetAllocation.plans.map(row=>[row.execution_id,row.confirmed_budget_fen]));
  const plans=all('SELECT id FROM executions WHERE project_id=? ORDER BY created_at,number',projectId)
   .map(row=>{
    const s=planSettlementSummary(row.id);
    return {execution_id:s.execution_id,number:s.number,plan_type:s.plan_type,status:s.status,
     actual_cost_fen:s.actual_cost_fen,pending_final_expense_fen:s.pending_final_expense_fen,
     planned_estimate_fen:s.planned_estimate_fen,estimate_complete:s.estimate_complete,settled_fen:s.settled_fen,
-    confirmed_budget_fen:budgetAllocation.plans.find(p=>p.execution_id===s.execution_id)?.confirmed_budget_fen??null};
+    confirmed_budget_fen:budgetByExecution.get(s.execution_id)??null};
   });
  const unallocated=one(netQuery+' WHERE project_id=? AND execution_item_id IS NULL',projectId).amount;
  const total=one(netQuery+' WHERE project_id=?',projectId).amount;
@@ -79,8 +80,16 @@ export function frameworkSettlementSummary(frameworkId){
  if(!f)fail(404,'年度框架不存在');
  const projects=all('SELECT id FROM projects WHERE framework_id=? ORDER BY created_at',frameworkId)
   .map(p=>projectSettlementSummary(p.id));
+ const totalsByAgreement=new Map();
+ for(const project of projects){
+  if(!project.agreement_id)continue;
+  const totals=totalsByAgreement.get(project.agreement_id)||{allocated_plan_budget_fen:0,settled_fen:0};
+  totals.allocated_plan_budget_fen+=project.allocated_plan_budget_fen;
+  totals.settled_fen+=project.settled_fen;
+  totalsByAgreement.set(project.agreement_id,totals);
+ }
  const agreements=all('SELECT id,name,limit_fen FROM agreements WHERE framework_id=? ORDER BY created_at',frameworkId)
-  .map(a=>({...a,allocated_plan_budget_fen:projects.filter(p=>p.agreement_id===a.id).reduce((s,p)=>s+p.allocated_plan_budget_fen,0),settled_fen:projects.filter(p=>p.agreement_id===a.id).reduce((s,p)=>s+p.settled_fen,0)}));
+  .map(a=>({...a,...(totalsByAgreement.get(a.id)||{allocated_plan_budget_fen:0,settled_fen:0})}));
  return {framework_id:f.id,limit_fen:f.limit_fen,
   approved_budget_fen:projects.reduce((s,p)=>s+(['approved','closed'].includes(p.status)?p.approved_budget_fen||0:0),0),
   actual_cost_fen:projects.reduce((n,p)=>n+p.actual_cost_fen,0),pending_final_expense_fen:projects.reduce((n,p)=>n+p.pending_final_expense_fen,0),

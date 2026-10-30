@@ -2,7 +2,7 @@
 import {ElDialog} from 'element-plus';
 import {requestApi} from './api/client';
 import './styles/business-dialog.css';
-import {ElForm,ElCollapse,ElCollapseItem,ElUpload,ElLink} from 'element-plus';
+import {ElForm,ElFormItem,ElCollapse,ElCollapseItem,ElUpload,ElLink,type FormInstance} from 'element-plus';
 import {ElTable,ElTableColumn} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
 import {ElSelect,ElOption} from 'element-plus';
@@ -10,13 +10,16 @@ import {ElButton} from 'element-plus';
 import {computed,defineAsyncComponent,nextTick,onMounted,reactive,ref,watch} from 'vue';
 import {newClientId} from './utils/client-id';
 import CustomFields from './components/CustomFields.vue';
-import LedgerWorkspace from './components/LedgerWorkspace.vue';
+const LedgerWorkspace=defineAsyncComponent(()=>import('./components/LedgerWorkspace.vue'));
+import DemandTowerGrid from './components/DemandTowerGrid.vue';
 import ApplicationShell from './components/ApplicationShell.vue';
 import LoginPage from './pages/LoginPage.vue';
-import DashboardPage from './pages/DashboardPage.vue';
+const DashboardPage=defineAsyncComponent(()=>import('./pages/DashboardPage.vue'));
+const AccessPage=defineAsyncComponent(()=>import('./pages/AccessPage.vue'));
+const ProjectListPage=defineAsyncComponent(()=>import('./pages/ProjectListPage.vue'));
 import StatusTag from './components/StatusTag.vue';
-import ReferencePriceWorkspace from './components/ReferencePriceWorkspace.vue';
-import StructureCreateModal from './components/StructureCreateModal.vue';
+const ReferencePriceWorkspace=defineAsyncComponent(()=>import('./components/ReferencePriceWorkspace.vue'));
+const StructureCreateModal=defineAsyncComponent(()=>import('./components/StructureCreateModal.vue'));
 const AuditWorkspace=defineAsyncComponent(()=>import('./components/AuditWorkspace.vue'));
 const FundingWorkspace=defineAsyncComponent(()=>import('./components/FundingWorkspace.vue'));
 const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
@@ -26,7 +29,7 @@ const CostReconciliationWorkspace=defineAsyncComponent(()=>import('./components/
 const CompletionWorkspace=defineAsyncComponent(()=>import('./components/CompletionWorkspace.vue'));
 const PlanBudgetWorkspace=defineAsyncComponent(()=>import('./components/PlanBudgetWorkspace.vue'));
 const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./components/PlanSettlementWorkspace.vue'));
-import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
+
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
 const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref(rememberedView('ledger-tab','towers')),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
@@ -35,7 +38,21 @@ const username=ref(''),password=ref('');
 const busy=ref(false),error=ref(''),success=ref('');
 const voltage=ref<Rec[]>([]),lines=ref<Rec[]>([]),physical=ref<Rec[]>([]),logical=ref<Rec[]>([]),items=ref<Rec[]>([]),types=ref<Rec[]>([]),demands=ref<Rec[]>([]);
 const overview=ref<Rec>({}),detail=ref<Rec|null>(null),edit=ref<Rec|null>(null);
-const allowedIPs=ref<Rec[]>([]), currentClientIP=ref(''), ipInput=ref(''), ipNote=ref('');
+const scopePriceFormRef=ref<FormInstance>(),changeDraftFormRef=ref<FormInstance>(),preliminaryFormRef=ref<FormInstance>(),agreementFormRef=ref<FormInstance>(),scopeAddFormRef=ref<FormInstance>(),changeDecisionFormRef=ref<FormInstance>(),executionCreateFormRef=ref<FormInstance>(),settlementMainFormRef=ref<FormInstance>(),completionMainFormRef=ref<FormInstance>(),executionPlanFormRef=ref<FormInstance>(),demandEditFormRef=ref<FormInstance>(),reasonMainFormRef=ref<FormInstance>();
+
+const requiredRules=(label:string)=>[{required:true,message:'请填写'+label,trigger:'blur'}];
+const selectRules=(label:string)=>[{required:true,message:'请选择'+label,trigger:'change'}];
+const optionalPriceRules=[{pattern:/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/,message:'金额不能超过两位小数',trigger:'blur',validator:(_r:unknown,v:unknown,done:(e?:Error)=>void)=>{const t=String(v??'').trim();done(!t||/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(t)?undefined:new Error('金额最多两位小数'))}}];
+const priceRules=[{required:true,message:'请输入金额',trigger:'blur'},{pattern:/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/,message:'金额不能超过两位小数',trigger:'blur'}];
+const quantityRules=[{required:true,message:'请输入工作量',trigger:'blur'},{validator:(_r:unknown,v:unknown,done:(e?:Error)=>void)=>{
+ const x=String(v??'').trim();
+ done(/^(?:0|[1-9]\d{0,8})(?:\.\d{1,4})?$/.test(x)&&Number(x)>0?undefined:new Error('工作量必须大于零且最多四位小数'));
+},trigger:'blur'}];
+async function runValidated(form:FormInstance|undefined,submit:()=>unknown){
+ if(await form?.validate().catch(()=>false))await submit();
+}
+
+
 const frameworks=ref<Rec[]>([]),agreements=ref<Rec[]>([]),projects=ref<Rec[]>([]);
 const projectView=ref<Rec|null>(null),scopeDemand=ref(''),scopeQuantity=ref('1'),scopePriceEdit=ref<Rec|null>(null);
 const referencePriceOptions=ref<Rec[]>([]),selectedReferencePrice=ref('');
@@ -61,9 +78,9 @@ const selected=reactive<Record<string,boolean>>({});
 const overrides=reactive<Record<string,{target_object?:string,quantity?:string,custom_fields?:Rec}>>({});
 const excluded=reactive<Record<string,boolean>>({});
 const stage=ref('');
-const ipDialog=ref(false),projectAction=ref(''),executionAction=ref('');
+const projectAction=ref(''),executionAction=ref('');
 const completionItem=ref<Rec|null>(null);
-const demandEdit=ref<Rec|null>(null),pendingRemoveIP=ref<Rec|null>(null),attachmentDialog=ref(false);
+const demandEdit=ref<Rec|null>(null),attachmentDialog=ref(false);
 const reasonAction=ref(''),reasonValue=ref('');
 
 const drafts=ref<Rec[]>([]),currentDraft=ref<Rec|null>(null),draftsOpen=ref(false);
@@ -97,11 +114,39 @@ const mediaTitle=computed(()=>labels[nav.value]||'');
 const options=(type:string)=>items.value.filter(x=>x.type_id===type).sort((a,b)=>a.sort_order-b.sort_order);
 const selectedOp=computed(()=>items.value.find(x=>x.id===common.operation_id));
 const fieldDefinitions=computed<Rec[]>(()=>{try{const fields=JSON.parse(selectedOp.value?.fields_json||'[]');return Array.isArray(fields)?fields:[]}catch{return []}});
+
+const entryFormRef=ref<FormInstance>();
+const entryModel=computed(()=>({selectedLine:selectedLine.value,common,batchSources:batchSources.value,rows:selectedRows.value}));
+function requiredCustomError(value:any){
+ const missing=fieldDefinitions.value.filter(f=>{
+  if(!f.required)return false;
+  const v=value?.[f.key];
+  return v===undefined||v===null||v===''||(f.type==='boolean'&&v!==true);
+ });
+ return missing.length?'请填写扩展字段：'+missing.map(f=>f.label).join('、'):null;
+}
+const customFieldRules=[{validator:(_rule:unknown,value:any,done:(err?:Error)=>void)=>{
+ const problem=requiredCustomError(value);
+ done(problem?new Error(problem):undefined);
+},trigger:'change'}];
+const rowCompletenessRules=[{validator:(_rule:unknown,values:any,done:(err?:Error)=>void)=>{
+ if(!Array.isArray(values)||!values.length)return done(new Error('至少选择一条待核实的杆塔或档距'));
+ for(const [index,row]of values.entries()){
+  const name=row.tower_no||String(index+1);
+  if(!String(row.target_object??'').trim())return done(new Error('请填写 '+name+' 的处理部位'));
+  const q=String(row.quantity??'').trim();
+  if(!/^(?:0|[1-9]\d{0,8})(?:\.\d{1,4})?$/.test(q)||Number(q)<=0)return done(new Error('请检查 '+name+' 的工作量（正数、最多四位小数）'));
+  const custom=requiredCustomError(row.custom_fields);
+  if(custom)return done(new Error(name+'：'+custom));
+ }
+ done();
+},trigger:'change'}];
+
 watch(()=>common.operation_id,()=>{common.custom_fields=Object.fromEntries(fieldDefinitions.value.filter(f=>f.default!==undefined).map(f=>[f.key,f.default]));for(const row of Object.values(overrides))delete row.custom_fields},{flush:'sync'});
 const dateStr=(s:string)=>s?s.slice(0,10):'';
 const fmtQty=(v:any)=>Number(v||0)/10000;
-const visibleError=computed(()=>error.value===inlineErrorMessage.value?'':error.value);
-const errorMessage=(e:any)=>{const message=e?.message||'网络请求失败';presentFormError(message,e?.details);return message};
+const visibleError=computed(()=>error.value);
+const errorMessage=(e:any)=>e?.message||'网络请求失败';
 function notify(msg:string){success.value=msg;setTimeout(()=>{if(success.value===msg)success.value=''},4000)}
 const api=(path:string,method='GET',body?:any)=>requestApi(path,method,body);
 async function doLogin(){error.value='';busy.value=true;try{const r=await api('/auth/login','POST',{username:username.value,password:password.value});user.value=r.user;password.value='';await refresh();}catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
@@ -309,24 +354,12 @@ async function advance(stageName:'stock'|'approve',reason:string){
   notify(stageName==='stock'?'入库版本已冻结并保存':'立项成功，批准预算已从估算明细生成');
  }catch(e){error.value=errorMessage(e)}
 }
-async function loadAccess(){const result=await api('/access/ips');allowedIPs.value=result.entries;currentClientIP.value=result.current_ip}
-async function addAllowedIP(){error.value='';busy.value=true;try{
- await api('/access/ips','POST',{ip:ipInput.value,note:ipNote.value});
- ipInput.value='';ipNote.value='';await loadAccess();ipDialog.value=false;notify('访问IP已授权，立即生效');
- }catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
-async function removeAllowedIP(){
- if(!pendingRemoveIP.value)return;error.value='';
- try{const ip=pendingRemoveIP.value;
- await api('/access/ips/'+ip.id,'DELETE');pendingRemoveIP.value=null;
- await loadAccess();notify('已撤销 '+ip.ip+' 的访问权限')
- }catch(e){error.value=errorMessage(e)}
-}
 async function loadDemands(){const query=new URLSearchParams();if(statusFilter.value)query.set('status',statusFilter.value);if(search.value)query.set('search',search.value);if(lineFilter.value)query.set('line_id',lineFilter.value);demands.value=await api('/demands?'+query.toString())}
 async function openNav(next:string){
  nav.value=next;detail.value=null;edit.value=null;error.value='';
- stage.value='';ipDialog.value=false;projectAction.value='';executionAction.value='';completionItem.value=null;reasonAction.value='';
+ stage.value='';projectAction.value='';executionAction.value='';completionItem.value=null;reasonAction.value='';
  if(next==='entry'&&roleWrite.value)await loadDrafts();
- if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(next==='access')await loadAccess();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
+ if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
 function openLedger(value:Rec){ledgerLineId.value=value.lineId;ledgerTab.value=value.tab||'towers';ledgerTowerId.value=value.towerId||'';void openNav('lines')}
 async function seedLedgerDemands(value:Rec){
  resetBatch();demandLocationKind.value=value.kind;selectedLine.value=value.line_id;
@@ -396,7 +429,7 @@ async function uploadAttachment(selected:any){const file=(selected?.raw||selecte
  const res=await fetch('/api/attachments',{method:'POST',credentials:'same-origin',headers:{'x-owner-type':'demand','x-owner-id':detail.value.id,'x-filename':encodeURIComponent(file.name),'content-type':file.type||'application/octet-stream'},body:file});
  const data=await res.json();if(!res.ok)throw Error(data.error);
  detail.value=await api('/demands/'+detail.value.id);attachmentDialog.value=false;notify('附件已上传');
- }catch(e){error.value=errorMessage(e);presentFormError(error.value)}finally{busy.value=false}
+ }catch(e){error.value=errorMessage(e)}finally{busy.value=false}
 }
 async function showDemand(id:string){demandEdit.value=null;try{detail.value=await api('/demands/'+id);stage.value='demand'}catch(e){error.value=errorMessage(e)}}
 async function verify(status:string,reason:string){if(!detail.value)return;error.value='';try{detail.value=await api('/demands/'+detail.value.id+'/verify','POST',{status,version:detail.value.version,reason});await loadDemands();notify('核实结果已保存')}catch(e){error.value=errorMessage(e)}}
@@ -447,15 +480,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <ReferencePriceWorkspace v-if="nav==='prices'" :items="items" :voltage="voltage" :can-edit="roleAdmin"/>
   <FundingWorkspace v-if="['frameworks','agreements'].includes(nav)" :kind="nav" :can-write="!!roleWrite" :can-delete="roleAdmin" :can-authorize="roleAdmin" @changed="loadStructure"/>
   <template v-if="nav==='projects'">
-   <section class="panel">
-    <div class="section-header"><div><h2>{{mediaTitle}}</h2><p class="muted">管理：年度框架 → 子项目 → 检修计划 → 专业需求；资金：年度框架 → 协行协议 → 子项目 → 检修计划</p></div><ElButton v-if="roleWrite" class="primary" @click="openStructureCreate(nav)">新增{{mediaTitle}}</ElButton></div>
-    <div class="table-wrap"><ElTable :data="projects" >
-<ElTableColumn><template #header>名称</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{x.name}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>所属框架/协议</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{x.framework_name}} / {{x.agreement_name||'协议待落实'}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>已批准预算 (元)</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{money(x.approved_budget_fen)}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>状态</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div ><StatusTag :status="x.status"/></div></template></template></ElTableColumn>
-<ElTableColumn><template #header>操作</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div ><ElButton class="link" @click="openProject(x)">需求范围与阶段</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">暂无记录，请从创建框架开始</div></template></ElTable></div>
-   </section>
+   <ProjectListPage :projects="projects" :title="mediaTitle" :can-create="!!roleWrite"
+    @create="openStructureCreate(nav)" @open="openProject"/>
  <StructureCreateModal :open="stage===nav" :type="nav" :title="mediaTitle" :error="visibleError" :busy="busy"
   :form="form" :frameworks="frameworks" :agreements="agreements" :categories="options('project_category')"
   @save="saveStructure" @close="stage='';edit=null"/>
@@ -471,18 +497,18 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <ElButton v-if="roleWrite&&projectView.status==='reserve'" class="secondary" @click="projectAction='preliminary'">填写初步估算</ElButton>
    </div>
    <ElDialog :model-value="projectAction==='preliminary'" title="项目类别与初步估算"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-     <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="saveInitialEstimate">
-      <label class="wide"><span class="field-caption">项目类别</span>
+     <ElForm ref="preliminaryFormRef" :model="{preliminaryCategory:preliminaryCategory,preliminaryAmount:preliminaryAmount,preliminaryBasis:preliminaryBasis}" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(preliminaryFormRef,()=>saveInitialEstimate())">
+      <ElFormItem class="wide" label="项目类别" prop="preliminaryCategory" :rules="selectRules('项目类别')">
        <ElSelect v-model="preliminaryCategory" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption>
         <ElOption :label="String(c.name)" :data-option-value="c.id" v-for="c in options('project_category').filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</ElOption>
        </ElSelect>
-      </label>
-      <label><span class="field-caption">初步估算（元）</span>
+      </ElFormItem>
+      <ElFormItem label="初步估算（元）" prop="preliminaryAmount" :rules="priceRules">
        <ElInput v-model="preliminaryAmount" required inputmode="decimal" data-validate="money" placeholder="初步核算的项目预算"/>
-      </label>
-      <label class="wide"><span class="field-caption">估算依据</span>
+      </ElFormItem>
+      <ElFormItem class="wide" label="估算依据" prop="preliminaryBasis" :rules="requiredRules('估算依据')">
        <ElInput type="textarea" v-model="preliminaryBasis" required :rows="3" placeholder="依据名称、定额或参考价格及测算说明"/>
-      </label>
+      </ElFormItem>
       <div class="wide"><ElButton native-type="button" class="secondary" :disabled="!projectView?.estimate?.complete" @click="fillPreliminaryFromDetails">按需求单价明细计算初步估算</ElButton></div>
       <p class="muted wide">正式入库时保留此初步估算。单项价格可暂缺，但立项前必须逐项核定。</p>
       <div class="form-actions"><ElButton native-type="button" class="light" @click="projectAction=''">取消</ElButton><ElButton native-type="submit" class="primary">保存初步估算</ElButton></div>
@@ -494,8 +520,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <ElButton v-if="roleWrite&&['reserve','stocked'].includes(projectView.status)" class="secondary" @click="projectAction='agreement'">设置执行协议</ElButton>
    </div>
    <ElDialog :model-value="projectAction==='agreement'" title="选择执行协议"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-    <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="bindProjectAgreement">
-     <label class="wide"><span class="field-caption">唯一执行协议</span><ElSelect v-model="agreementSelection" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(a.name) + ' · ' + String(a.framework_name)" :data-option-value="a.id" v-for="a in agreements.filter(x=>x.status==='active'&&x.framework_id===projectView?.framework_id)" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</ElOption></ElSelect></label>
+    <ElForm ref="agreementFormRef" :model="{agreementSelection:agreementSelection}" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(agreementFormRef,()=>bindProjectAgreement())">
+     <ElFormItem class="wide" label="唯一执行协议" prop="agreementSelection" :rules="selectRules('唯一执行协议')"><ElSelect v-model="agreementSelection" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(a.name) + ' · ' + String(a.framework_name)" :data-option-value="a.id" v-for="a in agreements.filter(x=>x.status==='active'&&x.framework_id===projectView?.framework_id)" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</ElOption></ElSelect></ElFormItem>
      <div class="form-actions"><ElButton native-type="button" class="light" @click="projectAction=''">取消</ElButton><ElButton native-type="submit" class="primary">确认协议归属</ElButton></div>
     </ElForm>
    </ElDialog>
@@ -506,13 +532,13 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </div>
    <ElButton v-if="roleWrite&&projectView.status==='reserve'" class="secondary" @click="projectAction='scope'">＋ 关联需求范围</ElButton>
    <ElDialog :model-value="projectAction==='scope'" title="关联需求范围"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-       <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="addProjectScope">
-    <label class="wide"><span class="field-caption">纳入有效需求</span><ElSelect v-model="scopeDemand" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(d.demand_no) + ' · ' + String(d.line_name_snapshot) + ' ' + String(d.tower_no_snapshot) + ' · ' + String(d.operation_snapshot)" :data-option-value="d.id" v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.line_name_snapshot}} {{d.tower_no_snapshot}} · {{d.operation_snapshot}}</ElOption></ElSelect></label>
-    <label><span class="field-caption">本项目拟覆盖工作量</span><ElInput v-model="scopeQuantity" data-validate="quantity" required inputmode="decimal"/></label><div class="form-actions"><ElButton native-type="submit" class="secondary">关联需求</ElButton></div>
+       <ElForm ref="scopeAddFormRef" :model="{scopeDemand:scopeDemand,scopeQuantity:scopeQuantity}" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(scopeAddFormRef,()=>addProjectScope())">
+    <ElFormItem class="wide" label="纳入有效需求" prop="scopeDemand" :rules="selectRules('纳入有效需求')"><ElSelect v-model="scopeDemand" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(d.demand_no) + ' · ' + String(d.line_name_snapshot) + ' ' + String(d.tower_no_snapshot) + ' · ' + String(d.operation_snapshot)" :data-option-value="d.id" v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.line_name_snapshot}} {{d.tower_no_snapshot}} · {{d.operation_snapshot}}</ElOption></ElSelect></ElFormItem>
+    <ElFormItem label="本项目拟覆盖工作量" prop="scopeQuantity" :rules="quantityRules"><ElInput v-model="scopeQuantity" data-validate="quantity" required inputmode="decimal"/></ElFormItem><div class="form-actions"><ElButton native-type="submit" class="secondary">关联需求</ElButton></div>
    </ElForm>
    </ElDialog>
    <ElDialog :model-value="!!scopePriceEdit" title="核定估价依据"  @close="scopePriceEdit=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-      <ElForm v-form-validation novalidate class="form-grid scope-editor" @submit.prevent="saveScopePrice">
+      <ElForm ref="scopePriceFormRef" :model="scopePrice" label-position="top" novalidate class="form-grid scope-editor" @submit.prevent="runValidated(scopePriceFormRef,()=>saveScopePrice())">
     <div v-if="referencePriceOptions.length" class="wide toolbar">
       <label><span class="field-caption">参考单价目录（储备估算）</span>
        <ElSelect v-model="selectedReferencePrice"><ElOption :label="'选择适用参考价'" data-option-value="" value="">选择适用参考价</ElOption>
@@ -521,7 +547,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       </label>
       <ElButton native-type="button" class="secondary" :disabled="!selectedReferencePrice" @click="applyScopeReferencePrice">引用参考价</ElButton>
     </div>
-    <label><span class="field-caption">核定单价（元）</span><ElInput v-model="scopePrice.unit_price_yuan" data-validate="money" inputmode="decimal" placeholder="留空代表待估价"/></label>
+    <ElFormItem label="核定单价（元）" prop="unit_price_yuan" :rules="optionalPriceRules"><ElInput v-model="scopePrice.unit_price_yuan" data-validate="money" inputmode="decimal" placeholder="留空代表待估价"/></ElFormItem>
     <label><span class="field-caption">价格依据</span><ElInput v-model="scopePrice.price_source" placeholder="物资报价或有效定额编号"/></label>
     <label><span class="field-caption">依据日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD"  v-model="scopePrice.price_date"/></label>
     <label><span class="field-caption">税口径</span><ElSelect v-model="scopePrice.tax_mode"><ElOption :label="'含税'" data-option-value="inclusive" value="inclusive">含税</ElOption><ElOption :label="'不含税'" data-option-value="exclusive" value="exclusive">不含税</ElOption><ElOption :label="'不适用'" data-option-value="none" value="none">不适用</ElOption></ElSelect></label>
@@ -548,28 +574,28 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     </div>
    </div>
    <ElDialog :model-value="!!changeDecision" :title="changeDecision?.action==='submit'?'提交变更审批':changeDecision?.action==='approve'?'核准项目变更':'驳回项目变更'"  @close="changeDecision=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-    <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="saveChangeDecision">
+    <ElForm ref="changeDecisionFormRef" :model="{changeDecisionReason:changeDecisionReason}" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(changeDecisionFormRef,()=>saveChangeDecision())">
      <p class="wide muted">{{changeDecision?.order?.code}}：{{changeDecision?.order?.reason}}</p>
-     <label class="wide"><span class="field-caption">处理依据及意见</span><ElInput type="textarea" v-model="changeDecisionReason" required :rows="3"/></label>
+     <ElFormItem class="wide" label="处理依据及意见" prop="changeDecisionReason" :rules="requiredRules('处理依据及意见')"><ElInput type="textarea" v-model="changeDecisionReason" required :rows="3"/></ElFormItem>
      <div class="form-actions"><ElButton native-type="button" class="light" @click="changeDecision=null">取消</ElButton><ElButton native-type="submit" class="primary">确认</ElButton></div>
     </ElForm>
    </ElDialog>
    <ElDialog :model-value="projectAction==='change-order'" title="拟定项目变更单"  width="860px" @close="projectAction=''" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-    <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="createChangeDraft">
+    <ElForm ref="changeDraftFormRef" :model="changeDraft" label-position="top" novalidate class="form-grid" @submit.prevent="runValidated(changeDraftFormRef,()=>createChangeDraft())">
 
-     <label><span class="field-caption">变更类型</span><ElSelect v-model="changeDraft.action" required>
-      <ElOption :label="'调整原批准范围'" data-option-value="adjust" value="adjust">调整原批准范围</ElOption><ElOption :label="'新增有效需求'" data-option-value="add" value="add">新增有效需求</ElOption><ElOption :label="'拟取消批准范围'" data-option-value="remove" value="remove">拟取消批准范围</ElOption></ElSelect></label>
-     <label v-if="changeDraft.action!=='add'" class="wide"><span class="field-caption">原批准范围</span>
-       <ElSelect v-model="changeDraft.scope_id" required><ElOption :label="String(scope.demand_no) + ' · ' + String(scope.target_object)" :data-option-value="scope.id" v-for="scope in projectView.scopes" :key="scope.id" :value="scope.id">{{scope.demand_no}} · {{scope.target_object}}</ElOption></ElSelect></label>
-     <label v-else class="wide"><span class="field-caption">新增有效需求</span><ElSelect v-model="changeDraft.demand_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption>
-       <ElOption :label="String(d.demand_no) + ' · ' + String(d.operation_snapshot)" :data-option-value="d.id" v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.operation_snapshot}}</ElOption></ElSelect></label>
-     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">拟调整工作量</span><ElInput v-model="changeDraft.quantity" inputmode="decimal" data-validate="quantity" required/></label>
-     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">拟核定单价（元，可待核）</span><ElInput v-model="changeDraft.unit_price_yuan" inputmode="decimal" data-validate="money"/></label>
-     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">报价/定额依据</span><ElInput v-model="changeDraft.price_source" placeholder="调整价格时注明"/></label>
-     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">依据日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD"  v-model="changeDraft.price_date"/></label>
-     <label v-if="changeDraft.action!=='remove'"><span class="field-caption">税口径</span><ElSelect v-model="changeDraft.tax_mode"><ElOption :label="'含税'" data-option-value="inclusive" value="inclusive">含税</ElOption><ElOption :label="'不含税'" data-option-value="exclusive" value="exclusive">不含税</ElOption><ElOption :label="'不适用'" data-option-value="none" value="none">不适用</ElOption></ElSelect></label>
-     <label class="wide"><span class="field-caption">变更事项的事实依据</span><ElInput type="textarea" v-model="changeDraft.evidence" :rows="2" required/></label>
-     <label class="wide"><span class="field-caption">变更原因</span><ElInput type="textarea" v-model="changeDraft.reason" :rows="3" required/></label>
+     <ElFormItem label="变更类型" prop="action" :rules="selectRules('变更类型')"><ElSelect v-model="changeDraft.action" required>
+      <ElOption :label="'调整原批准范围'" data-option-value="adjust" value="adjust">调整原批准范围</ElOption><ElOption :label="'新增有效需求'" data-option-value="add" value="add">新增有效需求</ElOption><ElOption :label="'拟取消批准范围'" data-option-value="remove" value="remove">拟取消批准范围</ElOption></ElSelect></ElFormItem>
+     <ElFormItem v-if="changeDraft.action!=='add'" class="wide" label="原批准范围" prop="scope_id" :rules="selectRules('原批准范围')">
+       <ElSelect v-model="changeDraft.scope_id" required><ElOption :label="String(scope.demand_no) + ' · ' + String(scope.target_object)" :data-option-value="scope.id" v-for="scope in projectView.scopes" :key="scope.id" :value="scope.id">{{scope.demand_no}} · {{scope.target_object}}</ElOption></ElSelect></ElFormItem>
+     <ElFormItem v-else class="wide" label="新增有效需求" prop="demand_id" :rules="selectRules('新增有效需求')"><ElSelect v-model="changeDraft.demand_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption>
+       <ElOption :label="String(d.demand_no) + ' · ' + String(d.operation_snapshot)" :data-option-value="d.id" v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.operation_snapshot}}</ElOption></ElSelect></ElFormItem>
+     <ElFormItem v-if="changeDraft.action!=='remove'" label="拟调整工作量" prop="quantity" :rules="quantityRules"><ElInput v-model="changeDraft.quantity" inputmode="decimal" data-validate="quantity" required/></ElFormItem>
+     <ElFormItem v-if="changeDraft.action!=='remove'" label="拟核定单价（元，可待核）" prop="unit_price_yuan" :rules="optionalPriceRules"><ElInput v-model="changeDraft.unit_price_yuan" inputmode="decimal" data-validate="money"/></ElFormItem>
+     <ElFormItem v-if="changeDraft.action!=='remove'" label="报价/定额依据" prop="price_source"><ElInput v-model="changeDraft.price_source" placeholder="调整价格时注明"/></ElFormItem>
+     <ElFormItem v-if="changeDraft.action!=='remove'" label="依据日期" prop="price_date"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD"  v-model="changeDraft.price_date"/></ElFormItem>
+     <ElFormItem v-if="changeDraft.action!=='remove'" label="税口径" prop="tax_mode"><ElSelect v-model="changeDraft.tax_mode"><ElOption :label="'含税'" data-option-value="inclusive" value="inclusive">含税</ElOption><ElOption :label="'不含税'" data-option-value="exclusive" value="exclusive">不含税</ElOption><ElOption :label="'不适用'" data-option-value="none" value="none">不适用</ElOption></ElSelect></ElFormItem>
+     <ElFormItem class="wide" label="变更事项的事实依据" prop="evidence" :rules="requiredRules('变更事项的事实依据')"><ElInput type="textarea" v-model="changeDraft.evidence" :rows="2" required/></ElFormItem>
+     <ElFormItem class="wide" label="变更原因" prop="reason" :rules="requiredRules('变更原因')"><ElInput type="textarea" v-model="changeDraft.reason" :rows="3" required/></ElFormItem>
      <div class="wide form-actions"><ElButton native-type="button" class="light" @click="projectAction=''">取消</ElButton><ElButton native-type="submit" class="primary">仅保存草稿</ElButton></div>
     </ElForm>
    </ElDialog>
@@ -579,10 +605,10 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.plan_type==='outage'?'停电检修':'不停电检修'}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条工作明细 · 净结算 {{money(projectSettlementTotals?.plans?.find((p:Rec)=>p.execution_id===e.id)?.settled_fen)}} 元</p></div><ElButton class="link" @click="openExecution(e.id)">进入执行</ElButton></div><StatusTag :status="e.status"/></div>
    <ElButton v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建检修计划</ElButton>
    <ElDialog :model-value="projectAction==='execution'" title="新建检修计划"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-       <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="createProjectExecution">
+       <ElForm ref="executionCreateFormRef" :model="{executionPlanType:executionPlanType,executionDescription:executionDescription}" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(executionCreateFormRef,()=>createProjectExecution())">
 
-     <label><span class="field-caption">检修类型</span><ElSelect v-model="executionPlanType" required><ElOption :label="'停电检修'" data-option-value="outage" value="outage">停电检修</ElOption><ElOption :label="'不停电检修'" data-option-value="non_outage" value="non_outage">不停电检修</ElOption></ElSelect></label>
-     <label class="wide"><span class="field-caption">施工说明</span><ElInput v-model="executionDescription" placeholder="本次检修任务"/></label><div class="wide form-actions"><ElButton native-type="submit" class="primary">创建检修计划</ElButton></div>
+     <ElFormItem label="检修类型" prop="executionPlanType" :rules="selectRules('检修类型')"><ElSelect v-model="executionPlanType" required><ElOption :label="'停电检修'" data-option-value="outage" value="outage">停电检修</ElOption><ElOption :label="'不停电检修'" data-option-value="non_outage" value="non_outage">不停电检修</ElOption></ElSelect></ElFormItem>
+     <ElFormItem class="wide" label="施工说明" prop="executionDescription"><ElInput v-model="executionDescription" placeholder="本次检修任务"/></ElFormItem><div class="wide form-actions"><ElButton native-type="submit" class="primary">创建检修计划</ElButton></div>
    </ElForm>
    </ElDialog>
    <h3>实施与结算核对</h3>
@@ -599,17 +625,17 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </div>
    <SettlementVoucherWorkspace :project-id="projectView.id" :can-settle="roleStageApprove" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials" @reverse="entry=>entry.execution_item_id?openExecution(entry.execution_id):openSettlement(projectProgress?.scopes.find((s:Rec)=>s.id===entry.project_scope_id)||{id:entry.project_scope_id},entry)"/>
    <ElDialog :model-value="settlementDialog" :title="settlementForm.entry_kind==='reversal'?'登记结算冲销':'登记结算凭证'"  @close="settlementDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-    <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="saveSettlement">
+    <ElForm ref="settlementMainFormRef" :model="settlementForm" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(settlementMainFormRef,()=>saveSettlement())">
      <p class="wide muted">本入口登记项目级未归集凭证，不自动计入任何检修计划；已明确归属检修计划的结算请进入对应计划。原始凭证留存，支持冲销、更正、撤销及历史查询。当前仅管理员可登记。</p>
-     <label><span class="field-caption">凭证编号</span><ElInput v-model="settlementForm.settlement_no" required/></label>
-     <label v-if="settlementForm.entry_kind==='payment'"><span class="field-caption">结算性质</span>
+     <ElFormItem label="凭证编号" prop="settlement_no" :rules="requiredRules('凭证编号')"><ElInput v-model="settlementForm.settlement_no" required/></ElFormItem>
+     <ElFormItem v-if="settlementForm.entry_kind==='payment'" label="结算性质" prop="settlement_type" :rules="selectRules('结算性质')">
       <ElSelect v-model="settlementForm.settlement_type" required>
        <ElOption :label="'预付款'" data-option-value="advance" value="advance">预付款</ElOption><ElOption :label="'进度结算'" data-option-value="progress" value="progress">进度结算</ElOption><ElOption :label="'终结结算'" data-option-value="final" value="final">终结结算</ElOption>
       </ElSelect>
-     </label>
-     <label><span class="field-caption">金额（元）</span><ElInput v-model="settlementForm.amount_yuan" data-validate="money" inputmode="decimal" required/></label>
-     <label><span class="field-caption">凭证日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="settlementForm.occurred_on"  required/></label>
-     <label class="wide"><span class="field-caption">结算依据</span><ElInput type="textarea" v-model="settlementForm.evidence" :rows="3" required/></label>
+     </ElFormItem>
+     <ElFormItem label="金额（元）" prop="amount_yuan" :rules="priceRules"><ElInput v-model="settlementForm.amount_yuan" data-validate="money" inputmode="decimal" required/></ElFormItem>
+     <ElFormItem label="凭证日期" prop="occurred_on" :rules="selectRules('凭证日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="settlementForm.occurred_on"  required/></ElFormItem>
+     <ElFormItem class="wide" label="结算依据" prop="evidence" :rules="requiredRules('结算依据')"><ElInput type="textarea" v-model="settlementForm.evidence" :rows="3" required/></ElFormItem>
      <div class="form-actions"><ElButton class="light" native-type="button" @click="settlementDialog=false">取消</ElButton><ElButton native-type="submit" class="primary">确认登记</ElButton></div>
     </ElForm>
    </ElDialog>
@@ -626,16 +652,16 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
 
    </div>
    <ElDialog :model-value="!!completionItem" :title="'确认实际完成量：'+(completionItem?.demand_no||'')"  @close="completionItem=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-        <ElForm v-form-validation novalidate @submit.prevent="confirmWork(completionItem!)" class="form-grid">
-     <label><span class="field-caption">本次确认量</span><ElInput v-model="completeQuantity" data-validate="quantity" required inputmode="decimal"/></label><label><span class="field-caption">实施日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="completeDate" required /></label>
-     <label class="wide"><span class="field-caption">完成依据 / 验收说明</span><ElInput v-model="completeEvidence" required/></label><div class="wide form-actions"><ElButton native-type="submit" class="secondary">确认实际完成量</ElButton></div>
+        <ElForm ref="completionMainFormRef" :model="{completeQuantity:completeQuantity,completeDate:completeDate,completeEvidence:completeEvidence}" label-position="top"  novalidate @submit.prevent="runValidated(completionMainFormRef,()=>confirmWork(completionItem!))" class="form-grid">
+     <ElFormItem label="本次确认量" prop="completeQuantity" :rules="quantityRules"><ElInput v-model="completeQuantity" data-validate="quantity" required inputmode="decimal"/></ElFormItem><ElFormItem label="实施日期" prop="completeDate" :rules="selectRules('实施日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="completeDate" required /></ElFormItem>
+     <ElFormItem class="wide" label="完成依据 / 验收说明" prop="completeEvidence" :rules="requiredRules('完成依据 / 验收说明')"><ElInput v-model="completeEvidence" required/></ElFormItem><div class="wide form-actions"><ElButton native-type="submit" class="secondary">确认实际完成量</ElButton></div>
     </ElForm>
    </ElDialog>
    <ElButton v-if="executionView.status==='planned'&&roleWrite" class="secondary" @click="executionAction='plan'">＋ 安排工作明细</ElButton>
    <ElDialog :model-value="executionAction==='plan'" title="安排本次执行明细"  @close="executionAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-       <ElForm v-form-validation novalidate @submit.prevent="addExecutionPlan" class="form-grid">
-    <label class="wide"><span class="field-caption">安排批准范围</span><ElSelect v-model="execScopeId" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(s.demand_no) + ' · ' + String(s.line_name_snapshot) + ' ' + String(s.tower_no_snapshot)" :data-option-value="s.id" v-for="s in eligibleExecutionScopes" :key="s.id" :value="s.id">{{s.demand_no}} · {{s.line_name_snapshot}} {{s.tower_no_snapshot}}</ElOption></ElSelect></label>
-    <label><span class="field-caption">本批次拟完成工作量</span><ElInput v-model="execQuantity" data-validate="quantity" required inputmode="decimal"/></label><div class="form-actions"><ElButton native-type="submit" class="secondary">安排工作明细</ElButton></div>
+       <ElForm ref="executionPlanFormRef" :model="{execScopeId:execScopeId,execQuantity:execQuantity}" label-position="top"  novalidate @submit.prevent="runValidated(executionPlanFormRef,()=>addExecutionPlan())" class="form-grid">
+    <ElFormItem class="wide" label="安排批准范围" prop="execScopeId" :rules="selectRules('安排批准范围')"><ElSelect v-model="execScopeId" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(s.demand_no) + ' · ' + String(s.line_name_snapshot) + ' ' + String(s.tower_no_snapshot)" :data-option-value="s.id" v-for="s in eligibleExecutionScopes" :key="s.id" :value="s.id">{{s.demand_no}} · {{s.line_name_snapshot}} {{s.tower_no_snapshot}}</ElOption></ElSelect></ElFormItem>
+    <ElFormItem label="本批次拟完成工作量" prop="execQuantity" :rules="quantityRules"><ElInput v-model="execQuantity" data-validate="quantity" required inputmode="decimal"/></ElFormItem><div class="form-actions"><ElButton native-type="submit" class="secondary">安排工作明细</ElButton></div>
    </ElForm>
    </ElDialog>
    <div v-if="roleWrite" class="form-actions">
@@ -650,35 +676,11 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    <PlanSettlementWorkspace :execution-id="executionView.id" :can-settle="roleStageApprove" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials"/>
    <p class="muted minor">完成量按每项批准范围核对，不得超过本次计划数量。结算依据由独立凭证登记，不由完成量自动推算。</p>
   </div></section>
-  <template v-if="nav==='access'">
-    <section class="panel"><div class="section-header"><div><h2>允许访问的 IP</h2><p class="muted">逐个配置具体IP地址；保存后无需重启服务</p></div></div>
-      <p class="muted">服务器识别到本次连接的地址：<strong class="mono">{{currentClientIP}}</strong>。本机 127.0.0.1 和 ::1 永久允许，用于初始化和应急管理。其他地址未加入列表时默认拒绝。</p>
-      <ElButton class="primary" @click="ipDialog=true">＋ 添加允许 IP</ElButton>
-      <ElDialog :model-value="ipDialog" title="添加允许访问的 IP"  @close="ipDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-             <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="addAllowedIP">
-        <label><span class="field-caption">IP 地址</span><ElInput v-model.trim="ipInput" required placeholder="例如 192.168.1.105 或 2001:db8::1"/></label>
-        <label><span class="field-caption">设备 / 用途备注</span><ElInput v-model.trim="ipNote" placeholder="例如 运检班组办公电脑"/></label>
-        <ElButton native-type="submit" class="primary" :disabled="busy||!ipInput">添加允许 IP</ElButton>
-      </ElForm>
-      </ElDialog>
-
-      <ElDialog :model-value="!!pendingRemoveIP" title="移除 IP 访问权限"  @close="pendingRemoveIP=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-       <p>确定撤销 <strong class="mono">{{pendingRemoveIP?.ip}}</strong> 的访问授权吗？撤销后，新连接将立即被拒绝。</p>
-       <div class="form-actions"><ElButton class="light" @click="pendingRemoveIP=null">取消</ElButton><ElButton class="primary" @click="removeAllowedIP">确认移除</ElButton></div>
-      </ElDialog>
-      <div class="table-wrap"><ElTable :data="allowedIPs" >
-<ElTableColumn><template #header>允许的IP</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div class="mono">{{x.ip}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>设备备注</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{x.note||'—'}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>添加时间</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{x.created_at}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>添加人</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{x.created_by_name}}</div></template></template></ElTableColumn>
-<ElTableColumn><template #header>操作</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div ><ElButton class="link danger" @click="pendingRemoveIP=x">移除</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">目前没有授权任何远程 IP，仅服务器本机可以访问。</div></template></ElTable></div>
-      <p class="muted minor">只允许精确 IP 地址，不允许填网段、IP 范围或域名。验证使用真实 TCP 连接地址，不相信浏览器传入的代理头。IP 授权不能替代账号登录；Windows 防火墙仍需单独放行服务端口。</p>
-    </section>
-  </template>
+  <AccessPage v-if="nav==='access'&&roleAdmin"/>
   <AuditWorkspace v-if="nav==='audit'&&roleAdmin"/>
   <DictionaryWorkspace v-if="nav==='dictionary'" @changed="refresh"/>
   <template v-if="nav==='entry'">
-   <ElForm v-form-validation novalidate class="entry-main" @submit.prevent="submitBatch(false)">
+   <ElForm ref="entryFormRef" :model="entryModel" label-position="top" novalidate class="entry-main" @submit.prevent="runValidated(entryFormRef,()=>submitBatch(false))">
     <section v-if="roleWrite" class="panel"><div class="section-header"><h2>{{currentDraft?'正在编辑草稿':'需求草稿'}}</h2><ElButton native-type="button" class="secondary" @click="draftsOpen=!draftsOpen;loadDrafts()">{{draftsOpen?'收起草稿':'查看草稿'}}（{{drafts.length}}）</ElButton></div>
      <div v-if="draftsOpen"><p v-if="!drafts.length" class="muted">暂无未提交草稿</p><div v-for="draft in drafts" :key="draft.id" class="scope-item"><span>{{draftSummary(draft)}} · {{draft.updated_at}}</span><ElButton native-type="button" class="link" @click="restoreDraft(draft.id)">继续编辑</ElButton></div></div>
     </section>
@@ -687,8 +689,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">01</span><h2>选择位置</h2></div><span class="section-note">可跨线路追加</span></div>
       <div v-if="demandLocationKind==='span'" class="scope-item"><strong>当前按档距创建需求</strong><p>已选 {{demandSpanRows.length}} 个档距。长度是台账参考，本次工程量请在共同内容或逐档预览中确认。</p><p v-for="span in demandSpanRows" :key="span.id">{{span.line_name}} {{span.start_tower_no}}—{{span.end_tower_no}} · 台账长度 {{span.length_scaled===null?'未填写':fmtQty(span.length_scaled)+'米'}}</p><ElButton native-type="button" class="secondary" @click="openLedger({lineId:selectedLine,tab:'spans'})">返回线路调整所选档距</ElButton></div>
       <template v-else>
-      <label class="field-full"><span class="field-caption">选择线路 <span class="required-star" aria-hidden="true">*</span></span><ElSelect v-model="selectedLine" required><ElOption :label="'请选择线路'" data-option-value="" value="">请选择线路</ElOption><ElOption :label="String(l.voltage_name) + ' · ' + String(l.name)" :data-option-value="l.id" v-for="l in lines.filter(x=>x.status==='active')" :value="l.id" :key="l.id">{{l.voltage_name}} · {{l.name}}</ElOption></ElSelect>
-      </label>
+      <ElFormItem class="field-full" label="选择线路" prop="selectedLine" :rules="selectRules('线路')"><ElSelect v-model="selectedLine" required><ElOption :label="'请选择线路'" data-option-value="" value="">请选择线路</ElOption><ElOption :label="String(l.voltage_name) + ' · ' + String(l.name)" :data-option-value="l.id" v-for="l in lines.filter(x=>x.status==='active')" :value="l.id" :key="l.id">{{l.voltage_name}} · {{l.name}}</ElOption></ElSelect>
+      </ElFormItem>
       <p class="field-hint">切换线路后已选位置仍保留，选择1基即可单条创建。</p>
       <div class="selection-tools">
        <strong>本线路已选 {{thisLineSelected}} / {{thisLineTotal}} 基</strong>
@@ -705,12 +707,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       </div>
       <label class="field-full tower-filter"><span class="field-caption">筛选杆塔</span><ElInput v-model="towerSearch" placeholder="输入杆塔号"/>
       </label>
-      <div class="tower-grid" aria-label="杆塔选择">
-       <label v-for="x in thisLineTowers" :key="x.id" class="tower-card" :class="{checked:selected[x.id]&&!excluded[x.id]}"><ElCheckbox :model-value="!!selected[x.id]&&!excluded[x.id]" @change="(v)=>{selected[x.id]=!!v;delete excluded[x.id]}"/>
-        <span><strong>{{x.tower_no}}</strong><small v-if="x.circuit_position">{{x.circuit_position}}</small></span>
-       </label>
-       <p v-if="!thisLineTowers.length" class="empty">当前筛选下暂无可选的启用杆塔</p>
-      </div>
+      <DemandTowerGrid :towers="thisLineTowers" :selected="selected" :excluded="excluded"
+       @select="(id,checked)=>{selected[id]=checked;delete excluded[id]}"/>
       <div v-if="selectedLines.length" class="selected-lines">
        <span class="small-chip" v-for="l in selectedLines" :key="l.id">{{l.name}} {{selectedRows.filter(x=>x.line_id===l.id).length}} 基</span>
       </div>
@@ -728,17 +726,17 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div class="form-grid entry-fields">
        <div class="field-label-group">
         <div class="inline-field-top"><span class="field-title">操作类型 <span class="required-star" aria-hidden="true">*</span></span><ElButton native-type="button" v-if="roleAdmin" class="text-button small" @click="openNav('dictionary')">管理选项</ElButton></div>
-        <ElSelect aria-label="操作类型" v-model="common.operation_id" required><ElOption :label="'请选择操作类型'" data-option-value="" value="">请选择操作类型</ElOption><ElOption :label="String(op.name)" :data-option-value="op.id" v-for="op in ops" :key="op.id" :value="op.id">{{op.name}}</ElOption></ElSelect>
+        <ElFormItem prop="common.operation_id" :rules="selectRules('操作类型')"><ElSelect aria-label="操作类型" v-model="common.operation_id"><ElOption :label="'请选择操作类型'" data-option-value="" value="">请选择操作类型</ElOption><ElOption :label="String(op.name)" :data-option-value="op.id" v-for="op in ops" :key="op.id" :value="op.id">{{op.name}}</ElOption></ElSelect></ElFormItem>
        </div>
-       <label><span class="field-caption">共同处理部位 <span class="required-star" aria-hidden="true">*</span></span><ElInput v-model="common.target_object" required placeholder="例如 横担上部"/></label>
+       <ElFormItem label="共同处理部位" prop="common.target_object" :rules="requiredRules('共同处理部位')"><ElInput v-model="common.target_object" required placeholder="例如 横担上部"/></ElFormItem>
        <div class="field-label-group"><div class="inline-field-top"><span class="field-title">{{demandLocationKind==='span'?'每档工作量':'每基工作量'}} <span class="required-star" aria-hidden="true">*</span></span><ElButton native-type="button" class="text-button small" @click="applyDefault">应用操作默认值</ElButton></div>
-        <div class="quantity-inputs"><ElInput :aria-label="demandLocationKind==='span'?'每档工作量':'每基工作量'" v-model="common.quantity" required data-validate="quantity" inputmode="decimal" placeholder="1"/><ElSelect v-model="common.unit_id" required aria-label="计量单位"><ElOption :label="'单位'" data-option-value="" value="">单位</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></div>
+        <div class="quantity-inputs"><ElFormItem prop="common.quantity" :rules="quantityRules"><ElInput :aria-label="demandLocationKind==='span'?'每档工作量':'每基工作量'" v-model="common.quantity" data-validate="quantity" inputmode="decimal" placeholder="1"/></ElFormItem><ElFormItem prop="common.unit_id" :rules="selectRules('计量单位')"><ElSelect v-model="common.unit_id" aria-label="计量单位"><ElOption :label="'单位'" data-option-value="" value="">单位</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></ElFormItem></div>
         <p class="field-hint">每个位置的本次工作量为{{common.quantity||'—'}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}，选{{selectedRows.length}}个位置共{{Number(totalQty.toFixed(4))}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}。</p>
        </div>
-       <label><span class="field-caption">完成标准 <span class="required-star" aria-hidden="true">*</span></span><ElInput v-model="common.completion_standard" required placeholder="按核定部位完成安装并验收合格"/></label>
-       <label class="wide"><span class="field-caption">问题描述 / 实施必要性 <span class="required-star" aria-hidden="true">*</span></span><ElInput type="textarea" v-model="common.problem_description" required :rows="3" placeholder="说明存在的问题、实施必要性及作业背景"/></label>
+       <ElFormItem label="完成标准" prop="common.completion_standard" :rules="requiredRules('完成标准')"><ElInput v-model="common.completion_standard" required placeholder="按核定部位完成安装并验收合格"/></ElFormItem>
+       <ElFormItem class="wide" label="问题描述 / 实施必要性" prop="common.problem_description" :rules="requiredRules('问题描述 / 实施必要性')"><ElInput type="textarea" v-model="common.problem_description" required :rows="3" placeholder="说明存在的问题、实施必要性及作业背景"/></ElFormItem>
       </div>
-      <CustomFields :definitions="fieldDefinitions" v-model="common.custom_fields"/>
+      <ElFormItem v-if="fieldDefinitions.length" label="扩展字段" prop="common.custom_fields" :rules="customFieldRules"><CustomFields :definitions="fieldDefinitions" v-model="common.custom_fields"/></ElFormItem>
      </section>
 
      <section class="entry-section panel">
@@ -746,9 +744,9 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div v-for="(source,index) in batchSources" :key="index" class="source-card">
        <div class="source-card-head"><strong>来源 {{index+1}}</strong><ElButton native-type="submit" v-if="batchSources.length>1" class="text-button danger" @click="removeSource(index)">移除来源</ElButton></div>
        <div class="form-grid entry-fields">
-        <label><span class="field-caption">来源类型 <span class="required-star" aria-hidden="true">*</span></span><ElSelect v-model="source.type_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in sources" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label>
-        <label><span class="field-caption">发现 / 提出日期 <span class="required-star" aria-hidden="true">*</span></span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD"  v-model="source.discovered_on" required/></label>
-        <label><span class="field-caption">提出单位 / 人员 <span class="required-star" aria-hidden="true">*</span></span><ElInput v-model="source.proposed_by" required placeholder="填写提出单位或人员"/></label>
+        <ElFormItem label="来源类型" :prop="'batchSources.'+index+'.type_id'" :rules="selectRules('来源类型')"><ElSelect v-model="source.type_id" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in sources" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></ElFormItem>
+        <ElFormItem label="发现 / 提出日期" :prop="'batchSources.'+index+'.discovered_on'" :rules="selectRules('发现日期')"><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD"  v-model="source.discovered_on" required/></ElFormItem>
+        <ElFormItem label="提出单位 / 人员" :prop="'batchSources.'+index+'.proposed_by'" :rules="requiredRules('提出单位 / 人员')"><ElInput v-model="source.proposed_by" required placeholder="填写提出单位或人员"/></ElFormItem>
         <label><span class="field-caption">来源依据编号</span><ElInput v-model="source.external_ref" placeholder="工单、缺陷单或检查编号"/></label>
         <label class="wide"><span class="field-caption">来源说明</span><ElInput type="textarea" v-model="source.description" :rows="2" placeholder="记录来源内容与原始依据"/></label>
        </div>
@@ -765,12 +763,12 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">04</span><h2>{{demandLocationKind==='span'?'逐档预览与调整':'逐基预览与调整'}}</h2></div><span class="section-note">{{selectedRows.length}} 条独立需求</span></div>
       <p class="field-hint">共同字段已填入每条需求；单独修改部位或数量仅影响对应杆塔。预览确认后提交待核实。</p>
-      <div class="table-wrap"><ElTable :data="selectedRows" class="preview-table">
+      <ElFormItem prop="rows" :rules="rowCompletenessRules" class="wide"><div class="table-wrap"><ElTable :data="selectedRows" class="preview-table">
 <ElTableColumn><template #header>位置</template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><strong>{{x.tower_no}}</strong><small>{{x.line_name}}</small></div></template></template></ElTableColumn>
 <ElTableColumn><template #header>处理部位 <span class="required-star" aria-hidden="true">*</span></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElInput class="compact" :aria-label="'处理部位 '+x.tower_no" :model-value="x.target_object" :required="index>=0" @update:model-value="v=>overrides[x.id]={...overrides[x.id],target_object:v}"/></div></template></template></ElTableColumn>
 <ElTableColumn><template #header>工作量 <span class="required-star" aria-hidden="true">*</span></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElInput class="compact num" :aria-label="'工作量 '+x.tower_no" inputmode="decimal" :model-value="x.quantity==null?'':String(x.quantity)" :required="index>=0" :data-validate="index>=0?'quantity':undefined" @update:model-value="v=>overrides[x.id]={...overrides[x.id],quantity:v}"/></div></template></template></ElTableColumn>
 <ElTableColumn v-if="fieldDefinitions.length"><template #header>扩展字段</template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElCollapse><ElCollapseItem title="逐基调整" :name="x.id"><CustomFields :definitions="fieldDefinitions" :prefix="x.tower_no+' '" :model-value="x.custom_fields" @update:model-value="overrides[x.id]={...overrides[x.id],custom_fields:$event}"/></ElCollapseItem></ElCollapse></div></template></template></ElTableColumn>
-<ElTableColumn><template #header></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElButton native-type="button" class="text-button danger" @click="excluded[x.id]=true">排除</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">请先在上方勾选杆塔</div></template></ElTable></div>
+<ElTableColumn><template #header></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElButton native-type="button" class="text-button danger" @click="excluded[x.id]=true">排除</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">请先在上方勾选杆塔</div></template></ElTable></div></ElFormItem>
       <div class="batch-review">
        <div><strong>本批 {{selectedRows.length}} 条需求</strong><small>{{selectedLines.length}} 条线路 · {{batchSources.length}} 条来源依据 · 独立生成</small></div>
        <div class="form-actions"><ElButton native-type="button" class="light" @click="resetBatch">清空重填</ElButton><ElButton native-type="button" class="secondary" :disabled="busy" @click="submitBatch(true)">保存草稿</ElButton><ElButton native-type="submit" class="primary" :disabled="busy||!roleWrite||!selectedRows.length">提交 {{selectedRows.length}} 条核实</ElButton></div>
@@ -822,13 +820,13 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <div v-if="detail.field_definitions?.length" class="scope-item"><strong>附加业务字段</strong><CustomFields :definitions="detail.field_definitions||[]" :model-value="detail.custom_fields||{}" :disabled="true"/></div>
       <div v-if="roleWrite&&detail.status!=='cancelled'" class="form-actions"><ElButton class="secondary" @click="openDemandEdit">编辑需求</ElButton></div>
       <ElDialog :model-value="!!demandEdit" title="修订需求"  width="860px" @close="demandEdit=null" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-       <ElForm v-form-validation novalidate v-if="demandEdit" class="form-grid" @submit.prevent="saveDemandEdit">
-        <label><span class="field-caption">具体部位</span><ElInput v-model="demandEdit.target_object" required/></label>
-        <label><span class="field-caption">工作量（{{demandEdit.unit_snapshot}}）</span><ElInput v-model="demandEdit.quantity" data-validate="quantity" inputmode="decimal" required/></label>
-        <label class="wide"><span class="field-caption">问题说明</span><ElInput type="textarea" v-model="demandEdit.problem_description" :rows="3" required/></label>
-        <label class="wide"><span class="field-caption">完成标准</span><ElInput type="textarea" v-model="demandEdit.completion_standard" :rows="2" required/></label>
+       <ElForm ref="demandEditFormRef" :model="demandEdit||{}" label-position="top"  novalidate v-if="demandEdit" class="form-grid" @submit.prevent="runValidated(demandEditFormRef,()=>saveDemandEdit())">
+        <ElFormItem label="具体部位" prop="target_object" :rules="requiredRules('具体部位')"><ElInput v-model="demandEdit.target_object" required/></ElFormItem>
+        <ElFormItem :label="'工作量（'+demandEdit.unit_snapshot+'）'" prop="quantity" :rules="quantityRules"><ElInput v-model="demandEdit.quantity" data-validate="quantity" inputmode="decimal" required/></ElFormItem>
+        <ElFormItem class="wide" label="问题说明" prop="problem_description" :rules="requiredRules('问题说明')"><ElInput type="textarea" v-model="demandEdit.problem_description" :rows="3" required/></ElFormItem>
+        <ElFormItem class="wide" label="完成标准" prop="completion_standard" :rules="requiredRules('完成标准')"><ElInput type="textarea" v-model="demandEdit.completion_standard" :rows="2" required/></ElFormItem>
         <div class="wide"><CustomFields :definitions="demandEdit.field_definitions||[]" v-model="demandEdit.custom_fields"/></div>
-        <label class="wide"><span class="field-caption">修订原因</span><ElInput v-model="demandEdit.change_reason" required/></label>
+        <ElFormItem class="wide" label="修订原因" prop="change_reason" :rules="requiredRules('修订原因')"><ElInput v-model="demandEdit.change_reason" required/></ElFormItem>
         <div class="form-actions"><ElButton native-type="button" class="light" @click="demandEdit=null">取消</ElButton><ElButton native-type="submit" class="primary">保存修订并留痕</ElButton></div>
        </ElForm>
       </ElDialog>
@@ -836,7 +834,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <h3>附件依据</h3>
       <ElButton v-if="roleWrite" class="secondary" @click="attachmentDialog=true">上传附件</ElButton>
       <ElDialog :model-value="attachmentDialog" title="上传需求附件"  @close="attachmentDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-       <ElForm v-form-validation novalidate @submit.prevent>
+       <ElForm novalidate @submit.prevent>
        <label><span class="field-caption">选择附件（最多15MB）</span><ElUpload action="#" :auto-upload="false" :show-file-list="false" :disabled="busy" :on-change="uploadAttachment"><ElButton>选择附件</ElButton></ElUpload></label>
        <p class="field-hint">选中文件后立即上传，完成后自动关闭此窗口。</p>
        <div class="form-actions"><ElButton class="light" native-type="button" @click="attachmentDialog=false">取消</ElButton></div>
@@ -846,8 +844,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     </template><template v-else><pre class="json-preview">{{JSON.stringify(detail,null,2)}}</pre></template>
   </div></section>
   <ElDialog :model-value="!!reasonAction" :title="reasonTitle" @close="reasonAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false">
-   <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="submitReason">
-    <label class="wide"><span class="field-caption">操作依据 / 说明</span><ElInput type="textarea" v-model="reasonValue" :rows="3" required placeholder="请填写本次操作的依据"></ElInput></label>
+   <ElForm ref="reasonMainFormRef" :model="{reasonValue:reasonValue}" label-position="top"  novalidate class="form-grid" @submit.prevent="runValidated(reasonMainFormRef,()=>submitReason())">
+    <ElFormItem class="wide" label="操作依据 / 说明" prop="reasonValue" :rules="requiredRules('操作依据 / 说明')"><ElInput type="textarea" v-model="reasonValue" :rows="3" required placeholder="请填写本次操作的依据"></ElInput></ElFormItem>
     <p v-if="visibleError" role="alert" class="form-modal-error">{{visibleError}}</p>
     <div class="form-actions"><ElButton native-type="button" class="light" @click="reasonAction=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="busy">确认</ElButton></div>
    </ElForm>
