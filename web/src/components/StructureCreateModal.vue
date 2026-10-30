@@ -1,10 +1,10 @@
 <script setup lang="ts">
+import {ElDialog} from 'element-plus';
 import {ElForm} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
 import {ElSelect,ElOption} from 'element-plus';
 import {ElButton} from 'element-plus';
 import {computed} from 'vue';
-import FormModal from './FormModal.vue';
 import {vFormValidation} from '../utils/form-validation';
 type Row=Record<string,any>;
 const props=defineProps<{
@@ -16,7 +16,7 @@ const availableFrameworks=computed(()=>props.frameworks.filter(x=>x.status==='ac
 const availableAgreements=computed(()=>props.agreements.filter(x=>x.status==='active'&&x.framework_id===props.form.framework_id));
 </script>
 <template>
- <FormModal :open="open" :title="'创建'+title" :error="error" @close="emit('close')">
+ <ElDialog :model-value="open" :title="'创建'+title"  @close="emit('close')" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p>
   <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="emit('save')">
    <label><span class="field-caption">名称</span><ElInput v-model.trim="form.name" required/></label>
    <label v-if="type==='frameworks'"><span class="field-caption">框架年度</span><ElInput v-model.number="form.fiscal_year" type="number" min="2000" max="2100" required/></label>
@@ -27,5 +27,5 @@ const availableAgreements=computed(()=>props.agreements.filter(x=>x.status==='ac
    <label v-if="type==='projects'"><span class="field-caption">储备类别</span><ElSelect v-model="form.category_id"><ElOption :label="'待分类'" data-option-value="" value="">待分类</ElOption><ElOption :label="String(c.name)" :data-option-value="c.id" v-for="c in categories.filter(x=>x.status==='active')" :key="c.id" :value="c.id">{{c.name}}</ElOption></ElSelect></label>
    <div class="wide form-actions"><ElButton native-type="button" class="light" @click="emit('close')">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="busy">保存</ElButton></div>
   </ElForm>
- </FormModal>
+ </ElDialog>
 </template>

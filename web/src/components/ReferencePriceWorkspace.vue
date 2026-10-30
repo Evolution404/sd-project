@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import {ElDialog} from 'element-plus';
+import {requestApi} from '../api/client';
 import {ElForm} from 'element-plus';
 import {ElTable,ElTableColumn} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
 import {ElSelect,ElOption} from 'element-plus';
 import {ElButton} from 'element-plus';
 import {computed,onMounted,reactive,ref} from 'vue';
-import FormModal from './FormModal.vue';
 import StatusTag from './StatusTag.vue';
 import {vFormValidation} from '../utils/form-validation';
 type Row=Record<string,any>;
@@ -20,12 +21,7 @@ const filtered=computed(()=>rows.value.filter(x=>(!activeFilter.value||x.status=
  [x.code,x.title,x.operation_name,x.specification].some(v=>String(v||'').toLowerCase().includes(query.value.trim().toLowerCase()))));
 const money=(v:number)=>(v/100).toFixed(2);
 const planName=(v:string)=>({both:'通用',outage:'停电检修',non_outage:'不停电检修'} as Record<string,string>)[v]||v;
-async function api(path:string,method='GET',body?:Row){
- const res=await fetch('/api'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined,credentials:'same-origin'});
- const data=await res.json();
- if(!res.ok)throw Error(data.error||'业务操作失败');
- return data;
-}
+const api=(path:string,method='GET',body?:Row)=>requestApi(path,method,body);
 async function refresh(){loading.value=true;error.value='';try{rows.value=await api('/reference-prices')}catch(e){error.value=(e as Error).message}finally{loading.value=false}}
 function defaults(){
  Object.keys(form).forEach(k=>delete form[k]);
@@ -83,7 +79,7 @@ onMounted(refresh);
       <ElButton v-if="canEdit" class="link" @click="openStatus(p)">{{p.status==='active'?'停用':'启用'}}</ElButton>
      </div></template></template></ElTableColumn><template #empty><div class="empty">暂无符合条件的参考价</div></template></ElTable></div>
  </section>
- <FormModal :open="dialog==='new'||dialog==='revise'" :title="dialog==='new'?'新增检修参考价':'修订参考单价'" :error="error" size="wide" @close="dialog=''">
+ <ElDialog :model-value="dialog==='new'||dialog==='revise'" :title="dialog==='new'?'新增检修参考价':'修订参考单价'"  width="860px" @close="dialog=''" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p>
   <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="save">
    <template v-if="dialog==='new'">
     <label><span class="field-caption">价格项目名称</span><ElInput v-model.trim="form.title" required/></label>
@@ -102,20 +98,20 @@ onMounted(refresh);
    <label v-if="dialog==='revise'" class="wide"><span class="field-caption">修订原因</span><ElInput type="textarea" v-model.trim="form.reason" :rows="2" required/></label>
    <div class="wide form-actions"><ElButton native-type="button" class="light" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary">保存{{dialog==='new'?'参考价':'新版本'}}</ElButton></div>
   </ElForm>
- </FormModal>
- <FormModal :open="dialog==='status'" :title="edit?.status==='active'?'停用参考价':'启用参考价'" :error="error" @close="dialog=''">
+ </ElDialog>
+ <ElDialog :model-value="dialog==='status'" :title="edit?.status==='active'?'停用参考价':'启用参考价'"  @close="dialog=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p>
   <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="save">
    <p class="wide">项目 {{edit?.title}}</p>
    <label class="wide"><span class="field-caption">状态变更依据</span><ElInput type="textarea" v-model.trim="form.reason" required/></label>
    <div class="wide form-actions"><ElButton native-type="button" class="light" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary">确认</ElButton></div>
   </ElForm>
- </FormModal>
- <FormModal :open="dialog==='versions'" :title="'价格历史：'+(edit?.title||'')" size="wide" @close="dialog=''">
+ </ElDialog>
+ <ElDialog :model-value="dialog==='versions'" :title="'价格历史：'+(edit?.title||'')" width="860px" @close="dialog=''" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false">
   <div v-for="v in versions" :key="v.id" class="scope-item">
    <strong>v{{v.version_no}} · {{money(v.unit_price_fen)}} 元 / {{edit?.unit_name}}</strong>
    <p class="muted">来源：{{v.price_source}} · 日期 {{v.price_date}} · {{v.tax_mode==='inclusive'?'含税':v.tax_mode==='exclusive'?'不含税':'不适用'}}</p>
    <p>{{v.basis}}</p><p class="muted">修订说明：{{v.reason}}</p>
   </div>
   <div class="form-actions"><ElButton class="secondary" @click="dialog=''">关闭</ElButton></div>
- </FormModal>
+ </ElDialog>
 </template>

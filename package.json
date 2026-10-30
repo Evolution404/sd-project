@@ -10,7 +10,7 @@
     "start": "node server/server.mjs",
     "init-admin": "node scripts/init-admin.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run check:ui && npm run build && npm test",
+    "check": "npm run check:ui:strict && npm run build && npm test",
     "check:ui": "node scripts/check-native-ui.mjs",
     "check:ui:strict": "node scripts/check-native-ui.mjs --strict",
     "backup": "node scripts/backup.mjs",

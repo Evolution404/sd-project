@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import {ElDialog} from 'element-plus';
+import {requestApi} from './api/client';
+import './styles/business-dialog.css';
 import {ElForm,ElCollapse,ElCollapseItem,ElUpload,ElLink} from 'element-plus';
 import {ElTable,ElTableColumn} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
@@ -6,7 +9,6 @@ import {ElSelect,ElOption} from 'element-plus';
 import {ElButton} from 'element-plus';
 import {computed,defineAsyncComponent,nextTick,onMounted,reactive,ref,watch} from 'vue';
 import {newClientId} from './utils/client-id';
-import FormModal from './components/FormModal.vue';
 import CustomFields from './components/CustomFields.vue';
 import LedgerWorkspace from './components/LedgerWorkspace.vue';
 import ApplicationShell from './components/ApplicationShell.vue';
@@ -99,12 +101,7 @@ const fmtQty=(v:any)=>Number(v||0)/10000;
 const visibleError=computed(()=>error.value===inlineErrorMessage.value?'':error.value);
 const errorMessage=(e:any)=>{const message=e?.message||'网络请求失败';presentFormError(message,e?.details);return message};
 function notify(msg:string){success.value=msg;setTimeout(()=>{if(success.value===msg)success.value=''},4000)}
-async function api(path:string,method='GET',body?:any){
- const res=await fetch('/api'+path,{method,credentials:'same-origin',headers:{...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
- const data=await res.json();
- if(!res.ok)throw Object.assign(Error(data.error+(data.details?'：'+data.details.map((x:any)=>'第'+x.row+'行 '+x.message).join('；'):'')),{details:data.details});
- return data;
-}
+const api=(path:string,method='GET',body?:any)=>requestApi(path,method,body);
 async function doLogin(){error.value='';busy.value=true;try{const r=await api('/auth/login','POST',{username:username.value,password:password.value});user.value=r.user;password.value='';await refresh();}catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
 async function logout(){try{await api('/auth/logout','POST')}finally{user.value=null;detail.value=null}}
 async function refresh(){
@@ -476,7 +473,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       · 依据：{{projectView.preliminary_estimate_basis||'尚未提供'}}</span>
     <ElButton v-if="roleWrite&&projectView.status==='reserve'" class="secondary" @click="projectAction='preliminary'">填写初步估算</ElButton>
    </div>
-   <FormModal :open="projectAction==='preliminary'" title="项目类别与初步估算" :error="visibleError" @close="projectAction=''">
+   <ElDialog :model-value="projectAction==='preliminary'" title="项目类别与初步估算"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
      <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="saveInitialEstimate">
       <label class="wide"><span class="field-caption">项目类别</span>
        <ElSelect v-model="preliminaryCategory" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption>
@@ -493,31 +490,31 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       <p class="muted wide">正式入库时保留此初步估算。单项价格可暂缺，但立项前必须逐项核定。</p>
       <div class="form-actions"><ElButton native-type="button" class="light" @click="projectAction=''">取消</ElButton><ElButton native-type="submit" class="primary">保存初步估算</ElButton></div>
      </ElForm>
-   </FormModal>
+   </ElDialog>
    <p class="muted">所属年度框架：{{projectView.framework_year}} · {{projectView.framework_name}}{{projectView.framework_deleted?'（已删除，不再允许新增立项）':''}}</p>
    <h3>关联执行协议</h3>
    <div class="toolbar"><span class="muted">{{projectView.agreement_name||agreements.find(x=>x.id===projectView?.agreement_id)?.name||'暂未关联执行协议'}}{{projectView.agreement_deleted?'（已删除，保留历史归属）':''}}</span>
     <ElButton v-if="roleWrite&&['reserve','stocked'].includes(projectView.status)" class="secondary" @click="projectAction='agreement'">设置执行协议</ElButton>
    </div>
-   <FormModal :open="projectAction==='agreement'" title="选择执行协议" :error="visibleError" @close="projectAction=''">
+   <ElDialog :model-value="projectAction==='agreement'" title="选择执行协议"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
     <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="bindProjectAgreement">
      <label class="wide"><span class="field-caption">唯一执行协议</span><ElSelect v-model="agreementSelection" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(a.name) + ' · ' + String(a.framework_name)" :data-option-value="a.id" v-for="a in agreements.filter(x=>x.status==='active'&&x.framework_id===projectView?.framework_id)" :key="a.id" :value="a.id">{{a.name}} · {{a.framework_name}}</ElOption></ElSelect></label>
      <div class="form-actions"><ElButton native-type="button" class="light" @click="projectAction=''">取消</ElButton><ElButton native-type="submit" class="primary">确认协议归属</ElButton></div>
     </ElForm>
-   </FormModal>
+   </ElDialog>
    <h3>项目需求范围与估价</h3><p class="muted">每条明细引用已核实的需求版本；金额按工作量×单价计算，缺价不视为零。</p>
    <div v-for="scope in projectView.scopes" :key="scope.id" class="scope-item">
     <div class="section-header"><div><strong>{{scope.demand_no}} · {{scope.line_name_snapshot}} {{scope.tower_no_snapshot}}</strong><p class="muted">{{scope.operation_snapshot}} · {{scope.target_object}}</p></div><ElButton v-if="roleWrite&&['reserve','stocked'].includes(projectView.status)" class="link" @click="editScopePrice(scope)">估价依据</ElButton></div>
     <p>计划 {{fmtQty(scope.quantity_scaled)}} {{scope.unit_snapshot}} · 单价 {{money(scope.unit_price_fen)}} 元 · {{scope.price_source||'价格待确定'}}</p>
    </div>
    <ElButton v-if="roleWrite&&projectView.status==='reserve'" class="secondary" @click="projectAction='scope'">＋ 关联需求范围</ElButton>
-   <FormModal :open="projectAction==='scope'" title="关联需求范围" :error="visibleError" @close="projectAction=''">
+   <ElDialog :model-value="projectAction==='scope'" title="关联需求范围"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="addProjectScope">
     <label class="wide"><span class="field-caption">纳入有效需求</span><ElSelect v-model="scopeDemand" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(d.demand_no) + ' · ' + String(d.line_name_snapshot) + ' ' + String(d.tower_no_snapshot) + ' · ' + String(d.operation_snapshot)" :data-option-value="d.id" v-for="d in eligibleDemands" :key="d.id" :value="d.id">{{d.demand_no}} · {{d.line_name_snapshot}} {{d.tower_no_snapshot}} · {{d.operation_snapshot}}</ElOption></ElSelect></label>
     <label><span class="field-caption">本项目拟覆盖工作量</span><ElInput v-model="scopeQuantity" data-validate="quantity" required inputmode="decimal"/></label><div class="form-actions"><ElButton native-type="submit" class="secondary">关联需求</ElButton></div>
    </ElForm>
-   </FormModal>
-   <FormModal :open="!!scopePriceEdit" title="核定估价依据" :error="visibleError" @close="scopePriceEdit=null">
+   </ElDialog>
+   <ElDialog :model-value="!!scopePriceEdit" title="核定估价依据"  @close="scopePriceEdit=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
       <ElForm v-form-validation novalidate class="form-grid scope-editor" @submit.prevent="saveScopePrice">
     <div v-if="referencePriceOptions.length" class="wide toolbar">
       <label><span class="field-caption">参考单价目录（储备估算）</span>
@@ -534,7 +531,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <label class="wide"><span class="field-caption">修订原因</span><ElInput v-model="scopePrice.reason" placeholder="核定或调整依据"/></label>
     <div class="wide form-actions"><ElButton native-type="submit" class="primary">保存估价</ElButton><ElButton native-type="button" class="light" @click="scopePriceEdit=null">取消</ElButton></div>
    </ElForm>
-   </FormModal>
+   </ElDialog>
    <div v-if="roleStageApprove&&projectView.status==='reserve'" class="form-actions"><ElButton class="primary" :disabled="!projectView.scopes.length||!projectView.preliminary_estimate_fen||!projectView.category_id" @click="openReason('project:stock')">确认项目入库</ElButton></div>
    <div v-if="roleStageApprove&&projectView.status==='stocked'" class="form-actions"><ElButton class="primary" :disabled="!projectView.estimate.complete||!projectView.agreement_id" @click="openReason('project:approve')">确认立项及预算</ElButton></div>
    <h3>批准版本与项目变更</h3>
@@ -553,14 +550,14 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      </div>
     </div>
    </div>
-   <FormModal :open="!!changeDecision" :title="changeDecision?.action==='submit'?'提交变更审批':changeDecision?.action==='approve'?'核准项目变更':'驳回项目变更'" :error="visibleError" @close="changeDecision=null">
+   <ElDialog :model-value="!!changeDecision" :title="changeDecision?.action==='submit'?'提交变更审批':changeDecision?.action==='approve'?'核准项目变更':'驳回项目变更'"  @close="changeDecision=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
     <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="saveChangeDecision">
      <p class="wide muted">{{changeDecision?.order?.code}}：{{changeDecision?.order?.reason}}</p>
      <label class="wide"><span class="field-caption">处理依据及意见</span><ElInput type="textarea" v-model="changeDecisionReason" required :rows="3"/></label>
      <div class="form-actions"><ElButton native-type="button" class="light" @click="changeDecision=null">取消</ElButton><ElButton native-type="submit" class="primary">确认</ElButton></div>
     </ElForm>
-   </FormModal>
-   <FormModal :open="projectAction==='change-order'" title="拟定项目变更单" :error="visibleError" size="wide" @close="projectAction=''">
+   </ElDialog>
+   <ElDialog :model-value="projectAction==='change-order'" title="拟定项目变更单"  width="860px" @close="projectAction=''" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
     <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="createChangeDraft">
 
      <label><span class="field-caption">变更类型</span><ElSelect v-model="changeDraft.action" required>
@@ -578,19 +575,19 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      <label class="wide"><span class="field-caption">变更原因</span><ElInput type="textarea" v-model="changeDraft.reason" :rows="3" required/></label>
      <div class="wide form-actions"><ElButton native-type="button" class="light" @click="projectAction=''">取消</ElButton><ElButton native-type="submit" class="primary">仅保存草稿</ElButton></div>
     </ElForm>
-   </FormModal>
+   </ElDialog>
    <h3>检修计划</h3>
    <p v-if="projectSettlementTotals" class="muted" data-testid="plan-budget-allocation-summary">已核定计划预算 {{money(projectSettlementTotals.allocated_plan_budget_fen)}} 元 · 子项目未分配预算 {{money(projectSettlementTotals.unallocated_plan_budget_fen)}} 元；计划结束或取消不自动释放。</p>
    <div v-if="!executionRows.length" class="empty">尚无检修计划</div>
    <div v-for="e in executionRows" :key="e.id" class="scope-item"><div class="section-header"><div><strong>{{e.number}} · {{e.plan_type==='outage'?'停电检修':'不停电检修'}} · {{e.description}}</strong><p class="muted">{{e.item_count}} 条工作明细 · 净结算 {{money(projectSettlementTotals?.plans?.find((p:Rec)=>p.execution_id===e.id)?.settled_fen)}} 元</p></div><ElButton class="link" @click="openExecution(e.id)">进入执行</ElButton></div><StatusTag :status="e.status"/></div>
    <ElButton v-if="roleWrite&&projectView.status==='approved'" class="secondary" @click="projectAction='execution'">＋ 新建检修计划</ElButton>
-   <FormModal :open="projectAction==='execution'" title="新建检修计划" :error="visibleError" @close="projectAction=''">
+   <ElDialog :model-value="projectAction==='execution'" title="新建检修计划"  @close="projectAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="createProjectExecution">
 
      <label><span class="field-caption">检修类型</span><ElSelect v-model="executionPlanType" required><ElOption :label="'停电检修'" data-option-value="outage" value="outage">停电检修</ElOption><ElOption :label="'不停电检修'" data-option-value="non_outage" value="non_outage">不停电检修</ElOption></ElSelect></label>
      <label class="wide"><span class="field-caption">施工说明</span><ElInput v-model="executionDescription" placeholder="本次检修任务"/></label><div class="wide form-actions"><ElButton native-type="submit" class="primary">创建检修计划</ElButton></div>
    </ElForm>
-   </FormModal>
+   </ElDialog>
    <h3>实施与结算核对</h3>
    <p v-if="projectProgress" class="muted">当前有效批准预算 {{money(projectProgress.approved_budget_fen)}} 元 · 已登记净结算 {{money(projectProgress.settled_fen)}} 元 · 未结算批准额度 {{money(projectProgress.unsettled_approved_fen)}} 元</p>
    <p v-if="projectSettlementTotals" class="muted" data-testid="actual-cost-summary">已确认实际费用 {{money(projectSettlementTotals.actual_cost_fen)}} 元 · 待最终核对费用 {{money(projectSettlementTotals.pending_final_expense_fen)}} 元</p>
@@ -604,7 +601,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <ElButton v-if="roleStageApprove&&projectView.status==='approved'" class="secondary" @click="openSettlement(scope)">登记项目级未归集凭证</ElButton>
    </div>
    <SettlementVoucherWorkspace :project-id="projectView.id" :can-settle="roleStageApprove" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials" @reverse="entry=>entry.execution_item_id?openExecution(entry.execution_id):openSettlement(projectProgress?.scopes.find((s:Rec)=>s.id===entry.project_scope_id)||{id:entry.project_scope_id},entry)"/>
-   <FormModal :open="settlementDialog" :title="settlementForm.entry_kind==='reversal'?'登记结算冲销':'登记结算凭证'" :error="visibleError" @close="settlementDialog=false">
+   <ElDialog :model-value="settlementDialog" :title="settlementForm.entry_kind==='reversal'?'登记结算冲销':'登记结算凭证'"  @close="settlementDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
     <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="saveSettlement">
      <p class="wide muted">本入口登记项目级未归集凭证，不自动计入任何检修计划；已明确归属检修计划的结算请进入对应计划。原始凭证留存，支持冲销、更正、撤销及历史查询。当前仅管理员可登记。</p>
      <label><span class="field-caption">凭证编号</span><ElInput v-model="settlementForm.settlement_no" required/></label>
@@ -618,7 +615,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      <label class="wide"><span class="field-caption">结算依据</span><ElInput type="textarea" v-model="settlementForm.evidence" :rows="3" required/></label>
      <div class="form-actions"><ElButton class="light" native-type="button" @click="settlementDialog=false">取消</ElButton><ElButton native-type="submit" class="primary">确认登记</ElButton></div>
     </ElForm>
-   </FormModal>
+   </ElDialog>
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
   </div></section>
   <section v-if="executionView" class="detail-overlay execution-overlay" @click.self="executionView=null"><div class="detail-panel">
@@ -631,19 +628,19 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <ElButton v-if="executionView.status==='running'&&roleWrite" class="secondary" @click="completionItem=i">确认完成量</ElButton>
 
    </div>
-   <FormModal :open="!!completionItem" :title="'确认实际完成量：'+(completionItem?.demand_no||'')" :error="visibleError" @close="completionItem=null">
+   <ElDialog :model-value="!!completionItem" :title="'确认实际完成量：'+(completionItem?.demand_no||'')"  @close="completionItem=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
         <ElForm v-form-validation novalidate @submit.prevent="confirmWork(completionItem!)" class="form-grid">
      <label><span class="field-caption">本次确认量</span><ElInput v-model="completeQuantity" data-validate="quantity" required inputmode="decimal"/></label><label><span class="field-caption">实施日期</span><ElDatePicker type="date" value-format="YYYY-MM-DD" format="YYYY-MM-DD" v-model="completeDate" required /></label>
      <label class="wide"><span class="field-caption">完成依据 / 验收说明</span><ElInput v-model="completeEvidence" required/></label><div class="wide form-actions"><ElButton native-type="submit" class="secondary">确认实际完成量</ElButton></div>
     </ElForm>
-   </FormModal>
+   </ElDialog>
    <ElButton v-if="executionView.status==='planned'&&roleWrite" class="secondary" @click="executionAction='plan'">＋ 安排工作明细</ElButton>
-   <FormModal :open="executionAction==='plan'" title="安排本次执行明细" :error="visibleError" @close="executionAction=''">
+   <ElDialog :model-value="executionAction==='plan'" title="安排本次执行明细"  @close="executionAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm v-form-validation novalidate @submit.prevent="addExecutionPlan" class="form-grid">
     <label class="wide"><span class="field-caption">安排批准范围</span><ElSelect v-model="execScopeId" required><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(s.demand_no) + ' · ' + String(s.line_name_snapshot) + ' ' + String(s.tower_no_snapshot)" :data-option-value="s.id" v-for="s in eligibleExecutionScopes" :key="s.id" :value="s.id">{{s.demand_no}} · {{s.line_name_snapshot}} {{s.tower_no_snapshot}}</ElOption></ElSelect></label>
     <label><span class="field-caption">本批次拟完成工作量</span><ElInput v-model="execQuantity" data-validate="quantity" required inputmode="decimal"/></label><div class="form-actions"><ElButton native-type="submit" class="secondary">安排工作明细</ElButton></div>
    </ElForm>
-   </FormModal>
+   </ElDialog>
    <div v-if="roleWrite" class="form-actions">
     <ElButton v-if="executionView.status==='planned'" class="primary" :disabled="!executionView.items.length" @click="openReason('execution:start')">确认开工</ElButton>
     <ElButton v-if="executionView.status==='running'" class="primary" @click="openReason('execution:finish')">结束本次执行</ElButton>
@@ -660,18 +657,18 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <section class="panel"><div class="section-header"><div><h2>允许访问的 IP</h2><p class="muted">逐个配置具体IP地址；保存后无需重启服务</p></div></div>
       <p class="muted">服务器识别到本次连接的地址：<strong class="mono">{{currentClientIP}}</strong>。本机 127.0.0.1 和 ::1 永久允许，用于初始化和应急管理。其他地址未加入列表时默认拒绝。</p>
       <ElButton class="primary" @click="ipDialog=true">＋ 添加允许 IP</ElButton>
-      <FormModal :open="ipDialog" title="添加允许访问的 IP" :error="visibleError" @close="ipDialog=false">
+      <ElDialog :model-value="ipDialog" title="添加允许访问的 IP"  @close="ipDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
              <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="addAllowedIP">
         <label><span class="field-caption">IP 地址</span><ElInput v-model.trim="ipInput" required placeholder="例如 192.168.1.105 或 2001:db8::1"/></label>
         <label><span class="field-caption">设备 / 用途备注</span><ElInput v-model.trim="ipNote" placeholder="例如 运检班组办公电脑"/></label>
         <ElButton native-type="submit" class="primary" :disabled="busy||!ipInput">添加允许 IP</ElButton>
       </ElForm>
-      </FormModal>
+      </ElDialog>
 
-      <FormModal :open="!!pendingRemoveIP" title="移除 IP 访问权限" :error="visibleError" @close="pendingRemoveIP=null">
+      <ElDialog :model-value="!!pendingRemoveIP" title="移除 IP 访问权限"  @close="pendingRemoveIP=null" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <p>确定撤销 <strong class="mono">{{pendingRemoveIP?.ip}}</strong> 的访问授权吗？撤销后，新连接将立即被拒绝。</p>
        <div class="form-actions"><ElButton class="light" @click="pendingRemoveIP=null">取消</ElButton><ElButton class="primary" @click="removeAllowedIP">确认移除</ElButton></div>
-      </FormModal>
+      </ElDialog>
       <div class="table-wrap"><ElTable :data="allowedIPs" >
 <ElTableColumn><template #header>允许的IP</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div class="mono">{{x.ip}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>设备备注</template><template #default="{row,$index}"><template v-for="([x]) in [[row,$index]]"><div >{{x.note||'—'}}</div></template></template></ElTableColumn>
@@ -786,7 +783,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     </div>
    </ElForm>
   </template>
-  <FormModal :open="duplicateDialog" title="疑似重复需求核实" :error="visibleError" size="wide" @close="duplicateDialog=false">
+  <ElDialog :model-value="duplicateDialog" title="疑似重复需求核实"  width="860px" @close="duplicateDialog=false" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
    <p class="muted">发现此前批次已有同位置、同操作、同部位的需求。请选择追加已有来源或确属新发的独立需求，不会自动合并工作量。</p>
    <ElForm class="form-grid" @submit.prevent="submitBatch(false,true)">
     <div v-for="x in duplicateFindings" :key="x.index" class="wide scope-item">
@@ -809,7 +806,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     </div>
     <div class="form-actions"><ElButton native-type="button" class="light" @click="duplicateDialog=false">取消</ElButton><ElButton native-type="submit" class="primary">按核实结论提交</ElButton></div>
    </ElForm>
-  </FormModal>
+  </ElDialog>
   <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><ElButton class="secondary" @click="exportDemands">Excel 导出</ElButton><ElButton v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</ElButton></div></div><div class="toolbar"><label><span class="field-caption">状态</span><ElSelect v-model="statusFilter"><ElOption :label="'全部'" data-option-value="" value="">全部</ElOption><ElOption :label="'待核实'" data-option-value="pending" value="pending">待核实</ElOption><ElOption :label="'有效'" data-option-value="active" value="active">有效</ElOption><ElOption :label="'退回'" data-option-value="returned" value="returned">退回</ElOption><ElOption :label="'取消'" data-option-value="cancelled" value="cancelled">取消</ElOption></ElSelect></label><label><span class="field-caption">线路</span><ElSelect v-model="lineFilter"><ElOption :label="'全部线路'" data-option-value="" value="">全部线路</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label><label><span class="field-caption">关键词</span><ElInput v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><ElTable :data="demands" >
 <ElTableColumn><template #header>编号</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div class="mono">{{d.demand_no}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>位置</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</div></template></template></ElTableColumn>
@@ -827,7 +824,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       </div>
       <div v-if="detail.field_definitions?.length" class="scope-item"><strong>附加业务字段</strong><CustomFields :definitions="detail.field_definitions||[]" :model-value="detail.custom_fields||{}" :disabled="true"/></div>
       <div v-if="roleWrite&&detail.status!=='cancelled'" class="form-actions"><ElButton class="secondary" @click="openDemandEdit">编辑需求</ElButton></div>
-      <FormModal :open="!!demandEdit" title="修订需求" :error="visibleError" size="wide" @close="demandEdit=null">
+      <ElDialog :model-value="!!demandEdit" title="修订需求"  width="860px" @close="demandEdit=null" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm v-form-validation novalidate v-if="demandEdit" class="form-grid" @submit.prevent="saveDemandEdit">
         <label><span class="field-caption">具体部位</span><ElInput v-model="demandEdit.target_object" required/></label>
         <label><span class="field-caption">工作量（{{demandEdit.unit_snapshot}}）</span><ElInput v-model="demandEdit.quantity" data-validate="quantity" inputmode="decimal" required/></label>
@@ -837,26 +834,26 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
         <label class="wide"><span class="field-caption">修订原因</span><ElInput v-model="demandEdit.change_reason" required/></label>
         <div class="form-actions"><ElButton native-type="button" class="light" @click="demandEdit=null">取消</ElButton><ElButton native-type="submit" class="primary">保存修订并留痕</ElButton></div>
        </ElForm>
-      </FormModal>
+      </ElDialog>
       <h3>来源与核实</h3><p v-for="x in detail.sources" :key="x.id">{{x.discovered_on}} · {{x.proposed_by}} · {{x.type_snapshot}} · {{x.description||x.external_ref||'—'}}</p><div v-if="roleVerify&&detail.status!=='cancelled'" class="form-actions"><ElButton class="primary" @click="openReason('verify:active')">确认有效</ElButton><ElButton class="secondary" @click="openReason('verify:returned')">退回补充</ElButton><ElButton class="light" @click="openReason('verify:cancelled')">取消</ElButton></div>
       <h3>附件依据</h3>
       <ElButton v-if="roleWrite" class="secondary" @click="attachmentDialog=true">上传附件</ElButton>
-      <FormModal :open="attachmentDialog" title="上传需求附件" :error="visibleError" @close="attachmentDialog=false">
+      <ElDialog :model-value="attachmentDialog" title="上传需求附件"  @close="attachmentDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm v-form-validation novalidate @submit.prevent>
        <label><span class="field-caption">选择附件（最多15MB）</span><ElUpload action="#" :auto-upload="false" :show-file-list="false" :disabled="busy" :on-change="uploadAttachment"><ElButton>选择附件</ElButton></ElUpload></label>
        <p class="field-hint">选中文件后立即上传，完成后自动关闭此窗口。</p>
        <div class="form-actions"><ElButton class="light" native-type="button" @click="attachmentDialog=false">取消</ElButton></div>
        </ElForm>
-      </FormModal><p v-for="file in detail.attachments" :key="file.id"><ElLink :href="'/api/attachments/'+file.id">{{file.filename}}</ElLink> · {{file.bytes}} 字节</p>
+      </ElDialog><p v-for="file in detail.attachments" :key="file.id"><ElLink :href="'/api/attachments/'+file.id">{{file.filename}}</ElLink> · {{file.bytes}} 字节</p>
       <h3>历史修订</h3><p v-for="rev in detail.revisions" :key="rev.id" class="history">{{rev.changed_at}} · v{{rev.version}} · {{rev.reason}}</p>
     </template><template v-else><pre class="json-preview">{{JSON.stringify(detail,null,2)}}</pre></template>
   </div></section>
-  <FormModal :open="!!reasonAction" :title="reasonTitle" @close="reasonAction=''">
+  <ElDialog :model-value="!!reasonAction" :title="reasonTitle" @close="reasonAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false">
    <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="submitReason">
     <label class="wide"><span class="field-caption">操作依据 / 说明</span><ElInput type="textarea" v-model="reasonValue" :rows="3" required placeholder="请填写本次操作的依据"></ElInput></label>
     <p v-if="visibleError" role="alert" class="form-modal-error">{{visibleError}}</p>
     <div class="form-actions"><ElButton native-type="button" class="light" @click="reasonAction=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="busy">确认</ElButton></div>
    </ElForm>
-  </FormModal>
+  </ElDialog>
 </ApplicationShell>
 </template>

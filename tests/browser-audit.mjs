@@ -43,9 +43,8 @@ try{
  await page.getByRole('button',{name:'保存草稿'}).click();await page.getByRole('status').filter({hasText:'草稿已保存'}).waitFor();
  let drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);const id=drafts[0].id;
  await page.reload();await entry();await page.getByRole('button',{name:/查看草稿/}).click();await page.getByRole('button',{name:'继续编辑'}).click();
- await page.getByRole('status').filter({hasText:'已恢复草稿'}).waitFor();
- assert.equal(await panels.nth(1).getByLabel('共同处理部位').inputValue(),'横担');assert.equal(await panels.nth(1).getByLabel('每基工作量').inputValue(),'0.0001');assert.match(await panels.nth(1).getByLabel('相位',{exact:true}).locator('xpath=ancestor::*[contains(@class,"el-select")][1]').innerText(),/A/);
- await second.locator('.el-collapse-item__header').click();assert.match(await second.getByLabel('#2 相位',{exact:true}).locator('xpath=ancestor::*[contains(@class,"el-select")][1]').innerText(),/B/);
+ await page.getByRole('status').filter({hasText:'已恢复草稿'}).waitFor();assert.equal(await panels.nth(1).getByLabel('共同处理部位').inputValue(),'横担');assert.equal(await panels.nth(1).getByLabel('每基工作量').inputValue(),'0.0001');assert.match(await panels.nth(1).getByLabel('相位',{exact:true}).locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," el-select ")][1]').innerText(),/A/);
+ await second.locator('.el-collapse-item__header').click();assert.match(await second.getByLabel('#2 相位',{exact:true}).locator('xpath=ancestor::div[contains(concat(" ",normalize-space(@class)," ")," el-select ")][1]').innerText(),/B/);
  await panels.nth(1).getByLabel('问题描述').fill('恢复草稿后补充风险');await page.getByRole('button',{name:'保存草稿'}).click();
  await page.getByRole('heading',{name:'正在编辑草稿',exact:true}).waitFor();drafts=await api('/demand-batches?status=draft');assert.equal(drafts.length,1);assert.equal(drafts[0].id,id);
  await page.getByRole('button',{name:'提交 2 条核实'}).click();await page.getByRole('status').filter({hasText:'新建 2 条'}).waitFor();
@@ -56,7 +55,7 @@ try{
  await page.locator('.sidebar').getByRole('menuitem',{name:'需求台账',exact:true}).click();
  await page.locator('tbody tr').filter({hasText:first.demand_no}).getByRole('button',{name:'详情'}).click();const panel=page.locator('.detail-panel');
  await panel.getByRole('button',{name:'上传附件',exact:true}).click();
- await page.getByRole('dialog',{name:'上传需求附件'}).getByLabel('选择附件').setInputFiles({name:'验收依据.txt',mimeType:'text/plain',buffer:Buffer.from('现场验收记录')});
+ await page.getByRole('dialog',{name:'上传需求附件'}).locator('input[type="file"]').setInputFiles({name:'验收依据.txt',mimeType:'text/plain',buffer:Buffer.from('现场验收记录')});
  await panel.getByRole('link',{name:'验收依据.txt'}).waitFor();assert.equal((await api('/demands/'+first.id)).attachments.length,1);
  const newPhysical=await api('/physical-towers','POST',{tower_code:'P-CORRECTED'});
  await api('/logical-towers/'+towers[0].id,'PATCH',{version:1,physical_tower_id:newPhysical.id,change_kind:'correction',reason:'纠正实体绑定'});

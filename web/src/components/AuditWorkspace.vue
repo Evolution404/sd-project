@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {requestApi} from '../api/client';
 import {computed,reactive,ref,onMounted} from 'vue';
 import {ElAlert,ElButton,ElCard,ElDescriptions,ElDescriptionsItem,ElDialog,ElForm,ElFormItem,ElInput,ElOption,ElPagination,ElSelect,ElTable,ElTableColumn,ElTag,type FormInstance} from 'element-plus';
 type Row=Record<string,any>;
@@ -10,7 +11,7 @@ const fields:Row={name:'名称',title:'名称',fiscal_year:'框架年度',limit_
 const differences=computed(()=>Object.keys(fields).filter(key=>selected.value?.before?.[key]!==undefined||selected.value?.after?.[key]!==undefined).map(key=>({key,label:fields[key],before:display(key,selected.value?.before?.[key]),after:display(key,selected.value?.after?.[key])})));
 function display(key:string,value:any){if(value==null)return '—';if(key.endsWith('_fen'))return (value/100).toFixed(2);if(key==='quantity_scaled')return String(value/10000);if(key==='status')return ({active:'启用',inactive:'停用',approved:'已立项',reserve:'储备',stocked:'已入库',deleted:'已删除'} as Row)[value]||value;return String(value)}
 const time=(value:string)=>new Date(value).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false});
-async function api(path:string,method='GET',body?:Row){const response=await fetch('/api'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await response.json();if(!response.ok)throw Error(data.error||'记录操作失败');return data}
+const api=(path:string,method='GET',body?:Row)=>requestApi(path,method,body);
 async function load(reset=false){busy.value=true;error.value='';if(reset)page.value=1;try{const data=await api('/audit-records?'+new URLSearchParams({page:String(page.value),search:query.value,entity:entity.value,status:status.value}));rows.value=data.items;entities.value=data.entities;total.value=data.total}catch(e){error.value=(e as Error).message}finally{busy.value=false}}
 async function open(action:string,item?:Row){
  error.value='';try{selected.value=item?await api('/audit-records/'+item.id):null;Object.keys(form).forEach(key=>delete form[key]);Object.assign(form,{message:'',note:selected.value?.note||'',reason:''});dialog.value=action}catch(e){error.value=(e as Error).message}

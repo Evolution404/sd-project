@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import {ElDialog} from 'element-plus';
+import {requestApi} from '../api/client';
 import {ElForm} from 'element-plus';
 import {ElTable,ElTableColumn} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
 import {ElSelect,ElOption} from 'element-plus';
 import {ElButton} from 'element-plus';
 import {computed,reactive,ref,watch} from 'vue';
-import FormModal from './FormModal.vue';
 import SettlementVoucherWorkspace from './SettlementVoucherWorkspace.vue';
 import {vFormValidation} from '../utils/form-validation';
 
@@ -32,15 +33,7 @@ const remainingByOriginal=computed<Row[]>(()=>{
   return {...row,remaining_fen:row.amount_fen-reversed};
  }).filter(x=>x.remaining_fen>0);
 });
-async function api(path:string,method='GET',body?:Row){
- const response=await fetch('/api'+path,{method,credentials:'same-origin',
-  headers:body?{'Content-Type':'application/json'}:{},
-  body:body?JSON.stringify(body):undefined});
- let data:Row;
- try{data=await response.json()}catch{throw Error('无法读取结算服务返回的数据')}
- if(!response.ok)throw Error(data.error||'业务操作失败');
- return data;
-}
+const api=(path:string,method='GET',body?:Row)=>requestApi(path,method,body);
 async function refresh(){
  if(!props.executionId){summary.value=null;return}
  const requested=props.executionId;
@@ -123,7 +116,7 @@ async function submit(){
    <SettlementVoucherWorkspace :project-id="summary.project_id" :execution-id="executionId" :can-settle="canSettle" :refresh-key="refreshKey" @reverse="openReversal" @changed="refresh();emit('changed')"/>
   </template>
  </section>
- <FormModal :open="dialog==='record'" title="登记检修计划结算" :error="formError" size="wide" @close="!saving&&(dialog='')">
+ <ElDialog :model-value="dialog==='record'" title="登记检修计划结算"  width="860px" @close="!saving&&(dialog='')" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="formError" class="form-modal-error" role="alert">{{formError}}</p>
   <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="submit">
    <label class="wide"><span class="field-caption">检修工作项</span><ElSelect v-model="form.execution_item_id" required>
      <ElOption :label="String(item.demand_no) + ' · 计划 ' + String(qty(item.planned_quantity_scaled))" :data-option-value="item.id" v-for="item in summary?.items||[]" :key="item.id" :value="item.id">{{item.demand_no}} · 计划 {{qty(item.planned_quantity_scaled)}}</ElOption>
@@ -138,8 +131,8 @@ async function submit(){
    <p class="wide muted">最终结算要求本计划对应工作项已有结束后的实际完成记录。凭证支持更正、撤销和历史查询，原始登记继续保留。</p>
    <div class="wide form-actions"><ElButton native-type="button" class="light" :disabled="saving" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="saving">确认登记</ElButton></div>
   </ElForm>
- </FormModal>
- <FormModal :open="dialog==='reverse'" title="冲销原始结算凭证" :error="formError" size="wide" @close="!saving&&(dialog='')">
+ </ElDialog>
+ <ElDialog :model-value="dialog==='reverse'" title="冲销原始结算凭证"  width="860px" @close="!saving&&(dialog='')" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="formError" class="form-modal-error" role="alert">{{formError}}</p>
   <ElForm v-form-validation novalidate class="form-grid" @submit.prevent="submit">
    <label class="wide"><span class="field-caption">原始凭证（仅显示未全部冲销的正向凭证）</span>
     <ElSelect v-model="form.reversal_of" required @change="updateReversal(form.reversal_of)">
@@ -153,7 +146,7 @@ async function submit(){
    <p class="wide muted">冲销保留原始凭证、批准版本和检修计划归属。不能超过该凭证的剩余未冲销金额。</p>
    <div class="wide form-actions"><ElButton native-type="button" class="light" :disabled="saving" @click="dialog=''">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="saving">确认冲销</ElButton></div>
   </ElForm>
- </FormModal>
+ </ElDialog>
 </template>
 <style scoped>
 .plan-finance{display:grid;gap:12px;margin-top:18px}

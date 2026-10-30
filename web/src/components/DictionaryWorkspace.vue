@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {requestApi} from '../api/client';
 import {computed,nextTick,onMounted,reactive,ref,watch} from 'vue';
 import {ElAlert,ElButton,ElCard,ElConfigProvider,ElDescriptions,ElDescriptionsItem,ElDialog,ElForm,ElFormItem,ElIcon,ElInput,ElMenu,ElMenuItem,ElSubMenu,ElOption,ElPagination,ElSegmented,ElSelect,ElStatistic,ElTable,ElTableColumn,ElTag,type FormInstance,type MenuInstance} from 'element-plus';
 import zhCn from 'element-plus/es/locale/lang/zh-cn';
@@ -31,10 +32,7 @@ const metricCards=computed(()=>[
 watch(()=>selectedCategory.value?.group_id,async group=>{await nextTick();if(group)categoryMenu.value?.open(group)});
 watch([category,query,statusFilter,origin,pageSize],()=>{page.value=1;selection.value=[];focused.value=null});
 watch(()=>filtered.value.length,()=>{page.value=Math.max(1,Math.min(page.value,Math.ceil(filtered.value.length/pageSize.value)))});
-async function api(path:string,body?:Row,method=body?'POST':'GET'){
- const response=await fetch('/api'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});
- const result=await response.json();if(!response.ok)throw Error(result.error||'配置操作失败');return result;
-}
+const api=(path:string,body?:Row,method=body?'POST':'GET')=>requestApi(path,method,body);
 async function load(){
  loading.value=true;
  try{const data=await api('/dictionary-workspace');categories.value=data.categories;groups.value=data.groups;items.value=data.items;deletedItems.value=data.deleted_items;stats.value=data.stats;

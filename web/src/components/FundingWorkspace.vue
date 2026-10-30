@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {requestApi} from '../api/client';
 import {computed,reactive,ref,watch} from 'vue';
 import {ElAlert,ElButton,ElCard,ElDescriptions,ElDescriptionsItem,ElDialog,ElForm,ElFormItem,ElInput,ElOption,ElSelect,ElTable,ElTableColumn,ElTag,type FormInstance} from 'element-plus';
 type Row=Record<string,any>;
@@ -11,7 +12,7 @@ const guarded=computed(()=>dialog.value==='edit'&&!!selected.value?.approved_cou
 const title=computed(()=>props.kind==='frameworks'?'项目框架':'执行协议');
 const filtered=computed(()=>rows.value.filter(x=>(!status.value||x.status===status.value)&&x.name.toLowerCase().includes(query.value.toLowerCase())));
 const money=(value:number)=>(value/100).toFixed(2);
-async function api(path:string,method='GET',body?:Row){const response=await fetch('/api'+path,{method,headers:body?{'Content-Type':'application/json'}:{},body:body?JSON.stringify(body):undefined});const data=await response.json();if(!response.ok)throw Error(data.error||'操作失败');return data}
+const api=(path:string,method='GET',body?:Row)=>requestApi(path,method,body);
 async function load(){
  busy.value=true;error.value='';try{const [data,parents]=await Promise.all([api('/'+props.kind+(status.value==='deleted'?'?status=deleted':'')),api('/frameworks')]);rows.value=data;frameworks.value=parents}catch(e){error.value=(e as Error).message}finally{busy.value=false}
 }
