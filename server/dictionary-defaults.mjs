@@ -1,3 +1,4 @@
+import {dictionaryDeletions} from './dictionary-deletions.mjs';
 import {randomUUID} from 'node:crypto';
 
 // Initial business defaults, not mandated technical standards or settlement rates.
@@ -52,20 +53,22 @@ const OPERATIONS=[
 export function seedSystemDictionaries(db,actorId){
  if(!actorId)return {voltage:0,items:0};
  const t=new Date().toISOString(),count={voltage:0,items:0};
+ const removed=dictionaryDeletions(db);
+ const wasDeleted=(type,id,code,name)=>removed.some(({event,before})=>event.entity===(type==='voltage'?'voltage_levels':'dictionary_items')&&(type==='voltage'||before.type_id===type)&&(before.id===id||before.code===code||before.name===name));
  const findVoltage=db.prepare('SELECT id FROM voltage_levels WHERE id=? OR code=? OR name=? LIMIT 1');
  const insertVoltage=db.prepare('INSERT INTO voltage_levels(id,code,name,status,version,sort_order,updated_at) VALUES(?,?,?,\'active\',1,?,?)');
  VOLTAGE_DEFAULTS.forEach(([code,name],index)=>{
   const id='builtin-voltage-'+code;
-  if(findVoltage.get(id,code,name))return;
+  if(wasDeleted('voltage',id,code,name)||findVoltage.get(id,code,name))return;
   insertVoltage.run(id,code,name,(index+1)*10,t);count.voltage++;
  });
- const findItem=db.prepare('SELECT id FROM dictionary_items WHERE type_id=? AND (id=? OR code=? OR name=?) LIMIT 1');
+ const findItem=db.prepare('SELECT id,status FROM dictionary_items WHERE type_id=? AND (id=? OR code=? OR name=?) LIMIT 1');
  const insertItem=db.prepare(`INSERT INTO dictionary_items(id,type_id,code,name,status,sort_order,version,work_target_type,default_unit_id,default_quantity_scaled,completion_standard,fields_json,updated_at)
  VALUES(?,?,?,?,'active',?,1,?,?,?,NULL,'[]',?)`);
  const versionStmt=db.prepare('INSERT INTO dictionary_item_versions(id,item_id,version,snapshot_json,changed_by,changed_at) VALUES(?,?,1,?,?,?)');
  function ensure(type,code,name,order,{work_target_type=null,unit_id=null,default_quantity_scaled=null}={}){
   const id='builtin-'+type+'-'+code;
-  if(findItem.get(type,id,code,name))return;
+  if(wasDeleted(type,id,code,name)||findItem.get(type,id,code,name))return;
   const row={
    id,type_id:type,code,name,status:'active',sort_order:order,version:1,
    work_target_type,default_unit_id:unit_id,default_quantity_scaled,
@@ -80,10 +83,11 @@ export function seedSystemDictionaries(db,actorId){
   options.forEach(([code,name],index)=>ensure(type,code,name,(index+1)*10));
  }
  for(const [code,name,target,unitName] of OPERATIONS){
-  const unit=db.prepare("SELECT id FROM dictionary_items WHERE type_id='unit' AND name=? ORDER BY id LIMIT 1").get(unitName);
-  if(!unit)throw Error('内置字典缺少检修单位：'+unitName);
+  const unit=db.prepare("SELECT id,status FROM dictionary_items WHERE type_id='unit' AND name=? ORDER BY id LIMIT 1").get(unitName);
+  // A missing/deleted unit is a user decision, not a reason to restore it.
+  const available=unit&&unit.status==='active'&&!removed.some(({event})=>event.entity==='dictionary_items'&&event.entity_id===unit.id)?unit:null;
   ensure('operation',code,name,(OPERATIONS.findIndex(item=>item[0]===code)+1)*10,{
-   work_target_type:target,unit_id:unit.id,default_quantity_scaled:10000
+   work_target_type:target,unit_id:available?.id||null,default_quantity_scaled:10000
   });
  }
  return count;

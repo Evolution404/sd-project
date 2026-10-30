@@ -1,3 +1,4 @@
+import {dictionaryDeleted,currentDictionaryRows} from './dictionary-deletions.mjs';
 import {dictionaryWorkspace,changeDictionaryStatus,exportDictionary,dictionaryDeletionPreview,deleteDictionaryItem} from './dictionary-workspace.mjs';
 import {nextDictionaryOrder,reorderDictionary} from './dictionary-order.mjs';
 import {systemCode} from './system-code.mjs';
@@ -49,7 +50,7 @@ function permit(user,op){if(!roleSets[op].includes(user.role))fail(403,'当前�
 function validStatus(s,options){return choice(s,options,'状态')}
 function ensureItem(id,type,{active=true}={}){
  const x=one('SELECT * FROM dictionary_items WHERE id=? AND type_id=?',id,type);
- if(!x||active&&x.status!=='active')fail(422,'字典选项不存在或已停用：'+type);
+ if(!x||dictionaryDeleted(db,'dictionary_items',id)||active&&x.status!=='active')fail(422,'字典选项不存在、已删除或已停用：'+type);
  return x;
 }
 function ensureLogical(id,active=true){
@@ -120,7 +121,7 @@ function createLogical(body,user){
 function updateTowerData(table,id,body,user){
  if(table==='transmission_lines')return ledger.updateLedgerLine(id,{...body,reason:body.reason||'线路资料维护'},user);
  const whitelist={voltage_levels:['code','name','status','sort_order'],transmission_lines:['name','status'],physical_towers:['asset_no','tower_type','longitude','latitude','commissioned_on','status'],logical_towers:['tower_no','display_name','sort_rank','circuit_position','physical_tower_id','status']};
- const old=one('SELECT * FROM '+table+' WHERE id=?',id);if(!old)fail(404,'台账不存在');
+ const old=one('SELECT * FROM '+table+' WHERE id=?',id);if(!old||table==='voltage_levels'&&dictionaryDeleted(db,table,id))fail(404,'台账不存在或已删除');
  if(body.version!==old.version)fail(409,'台账已被其他人修改，请刷新');
  const changes=Object.fromEntries(Object.entries(body).filter(([k,v])=>whitelist[table].includes(k)&&v!==undefined));
  if(!Object.keys(changes).length)return old;
@@ -182,7 +183,7 @@ function createDictionary(body,user){
  transaction(()=>{exec('INSERT INTO dictionary_items VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)',...Object.values(item));exec('INSERT INTO dictionary_item_versions VALUES(?,?,?,?,?,?)',uid(),item.id,1,JSON.stringify(item),user.id,now());postAudit(user,'dictionary_items',item,'create')});return item;
 }
 function updateDictionary(id,body,user){
- const old=one('SELECT * FROM dictionary_items WHERE id=?',id);if(!old)fail(404,'选项不存在');if(body.version!==old.version)fail(409,'选项已更新，请刷新');
+ const old=one('SELECT * FROM dictionary_items WHERE id=?',id);if(!old||dictionaryDeleted(db,'dictionary_items',id))fail(404,'选项不存在或已删除');if(body.version!==old.version)fail(409,'选项已更新，请刷新');
  const next={...old};
  const keys=['code','name','status','sort_order','work_target_type','default_unit_id','completion_standard'];
  for(const key of keys)if(body[key]!==undefined)next[key]=body[key];
@@ -625,7 +626,7 @@ async function dispatch(req,res){
  if(dictionaryStatusMatch&&method==='POST'){permit(user,'admin');return json(res,200,changeDictionaryStatus(dictionaryStatusMatch[1],await parseJson(req),user))}
  if(pathname==='/api/dictionary-types'&&method==='GET')return json(res,200,all('SELECT * FROM dictionary_types WHERE id NOT IN (?,?) ORDER BY rowid','team','erection'));
  if(pathname==='/api/dictionary-items'&&method==='GET'){
-  const type=searchParams.get('type');return json(res,200,type?all('SELECT * FROM dictionary_items WHERE type_id=? ORDER BY sort_order,name',type):all('SELECT * FROM dictionary_items ORDER BY type_id,sort_order,name'));
+  const type=searchParams.get('type');return json(res,200,currentDictionaryRows(db,'dictionary_items',type?all('SELECT * FROM dictionary_items WHERE type_id=? ORDER BY sort_order,name',type):all('SELECT * FROM dictionary_items ORDER BY type_id,sort_order,name')));
  }
  const dictionaryOrderMatch=pathname.match(/^\/api\/dictionary-order\/([^/]+)$/);
  if(dictionaryOrderMatch&&method==='POST'){permit(user,'admin');return json(res,200,reorderDictionary(dictionaryOrderMatch[1],await parseJson(req),user))}
@@ -640,7 +641,8 @@ async function dispatch(req,res){
     FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=t.physical_tower_id
     WHERE (? IS NULL OR t.line_id=?) ORDER BY l.name,t.sort_rank`,q,q));
    if(table==='transmission_lines')return json(res,200,all('SELECT l.*,v.name AS voltage_name FROM transmission_lines l JOIN voltage_levels v ON v.id=l.voltage_level_id ORDER BY l.name'));
-   return json(res,200,all('SELECT * FROM '+table+(table==='voltage_levels'?' ORDER BY sort_order,name':' ORDER BY rowid DESC')+' LIMIT 1000'));
+   const rows=all('SELECT * FROM '+table+(table==='voltage_levels'?' ORDER BY sort_order,name':' ORDER BY rowid DESC')+' LIMIT 1000');
+   return json(res,200,table==='voltage_levels'?currentDictionaryRows(db,table,rows):rows);
   }
   if(pathname===path&&method==='POST'){
    permit(user,table==='voltage_levels'?'admin':'write');const body=await parseJson(req);const create={voltage_levels:createVoltage,transmission_lines:createLine,physical_towers:createPhysical,logical_towers:createLogical}[table];
@@ -648,7 +650,7 @@ async function dispatch(req,res){
   }
   const match=pathname.match(new RegExp('^'+path+'/([^/]+)$'));
   if(match&&method==='PATCH'){permit(user,table==='voltage_levels'?'admin':'write');return json(res,200,updateTowerData(table,match[1],await parseJson(req),user))}
-  if(match&&method==='GET'){permit(user,'view');const item=one('SELECT * FROM '+table+' WHERE id=?',match[1]);if(!item)fail(404,'记录不存在');
+  if(match&&method==='GET'){permit(user,'view');const item=one('SELECT * FROM '+table+' WHERE id=?',match[1]);if(!item||table==='voltage_levels'&&dictionaryDeleted(db,table,match[1]))fail(404,'记录不存在或已删除');
    const histories={transmission_lines:'line_name_history',logical_towers:'logical_tower_name_history'};
    return json(res,200,{...item,name_history:histories[table]?all('SELECT * FROM '+histories[table]+' WHERE '+(table==='transmission_lines'?'line_id':'logical_tower_id')+'=? ORDER BY valid_from DESC',match[1]):[],physical_history:table==='logical_towers'?all('SELECT * FROM logical_tower_physical_history WHERE logical_tower_id=? ORDER BY valid_from DESC',match[1]):[]});
   }

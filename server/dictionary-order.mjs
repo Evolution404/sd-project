@@ -1,4 +1,5 @@
-import {all,one,exec,transaction,audit,uid,now} from './db.mjs';
+import {currentDictionaryRows} from './dictionary-deletions.mjs';
+import {db,all,one,exec,transaction,audit,uid,now} from './db.mjs';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status})};
 export function nextDictionaryOrder(type){
  const row=type==='voltage'
@@ -10,7 +11,7 @@ export function reorderDictionary(type,body,user){
  if(type!=='voltage'&&!one('SELECT id FROM dictionary_types WHERE id=?',type))fail(422,'未知字典类别');
  return transaction(()=>{
   const voltage=type==='voltage',table=voltage?'voltage_levels':'dictionary_items';
-  const current=voltage?all('SELECT * FROM voltage_levels'):all('SELECT * FROM dictionary_items WHERE type_id=?',type);
+  const current=currentDictionaryRows(db,table,voltage?all('SELECT * FROM voltage_levels'):all('SELECT * FROM dictionary_items WHERE type_id=?',type));
   const rows=body.rows;
   if(!Array.isArray(rows)||rows.length!==current.length||new Set(rows.map(x=>x?.id)).size!==current.length)fail(409,'选项列表已变化，请刷新后调整顺序');
   const oldById=new Map(current.map(x=>[x.id,x]));

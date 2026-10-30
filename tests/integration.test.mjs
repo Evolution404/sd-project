@@ -307,6 +307,14 @@ test('end-to-end: bootstrap, session, dictionaries, shared towers, batch, audit,
   assert.equal(one('SELECT change_kind FROM logical_tower_physical_history WHERE logical_tower_id=? AND valid_to IS NULL',lt2.id).change_kind,'replacement');
   await request('/physical-towers/'+physical.id+'/replace','POST',replacementArgs,409);
   assert.equal((await request('/demands/'+result.ids[1])).observed_physical_tower_id,physical.id,'historic demand location must not drift');
+  const projectBeforeDictionaryDelete=await request('/projects/'+project.id);
+  const operationBeforeDelete=one('SELECT * FROM dictionary_items WHERE id=?',op.id);
+  const deletionPreview=await request('/dictionary-deletion/operation/'+op.id);
+  assert.equal(deletionPreview.deletion_kind,'logical');assert.ok(deletionPreview.references.some(x=>x.domain==='专业需求'));
+  await request('/dictionary-deletion/operation/'+op.id,'DELETE',{version:operationBeforeDelete.version});
+  assert.deepEqual(await request('/projects/'+project.id),projectBeforeDictionaryDelete,'dictionary deletion must not change approved budgets, scope or frozen demand facts');
+  assert.equal((await request('/demands/'+d.id)).operation_snapshot,op.name);
+  assert.ok(!(await request('/dictionary-items')).some(x=>x.id===op.id));
   assert.equal(one('PRAGMA foreign_keys').foreign_keys,1);
   assert.equal(one('PRAGMA integrity_check').integrity_check,'ok');
   assert.ok(all('SELECT * FROM audit_events').length>12);
