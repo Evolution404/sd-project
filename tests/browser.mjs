@@ -76,6 +76,10 @@ try{
  const panels=page.locator('section.entry-section');
  await assertSearchableUiSelect(panels.nth(0).getByLabel('选择线路'),'浏览器测试','110kV · 浏览器测试线路');
  await selectUiOption(panels.nth(0).getByLabel('选择线路'),{label:'110kV · 浏览器测试线路'});
+ await panels.nth(0).getByRole('button',{name:'按杆段选择'}).click();
+ await assertSearchableUiSelect(panels.nth(0).locator('.range-picker .el-select').nth(0),'#1','#1');
+ await assertSearchableUiSelect(panels.nth(0).locator('.range-picker .el-select').nth(1),'#2','#2');
+ await panels.nth(0).getByRole('button',{name:'收起按杆段选择'}).click();
  await panels.nth(0).getByRole('button',{name:'全选本线路'}).click();
  await selectUiOption(panels.nth(1).getByLabel('操作类型'),{label:'安装防鸟装置'});
  await fill(panels.nth(1),'共同处理部位','横担');

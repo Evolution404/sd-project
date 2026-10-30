@@ -702,8 +702,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
        </div>
       </div>
       <div v-if="rangeOpen" class="range-picker">
-       <label><span class="field-caption">杆段起点</span><ElSelect v-model="fromRank"><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.tower_no)" :data-option-value="x.id" v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</ElOption></ElSelect></label>
-       <label><span class="field-caption">杆段终点</span><ElSelect v-model="toRank"><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.tower_no)" :data-option-value="x.id" v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</ElOption></ElSelect></label>
+       <label><span class="field-caption">杆段起点</span><ElSelect v-model="fromRank" filterable placeholder="搜索起点杆塔编号"><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.tower_no)" :data-option-value="x.id" v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</ElOption></ElSelect></label>
+       <label><span class="field-caption">杆段终点</span><ElSelect v-model="toRank" filterable placeholder="搜索终点杆塔编号"><ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption><ElOption :label="String(x.tower_no)" :data-option-value="x.id" v-for="x in logical.filter(x=>x.line_id===selectedLine&&x.status==='active').sort((a,b)=>a.sort_rank-b.sort_rank)" :value="x.id" :key="x.id">{{x.tower_no}}</ElOption></ElSelect></label>
        <ElButton native-type="button" class="secondary" @click="selectRange">追加选择</ElButton>
       </div>
       <label class="field-full tower-filter"><span class="field-caption">筛选杆塔</span><ElInput v-model="towerSearch" placeholder="输入杆塔号"/>

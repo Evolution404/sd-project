@@ -110,3 +110,33 @@ test('all transmission-line dropdowns support searchable options',()=>{
  }
  assert.ok(found>=6,'all existing line dropdowns were detected by the audit');
 });
+
+
+test('every tower dropdown searches by number and shows only the tower identifier',()=>{
+ const root=resolve(fileURLToPath(new URL('../web/src/',import.meta.url)));
+ const refs=new Set([
+  'fromRank','toRank','form.junction_tower_id','form.after_tower_id',
+  'r.physical_tower_id','form.target_physical_tower_id','r.target_id',
+  'form.start_tower_id','form.end_tower_id','r.start_tower_id',
+  'r.end_tower_id','r.insert_id'
+ ]);
+ const encountered=new Set();
+ for(const name of ['App.vue','components/LedgerWorkspace.vue']){
+  const source=readFileSync(join(root,name),'utf8');
+  for(const [element] of source.matchAll(/(<ElSelect\b[^>]*>[\s\S]*?<\/ElSelect>)/g)){
+   const opening=element.slice(0,element.indexOf('>')+1);
+   const prop=opening.match(/\bv-model="([^"]+)"/)?.[1];
+   if(!refs.has(prop))continue;
+   assert.ok(!encountered.has(prop),name+': duplicate tower selector '+prop);
+   encountered.add(prop);
+   assert.match(opening,/\bfilterable(?:\s|>|=)/,name+': '+prop+' must allow typing the tower number');
+   const options=[...element.matchAll(/<ElOption\b[^>]*\bv-for="[^"]+"[^>]*>[\s\S]*?<\/ElOption>/g)].map(m=>m[0]);
+   assert.ok(options.length>0,name+': '+prop+' must expose a real tower option');
+   for(const option of options){
+    assert.match(option,/:label="String\((?:t\.tower_no|x\.tower_no|t\.tower_code)\)"/,name+': '+prop+' label must be number/code only');
+    assert.match(option,/>\s*\{\{\s*(?:t\.tower_no|x\.tower_no|t\.tower_code)\s*\}\}\s*<\/ElOption>/,name+': '+prop+' visible text must contain only the tower identifier');
+   }
+  }
+ }
+ assert.deepEqual([...encountered].sort(),[...refs].sort());
+});
