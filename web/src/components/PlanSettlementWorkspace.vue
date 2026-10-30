@@ -6,7 +6,7 @@ import {vFormValidation} from '../utils/form-validation';
 
 type Row=Record<string,any>;
 type PlanSummary=Row&{items:Row[],entries:Row[]};
-const props=defineProps<{executionId:string;canSettle:boolean}>();
+const props=defineProps<{executionId:string;canSettle:boolean;refreshKey?:number}>();
 const emit=defineEmits<{changed:[]}>();
 const summary=ref<PlanSummary|null>(null);
 const error=ref(''),formError=ref(''),notice=ref('');
@@ -46,6 +46,7 @@ async function refresh(){
  }catch(e){if(props.executionId===requested)error.value=(e as Error).message}
  finally{if(props.executionId===requested)loading.value=false}
 }
+watch(()=>props.refreshKey,refresh);
 watch(()=>props.executionId,()=>{dialog.value='';notice.value='';summary.value=null;refresh()},{immediate:true});
 function openRecord(itemId?:string){
  if(!canRecord.value||!summary.value?.items.length)return;

@@ -14,7 +14,7 @@ import { readFileSync, createReadStream, existsSync, writeFileSync, unlinkSync }
 import { join, resolve, extname, sep } from 'node:path';
 import { db, dataRoot, one, all, exec, uid, now, transaction, audit } from './db.mjs';
 import ExcelJS from 'exceljs';
-import {listExecutions,executionDetail,createExecution,addExecutionItem,changeExecutionStage,confirmCompletion} from './executions.mjs';
+import {executionRoutes} from './execution-routes.mjs';
 import {normalizeIP,isPermittedIP,isLoopback} from './ip-access.mjs';
 import {previewWholeTowerReplacement,replaceWholeTower} from './tower-replacements.mjs';
 import {approvalVersions,listChangeOrders,createChangeDraft,getChangeOrder,submitChangeOrder,rejectChangeOrder,approveChangeOrder} from './change-orders.mjs';
@@ -614,21 +614,7 @@ async function dispatch(req,res){
   if(method==='POST'&&action==='stock'){permit(user,'stock');return json(res,200,advanceProject(id,'stocked',await parseJson(req),user))}
   if(method==='POST'&&action==='approve'){permit(user,'approve');return json(res,200,advanceProject(id,'approved',await parseJson(req),user))}
  }
- if(pathname.startsWith('/api/projects/')&&pathname.endsWith('/executions')){
-  const id=pathname.split('/')[3];
-  permit(user,method==='GET'?'view':'write');
-  if(method==='GET')return json(res,200,listExecutions(id));
-  if(method==='POST')return json(res,201,createExecution(id,await parseJson(req),user));
- }
- const execParts=pathname.split('/').filter(Boolean);
- if(execParts[0]==='api'&&execParts[1]==='executions'&&execParts[2]){
-  permit(user,method==='GET'?'view':'write');
-  const [, ,id,action,itemId,subAction]=execParts;
-  if(method==='GET'&&!action)return json(res,200,executionDetail(id));
-  if(method==='POST'&&action==='items'&&!itemId)return json(res,201,addExecutionItem(id,await parseJson(req),user));
-  if(method==='POST'&&['start','finish','cancel'].includes(action))return json(res,200,changeExecutionStage(id,{start:'running',finish:'finished',cancel:'cancelled'}[action],await parseJson(req),user));
-  if(method==='POST'&&action==='items'&&itemId&&subAction==='complete')return json(res,201,confirmCompletion(id,itemId,await parseJson(req),user));
- }
+ if(await executionRoutes({pathname,method,user,url:route(req),permit,parseJson,req,res,json}))return;
  if(pathname==='/api/overview'&&method==='GET'){permit(user,'view');return json(res,200,{lines:one('SELECT COUNT(*) n FROM transmission_lines').n,physical:one('SELECT COUNT(*) n FROM physical_towers').n,logical:one('SELECT COUNT(*) n FROM logical_towers').n,pending:one("SELECT COUNT(*) n FROM demands WHERE status='pending'").n,active:one("SELECT COUNT(*) n FROM demands WHERE status='active'").n})}
  const dictionaryDeleteMatch=pathname.match(/^\/api\/dictionary-deletion\/([^/]+)\/([^/]+)$/);
  if(dictionaryDeleteMatch){

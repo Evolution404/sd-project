@@ -10,6 +10,7 @@ export const VOLTAGE_DEFAULTS=[
  ['DC200','±200kV'],['DC500','±500kV'],['DC800','±800kV']
 ];
 const BASIC_OPTIONS={
+ expense_category:[['MATERIAL','材料费'],['LABOR','人工费'],['MACHINERY','机械费'],['OTHER','其他费用']],
  unit:[
   ['ITEM','项'],['LOCATION','处'],['TOWER','基'],['SET','套'],['PIECE','个'],
   ['GROUP','组'],['STRING','串'],['METRE','米'],['KM','千米'],

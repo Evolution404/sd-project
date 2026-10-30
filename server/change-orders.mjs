@@ -1,3 +1,4 @@
+import {scopeCompletionUsage} from './completion-rules.mjs';
 import {ensurePlanBudgetsFit} from './plan-budgets.mjs';
 import {systemCode} from './system-code.mjs';
 import {all,one,exec,transaction,audit,uid,now} from './db.mjs';
@@ -76,13 +77,8 @@ export function rejectChangeOrder(id,body,user){
   return getChangeOrder(id);
  });
 }
-function actualCommitted(scopeId){
- return one(`SELECT COALESCE(SUM(CASE WHEN e.status='finished'
-  THEN (SELECT COALESCE(SUM(quantity_scaled),0) FROM completion_records c WHERE c.execution_item_id=i.id)
-  ELSE i.planned_quantity_scaled END),0) AS n
-  FROM execution_items i JOIN executions e ON e.id=i.execution_id
-  WHERE i.project_scope_id=? AND e.status IN ('planned','running','finished')`,scopeId).n;
-}
+const actualCommitted=scopeCompletionUsage;
+
 function materializeChanges(order,p,baseline){
  const proposal=JSON.parse(order.proposal_json);
  const scopes=JSON.parse(baseline.snapshot_json).scopes.map(x=>({...x}));

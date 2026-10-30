@@ -12,7 +12,7 @@ test('canonical schema: one-time bootstrap, persistent reopen, foreign keys and 
  const dir=mkdtempSync(join(tmpdir(),'sd-canonical-'));
  const code=`import {db,one,all} from './server/db.mjs';
  import assert from 'node:assert/strict';
- assert.equal(one('PRAGMA user_version').user_version,106);
+ assert.equal(one('PRAGMA user_version').user_version,107);
  assert.equal(one('PRAGMA foreign_keys').foreign_keys,1);
  assert.equal(one('PRAGMA integrity_check').integrity_check,'ok');
  assert.equal(all('PRAGMA foreign_key_check').length,0);
@@ -20,7 +20,7 @@ test('canonical schema: one-time bootstrap, persistent reopen, foreign keys and 
  assert.ok(one("SELECT COUNT(*) n FROM sqlite_master WHERE name='project_demand_scopes'").n);
  assert.ok(one("SELECT COUNT(*) n FROM pragma_table_info('project_demand_scopes') WHERE name='status'").n);
  assert.ok(one("SELECT COUNT(*) n FROM sqlite_master WHERE name='frozen_scope_snapshot'").n);
- assert.equal(one('SELECT COUNT(*) n FROM dictionary_types').n,10);
+ assert.equal(one('SELECT COUNT(*) n FROM dictionary_types').n,11);
  db.close();`;
  try{
   assert.equal(run(dir,code).status,0,'bootstrap failed');

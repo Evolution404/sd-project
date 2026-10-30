@@ -1,9 +1,11 @@
+import {costRoutes} from './cost-routes.mjs';
 import {planBudgetDetail,projectPlanBudgetSummary,createPlanBudgetDraft,updatePlanBudgetDraft,deletePlanBudgetDraft,planBudgetDraftDetail,confirmPlanBudget} from './plan-budgets.mjs';
 import {settlementEntries,projectProgress,registerSettlement} from './finance.mjs';
 import {planSettlementSummary,registerPlanSettlement,projectSettlementSummary,agreementSettlementSummary,frameworkSettlementSummary} from './plan-finance.mjs';
 import {settlementDetail,correctSettlement,settlementVoidPreview,voidSettlement} from './settlement-maintenance.mjs';
 // Caller owns authentication, JSON limits and response handling; finance owns its routes.
 export async function financeRoutes({pathname,method,user,url,permit,parseJson,req,res,json}){
+ if(await costRoutes({pathname,method,user,url,permit,parseJson,req,res,json}))return true;
  const budget=pathname.match(/^\/api\/executions\/([^/]+)\/budget$/);
  if(budget&&method==='GET'){permit(user,'view');json(res,200,planBudgetDetail(budget[1],Object.fromEntries(url.searchParams)));return true}
  const allocation=pathname.match(/^\/api\/projects\/([^/]+)\/plan-budgets$/);

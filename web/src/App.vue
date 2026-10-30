@@ -12,6 +12,9 @@ const AuditWorkspace=defineAsyncComponent(()=>import('./components/AuditWorkspac
 const FundingWorkspace=defineAsyncComponent(()=>import('./components/FundingWorkspace.vue'));
 const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
 const SettlementVoucherWorkspace=defineAsyncComponent(()=>import('./components/SettlementVoucherWorkspace.vue'));
+const CostWorkspace=defineAsyncComponent(()=>import('./components/CostWorkspace.vue'));
+const CostReconciliationWorkspace=defineAsyncComponent(()=>import('./components/CostReconciliationWorkspace.vue'));
+const CompletionWorkspace=defineAsyncComponent(()=>import('./components/CompletionWorkspace.vue'));
 const PlanBudgetWorkspace=defineAsyncComponent(()=>import('./components/PlanBudgetWorkspace.vue'));
 const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./components/PlanSettlementWorkspace.vue'));
 import {vFormValidation,presentFormError,inlineErrorMessage} from './utils/form-validation';
@@ -204,6 +207,14 @@ function openChangeDraft(){
  projectAction.value='change-order';error.value='';
 }
 async function loadExecutions(projectId:string){executionRows.value=await api('/projects/'+projectId+'/executions')}
+async function refreshExecutionFacts(){
+ const id=executionView.value?.id;if(!id)return;
+ try{
+  const data=await api('/executions/'+id);if(executionView.value?.id!==id)return;
+  executionView.value=data;
+  if(projectView.value){await loadExecutions(projectView.value.id);await loadProjectFinancials(projectView.value.id)}
+ }catch(e){error.value=errorMessage(e)}
+}
 async function createProjectExecution(){if(!projectView.value)return;error.value='';
  try{
  const r=await api('/projects/'+projectView.value.id+'/executions','POST',{description:executionDescription.value,plan_type:executionPlanType.value});
@@ -232,7 +243,7 @@ async function confirmWork(item:Rec){if(!executionView.value)return;error.value=
   idempotency_key:newClientId(),quantity:completeQuantity.value,occurred_on:completeDate.value,evidence:completeEvidence.value
  });
  completeQuantity.value='';completeEvidence.value='';completionItem.value=null;
- if(projectView.value)await loadExecutions(projectView.value.id);notify('实际完成量已确认入账');
+ await refreshExecutionFacts();notify('实际完成量已确认入账');
  }catch(e){error.value=errorMessage(e)}
 }
 async function saveInitialEstimate(){
@@ -576,6 +587,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </FormModal>
    <h3>实施与结算核对</h3>
    <p v-if="projectProgress" class="muted">当前有效批准预算 {{money(projectProgress.approved_budget_fen)}} 元 · 已登记净结算 {{money(projectProgress.settled_fen)}} 元 · 未结算批准额度 {{money(projectProgress.unsettled_approved_fen)}} 元</p>
+   <p v-if="projectSettlementTotals" class="muted" data-testid="actual-cost-summary">已确认实际费用 {{money(projectSettlementTotals.actual_cost_fen)}} 元 · 待最终核对费用 {{money(projectSettlementTotals.pending_final_expense_fen)}} 元</p>
    <p v-if="projectSettlementTotals" class="muted" data-testid="settlement-allocation-summary">其中已归集至检修计划 {{money(projectSettlementTotals.allocated_fen)}} 元 · 项目级未归集 {{money(projectSettlementTotals.unallocated_fen)}} 元；两者合计为项目净结算，不重复计算。</p>
    <div v-for="scope in projectProgress?.scopes||[]" :key="scope.id" class="scope-item">
     <div class="section-header">
@@ -631,8 +643,11 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <button v-if="executionView.status==='running'" class="primary" @click="openReason('execution:finish')">结束本次执行</button>
     <button v-if="executionView.status==='planned'" class="light" @click="openReason('execution:cancel')">取消未开工批次</button>
    </div>
+   <CompletionWorkspace :execution-id="executionView.id" :can-write="!!roleWrite" :refresh-key="settlementRefreshKey" @changed="refreshExecutionFacts"/>
    <PlanBudgetWorkspace :execution-id="executionView.id" :can-write="!!roleWrite" :can-confirm="roleAdmin" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials"/>
-   <PlanSettlementWorkspace :execution-id="executionView.id" :can-settle="roleStageApprove" @changed="refreshPlanFinancials"/>
+   <CostWorkspace :execution-id="executionView.id" :can-write="!!roleWrite" :can-confirm="roleAdmin" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials"/>
+   <CostReconciliationWorkspace :execution-id="executionView.id" :can-confirm="roleAdmin" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials"/>
+   <PlanSettlementWorkspace :execution-id="executionView.id" :can-settle="roleStageApprove" :refresh-key="settlementRefreshKey" @changed="refreshPlanFinancials"/>
    <p class="muted minor">完成量按每项批准范围核对，不得超过本次计划数量。结算依据由独立凭证登记，不由完成量自动推算。</p>
   </div></section>
   <template v-if="nav==='access'">

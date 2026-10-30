@@ -1,3 +1,5 @@
+import {validateSettlementDate} from './settlement-validation.mjs';
+import {scopeCompletionUsage} from './completion-rules.mjs';
 import {readDemandSnapshot} from './demand-snapshots.mjs';
 import {createHash} from 'node:crypto';
 import {uid,now,one,all,exec,transaction,audit} from './db.mjs';
@@ -8,17 +10,17 @@ const latest=id=>one('SELECT * FROM executions WHERE id=?',id)||reject(404,'执�
 const project=id=>one('SELECT * FROM projects WHERE id=?',id)||reject(404,'项目不存在');
 const guard=(x,body)=>{if(x.version!==body.version)reject(409,'执行批次版本已改变，请刷新')}
 const auditEvent=(user,entity,id,action,before,after,reason='')=>audit(user.id,entity,id,action,before,after,reason);
-const sumCompletion=id=>one('SELECT COALESCE(SUM(quantity_scaled),0) n FROM completion_records WHERE execution_item_id=?',id).n;
+const sumCompletion=id=>one('SELECT COALESCE(SUM(quantity_scaled),0) n FROM effective_completion_records WHERE execution_item_id=?',id).n;
 export function listExecutions(projectId){
  project(projectId);return all(`SELECT e.*,
  (SELECT COUNT(*) FROM execution_items WHERE execution_id=e.id) item_count,
- COALESCE((SELECT SUM(c.quantity_scaled) FROM completion_records c JOIN execution_items i ON i.id=c.execution_item_id WHERE i.execution_id=e.id),0) completed_quantity_scaled
+ COALESCE((SELECT SUM(c.quantity_scaled) FROM effective_completion_records c JOIN execution_items i ON i.id=c.execution_item_id WHERE i.execution_id=e.id),0) completed_quantity_scaled
  FROM executions e WHERE e.project_id=? ORDER BY e.created_at,e.number`,projectId);
 }
 export function executionDetail(id){
  const e=latest(id);
  return {...e,items:all(`SELECT i.*,s.demand_id,s.quantity_scaled AS approved_scope_quantity_scaled,s.demand_snapshot_json,
- COALESCE((SELECT SUM(c.quantity_scaled) FROM completion_records c WHERE c.execution_item_id=i.id),0) completed_quantity_scaled
+ COALESCE((SELECT SUM(c.quantity_scaled) FROM effective_completion_records c WHERE c.execution_item_id=i.id),0) completed_quantity_scaled
  FROM execution_items i JOIN project_demand_scopes s ON s.id=i.project_scope_id
  WHERE i.execution_id=? ORDER BY i.created_at,i.id`,id).map(i=>{
  const archived=i.scope_snapshot_json?JSON.parse(i.scope_snapshot_json):null;
@@ -56,13 +58,7 @@ export function addExecutionItem(executionId,body,user){
   // A finished batch retains the original plan but only its confirmed actual
   // quantity continues consuming approved scope. Unfinished planned/running
   // batches retain their reservations; cancelled batches release all.
-  const allocated=one(`SELECT COALESCE(SUM(
-    CASE WHEN e.status='finished'
-      THEN COALESCE((SELECT SUM(c.quantity_scaled) FROM completion_records c WHERE c.execution_item_id=i.id),0)
-      ELSE i.planned_quantity_scaled END
-   ),0) AS n FROM execution_items i
-   JOIN executions e ON e.id=i.execution_id
-   WHERE i.project_scope_id=? AND e.status IN ('planned','running','finished')`,scope.id).n;
+  const allocated=scopeCompletionUsage(scope.id);
   if(allocated+q>scope.quantity_scaled)reject(409,'当前需求剩余可安排工作量不足');
   if(e.approval_version_id!==one('SELECT id FROM project_approval_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1',e.project_id)?.id)
    reject(409,'执行批次采用旧批准版本，不能继续追加计划；请取消旧计划并建立新批准版本批次');
@@ -108,7 +104,7 @@ export function changeExecutionStage(executionId,status,body,user){
 export function confirmCompletion(executionId,itemId,body,user){
  const key=required(body.idempotency_key,'重复提交标识'),q=quantityToScaled(body.quantity),date=required(body.occurred_on,'实际完成日期'),
  evidence=required(body.evidence,'实际实施/验收依据');
- if(!/^\d{4}-\d{2}-\d{2}$/.test(date))reject(422,'完成日期格式为 YYYY-MM-DD');
+ validateSettlementDate(date,'实际完成日期');
  const payload_hash=createHash('sha256').update(JSON.stringify({executionId,itemId,q,date,evidence})).digest('hex');
  return transaction(()=>{
   const previous=one('SELECT * FROM completion_records WHERE idempotency_key=?',key);

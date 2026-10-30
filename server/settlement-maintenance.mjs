@@ -1,3 +1,5 @@
+import {ensureCostReconciliationSources,settlementCostLinks} from './cost-rules.mjs';
+import {ensureFinalCompletionBasis} from './completion-rules.mjs';
 import {createHash} from 'node:crypto';
 import {one,all,exec,uid,now,audit,transaction} from './db.mjs';
 import {yuanToFen,amountFen} from './money.mjs';
@@ -54,6 +56,7 @@ function checkBalances(entry,beforeNet){
  const plan=entry.execution_item_id?one(`SELECT e.status FROM executions e JOIN execution_items i ON i.execution_id=e.id WHERE i.id=?`,entry.execution_item_id):null;
  if(scopeNet>beforeNet&&(p.status!=='approved'||scope.status!=='active'||plan?.status==='cancelled'))
   fail(409,'已结项项目、退出范围或取消计划只能更正资料或减少净结算；增加净结算需先恢复正式业务依据');
+ ensureFinalCompletionBasis(scope.id);ensureCostReconciliationSources();
 }
 export function settlementDetail(id){
  const entry=current(id);
@@ -84,12 +87,6 @@ export function correctSettlement(id,body,user){
   if(entry.entry_kind==='payment'){
    if(!['advance','progress','final'].includes(body.settlement_type))fail(422,'结算性质无效');
    next.settlement_type=body.settlement_type;
-   if(next.settlement_type==='final'){
-    const filter=entry.execution_item_id?'i.id=?':'i.project_scope_id=?';
-    if(!one(`SELECT 1 FROM completion_records c JOIN execution_items i ON i.id=c.execution_item_id
-     JOIN executions e ON e.id=i.execution_id WHERE ${filter} AND e.status='finished' LIMIT 1`,entry.execution_item_id||entry.project_scope_id))
-     fail(409,'正式终结结算必须先有该需求已结束批次的实际完成记录');
-   }
   }else if(body.settlement_type!=null&&body.settlement_type!=='')fail(422,'冲销凭证不能改为正向结算性质');
   const before=total('project_scope_id',entry.project_scope_id);
   append(next,'correct',reason,commandId,user);checkBalances(next,before);
@@ -104,8 +101,9 @@ export function settlementVoidPreview(id){
   ?all("SELECT * FROM settlement_current WHERE status='active' AND (id=? OR reversal_of=?) ORDER BY id",id,id):[entry];
  // Include all sibling versions: a concurrent correction/reversal changes the confirmation.
  const family=all('SELECT * FROM settlement_current WHERE id=? OR reversal_of=? ORDER BY id',entry.reversal_of||id,entry.reversal_of||id);
- return {entry,affected,net_change_fen:-affected.reduce((s,e)=>s+signed(e),0),
-  preview_token:hash({entry,family})};
+ const costLinks=settlementCostLinks(entry.entry_kind==='payment'?id:entry.reversal_of);
+ return {entry,affected,cost_reconciliations:costLinks,net_change_fen:-affected.reduce((s,e)=>s+signed(e),0),
+  preview_token:hash({entry,family,costLinks})};
 }
 export function voidSettlement(id,body,user){
  validateBody(body,['request_key','version','reason','preview_token','affected_ids']);

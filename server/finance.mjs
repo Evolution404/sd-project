@@ -1,3 +1,4 @@
+import {ensureCostReconciliationSources} from './cost-rules.mjs';
 import {uid,now,one,all,exec,audit,transaction} from './db.mjs';
 import {yuanToFen,amountFen} from './money.mjs';
 import {validateSettlementDate,ensureSettlementNumber} from './settlement-validation.mjs';
@@ -30,7 +31,7 @@ export function projectProgress(projectId){
  FROM project_demand_scopes s JOIN demands d ON d.id=s.demand_id
  WHERE s.project_id=? AND s.status='active' ORDER BY s.created_at,s.id`,projectId);
  const result=scopes.map(s=>{
-  const done=one(`SELECT COALESCE(SUM(c.quantity_scaled),0) n FROM completion_records c
+  const done=one(`SELECT COALESCE(SUM(c.quantity_scaled),0) n FROM effective_completion_records c
    JOIN execution_items i ON c.execution_item_id=i.id
    WHERE i.project_scope_id=?`,s.id).n;
   const paid=net(s.id);
@@ -82,9 +83,9 @@ export function registerSettlement(projectId,body,user){
    if(net(scope.id)+sum>amountForScope(scope))reject(409,'本需求结算金额超过当前批准范围金额');
    if(kind==='final'){
     const finished=itemId
-     ?one(`SELECT 1 FROM completion_records c JOIN execution_items i ON c.execution_item_id=i.id
+     ?one(`SELECT 1 FROM effective_completion_records c JOIN execution_items i ON c.execution_item_id=i.id
        JOIN executions e ON e.id=i.execution_id WHERE i.id=? AND e.status='finished' LIMIT 1`,itemId)
-     :one(`SELECT 1 FROM completion_records c JOIN execution_items i ON c.execution_item_id=i.id
+     :one(`SELECT 1 FROM effective_completion_records c JOIN execution_items i ON c.execution_item_id=i.id
        JOIN executions e ON e.id=i.execution_id WHERE i.project_scope_id=? AND e.status='finished' LIMIT 1`,scope.id);
     if(!finished)reject(409,'正式终结结算必须先有该需求已结束批次的实际完成记录');
    }
@@ -98,6 +99,7 @@ export function registerSettlement(projectId,body,user){
    amount_fen:sum,reversal_of:original?.id||null,occurred_on:date,
    evidence,recorded_by:user.id,created_at:now()};
   exec('INSERT INTO project_settlement_entries('+Object.keys(item).join(',')+') VALUES('+Object.keys(item).map(()=>'?').join(',')+')',...Object.values(item));
+  ensureCostReconciliationSources();
   audit(user.id,'project_settlement_entries',item.id,entryKind==='payment'?'record_payment':'record_reversal',null,item,evidence);
   return item;
  });

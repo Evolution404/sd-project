@@ -579,3 +579,107 @@ CREATE TRIGGER immutable_plan_budget_version_delete BEFORE DELETE ON plan_budget
 BEGIN SELECT RAISE(ABORT,'预算核定历史不可清除，请明确撤销当前预算'); END;
 CREATE VIEW plan_budget_current AS SELECT v.* FROM plan_budget_versions v
  WHERE v.version_no=(SELECT MAX(h.version_no) FROM plan_budget_versions h WHERE h.execution_id=v.execution_id);
+
+-- R02: preserve original implementation confirmations and append their corrections.
+CREATE TABLE completion_commands (
+ id TEXT PRIMARY KEY,request_key TEXT NOT NULL UNIQUE,request_hash TEXT NOT NULL,
+ target_id TEXT NOT NULL REFERENCES completion_records(id) ON DELETE RESTRICT,
+ action TEXT NOT NULL CHECK(action IN ('correct','void')),
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ result_json TEXT NOT NULL,created_at TEXT NOT NULL
+);
+CREATE TABLE completion_revisions (
+ id TEXT PRIMARY KEY,record_id TEXT NOT NULL REFERENCES completion_records(id) ON DELETE RESTRICT,
+ version INTEGER NOT NULL CHECK(version>=2),
+ command_id TEXT NOT NULL REFERENCES completion_commands(id) DEFERRABLE INITIALLY DEFERRED,
+ action TEXT NOT NULL CHECK(action IN ('correct','void')),
+ status TEXT NOT NULL CHECK(status IN ('active','voided')),
+ quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),occurred_on TEXT NOT NULL,evidence TEXT NOT NULL,
+ reason TEXT NOT NULL,changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,changed_at TEXT NOT NULL,
+ UNIQUE(record_id,version),CHECK((action='correct' AND status='active') OR (action='void' AND status='voided'))
+);
+CREATE TRIGGER immutable_completion_revision_update BEFORE UPDATE ON completion_revisions
+BEGIN SELECT RAISE(ABORT,'完成记录更正历史不可覆盖'); END;
+CREATE TRIGGER immutable_completion_revision_delete BEFORE DELETE ON completion_revisions
+BEGIN SELECT RAISE(ABORT,'完成记录更正历史不可清除'); END;
+CREATE TRIGGER immutable_completion_command_update BEFORE UPDATE ON completion_commands
+BEGIN SELECT RAISE(ABORT,'完成记录处理历史不可覆盖'); END;
+CREATE TRIGGER immutable_completion_command_delete BEFORE DELETE ON completion_commands
+BEGIN SELECT RAISE(ABORT,'完成记录处理历史不可清除'); END;
+CREATE VIEW completion_current AS
+SELECT c.id,c.execution_item_id,c.confirmed_by,c.confirmed_at,c.idempotency_key,c.payload_hash,
+ COALESCE(r.version,1) AS version,COALESCE(r.status,'active') AS status,
+ COALESCE(r.quantity_scaled,c.quantity_scaled) AS quantity_scaled,
+ COALESCE(r.occurred_on,c.occurred_on) AS occurred_on,COALESCE(r.evidence,c.evidence) AS evidence,
+ COALESCE(r.changed_at,c.confirmed_at) AS updated_at
+FROM completion_records c LEFT JOIN completion_revisions r
+ ON r.record_id=c.id AND r.version=(SELECT MAX(h.version) FROM completion_revisions h WHERE h.record_id=c.id);
+CREATE VIEW effective_completion_records AS SELECT * FROM completion_current WHERE status='active';
+
+-- Confirmed actual costs are independent of budget allocations and settlements.
+CREATE TABLE cost_entries (
+ id TEXT PRIMARY KEY,execution_id TEXT NOT NULL REFERENCES executions(id) ON DELETE RESTRICT,
+ created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,created_at TEXT NOT NULL
+);
+CREATE TABLE cost_drafts (
+ id TEXT PRIMARY KEY,execution_id TEXT NOT NULL REFERENCES executions(id) ON DELETE RESTRICT,
+ entry_id TEXT REFERENCES cost_entries(id) ON DELETE RESTRICT,base_version INTEGER NOT NULL CHECK(base_version>=0),
+ kind TEXT NOT NULL CHECK(kind IN ('record','void')),category_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
+ name TEXT NOT NULL,occurred_on TEXT NOT NULL,amount_fen INTEGER NOT NULL CHECK(amount_fen>0),
+ evidence TEXT NOT NULL,reason TEXT NOT NULL,allocations_json TEXT NOT NULL,
+ version INTEGER NOT NULL CHECK(version>0),status TEXT NOT NULL CHECK(status IN ('draft','confirmed','deleted')),
+ created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,created_at TEXT NOT NULL,
+ updated_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,updated_at TEXT NOT NULL
+);
+CREATE INDEX idx_cost_drafts_plan ON cost_drafts(execution_id,status);
+CREATE TRIGGER immutable_cost_draft_update BEFORE UPDATE ON cost_drafts WHEN OLD.status<>'draft'
+BEGIN SELECT RAISE(ABORT,'已确认或已删除的费用草稿不可覆盖'); END;
+CREATE TRIGGER preserve_cost_draft_delete BEFORE DELETE ON cost_drafts
+BEGIN SELECT RAISE(ABORT,'费用草稿请通过删除流程处理'); END;
+CREATE TABLE cost_versions (
+ id TEXT PRIMARY KEY,entry_id TEXT NOT NULL REFERENCES cost_entries(id) ON DELETE RESTRICT,
+ draft_id TEXT NOT NULL UNIQUE REFERENCES cost_drafts(id) ON DELETE RESTRICT,
+ version_no INTEGER NOT NULL CHECK(version_no>0),status TEXT NOT NULL CHECK(status IN ('active','voided')),
+ category_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,category_snapshot_json TEXT NOT NULL,
+ name TEXT NOT NULL,occurred_on TEXT NOT NULL,amount_fen INTEGER NOT NULL CHECK(amount_fen>0),evidence TEXT NOT NULL,reason TEXT NOT NULL,
+ confirmed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,confirmed_at TEXT NOT NULL,
+ request_key TEXT NOT NULL UNIQUE,request_hash TEXT NOT NULL,UNIQUE(entry_id,version_no)
+);
+CREATE TABLE cost_allocations (
+ id TEXT PRIMARY KEY,version_id TEXT NOT NULL REFERENCES cost_versions(id) ON DELETE RESTRICT,
+ execution_item_id TEXT NOT NULL REFERENCES execution_items(id) ON DELETE RESTRICT,
+ amount_fen INTEGER NOT NULL CHECK(amount_fen>0),UNIQUE(version_id,execution_item_id)
+);
+CREATE TRIGGER immutable_cost_version_update BEFORE UPDATE ON cost_versions
+BEGIN SELECT RAISE(ABORT,'已确认费用不可覆盖，请编制更正草稿'); END;
+CREATE TRIGGER immutable_cost_version_delete BEFORE DELETE ON cost_versions
+BEGIN SELECT RAISE(ABORT,'已确认费用不可清除，请明确撤销'); END;
+CREATE TRIGGER immutable_cost_allocation_update BEFORE UPDATE ON cost_allocations
+BEGIN SELECT RAISE(ABORT,'历史费用分摊不可覆盖'); END;
+CREATE TRIGGER immutable_cost_allocation_delete BEFORE DELETE ON cost_allocations
+BEGIN SELECT RAISE(ABORT,'历史费用分摊不可清除'); END;
+CREATE VIEW cost_current AS SELECT v.*,e.execution_id FROM cost_versions v JOIN cost_entries e ON e.id=v.entry_id
+ WHERE v.version_no=(SELECT MAX(h.version_no) FROM cost_versions h WHERE h.entry_id=v.entry_id);
+CREATE VIEW effective_cost_allocations AS SELECT a.*,v.entry_id,v.execution_id FROM cost_allocations a
+ JOIN cost_current v ON v.id=a.version_id WHERE v.status='active';
+CREATE TABLE cost_reconciliation_versions (
+ id TEXT PRIMARY KEY,record_id TEXT NOT NULL,version_no INTEGER NOT NULL CHECK(version_no>0),
+ status TEXT NOT NULL CHECK(status IN ('active','voided')),
+ cost_entry_id TEXT NOT NULL REFERENCES cost_entries(id) ON DELETE RESTRICT,
+ cost_version_id TEXT NOT NULL REFERENCES cost_versions(id) ON DELETE RESTRICT,
+ settlement_entry_id TEXT NOT NULL REFERENCES project_settlement_entries(id) ON DELETE RESTRICT,
+ settlement_version INTEGER NOT NULL CHECK(settlement_version>0),
+ execution_item_id TEXT NOT NULL REFERENCES execution_items(id) ON DELETE RESTRICT,
+ expense_amount_fen INTEGER NOT NULL CHECK(expense_amount_fen>0),settled_amount_fen INTEGER NOT NULL CHECK(settled_amount_fen>=0),
+ is_final INTEGER NOT NULL CHECK(is_final IN (0,1)),evidence TEXT NOT NULL,
+ confirmed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,confirmed_at TEXT NOT NULL,
+ request_key TEXT NOT NULL UNIQUE,request_hash TEXT NOT NULL,UNIQUE(record_id,version_no)
+);
+CREATE INDEX idx_cost_match_entry ON cost_reconciliation_versions(cost_entry_id);
+CREATE INDEX idx_cost_match_settlement ON cost_reconciliation_versions(settlement_entry_id);
+CREATE TRIGGER immutable_cost_reconciliation_update BEFORE UPDATE ON cost_reconciliation_versions
+BEGIN SELECT RAISE(ABORT,'费用结算核对历史不可覆盖'); END;
+CREATE TRIGGER immutable_cost_reconciliation_delete BEFORE DELETE ON cost_reconciliation_versions
+BEGIN SELECT RAISE(ABORT,'费用结算核对历史不可清除'); END;
+CREATE VIEW cost_reconciliation_current AS SELECT v.* FROM cost_reconciliation_versions v
+ WHERE v.version_no=(SELECT MAX(h.version_no) FROM cost_reconciliation_versions h WHERE h.record_id=v.record_id);

@@ -31,7 +31,7 @@ const voucher=(number,amount,extra={})=>({
  settlement_type:'progress',occurred_on:'2026-10-30',evidence:'检修计划结算凭证',...extra
 });
 test('W5: two plans, separately attributed vouchers, unallocated advance, reversals and funding reconciliation',async()=>{
- assert.equal(one('PRAGMA user_version').user_version,106);
+ assert.equal(one('PRAGMA user_version').user_version,107);
  const vl=await api('/voltage-levels','POST',{code:'PLAN110',name:'110kV'},201);
  const l=await api('/lines','POST',{line_code:'PLAN-L',name:'检修试验线路',voltage_level_id:vl.id},201);
  const t=await api('/physical-towers','POST',{tower_code:'PLAN-T'},201);

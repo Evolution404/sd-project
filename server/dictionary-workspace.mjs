@@ -3,6 +3,7 @@ import {db,all,one,exec,transaction,audit,uid,now} from './db.mjs';
 import ExcelJS from 'exceljs';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status})};
 const uses={
+ expense_category:[['实际费用','费用分类与实际费用分析']],
  voltage:[['线路台账','线路的电压等级'],['杆塔查询','随所属线路展示电压等级'],['检修参考单价','限定参考价格适用的电压范围']],
  unit:[['专业需求','工作量的计量单位'],['操作类型','录入需求时采用的默认单位'],['检修参考单价','参考单价的计价单位']],
  source:[['专业需求','登记巡视、专项检查等需求来源']],
@@ -16,6 +17,7 @@ const uses={
 const groups=[
  {id:'common',title:'通用基础',types:['voltage','unit']},
  {id:'business',title:'需求与项目',types:['operation','source','priority','project_category']},
+ {id:'finance',title:'财务费用',types:['expense_category']},
  {id:'tower',title:'杆塔台账',types:['tower_structure','tower_purpose']},
  {id:'extension',title:'其他扩展',types:['category']}
 ];
@@ -31,7 +33,7 @@ export function dictionaryWorkspace(){
  for(const [table,column] of [
   ['transmission_lines','voltage_level_id'],['reference_price_catalog','voltage_level_id'],
   ['demands','operation_id'],['demands','unit_id'],['demands','priority_id'],
-  ['source_records','type_id'],
+  ['source_records','type_id'],['cost_drafts','category_id'],['cost_versions','category_id'],
   ['reference_price_catalog','operation_id'],['reference_price_catalog','unit_id'],['projects','category_id']
  ])count(table,column);
  const activeUnits=new Set(all("SELECT id FROM dictionary_items WHERE type_id='unit' AND status='active'").map(item=>item.id));

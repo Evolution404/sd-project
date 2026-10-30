@@ -1,3 +1,4 @@
+import {planCostTotals} from './cost-rules.mjs';
 import {createHash} from 'node:crypto';
 import {all,one,exec,uid,now,audit,transaction} from './db.mjs';
 import {yuanToFen} from './money.mjs';
@@ -40,7 +41,7 @@ export function planBudgetDetail(executionId,filters={}){
  if(!['draft','confirmed','deleted','all'].includes(draftStatus))fail(422,'预算草稿状态无效');
  const e=plan(executionId),p=project(e.project_id),a=approval(p.id),budget=current(e.id);
  const allocation=projectPlanBudgetSummary(p.id),settled=netForPlan(e.id);
- return {execution_id:e.id,number:e.number,plan_status:e.status,project_id:p.id,project_status:p.status,
+ return {...planCostTotals(e.id),execution_id:e.id,number:e.number,plan_status:e.status,project_id:p.id,project_status:p.status,
   project_approval_version_id:a.id,project_approval_version_no:a.version_no,project_approved_budget_fen:p.approved_budget_fen,
   current:budget,budget_status:budget?.kind==='release'?'released':budget?'active':'unconfigured',
   budget_version:budget?.version_no||0,allocated_budget_fen:allocation.allocated_budget_fen,

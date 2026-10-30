@@ -28,7 +28,7 @@ async function api(path,method='GET',body,expected=200,token=cookie){
  const result=await r.json();assert.equal(r.status,expected,path+': '+JSON.stringify(result));return result;
 }
 test('W4 reference catalog: compatible selection, immutable price revision, explicit snapshot, approval freeze',async()=>{
- assert.equal(one('PRAGMA user_version').user_version,106);
+ assert.equal(one('PRAGMA user_version').user_version,107);
  const voltage=await api('/voltage-levels','POST',{code:'PRICE110',name:'110kV'},201);
  const v220=await api('/voltage-levels','POST',{code:'PRICE220',name:'220kV'},201);
  const line=await api('/lines','POST',{line_code:'PRICE-LINE',name:'单价试验线',voltage_level_id:voltage.id},201);

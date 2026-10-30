@@ -16,7 +16,7 @@ const edit=ref<Row|null>(null),focused=ref<Row|null>(null),selection=ref<Row[]>(
 const deletionOpen=ref(false),deletion=ref<Row|null>(null);
 const form=reactive<Row>({}),formRef=ref<FormInstance>(),formError=ref('');
 const selectedCategory=computed(()=>categories.value.find(x=>x.id===category.value));
-const icons:Row={voltage:Lightning,unit:Box,source:Collection,priority:WarningFilled,project_category:Collection,operation:Tools,tower_structure:Location,tower_purpose:SetUp,category:Operation};
+const icons:Row={expense_category:Box,voltage:Lightning,unit:Box,source:Collection,priority:WarningFilled,project_category:Collection,operation:Tools,tower_structure:Location,tower_purpose:SetUp,category:Operation};
 const categoryRows=computed(()=>(statusFilter.value==='deleted'?deletedItems.value:items.value).filter(x=>x.type_id===category.value).slice().sort((a,b)=>a.sort_order-b.sort_order||a.name.localeCompare(b.name)));
 const filtered=computed(()=>categoryRows.value.filter(item=>(!statusFilter.value||item.status===statusFilter.value)&&(!origin.value||(origin.value==='builtin'?item.builtin:!item.builtin))&&
  (!query.value.trim()||[item.name,item.code,...(selectedCategory.value?.uses||[]).flat()].join(' ').toLowerCase().includes(query.value.trim().toLowerCase()))));
