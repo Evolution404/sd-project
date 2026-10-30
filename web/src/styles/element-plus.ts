@@ -5,6 +5,7 @@ import 'element-plus/es/components/card/style/css';
 import 'element-plus/es/components/checkbox/style/css';
 import 'element-plus/es/components/descriptions/style/css';
 import 'element-plus/es/components/dialog/style/css';
+import 'element-plus/es/components/config-provider/style/css';
 import 'element-plus/es/components/form/style/css';
 import 'element-plus/es/components/icon/style/css';
 import 'element-plus/es/components/input/style/css';

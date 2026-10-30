@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {nextTick,ref,watch} from 'vue';
+import {ElButton} from 'element-plus';
 const props = withDefaults(defineProps<{open:boolean,title:string,description?:string,error?:string,size?:'normal'|'wide'}>(),{size:'normal'});
 const emit=defineEmits<{close:[]}>();
 const panel=ref<HTMLElement|null>(null);
@@ -30,7 +31,7 @@ watch(()=>props.open,async open=>{
    <section ref="panel" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1" :class="['form-modal-dialog','form-panel',{'form-modal-wide':size==='wide'}]" @keydown="onKey">
     <div class="form-modal-header">
      <div><h2>{{title}}</h2><p v-if="description">{{description}}</p></div>
-     <button type="button" class="form-modal-close" aria-label="关闭弹窗" @click="emit('close')">×</button>
+     <ElButton text class="form-modal-close" aria-label="关闭弹窗" @click="emit('close')">×</ElButton>
     </div>
     <div class="form-modal-content"><p v-if="error" class="form-modal-error" role="alert">{{error}}</p><slot/></div>
    </section>
