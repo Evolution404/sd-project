@@ -122,6 +122,32 @@ try{
  assert.equal(summary.settled_fen,6000);
  assert.equal(summary.allocated_fen,6000);
  assert.equal(summary.unallocated_fen,0);
+ // Integration: the same reusable component is mounted inside the actual
+ // project -> maintenance plan detail, not only in the isolated component harness.
+ await page.goto(uiUrl+'/');
+ await page.locator('.sidebar').getByRole('menuitem',{name:'项目中心',exact:true}).click();
+ const projectRow=page.getByRole('row').filter({hasText:'浏览器检修计划'});
+ await projectRow.getByRole('button',{name:'需求范围与阶段'}).click();
+ await page.getByTestId('settlement-allocation-summary').getByText(/已归集至检修计划 60\.00 元/).waitFor();
+ const planRow=page.locator('.detail-panel').locator('.scope-item').filter({hasText:'W5-PLAN · 停电检修'});
+ await planRow.getByRole('button',{name:'进入执行'}).click();
+ const embedded=page.locator('.execution-overlay .plan-finance');
+ await embedded.getByRole('heading',{name:'检修计划结算'}).waitFor();
+ assert.match(await embedded.locator('.plan-finance-metrics strong').first().innerText(),/60\.00/);
+ await embedded.getByRole('button',{name:'登记结算凭证'}).click();
+ const embeddedDialog=page.getByRole('dialog',{name:'登记检修计划结算'});
+ await embeddedDialog.getByLabel('凭证编号').fill('W5-APP-INTEGRATED');
+ await embeddedDialog.getByLabel('结算金额（元）').fill('30');
+ await embeddedDialog.getByLabel('结算依据').fill('主应用检修计划详情集成验收');
+ await embeddedDialog.getByRole('button',{name:'确认登记'}).click();
+ await embeddedDialog.waitFor({state:'hidden'});
+ await embedded.getByText('W5-APP-INTEGRATED').waitFor();
+ assert.match(await embedded.locator('.plan-finance-metrics strong').first().innerText(),/90\.00/);
+ assert.equal((await fetchApi('/projects/'+project.id+'/settlement-summary')).allocated_fen,9000);
+ await page.locator('.execution-overlay').getByRole('button',{name:'返回项目'}).click();
+ await page.getByTestId('settlement-allocation-summary').getByText(/已归集至检修计划 90\.00 元/).waitFor();
+ console.log('W5_MAIN_APP_INTEGRATION_BROWSER_OK project detail -> plan detail -> voucher -> parent totals');
+
  assert.deepEqual(errors,[]);
  assert.equal(backendErrors,'');
  assert.equal(viteErrors,'');

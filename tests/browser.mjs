@@ -206,7 +206,7 @@ try{
  await page.locator('.detail-panel').getByText('第 2 版').waitFor();
  const currentProject=(await page.evaluate(async()=>await(await fetch('/api/projects')).json())).find(x=>x.name==='浏览器子项目');
  if(currentProject.approved_budget_fen!==10800)throw Error('Approved change should set effective budget to 108.00 yuan');
- await page.locator('.detail-panel').getByRole('button',{name:'登记结算凭证'}).click();
+ await page.locator('.detail-panel').getByRole('button',{name:'登记项目级未归集凭证'}).click();
  let settlementModal=page.getByRole('dialog',{name:'登记结算凭证'});
  await settlementModal.getByLabel('凭证编号').fill('SETTLEMENT-WEB-001');
  await settlementModal.getByLabel('结算性质').selectOption('advance');

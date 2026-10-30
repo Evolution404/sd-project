@@ -17,7 +17,7 @@ const qty=(scaled:number|null|undefined)=>scaled==null?'—':(scaled/10000).toFi
 const date=()=>new Date().toLocaleDateString('en-CA');
 const settlementName=(value:string|null)=>({advance:'预付款',progress:'进度结算',final:'最终结算'} as Record<string,string>)[value||'']||'—';
 const itemName=(id:string)=>summary.value?.items.find(i=>i.id===id)?.demand_no||'未知工作项';
-const canRecord=computed(()=>props.canSettle&&summary.value?.status!=='cancelled');
+const canRecord=computed(()=>props.canSettle&&summary.value?.project_status==='approved'&&summary.value.status!=='cancelled');
 const remainingByOriginal=computed<Row[]>(()=>{
  const rows:Row[]=summary.value?.entries||[];
  return rows.filter(x=>x.entry_kind==='payment').map(row=>{

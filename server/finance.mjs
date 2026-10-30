@@ -12,9 +12,12 @@ function amountForScope(scope){
 }
 export function settlementEntries(projectId){
  project(projectId);
- return all(`SELECT se.*,s.demand_id,d.demand_no FROM project_settlement_entries se
+ return all(`SELECT se.*,s.demand_id,d.demand_no,e.number AS plan_number,e.plan_type AS plan_type
+ FROM project_settlement_entries se
  JOIN project_demand_scopes s ON s.id=se.project_scope_id
- JOIN demands d ON d.id=s.demand_id WHERE se.project_id=?
+ JOIN demands d ON d.id=s.demand_id
+ LEFT JOIN execution_items i ON i.id=se.execution_item_id
+ LEFT JOIN executions e ON e.id=i.execution_id WHERE se.project_id=?
  ORDER BY se.occurred_on DESC,se.created_at DESC,se.id DESC`,projectId);
 }
 export function projectProgress(projectId){

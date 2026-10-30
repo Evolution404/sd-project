@@ -28,7 +28,7 @@ export function planSettlementSummary(planId){
   JOIN execution_items i ON i.id=se.execution_item_id
   WHERE i.execution_id=? ORDER BY se.occurred_on DESC,se.created_at DESC,se.id DESC`,planId);
  return {execution_id:e.id,project_id:e.project_id,number:e.number,plan_type:e.plan_type,
-  status:e.status,approval_version_id:e.approval_version_id,
+  status:e.status,project_status:project(e.project_id).status,approval_version_id:e.approval_version_id,
   item_count:items.length,planned_estimate_fen:items.reduce((sum,i)=>sum+(i.planned_estimate_fen||0),0),
   estimate_complete:items.every(i=>i.planned_estimate_fen!==null),
   settled_fen:items.reduce((sum,i)=>sum+i.settled_fen,0),items,entries};
