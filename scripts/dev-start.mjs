@@ -1,6 +1,7 @@
 import { randomBytes, scryptSync } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { createInterface } from 'node:readline/promises';
+import { createServer } from 'node:net';
 import { db, one, exec, now, uid, transaction, dataRoot } from '../server/db.mjs';
 
 function askPassword(label) {
@@ -66,11 +67,47 @@ async function initializeAdminIfNeeded() {
   console.log('管理员初始化成功：' + username);
 }
 
+// Do not terminate the existing development service. If it owns the requested
+// port, start another instance on the first available higher port instead.
+// Always show the actual address to prevent accidentally opening the old app.
+async function availablePort(host, port) {
+  return await new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once('error', error => {
+      if (error.code === 'EADDRINUSE') resolve(false);
+      else reject(error);
+    });
+    probe.listen({ host, port, exclusive: true }, () => {
+      probe.close(() => resolve(true));
+    });
+  });
+}
+async function selectPort(host, requested) {
+  const base = Number(requested);
+  if (!Number.isInteger(base) || base < 1 || base > 65535) {
+    throw new Error('PORT 必须是 1–65535 的整数');
+  }
+  // Probe the wildcard socket, not just a specific local interface: macOS
+  // may allow an interface-specific bind alongside an existing wildcard bind.
+  // That would make 127.0.0.1 serve the new instance while LAN clients still
+  // reach the old one on the same port.
+  const probeHost = host.includes(':') ? '::' : '0.0.0.0';
+  for (let offset = 0; offset <= 20 && base + offset <= 65535; offset++) {
+    if (await availablePort(probeHost, base + offset)) return base + offset;
+  }
+  throw new Error('端口 ' + base + ' 及后续 20 个端口均不可用，请指定其他 PORT');
+}
+
 try {
   await initializeAdminIfNeeded();
   console.log('\n本地开发测试数据：' + dataRoot);
   const host = process.env.HOST || '127.0.0.1';
-  const port = process.env.PORT || '8787';
+  const requestedPort = process.env.PORT || '8787';
+  const port = await selectPort(host, requestedPort);
+  if (String(port) !== String(requestedPort)) {
+    console.log('注意：端口 ' + requestedPort + ' 已被占用（可能是旧版开发服务），本次改用 ' + port + '；请勿误用旧端口。');
+  }
+  process.env.PORT = String(port);
   console.log('本机访问：http://127.0.0.1:' + port);
   if (host === '0.0.0.0' || host === '::') {
     const addresses = Object.entries(networkInterfaces())

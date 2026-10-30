@@ -3,7 +3,14 @@
 .DEFAULT_GOAL := dev
 .PHONY: dev build test check
 
-DATA_DIR ?= $(CURDIR)/.local-test-data/current-101
+# Development schemas intentionally have no in-place migrations. Use a fresh
+# directory for each canonical schema version while preserving all older data.
+# Read the version from db.mjs; do not maintain a second hardcoded number.
+SCHEMA_VERSION := $(shell sed -nE 's/^const SCHEMA_VERSION=([0-9]+);.*/\1/p' server/db.mjs)
+ifeq ($(strip $(SCHEMA_VERSION)),)
+$(error Cannot determine schema version from server/db.mjs)
+endif
+DATA_DIR ?= $(CURDIR)/.local-test-data/schema-$(SCHEMA_VERSION)
 HOST ?= 0.0.0.0
 PORT ?= 8787
 
