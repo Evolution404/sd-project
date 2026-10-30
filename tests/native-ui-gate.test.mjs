@@ -85,3 +85,28 @@ test('G8 blue theme: old green structural tokens cannot reappear in line ledger'
  assert.match(ledger,/<ElTag type="primary" effect="light"/);
  assert.doesNotMatch(ledger,/#(?:e7f1e9|215d45|e5f0e8|185239|edf7ef|789080)\b/i);
 });
+
+
+test('all transmission-line dropdowns support searchable options',()=>{
+ const root=resolve(fileURLToPath(new URL('../web/src/',import.meta.url)));
+ const views=[...function* walk(dir){
+  for(const entry of readdirSync(dir,{withFileTypes:true})){
+   const file=join(dir,entry.name);
+   if(entry.isDirectory())yield* walk(file);
+   else if(file.endsWith('.vue'))yield file;
+  }
+ }(root)];
+ let found=0;
+ for(const file of views){
+  const source=readFileSync(file,'utf8');
+  for(const [component] of source.matchAll(/(<ElSelect\b[^>]*>[\s\S]*?<\/ElSelect>)/g)){
+   // Only selectors whose options are populated directly from the transmission
+   // line catalog (including filtered main lines and current-line exclusions).
+   if(!/<ElOption\b[^>]*v-for="(?:l|x) in lines(?:\.|\[|")/.test(component))continue;
+   found++;
+   const opening=component.slice(0,component.indexOf('>')+1);
+   assert.match(opening,/\bfilterable(?:\s|>|=)/,file+': every line dropdown must be searchable');
+  }
+ }
+ assert.ok(found>=6,'all existing line dropdowns were detected by the audit');
+});

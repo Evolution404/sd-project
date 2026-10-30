@@ -28,3 +28,22 @@ export async function selectUiOption(locator,selection){
  await option.click();
  return [];
 }
+
+
+// Exercise real Element Plus typing/filtering, not just the source attribute.
+// Leave the selection unchanged so the calling business scenario can continue.
+export async function assertSearchableUiSelect(locator,query,expectedOption){
+ const combo=(await locator.getAttribute('role'))==='combobox'
+  ?locator:locator.locator('[role="combobox"]').first();
+ const wrapper=locator.locator('xpath=ancestor-or-self::*[contains(concat(" ", normalize-space(@class), " "), " el-select__wrapper ")][1]');
+ if(await wrapper.count())await wrapper.click();
+ else await combo.click();
+ await combo.fill(query);
+ const root=locator.locator('xpath=ancestor::html[1]');
+ const listId=await combo.getAttribute('aria-controls');
+ const list=listId?root.locator('[id='+JSON.stringify(listId)+']'):root.locator('.el-select-dropdown:visible').last();
+ await list.getByRole('option',{name:expectedOption,exact:true}).waitFor({state:'visible'});
+ const actual=await list.getByRole('option').allTextContents();
+ if(!actual.some(value=>value.includes(expectedOption)))throw Error('Searched line not found: '+expectedOption);
+ await combo.press('Escape');
+}

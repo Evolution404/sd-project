@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {selectUiOption} from './helpers/select-ui-option.mjs';
+import {selectUiOption,assertSearchableUiSelect} from './helpers/select-ui-option.mjs';
 import {navigate} from './browser-navigation.mjs';
 import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -74,6 +74,7 @@ try{
  }
  await nav('新建需求');
  const panels=page.locator('section.entry-section');
+ await assertSearchableUiSelect(panels.nth(0).getByLabel('选择线路'),'浏览器测试','110kV · 浏览器测试线路');
  await selectUiOption(panels.nth(0).getByLabel('选择线路'),{label:'110kV · 浏览器测试线路'});
  await panels.nth(0).getByRole('button',{name:'全选本线路'}).click();
  await selectUiOption(panels.nth(1).getByLabel('操作类型'),{label:'安装防鸟装置'});
@@ -93,6 +94,7 @@ try{
  if(desktopOverflow)throw Error('Unexpected desktop horizontal scroll');
  await panels.nth(3).getByRole('button',{name:'提交 2 条核实'}).click();await page.getByText(/新建 2 条待核实需求/).waitFor();
  await nav('需求中心');
+ await assertSearchableUiSelect(page.locator('.toolbar label').filter({hasText:'线路'}).locator('.el-select'),'浏览器测试','浏览器测试线路');
  await page.getByText('XQ-0000001').first().waitFor();
  await page.reload();
  await nav('需求中心');
