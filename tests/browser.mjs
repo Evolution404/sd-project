@@ -1,6 +1,7 @@
+import assert from 'node:assert/strict';
 import {selectUiOption} from './helpers/select-ui-option.mjs';
 import {navigate} from './browser-navigation.mjs';
-import {mkdtempSync,rmSync,existsSync} from 'node:fs';
+import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync,spawn} from 'node:child_process';
@@ -97,7 +98,19 @@ try{
  await nav('需求中心');
  await page.getByText('XQ-0000002').first().waitFor();
  await page.getByRole('button',{name:'详情'}).first().click();
- await page.getByText('需求 XQ-').first().waitFor();
+ await page.getByText('需求 XQ-').first().waitFor();assert.equal(await page.locator('.demand-detail-page').count(),1,'需求详情在主内容区中');
+ assert.equal(await page.locator('.demand-detail-page').evaluate(el=>getComputedStyle(el).position),'static','需求详情不得固定悬浮');
+ assert.equal(await page.locator('.demand-detail-page').evaluate(el=>Math.round(el.getBoundingClientRect().right)<=innerWidth),true,'需求详情不得横向越界');
+ for(const width of [1500,1280,760]){
+  await page.setViewportSize({width,height:900});
+  const noOverflow=await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1);
+  assert.ok(noOverflow,'需求详情页面 '+width+' 不得横向溢出');
+  await page.locator('.demand-detail-page').scrollIntoViewIfNeeded();
+  mkdirSync('release',{recursive:true});
+  await page.screenshot({path:join(process.cwd(),'release','demand-detail-'+width+'.png'),fullPage:false});
+ }
+ await page.setViewportSize({width:1500,height:1000});
+
  if(await page.locator('.detail-panel input:not([type="file"])').count())throw Error('Demand detail must be read-only until edit modal opens');
  await page.locator('.detail-panel').getByRole('button',{name:'编辑需求'}).click();
  let demandModal=page.getByRole('dialog',{name:'修订需求'});
@@ -112,7 +125,7 @@ try{
  await demandModal.getByRole('button',{name:'保存修订并留痕'}).click();
  await demandModal.waitFor({state:'hidden'});
  await page.locator('.detail-panel').getByText('横担外侧').first().waitFor();
- await page.locator('.detail-panel').getByRole('button',{name:/关闭/}).click();
+ await page.locator('.demand-detail-page').getByRole('button',{name:/返回需求列表/}).click();
  await nav('IP访问管理');
  await page.getByRole('button',{name:/添加允许 IP/}).click();
  const ipModal=page.getByRole('dialog',{name:'添加允许访问的 IP'});
@@ -131,7 +144,7 @@ try{
  await reasonModal.getByLabel('操作依据 / 说明').fill('浏览器核实及阶段审批');
  await reasonModal.getByRole('button',{name:'确认',exact:true}).click();
  await reasonModal.waitFor({state:'hidden'});
- await page.locator('.detail-panel').getByRole('button',{name:/关闭/}).click();
+ await page.locator('.demand-detail-page').getByRole('button',{name:/返回需求列表/}).click();
  await nav('项目框架');
  await page.getByRole('button',{name:'新增项目框架'}).click();
  let st=page.getByRole('dialog',{name:'创建项目框架'});

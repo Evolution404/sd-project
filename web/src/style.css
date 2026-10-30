@@ -100,8 +100,7 @@ td{color:#496457}
 .alert{padding:12px 16px;border-radius:8px;background:#fff;border:1px solid #d7e7d9;margin-bottom:16px}
 .alert.error{border-color:#efc7c0;background:#fff8f6}
 .alert button{float:right;padding:0}
-.detail-overlay{position:fixed;inset:0;background:#1a30286b;z-index:10;display:flex;justify-content:flex-end}
-.detail-panel{background:white;width:min(610px,100%);overflow:auto;padding:29px;box-shadow:-10px 0 30px #13332218;z-index:20}
+.detail-panel{position:static;background:white;width:100%;max-width:100%;min-width:0;padding:24px;border:1px solid var(--line);border-radius:12px;overflow:visible;box-shadow:0 4px 15px #28543a07}
 .detail-panel label{margin-bottom:15px}
 .info-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:24px 0}
 .info-grid div{border:1px solid var(--line);border-radius:9px;padding:13px}
@@ -113,8 +112,6 @@ td{color:#496457}
 .scope-item .section-header{margin-bottom:6px}
 .scope-item p{font-size:12px;margin:3px 0}
 .scope-editor{border-radius:10px;padding:16px;background:#f4f8f4;border:1px solid #d8e8d9;margin-top:15px}
-.execution-overlay{z-index:30}
-.project-overlay>.detail-panel,.execution-overlay>.detail-panel{width:min(1180px,calc(100vw - 220px))}
 /* Screenshot-aligned demand entry */
 .entry-main{max-width:930px}
 .entry-card{background:#fff;border:1px solid #dbe5dd;border-radius:15px;box-shadow:0 4px 20px #2348360b;overflow:hidden}

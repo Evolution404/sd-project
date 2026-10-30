@@ -32,3 +32,23 @@ body{min-width:1180px}
 .application-scroll .page-heading{margin-bottom:24px}.application-scroll .breadcrumb{display:none}.application-scroll h1{color:#243b59}.application-scroll h2{color:#304b6c}.application-scroll h3{color:#3a5879}
 .application-scroll .panel{border-color:#e3ebf5;box-shadow:0 4px 15px #386cac04}.application-scroll .status-tag{border-color:#dce8f8}
 .application-scroll .field-caption{color:#4d6582}.application-scroll label{color:#4d6582}.application-scroll input:focus,.application-scroll select:focus,.application-scroll textarea:focus{border-color:#719ff7;box-shadow:0 0 0 3px #3478f61a}
+
+
+/* Responsive pages must never inherit the former 1180px desktop minimum.
+   The navigation column remains available; details always occupy the content column. */
+@media(max-width:1179px){
+ body{min-width:320px}
+ .application-shell{min-width:0;width:100%}
+ .application-header{gap:12px;padding:0 14px}
+ .application-brand{width:auto;max-width:220px}
+ .application-header .application-breadcrumb{display:none}
+ .application-header-actions{margin-left:auto;min-width:0}
+ .application-header-actions .el-tag{display:none}
+ .application-scroll>.main{padding:18px 16px 30px}
+}
+@media(max-width:800px){
+ .application-shell .application-sidebar{width:172px!important;padding-left:7px;padding-right:7px}
+ .application-header .application-user-name{display:none}
+ .application-scroll>.main{padding:14px 12px 25px}
+ .application-header-actions{gap:5px}
+}

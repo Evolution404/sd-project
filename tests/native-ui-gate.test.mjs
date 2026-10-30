@@ -38,3 +38,19 @@ test('G7: Vue sources have no obsolete DOM validation directive or homemade dial
  assert.equal(existsSync(join(root,'utils/form-validation.ts')),false);
  assert.equal(existsSync(join(root,'components/FormModal.vue')),false);
 });
+
+
+test('details are first-class in-flow pages, never drawer or fixed side overlay',()=>{
+ const base=resolve(fileURLToPath(new URL('../web/src/',import.meta.url)));
+ const ledger=readFileSync(join(base,'components/LedgerWorkspace.vue'),'utf8');
+ const tower=readFileSync(join(base,'components/LedgerTowerDetail.vue'),'utf8');
+ const app=readFileSync(join(base,'App.vue'),'utf8');
+ const stylesheet=readFileSync(join(base,'style.css'),'utf8');
+ assert.doesNotMatch(ledger,/<ElDrawer\b|ElDrawer\b/);
+ assert.doesNotMatch(app,/detail-overlay/);
+ assert.doesNotMatch(stylesheet,/\.detail-overlay\s*\{/);
+ assert.match(ledger,/<LedgerTowerDetail\b/);
+ assert.match(tower,/<ElTabs\b/);
+ assert.match(app,/class="demand-detail-page"/);
+ assert.match(app,/class="business-detail-page/);
+});

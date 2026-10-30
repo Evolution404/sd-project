@@ -2,6 +2,7 @@
 import {ElDialog} from 'element-plus';
 import {requestApi} from './api/client';
 import './styles/business-dialog.css';
+import './styles/detail-pages.css';
 import {ElForm,ElFormItem,ElCollapse,ElCollapseItem,ElUpload,ElLink,type FormInstance} from 'element-plus';
 import {ElTable,ElTableColumn} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
@@ -480,13 +481,13 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <ReferencePriceWorkspace v-if="nav==='prices'" :items="items" :voltage="voltage" :can-edit="roleAdmin"/>
   <FundingWorkspace v-if="['frameworks','agreements'].includes(nav)" :kind="nav" :can-write="!!roleWrite" :can-delete="roleAdmin" :can-authorize="roleAdmin" @changed="loadStructure"/>
   <template v-if="nav==='projects'">
-   <ProjectListPage :projects="projects" :title="mediaTitle" :can-create="!!roleWrite"
+   <ProjectListPage v-if="!projectView&&!executionView" :projects="projects" :title="mediaTitle" :can-create="!!roleWrite"
     @create="openStructureCreate(nav)" @open="openProject"/>
  <StructureCreateModal :open="stage===nav" :type="nav" :title="mediaTitle" :error="visibleError" :busy="busy"
   :form="form" :frameworks="frameworks" :agreements="agreements" :categories="options('project_category')"
   @save="saveStructure" @close="stage='';edit=null"/>
   </template>
-  <section v-if="projectView" class="detail-overlay project-overlay" @click.self="projectView=null"><div class="detail-panel">
+  <section v-if="projectView&&!executionView&&nav==='projects'" class="business-detail-page project-detail-page project-overlay" aria-label="项目详情页面"><div class="detail-panel business-detail-surface">
    <div class="section-header"><div><h2>{{projectView.name}}</h2><StatusTag :status="projectView.status"/></div><ElButton class="light" @click="projectView=null">关闭 ×</ElButton></div>
    <div class="info-grid"><div><small>已知估算（元）</small><strong>{{money(projectView.estimate.known_total_fen)}}</strong></div><div><small>待定价项</small><strong>{{projectView.estimate.missing_price_count}}</strong></div><div><small>批准预算（元）</small><strong>{{money(projectView.approved_budget_fen)}}</strong></div><div><small>需求范围条数</small><strong>{{projectView.estimate.total}}</strong></div></div>
    <h3>项目类别与初步估算</h3>
@@ -641,7 +642,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </ElDialog>
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
   </div></section>
-  <section v-if="executionView" class="detail-overlay execution-overlay" @click.self="executionView=null"><div class="detail-panel">
+  <section v-if="executionView&&nav==='projects'" class="business-detail-page execution-detail-page execution-overlay" aria-label="检修计划详情页面"><div class="detail-panel business-detail-surface">
    <div class="section-header"><div><h2>{{executionView.plan_type==='outage'?'停电检修':'不停电检修'}}计划 {{executionView.number}}</h2><StatusTag :status="executionView.status"/></div><ElButton class="light" @click="executionView=null">返回项目</ElButton></div>
    <p>{{executionView.description||'本次执行需求范围'}}</p>
    <div v-for="i in executionView.items" :key="i.id" class="scope-item">
@@ -802,23 +803,33 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
     <div class="form-actions"><ElButton native-type="button" class="light" @click="duplicateDialog=false">取消</ElButton><ElButton native-type="submit" class="primary">按核实结论提交</ElButton></div>
    </ElForm>
   </ElDialog>
-  <template v-if="nav==='demands'"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><ElButton class="secondary" @click="exportDemands">Excel 导出</ElButton><ElButton v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</ElButton></div></div><div class="toolbar"><label><span class="field-caption">状态</span><ElSelect v-model="statusFilter"><ElOption :label="'全部'" data-option-value="" value="">全部</ElOption><ElOption :label="'待核实'" data-option-value="pending" value="pending">待核实</ElOption><ElOption :label="'有效'" data-option-value="active" value="active">有效</ElOption><ElOption :label="'退回'" data-option-value="returned" value="returned">退回</ElOption><ElOption :label="'取消'" data-option-value="cancelled" value="cancelled">取消</ElOption></ElSelect></label><label><span class="field-caption">线路</span><ElSelect v-model="lineFilter"><ElOption :label="'全部线路'" data-option-value="" value="">全部线路</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label><label><span class="field-caption">关键词</span><ElInput v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><ElTable :data="demands" >
+  <template v-if="nav==='demands'&&!detail"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><ElButton class="secondary" @click="exportDemands">Excel 导出</ElButton><ElButton v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</ElButton></div></div><div class="toolbar"><label><span class="field-caption">状态</span><ElSelect v-model="statusFilter"><ElOption :label="'全部'" data-option-value="" value="">全部</ElOption><ElOption :label="'待核实'" data-option-value="pending" value="pending">待核实</ElOption><ElOption :label="'有效'" data-option-value="active" value="active">有效</ElOption><ElOption :label="'退回'" data-option-value="returned" value="returned">退回</ElOption><ElOption :label="'取消'" data-option-value="cancelled" value="cancelled">取消</ElOption></ElSelect></label><label><span class="field-caption">线路</span><ElSelect v-model="lineFilter"><ElOption :label="'全部线路'" data-option-value="" value="">全部线路</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label><label><span class="field-caption">关键词</span><ElInput v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><ElTable :data="demands" >
 <ElTableColumn><template #header>编号</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div class="mono">{{d.demand_no}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>位置</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>操作与部位</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.operation_snapshot}} · {{d.target_object}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>工作量</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{fmtQty(d.quantity_scaled)}} {{d.unit_snapshot}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>状态</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div ><StatusTag :status="d.status"/></div></template></template></ElTableColumn>
 <ElTableColumn><template #header>操作</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div ><ElButton class="link" @click="showDemand(d.id)">详情</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">没有符合筛选条件的需求</div></template></ElTable></div></section></template>
-  <section v-if="detail" class="detail-overlay" @click.self="detail=null"><div class="detail-panel"><div class="section-header"><h2>{{detail.demand_no?'需求 '+detail.demand_no:'台账详情'}}</h2><ElButton class="light" @click="detail=null">关闭 ×</ElButton></div>
-    <template v-if="detail.demand_no"><div class="info-grid"><div><small>需求位置</small><strong>{{detail.line_name_snapshot}} {{detail.tower_no_snapshot}}</strong></div><div><small>检修操作</small><strong>{{detail.operation_snapshot}}</strong></div><div><small>工作量</small><strong>{{fmtQty(detail.quantity_scaled)}} {{detail.unit_snapshot}}</strong></div><div><small>当前状态</small><StatusTag :status="detail.status"/></div></div>
-      <p v-if="detail.project_references?.length" class="muted">已关联项目：{{detail.project_references.map((x:Rec)=>x.code).join('、')}}。工作范围保留历史依据；范围变更须办理项目变更。</p>
-      <p>当前台账：{{detail.current_line_name}} {{detail.current_tower_no}}</p><ElButton v-if="roleWrite&&detail.status!=='cancelled'" class="secondary" @click="openReason('revalidate')">重新核实位置</ElButton>
-      <div class="scope-item"><strong>处理部位</strong><p>{{detail.target_object}}</p>
+  <section v-if="detail&&nav==='demands'" class="demand-detail-page" aria-label="需求详情页面">
+   <div class="detail-panel demand-detail-surface">
+    <nav class="demand-detail-breadcrumb" aria-label="需求详情导航">
+     <ElButton link type="primary" aria-label="关闭需求详情，返回需求列表" @click="detail=null">返回需求列表</ElButton>
+     <span aria-hidden="true">/</span><span>需求中心</span><span aria-hidden="true">/</span><strong>{{detail.demand_no||'需求详情'}}</strong>
+    </nav>
+    <div class="section-header demand-detail-heading">
+     <div><p class="demand-detail-overline">需求中心 / 需求详情</p><h2>{{detail.demand_no?'需求 '+detail.demand_no:'台账详情'}}</h2><p>来源依据、核实结果及历史记录统一在此页面查看。</p></div>
+     <ElButton @click="detail=null">返回列表</ElButton>
+    </div>
+    <template v-if="detail.demand_no"><div class="info-grid demand-detail-metrics"><div><small>需求位置</small><strong>{{detail.line_name_snapshot}} {{detail.tower_no_snapshot}}</strong></div><div><small>检修操作</small><strong>{{detail.operation_snapshot}}</strong></div><div><small>工作量</small><strong>{{fmtQty(detail.quantity_scaled)}} {{detail.unit_snapshot}}</strong></div><div><small>当前状态</small><StatusTag :status="detail.status"/></div></div>
+      <p v-if="detail.project_references?.length" class="demand-detail-linked-projects">已关联项目：{{detail.project_references.map((x:Rec)=>x.code).join('、')}}。工作范围保留历史依据；范围变更须办理项目变更。</p>
+      <div class="demand-detail-current-location"><div><small>当前线路台账位置</small><strong>{{detail.current_line_name}} {{detail.current_tower_no}}</strong></div>
+    <ElButton v-if="roleWrite&&detail.status!=='cancelled'" class="secondary" @click="openReason('revalidate')">重新核实位置</ElButton></div>
+      <section class="demand-detail-section"><h3>需求内容</h3><div class="scope-item"><strong>处理部位</strong><p>{{detail.target_object}}</p>
        <strong>问题说明</strong><p>{{detail.problem_description}}</p>
        <strong>完成标准</strong><p>{{detail.completion_standard}}</p>
       </div>
       <div v-if="detail.field_definitions?.length" class="scope-item"><strong>附加业务字段</strong><CustomFields :definitions="detail.field_definitions||[]" :model-value="detail.custom_fields||{}" :disabled="true"/></div>
-      <div v-if="roleWrite&&detail.status!=='cancelled'" class="form-actions"><ElButton class="secondary" @click="openDemandEdit">编辑需求</ElButton></div>
+      <div v-if="roleWrite&&detail.status!=='cancelled'" class="form-actions"><ElButton class="secondary" @click="openDemandEdit">编辑需求</ElButton></div></section>
       <ElDialog :model-value="!!demandEdit" title="修订需求"  width="860px" @close="demandEdit=null" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm ref="demandEditFormRef" :model="demandEdit||{}" label-position="top"  novalidate v-if="demandEdit" class="form-grid" @submit.prevent="runValidated(demandEditFormRef,()=>saveDemandEdit())">
         <ElFormItem label="具体部位" prop="target_object" :rules="requiredRules('具体部位')"><ElInput v-model="demandEdit.target_object" required/></ElFormItem>
@@ -830,8 +841,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
         <div class="form-actions"><ElButton native-type="button" class="light" @click="demandEdit=null">取消</ElButton><ElButton native-type="submit" class="primary">保存修订并留痕</ElButton></div>
        </ElForm>
       </ElDialog>
-      <h3>来源与核实</h3><p v-for="x in detail.sources" :key="x.id">{{x.discovered_on}} · {{x.proposed_by}} · {{x.type_snapshot}} · {{x.description||x.external_ref||'—'}}</p><div v-if="roleVerify&&detail.status!=='cancelled'" class="form-actions"><ElButton class="primary" @click="openReason('verify:active')">确认有效</ElButton><ElButton class="secondary" @click="openReason('verify:returned')">退回补充</ElButton><ElButton class="light" @click="openReason('verify:cancelled')">取消</ElButton></div>
-      <h3>附件依据</h3>
+      <section class="demand-detail-section"><h3>来源与核实</h3><p v-for="x in detail.sources" :key="x.id">{{x.discovered_on}} · {{x.proposed_by}} · {{x.type_snapshot}} · {{x.description||x.external_ref||'—'}}</p><div v-if="roleVerify&&detail.status!=='cancelled'" class="form-actions"><ElButton class="primary" @click="openReason('verify:active')">确认有效</ElButton><ElButton class="secondary" @click="openReason('verify:returned')">退回补充</ElButton><ElButton class="light" @click="openReason('verify:cancelled')">取消</ElButton></div>
+      </section><section class="demand-detail-section"><h3>附件依据</h3>
       <ElButton v-if="roleWrite" class="secondary" @click="attachmentDialog=true">上传附件</ElButton>
       <ElDialog :model-value="attachmentDialog" title="上传需求附件"  @close="attachmentDialog=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
        <ElForm novalidate @submit.prevent>
@@ -840,7 +851,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
        <div class="form-actions"><ElButton class="light" native-type="button" @click="attachmentDialog=false">取消</ElButton></div>
        </ElForm>
       </ElDialog><p v-for="file in detail.attachments" :key="file.id"><ElLink :href="'/api/attachments/'+file.id">{{file.filename}}</ElLink> · {{file.bytes}} 字节</p>
-      <h3>历史修订</h3><p v-for="rev in detail.revisions" :key="rev.id" class="history">{{rev.changed_at}} · v{{rev.version}} · {{rev.reason}}</p>
+      </section><section class="demand-detail-section"><h3>历史修订</h3><p v-for="rev in detail.revisions" :key="rev.id" class="history">{{rev.changed_at}} · v{{rev.version}} · {{rev.reason}}</p></section>
     </template><template v-else><pre class="json-preview">{{JSON.stringify(detail,null,2)}}</pre></template>
   </div></section>
   <ElDialog :model-value="!!reasonAction" :title="reasonTitle" @close="reasonAction=''" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false">

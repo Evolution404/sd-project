@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import {ElDialog} from 'element-plus';
 import {requestApi} from '../api/client';
-import {ElButton,ElTable,ElTableColumn,ElCheckbox,ElDrawer,ElInput,ElSelect,ElOption,ElPagination,ElForm,ElFormItem,ElRadio,ElDatePicker,type FormInstance} from 'element-plus';
+import {ElButton,ElTable,ElTableColumn,ElCheckbox,ElInput,ElSelect,ElOption,ElPagination,ElForm,ElFormItem,ElRadio,ElDatePicker,type FormInstance} from 'element-plus';
+import LedgerTowerDetail from './LedgerTowerDetail.vue';
 import {computed,onMounted,onBeforeUnmount,reactive,ref,watch} from 'vue';
 import {newClientId} from '../utils/client-id';
 
@@ -136,7 +137,12 @@ function applyCommon(overwrite=false){for(const row of rows.value)if(!overwrite|
 function towerPayload(){return {version:lineChoice.value!.version,topology_token:workspace.value!.topology_token,after_tower_id:form.after_tower_id||null,common:{...common},rows:rows.value.map(r=>({...r,physical_tower_id:form.mode==='existing'||editor.value==='tower-batch'?r.physical_tower_id||null:null})),idempotency_key:requestKey.value}}
 async function saveTowers(){busy.value=true;error.value='';try{const body=towerPayload(),fingerprint=JSON.stringify(body);if(editor.value==='tower-batch'&&previewHash.value!==fingerprint){preview.value=await api('/ledger/lines/'+props.lineId+'/towers/preview','POST',body);previewHash.value=fingerprint;return}const r=await api('/ledger/lines/'+props.lineId+'/towers','POST',body);await saved(r,'已保存 '+r.count+' 基杆塔')}catch(e){report(e)}finally{busy.value=false}}
 async function showTower(id:string){try{towerView.value=await api('/ledger/towers/'+id)}catch(e){report(e)}}
-function closeTowerDrawer(){if(!editor.value)towerView.value=null}
+function closeTowerDetail(){if(!editor.value)towerView.value=null}
+async function openRelatedTower(row:Rec){
+ if(!row?.id)return;
+ if(row.line_id!==props.lineId)await selectLine(row.line_id);
+ await showTower(row.id);
+}
 async function editTower(row:Rec,replace=false){await showTower(row.id);if(!towerView.value)return;
  if(replace&&towerView.value.shared_with.filter((r:Rec)=>r.status==='active').length>1){await openWholeReplacement();return}
  resetEditor(replace?'tower-replace':'tower-edit',{id:row.id,version:towerView.value.version,tower_no:towerView.value.tower_no,circuit_position:towerView.value.circuit_position||'',management_department:towerView.value.management_department||'',maintenance_team:towerView.value.maintenance_team||'',status:towerView.value.status,physical_version:towerView.value.physical?.version,physical:replace?physicalForm():physicalForm(towerView.value.physical),reason:'',confirm_shared:false})}
@@ -194,7 +200,13 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
  <div class="ledger-workspace">
   <p v-if="visibleError" class="alert error" role="alert">{{visibleError}} <ElButton native-type="button" @click="error=''">×</ElButton></p><p v-if="success" class="alert ok" role="status">{{success}}</p>
   <template v-if="view!=='lines'">
-   <section class="panel ledger-global-query">
+   <section v-if="towerView" class="panel ledger-query-detail">
+    <LedgerTowerDetail :tower="towerView"
+     :line-name="lines.find(l=>l.id===towerView!.line_id)?.name||'所属线路'"
+     :can-write="canWrite" :can-insert="ready" :in-current-line="false"
+     @back="closeTowerDetail" @select-shared="openRelatedTower"/>
+   </section>
+   <section v-else class="panel ledger-global-query">
     <div class="section-header"><h2>{{view==='towers'?'杆塔查询':'档距查询'}}</h2><ElButton class="secondary" @click="loadQuery">刷新</ElButton></div>
     <div class="ledger-query-tools">
      <ElSelect v-model="queryLine" clearable filterable placeholder="全部线路" aria-label="线路筛选" class="ledger-select">
@@ -222,6 +234,18 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
     <div class="ledger-tree"><div v-for="l in tree" :key="l.id"><ElButton class="ledger-line" :class="{selected:lineId===l.id}" @click="selectLine(l.id)"><strong>{{l.name}}</strong><small>{{l.voltage_name}} · {{l.line_kind==='branch'?'支线（接入待确认）':'主线'}} · {{l.tower_count}} 基</small></ElButton><ElButton v-for="child in l.children" :key="child.id" class="ledger-line branch" :class="{selected:lineId===child.id}" @click="selectLine(child.id)"><strong>└ {{child.name}}</strong><small>支线{{child.setup_status==='draft'?' · 接入点待确认':''}}</small></ElButton></div><p v-if="!tree.length" class="empty">{{lines.length?'没有符合条件的线路':'先新建一条主线，再添加杆塔'}}</p></div>
    </aside>
    <div class="ledger-main panel ledger-unified" :aria-busy="loading">
+    <LedgerTowerDetail v-if="towerView" :tower="towerView"
+     :line-name="lines.find(l=>l.id===towerView!.line_id)?.name||lineChoice?.name||'所属线路'"
+     :can-write="canWrite" :can-insert="ready"
+     :in-current-line="towerView.line_id===lineId"
+     @back="closeTowerDetail"
+     @edit="editTower(towerView)"
+     @insert="addTower(false,towerView.id);towerView=null"
+     @bind="openShared(towerView)"
+     @replace="editTower(towerView,true)"
+     @remove="confirmDelete('towers',towerView)"
+     @select-shared="openRelatedTower"/>
+    <template v-else>
     <section v-if="lineChoice" class="ledger-summary"><div class="section-header"><div><span class="tag">{{lineChoice.line_kind==='main'?'主线':'支线'}}</span><h2>{{lineChoice.name}}</h2><p class="muted">{{lineChoice.voltage_name}} · {{stateName(lineChoice.status)}} · {{lineChoice.tower_count}} 基杆塔 · {{lineChoice.span_count}} 档</p><p v-if="lineChoice.line_kind==='branch'" class="muted">所属主线：{{lineChoice.parent_name}} · 接入杆塔：{{lineChoice.junction_tower_no||'待确认'}}</p></div><div class="actions"><ElButton v-if="canWrite&&lineChoice.line_kind==='main'" class="secondary" @click="lineForm(true)">新增支线</ElButton><ElButton v-if="canWrite" class="secondary" @click="editLine">编辑线路</ElButton><ElButton class="light" @click="loadData()">刷新</ElButton></div></div>
      <div class="ledger-tabs"><ElButton v-for="t in [{id:'towers',name:'杆塔'},{id:'spans',name:'档距'},{id:'info',name:'线路信息'},{id:'history',name:'变更记录'}]" :key="t.id" :class="{active:tab===t.id}" @click="tab=t.id">{{t.name}}</ElButton></div>
     </section>
@@ -259,6 +283,7 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
      </section>
      <section v-if="tab==='info'" class="ledger-work-section"><h2>线路信息</h2><div class="info-grid"><div v-for="[key,label] in [['name','线路名称'],['voltage_name','电压等级']]" :key="key"><small>{{label}}</small><strong>{{lineChoice[key]||'未填写'}}</strong></div></div><ElButton v-if="canWrite" class="light" @click="confirmDelete('lines',lineChoice)">删除误录线路</ElButton></section>
      <section v-if="tab==='history'" class="ledger-work-section"><h2>变更记录</h2><article v-for="h in workspace!.history" :key="h.id" class="ledger-history"><strong>{{actionLabel(h.action)}}</strong><p>{{h.reason||'初始录入'}} · {{h.actor_name||'用户'}} · {{new Date(h.created_at).toLocaleString()}}</p></article><p v-if="!workspace!.history.length" class="empty">尚无线路工作台变更记录，原台账命名历史仍保留在杆塔详情。</p></section>
+    </template>
     </template>
    </div>
   </div>
@@ -315,7 +340,7 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
    <ElForm v-if="editor==='delete'" ref="simpleFormRef" :model="form" label-position="top" novalidate @submit.prevent="validateSimple(simpleFormRef,removeRecord)"><p>删除“{{form.label}}”？已有业务引用的记录不能直接删除，系统会保留关联依据。</p><ElFormItem label="删除原因" prop="reason" :rules="reasonRule"><ElInput v-model="form.reason" aria-label="删除原因"/></ElFormItem><div class="form-actions"><ElButton native-type="button" class="light" @click="closeEditor">取消</ElButton><ElButton native-type="submit" class="primary" :disabled="busy">确认删除</ElButton></div></ElForm>
   </ElDialog>
   <ElDialog :model-value="discard" title="放弃未保存的修改？" @close="discard=false" width="620px" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p>已填写的内容尚未保存，关闭后将丢弃本次修改。</p><div class="form-actions"><ElButton class="secondary" @click="discard=false">继续编辑</ElButton><ElButton class="primary" @click="discardEditor">放弃修改</ElButton></div></ElDialog>
-  <ElDrawer :model-value="!!towerView&&!editor" title="杆塔详情" size="min(580px, 94vw)" :destroy-on-close="true" @close="closeTowerDrawer"><div v-if="towerView" class="ledger-detail-body"><div class="section-header"><h2>杆塔 {{towerView.tower_no}}</h2><ElButton aria-label="关闭杆塔详情" @click="towerView=null">关闭</ElButton></div><h3>当前线路位置</h3><p>{{lines.find(l=>l.id===towerView!.line_id)?.name}} · {{towerView.tower_no}} · {{stateName(towerView.status)}}</p><p>管辖部门：{{towerView.management_department||'待核实'}} · 代维队：{{towerView.maintenance_team||'未填写'}}</p><h3>实际杆塔公共属性</h3><div class="info-grid"><div v-for="[key,label] in [['tower_type','结构类型'],['model','型号'],['purpose','用途']]" :key="key"><small>{{label}}</small><strong>{{towerView.physical?.[key]||'未填写'}}</strong></div><div><small>塔高（米）</small><strong>{{qty(towerView.physical?.height_scaled)}}</strong></div></div><h3>关联线路</h3><p v-for="t in towerView.shared_with" :key="t.id"><ElButton class="link" @click="towerView=null;selectLine(t.line_id)">{{t.line_name}} {{t.tower_no}}</ElButton> {{t.circuit_position}}</p><h3>相邻档距</h3><p v-for="s in towerView.spans" :key="s.id">{{s.line_name}} {{s.start_tower_no}}—{{s.end_tower_no}} · 坐标推算 {{qty(s.length_scaled)}} 米 · {{stateName(s.status)}}</p><p v-if="!towerView.spans.length" class="muted">尚未建立相邻档距</p><p class="muted">{{towerView.demand_count}} 条需求引用</p><div v-if="canWrite&&towerView.line_id===lineId" class="form-actions"><ElButton class="secondary" @click="editTower(towerView)">编辑杆塔</ElButton><ElButton class="secondary" :disabled="!ready" @click="addTower(false,towerView.id);towerView=null">后插入</ElButton><ElButton class="secondary" @click="openShared(towerView)">关联共塔</ElButton><ElButton class="secondary" @click="editTower(towerView,true)">实际换塔</ElButton><ElButton class="light" @click="confirmDelete('towers',towerView)">删除误录杆塔</ElButton></div><h3>命名与实体变更历史</h3><p v-for="h in [...towerView.names,...towerView.bindings].sort((a,b)=>b.valid_from.localeCompare(a.valid_from))" :key="h.id" class="history">{{new Date(h.valid_from).toLocaleString()}} · {{h.tower_no||({initial:'初始关联',correction:'关联纠错',replacement:'实际换塔'} as Rec)[h.change_kind]}} · {{h.reason}}</p></div></ElDrawer>
+
  </div>
 </template>
 <style scoped>
@@ -334,6 +359,9 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
 .ledger-line.el-button>span{display:block;max-width:100%;min-width:0;text-align:left}
 .ledger-line strong,.ledger-line small{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ledger-main.ledger-unified{min-width:0;padding:20px 23px}
+.ledger-workspace{min-width:0}
+.ledger-query-detail{min-width:0;padding:24px}
+.ledger-layout>*{min-width:0}
 .ledger-summary{padding:0 0 10px;min-width:0}
 .ledger-summary .section-header{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;flex-wrap:wrap}
 .ledger-summary h2{font-size:20px;line-height:1.45;margin:6px 0}
@@ -354,8 +382,6 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
 .ledger-structure,.ledger-secondary{display:block;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ledger-secondary{font-size:11px;color:var(--el-text-color-secondary)}
 .ledger-row-actions{display:flex;align-items:center;gap:3px;white-space:nowrap}
-.ledger-detail-body{line-height:1.7}
-.ledger-detail-body h3{font-size:14px;margin:18px 0 8px}
 .ledger-workspace .table-wrap{max-width:100%;overflow-x:auto}
 @media(max-width:1100px){.ledger-workspace .ledger-layout{grid-template-columns:minmax(210px,240px) minmax(0,1fr)}.ledger-main.ledger-unified{padding:16px}}
 @media(max-width:760px){.ledger-workspace .ledger-layout{grid-template-columns:minmax(0,1fr)}.ledger-directory{position:static}.ledger-tree{max-height:180px}.ledger-main.ledger-unified{padding:13px}.ledger-tower-toolbar .ledger-search{width:100%}}

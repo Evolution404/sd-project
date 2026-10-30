@@ -63,7 +63,7 @@ try{
  const reason=page.getByRole('dialog');await reason.getByLabel('操作依据 / 说明').fill('现场复核位置');await reason.getByRole('button',{name:'确认',exact:true}).click();await page.getByRole('status').filter({hasText:'位置已更新'}).waitFor();
  assert.equal((await api('/demands/'+first.id)).observed_physical_tower_id,newPhysical.id);
  mkdirSync('release',{recursive:true});await page.screenshot({path:join(process.cwd(),'release','audit-browser-acceptance.png'),fullPage:true});
- await panel.getByRole('button',{name:/关闭/}).click();await page.setViewportSize({width:1280,height:900});await entry();
+ await panel.getByRole('button',{name:/返回需求列表/}).click();await page.setViewportSize({width:1280,height:900});await entry();
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,'custom field and draft entry should fit a compact desktop viewport');
  assert.deepEqual(errors,[]);console.log('AUDIT_BROWSER_OK draft reload/update/submit/retry; dynamic field overrides; four-decimal quantity; attachment upload; location revalidation');
 }finally{

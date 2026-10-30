@@ -28,3 +28,8 @@ import 'element-plus/es/components/main/style/css';
 import 'element-plus/es/components/avatar/style/css';
 import 'element-plus/es/components/breadcrumb/style/css';
 import 'element-plus/es/components/breadcrumb-item/style/css';
+import 'element-plus/es/components/tabs/style/css';
+import 'element-plus/es/components/tab-pane/style/css';
+import 'element-plus/es/components/timeline/style/css';
+import 'element-plus/es/components/timeline-item/style/css';
+import 'element-plus/es/components/empty/style/css';
