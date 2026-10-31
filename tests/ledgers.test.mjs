@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {execFileSync} from 'node:child_process';
 import {once} from 'node:events';
+import {createHash} from 'node:crypto';
 const root=mkdtempSync(join(tmpdir(),'sd-ledgers-'));process.env.DATA_DIR=root;process.env.SD_DISABLE_LISTEN='1';
 const {db,one,all}=await import('../server/db.mjs');const {app}=await import('../server/server.mjs');let origin,cookie,serial=0;
 before(async()=>{execFileSync(process.execPath,['scripts/init-admin.mjs'],{env:{...process.env,SD_ADMIN_USER:'ledger',SD_ADMIN_PASSWORD:'test'}});app.listen(0,'127.0.0.1');await once(app,'listening');origin='http://127.0.0.1:'+app.address().port;const r=await fetch(origin+'/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'ledger',password:'test'})});cookie=r.headers.get('set-cookie').split(';')[0]});
@@ -118,4 +119,60 @@ test('cross-line tower/span queries are server-paged and preserve counts and sea
  const spans=await api('/ledger/spans?page=1&page_size=1&line_id='+l.id);
  assert.equal(spans.total,2);assert.equal(spans.rows.length,1);assert.equal(spans.rows[0].distance_method,'coordinate-derived');
  assert.equal('length_scaled' in all("SELECT name FROM pragma_table_info('line_spans')").map(x=>x.name),false);
+});
+
+
+test('topology editor draft preview is rollback-only and a mixed node/edge commit is atomic and idempotent',async()=>{
+ const {l,w}=await fixture(['001','003']);
+ const existing=w.towers;
+ const body={version:w.line.version,topology_token:w.topology_token,
+  towers:[{client_id:'draft-insert-001a',after_id:existing[0].id,data:{tower_no:'001A',management_department:'输电四班',longitude:'118.5',latitude:'32.1'}}],
+  spans:[{start_id:existing[0].id,end_id:'draft-insert-001a'},{start_id:'draft-insert-001a',end_id:existing[1].id}]};
+ const before={towers:one('SELECT COUNT(*) n FROM logical_towers WHERE line_id=?',l.id).n,
+  spans:one('SELECT COUNT(*) n FROM line_spans WHERE line_id=?',l.id).n,
+  audits:one("SELECT COUNT(*) n FROM audit_events WHERE entity='ledger_lines' AND entity_id=?",l.id).n};
+ const preview=await api('/ledger/lines/'+l.id+'/topology/preview','POST',body);
+ assert.equal(preview.preview,true);assert.equal(preview.tower_count,1);assert.equal(preview.span_count,2);
+ assert.equal(one('SELECT COUNT(*) n FROM logical_towers WHERE line_id=?',l.id).n,before.towers);
+ assert.equal(one('SELECT COUNT(*) n FROM line_spans WHERE line_id=?',l.id).n,before.spans);
+ assert.equal(one("SELECT COUNT(*) n FROM audit_events WHERE entity='ledger_lines' AND entity_id=?",l.id).n,before.audits);
+ const invalid={...body,spans:[...body.spans,{start_id:existing[0].id,end_id:'missing-id'}]};
+ await api('/ledger/lines/'+l.id+'/topology','POST',invalid,422);
+ assert.equal(one('SELECT COUNT(*) n FROM logical_towers WHERE line_id=?',l.id).n,before.towers,'invalid mixed batch rolled back tower inserts');
+ assert.equal(one('SELECT COUNT(*) n FROM line_spans WHERE line_id=?',l.id).n,before.spans,'invalid mixed batch rolled back span inserts');
+ const result=await api('/ledger/lines/'+l.id+'/topology','POST',{...body,idempotency_key:'topology-mixed-'+l.id},201);
+ assert.equal(result.tower_count,1);assert.equal(result.span_count,2);
+ assert.deepEqual(await api('/ledger/lines/'+l.id+'/topology','POST',{...body,idempotency_key:'topology-mixed-'+l.id},201),result);
+ const after=await api('/ledger/lines/'+l.id);
+ assert.deepEqual(after.towers.map(t=>t.tower_no),['001','001A','003']);
+ assert.equal(after.spans.filter(x=>x.status==='active').length,2);
+ assert.equal(after.towers[1].management_department,'输电四班');
+ assert.equal(after.towers[1].longitude,118.5);
+ assert.equal(one("SELECT COUNT(*) n FROM audit_events WHERE entity='ledger_lines' AND entity_id=? AND action='topology_batch'",l.id).n,1);
+ await api('/ledger/lines/'+l.id+'/topology','POST',body,409);
+ const fresh=await api('/ledger/lines/'+l.id);
+ await api('/ledger/lines/'+l.id+'/topology','POST',{
+  version:fresh.line.version,topology_token:fresh.topology_token,
+  towers:[{client_id:'draft-append',after_id:null,data:{tower_no:'004'}}],spans:[]},201);
+ const appended=await api('/ledger/lines/'+l.id);
+ assert.deepEqual(appended.towers.map(t=>t.tower_no),['001','001A','003','004'],'no anchor means append at end of line');
+
+});
+
+
+test('non-admin users cannot access the base ledger, including topology preview and commit',async()=>{
+ const {l,w}=await fixture([]);
+ for(const role of ['editor','viewer','verifier']){
+  const id='ledger-role-'+role,token='session-ledger-'+role;
+  db.prepare('INSERT INTO users(id,username,password_hash,role,status,created_at) VALUES(?,?,?,?,?,?)').run(id,id,'unused',role,'active',new Date().toISOString());
+  db.prepare('INSERT INTO sessions(token_hash,user_id,expires_at,created_at) VALUES(?,?,?,?)').run(createHash('sha256').update(token).digest('hex'),id,'2099-01-01T00:00:00.000Z',new Date().toISOString());
+  const headers={cookie:'sd_session='+token,'content-type':'application/json'};
+  const query=await fetch(origin+'/api/ledger/lines',{headers});
+  assert.equal(query.status,403,role+' cannot list base ledger');
+  const body={version:w.line.version,topology_token:w.topology_token,towers:[{client_id:'draft-permission',after_id:null,data:{tower_no:'NO'}}],spans:[]};
+  for(const action of ['preview','']){
+   const response=await fetch(origin+'/api/ledger/lines/'+l.id+'/topology'+(action?'/'+action:''),{method:'POST',headers,body:JSON.stringify(body)});
+   assert.equal(response.status,403,role+' cannot '+(action||'commit')+' topology');
+  }
+ }
 });

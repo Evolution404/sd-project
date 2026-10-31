@@ -149,6 +149,63 @@ export function addLedgerTowers(id,body,user){return mutate(user,body,()=>{
  for(const row of rows){let pid=row.physical_tower_id;if(!pid){pid=uid();insert('physical_towers',{id:pid,tower_code:'PT-'+pid.replaceAll('-',''),...row.physical,status:'active',version:1,created_at:now(),updated_at:now()})}ids.push(newLogical(id,row,pid,user).id)}
  const at=body.after_tower_id?before.indexOf(body.after_tower_id)+1:before.length;before.splice(at,0,...ids);setOrder(id,before,user);touch(id);record(user,id,'add_towers',null,{ids,rows:rows.map(r=>({tower_no:r.tower_no,physical_tower_id:r.physical_tower_id})),after_tower_id:body.after_tower_id||null});return {line_id:id,ids,count:ids.length};
 })}
+
+// Topology draft batches reuse the established tower/span validators and audit model.
+// Preview executes the exact same commands inside a deliberately rolled-back transaction.
+// No geometry coordinates, span lengths, deletion or historical-binding operations are stored.
+function performTopologyDraft(id,body,user){
+ writableLine(id);checkTopology(id,body);
+ if(!body.topology_token)fail(422,'拓扑变更必须附带当前版本标识');
+ const proposedTowers=body.towers??[],proposedSpans=body.spans??[];
+ if(!Array.isArray(proposedTowers)||!Array.isArray(proposedSpans)||proposedTowers.length>100||proposedSpans.length>200)
+  fail(422,'每次最多新增100基杆塔和200条档距');
+ if(!proposedTowers.length&&!proposedSpans.length)fail(422,'没有待提交的拓扑变更');
+ const normalized=proposedTowers.map(t=>{
+  if(!t||typeof t!=='object'||!t.data||typeof t.data!=='object'||Array.isArray(t.data)
+     ||Object.keys(t.data).some(k=>!['tower_no','management_department','maintenance_team','tower_type','model','height','longitude','latitude'].includes(k)))
+   fail(422,'拓扑新增杆塔字段超出批准范围；共塔关联和其他结构变更请使用独立业务流程');
+  return t.data;
+ });
+ const checked=normalized.length?inspectTowerRows(id,{...body,rows:normalized}):[];
+ const order=all("SELECT id FROM logical_towers WHERE line_id=? AND status<>'inactive' ORDER BY sort_rank,id",id).map(t=>t.id);
+ const idMap=new Map(),created=[],added=[];
+ for(let i=0;i<checked.length;i++){
+  const item=proposedTowers[i],row=checked[i],key=item?.client_id;
+  if(typeof key!=='string'||!/^draft-[a-z0-9-]{1,50}$/.test(key)||idMap.has(key))fail(422,'新杆塔的临时编号无效或重复');
+  const after=item.after_id||null;
+  const at=after?order.indexOf(idMap.get(after)||after):order.length-1;
+  if(after&&at<0)fail(422,'新杆塔插入位置不存在或不属于当前线路');
+  let pid=row.physical_tower_id;
+  if(!pid){pid=uid();insert('physical_towers',{id:pid,tower_code:'PT-'+pid.replaceAll('-',''),...row.physical,status:'active',version:1,created_at:now(),updated_at:now()})}
+  const towerRow=newLogical(id,row,pid,user);
+  idMap.set(key,towerRow.id);created.push({client_id:key,id:towerRow.id,tower_no:row.tower_no,after_id:after});
+  order.splice(at+1,0,towerRow.id);
+ }
+ if(created.length)setOrder(id,order,user);
+ const mapped=proposedSpans.map(s=>({
+  start_tower_id:idMap.get(s?.start_id)||s?.start_id,
+  end_tower_id:idMap.get(s?.end_id)||s?.end_id
+ }));
+ const checkedSpans=mapped.length?spanRows(id,mapped):[];
+ for(const row of checkedSpans){
+  const sid=uid();insert('line_spans',{id:sid,line_id:id,...row,version:1,created_by:user.id,created_at:now(),updated_at:now()});
+  added.push({id:sid,...row});
+ }
+ touch(id);
+ record(user,id,'topology_batch',null,{towers:created,spans:added});
+ return {line_id:id,ids:[...created.map(x=>x.id),...added.map(x=>x.id)],tower_count:created.length,span_count:added.length,towers:created,spans:added};
+}
+export function previewLedgerTopologyDraft(id,body,user){
+ const sentinel={kind:'topology-preview-rollback'},result={};
+ try{
+  transaction(()=>{Object.assign(result,performTopologyDraft(id,body,user));throw sentinel});
+ }catch(e){if(e!==sentinel)throw e}
+ return {...result,preview:true};
+}
+export function applyLedgerTopologyDraft(id,body,user){
+ return mutate(user,body,()=>performTopologyDraft(id,body,user));
+}
+
 export function reorderLedgerTowers(id,body,user){return mutate(user,body,()=>{
  checkTopology(id,body);writableLine(id);const current=all("SELECT id FROM logical_towers WHERE line_id=? AND status<>'inactive' ORDER BY sort_rank,id",id).map(t=>t.id),ids=body.ordered_ids;
  if(!Array.isArray(ids)||new Set(ids).size!==current.length||ids.length!==current.length||ids.some(t=>!current.includes(t)))fail(422,'排序必须包含当前线路全部有效杆塔且不能重复');

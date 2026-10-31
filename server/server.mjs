@@ -525,7 +525,7 @@ async function dispatch(req,res){
  if(wholeTower&&method==='GET'){permit(user,'view');return json(res,200,previewWholeTowerReplacement(wholeTower[1]))}
  if(wholeTower&&method==='POST'){permit(user,'write');return json(res,200,replaceWholeTower(wholeTower[1],await parseJson(req),user))}
  if(pathname.startsWith('/api/ledger/')){
-  permit(user,method==='GET'?'view':'write');
+  permit(user,'admin');
   const parts=pathname.split('/').filter(Boolean),[, ,entity,id,action,subAction]=parts;
   const body=method==='GET'?null:{...await parseJson(req),__operation:method+' '+pathname};
   if(entity==='lines'&&!id){if(method==='GET')return json(res,200,ledger.listLedgerLines());if(method==='POST')return json(res,201,ledger.createLedgerLine(body,user))}
@@ -533,6 +533,11 @@ async function dispatch(req,res){
    if(method==='GET')return json(res,200,ledger.ledgerWorkspace(id));
    if(!action&&method==='PATCH')return json(res,200,ledger.updateLedgerLine(id,body,user));
    if(!action&&method==='DELETE')return json(res,200,ledger.deleteLedgerLine(id,body,user));
+   if(action==='topology'&&method==='POST'){
+    permit(user,'admin');
+    return json(res,subAction==='preview'?200:201,subAction==='preview'
+      ?ledger.previewLedgerTopologyDraft(id,body,user):ledger.applyLedgerTopologyDraft(id,body,user));
+   }
    if(action==='towers'&&method==='POST')return json(res,subAction==='preview'?200:201,subAction==='preview'?ledger.previewTowers(id,body):ledger.addLedgerTowers(id,body,user));
    if(action==='reorder'&&method==='POST')return json(res,200,ledger.reorderLedgerTowers(id,body,user));
    if(action==='spans'&&method==='POST')return json(res,subAction==='preview'?200:201,subAction==='preview'?ledger.previewSpans(id,body):ledger.addLedgerSpans(id,body,user));

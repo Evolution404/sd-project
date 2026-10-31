@@ -33,3 +33,4 @@ import 'element-plus/es/components/tab-pane/style/css';
 import 'element-plus/es/components/timeline/style/css';
 import 'element-plus/es/components/timeline-item/style/css';
 import 'element-plus/es/components/empty/style/css';
+import 'element-plus/es/components/message-box/style/css';

@@ -14,7 +14,7 @@
     "check:ui": "node scripts/check-native-ui.mjs",
     "check:ui:strict": "node scripts/check-native-ui.mjs --strict",
     "backup": "node scripts/backup.mjs",
-    "test:browser": "npm run build && node tests/browser.mjs && node tests/browser-audit.mjs && node tests/browser-lan-smoke.mjs && node tests/browser-validation.mjs && node tests/browser-ledger.mjs && node tests/browser-dictionary.mjs && node tests/browser-funding-audit.mjs && node tests/browser-plan-finance.mjs && node tests/browser-plan-budgets.mjs && node tests/browser-completion.mjs && node tests/browser-costs.mjs"
+    "test:browser": "npm run build && node tests/browser.mjs && node tests/browser-audit.mjs && node tests/browser-lan-smoke.mjs && node tests/browser-validation.mjs && node tests/browser-ledger.mjs && node tests/browser-topology.mjs && node tests/browser-dictionary.mjs && node tests/browser-funding-audit.mjs && node tests/browser-plan-finance.mjs && node tests/browser-plan-budgets.mjs && node tests/browser-completion.mjs && node tests/browser-costs.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

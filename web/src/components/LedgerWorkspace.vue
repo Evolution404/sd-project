@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import {ElDialog} from 'element-plus';
+import {ElDialog,ElMessageBox} from 'element-plus';
 import {requestApi} from '../api/client';
 import {ElButton,ElTable,ElTableColumn,ElCheckbox,ElInput,ElSelect,ElOption,ElPagination,ElForm,ElFormItem,ElRadio,ElDatePicker,ElTag,type FormInstance} from 'element-plus';
 import LedgerTowerDetail from './LedgerTowerDetail.vue';
+import LedgerTopologyEditor from './LedgerTopologyEditor.vue';
 import {computed,onMounted,onBeforeUnmount,reactive,ref,watch} from 'vue';
 import {newClientId} from '../utils/client-id';
 
 type Rec=Record<string,any>;
 const props=defineProps<{user:Rec,view:string,lineId:string,focusTab?:string,focusTower?:string}>();
-const emit=defineEmits<{(e:'update:lineId',id:string):void,(e:'update:focusTab',tab:string):void,(e:'workspace',value:Rec):void,(e:'changed'):void,(e:'demands',value:Rec):void}>();
+const emit=defineEmits<{(e:'update:lineId',id:string):void,(e:'update:focusTab',tab:string):void,(e:'workspace',value:Rec):void,(e:'changed'):void,(e:'demands',value:Rec):void,(e:'draftDirty',value:boolean):void}>();
 const lines=ref<Rec[]>([]),voltage=ref<Rec[]>([]),items=ref<Rec[]>([]),allTowers=ref<Rec[]>([]),allSpans=ref<Rec[]>([]),workspace=ref<Rec|null>(null);
-const loading=ref(false),busy=ref(false),error=ref(''),success=ref(''),tab=ref(props.focusTab||'towers');
+const loading=ref(false),busy=ref(false),error=ref(''),success=ref(''),tab=ref(props.focusTab||'topology'),topologyDirty=ref(false);
 const lineFormRef=ref<any>(null);
 const queryTotal=ref(0),queryPageRows=ref<Rec[]>([]),queryLoading=ref(false);let queryTicket=0;
 const filter=ref(''),voltageFilter=ref(''),query=ref(''),queryLine=ref(''),queryPage=ref(1),towerSearch=ref(''),towerDepartment=ref(''),towerStatus=ref(''),showRetired=ref(false);
@@ -18,7 +19,7 @@ const selectedTowers=reactive<Record<string,boolean>>({}),selectedSpans=reactive
 const editor=ref(''),form=reactive<Rec>({}),rows=ref<Rec[]>([]),common=reactive<Rec>({}),preview=ref<Rec|null>(null),previewHash=ref(''),initialSnapshot=ref(''),discard=ref(false),requestKey=ref('');
 const replacementTargets=ref<Rec[]>([]);
 const towerView=ref<Rec|null>(null),sourceLine=ref(''),rangeStart=ref('1'),rangeEnd=ref('10'),numberWidth=ref('3'),numberPrefix=ref(''),pasteNumbers=ref(''),inputMode=ref('range');
-const lineChoice=computed(()=>workspace.value?.line||null),canWrite=computed(()=>['admin','editor'].includes(props.user.role));
+const lineChoice=computed(()=>workspace.value?.line||null),canWrite=computed(()=>props.user.role==='admin');
 const visibleError=computed(()=>error.value);
 const nodes=computed<Rec[]>(()=>workspace.value?[...(workspace.value.junction?[{...workspace.value.junction,is_junction:true}]:[]),...workspace.value.towers]:[]);
 const ownTowers=computed<Rec[]>(()=>workspace.value?.towers||[]);
@@ -115,7 +116,20 @@ async function loadData(id=props.lineId,forceMasters=false){
  for(const key of Object.keys(selectedSpans))if(!w||!w.spans.some((s:Rec)=>s.id===key&&s.status!=='retired'))delete selectedSpans[key];
  }catch(e){if(ticket===loadVersion)report(e)}finally{if(ticket===loadVersion){loading.value=false;loadingLineId=''}}
 }
-async function selectLine(id:string){if(id===props.lineId&&workspace.value?.line.id===id)return;emit('update:lineId',id);Object.keys(selectedTowers).forEach(k=>delete selectedTowers[k]);Object.keys(selectedSpans).forEach(k=>delete selectedSpans[k]);towerView.value=null;highlight.value=[];towerSearch.value='';await loadData(id)}
+async function canLeaveTopology(){
+ if(!topologyDirty.value)return true;
+ try{await ElMessageBox.confirm('当前拓扑还有未提交的修改，切换将放弃本次编辑草稿。','未提交的拓扑变更',{
+  confirmButtonText:'放弃并切换',cancelButtonText:'继续编辑',type:'warning'});
+  topologyDirty.value=false;return true;
+ }catch{return false}
+}
+async function setTab(id:string){
+ if(tab.value===id)return;
+ if(tab.value==='topology'&&!(await canLeaveTopology()))return;
+ tab.value=id;
+}
+async function selectLine(id:string){if(id===props.lineId&&workspace.value?.line.id===id)return;
+ if(!(await canLeaveTopology()))return;emit('update:lineId',id);Object.keys(selectedTowers).forEach(k=>delete selectedTowers[k]);Object.keys(selectedSpans).forEach(k=>delete selectedSpans[k]);towerView.value=null;highlight.value=[];towerSearch.value='';await loadData(id)}
 async function openQuery(row:Rec){const kind=props.view;emit('workspace',{lineId:row.line_id,tab:props.view==='towers'?'towers':'spans',towerId:props.view==='towers'?row.id:''});await selectLine(row.line_id);tab.value=kind==='towers'?'towers':'spans';if(row.tower_no)await showTower(row.id)}
 function resetEditor(kind:string,values:Rec={},list:Rec[]=[]){error.value='';editor.value=kind;Object.keys(form).forEach(k=>delete form[k]);Object.assign(form,values);rows.value=list;Object.keys(common).forEach(k=>delete common[k]);Object.assign(common,{tower_type:'',model:'',height:'',purpose:'',commissioned_on:'',longitude:'',latitude:'',management_department:'',maintenance_team:''});preview.value=null;previewHash.value='';sourceLine.value='';requestKey.value=newClientId();initialSnapshot.value=snapshot()}
 function closeEditor(){if(busy.value)return;if(dirty.value){discard.value=true;return}editor.value='';error.value=''}
@@ -192,6 +206,7 @@ const actionLabel=(s:string)=>({create:'新建线路',update:'线路资料调整
 function unload(event:BeforeUnloadEvent){if(dirty.value){event.preventDefault();event.returnValue=''}}
 onMounted(()=>{void loadData();window.addEventListener('beforeunload',unload)});onBeforeUnmount(()=>{loadVersion++;window.removeEventListener('beforeunload',unload)});
 watch(()=>props.lineId,id=>{if(id&&workspace.value?.line.id!==id&&loadingLineId!==id)void loadData(id)});
+watch(topologyDirty,value=>emit('draftDirty',value));
 watch(tab,value=>emit('update:focusTab',value));
 watch(()=>props.focusTab,value=>{if(value)tab.value=value});watch(()=>props.focusTower,id=>{if(id)void showTower(id)});
 watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()});watch(queryPage,()=>void loadQuery());
@@ -247,11 +262,16 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
      @select-shared="openRelatedTower"/>
     <template v-else>
     <section v-if="lineChoice" class="ledger-summary"><div class="section-header"><div><ElTag type="primary" effect="light">{{lineChoice.line_kind==='main'?'主线':'支线'}}</ElTag><h2>{{lineChoice.name}}</h2><p class="muted">{{lineChoice.voltage_name}} · {{stateName(lineChoice.status)}} · {{lineChoice.tower_count}} 基杆塔 · {{lineChoice.span_count}} 档</p><p v-if="lineChoice.line_kind==='branch'" class="muted">所属主线：{{lineChoice.parent_name}} · 接入杆塔：{{lineChoice.junction_tower_no||'待确认'}}</p></div><div class="actions"><ElButton v-if="canWrite&&lineChoice.line_kind==='main'" class="secondary" @click="lineForm(true)">新增支线</ElButton><ElButton v-if="canWrite" class="secondary" @click="editLine">编辑线路</ElButton><ElButton class="light" @click="loadData()">刷新</ElButton></div></div>
-     <div class="ledger-tabs"><ElButton v-for="t in [{id:'towers',name:'杆塔'},{id:'spans',name:'档距'},{id:'info',name:'线路信息'},{id:'history',name:'变更记录'}]" :key="t.id" :class="{active:tab===t.id}" @click="tab=t.id">{{t.name}}</ElButton></div>
+     <div class="ledger-tabs"><ElButton v-for="t in [{id:'topology',name:'拓扑编辑'},{id:'towers',name:'杆塔清单'},{id:'spans',name:'档距清单'},{id:'info',name:'线路信息'},{id:'history',name:'变更记录'}]" :key="t.id" :class="{active:tab===t.id}" @click="setTab(t.id)">{{t.name}}</ElButton></div>
     </section>
     <section v-if="!lineChoice" class="panel empty"><p>从左侧选择线路，或新建主线开始录入。</p><ElButton v-if="canWrite" class="primary" @click="lineForm()">新建主线</ElButton></section>
     <template v-else>
      <p v-if="lineChoice.setup_status==='draft'" class="alert">支线接入点待确认。<ElButton v-if="canWrite" class="link" @click="editLine">继续完善支线</ElButton></p>
+     <section v-if="tab==='topology'" class="ledger-work-section ledger-topology-section">
+      <LedgerTopologyEditor :key="lineId" :line-id="lineId" :workspace="workspace!" :can-write="canWrite" :ready="ready"
+       @open-tower="showTower" @dirty="topologyDirty=$event"
+       @committed="async()=>{await loadData(lineId,true);emit('changed');notify('拓扑变更已作为单个事务保存')}"/>
+     </section>
      <section v-if="tab==='towers'" class="ledger-work-section"><div class="section-header"><div><h2>线路杆塔</h2><p class="muted">编号与沿线顺序分别维护；共塔公共属性只保存一份。</p></div><div v-if="canWrite" class="actions"><ElButton class="secondary" :disabled="!ready" @click="addTower(true)">批量添加杆塔</ElButton><ElButton class="primary" :disabled="!ready" @click="addTower()">新增杆塔</ElButton></div></div>
       <div class="toolbar ledger-tower-toolbar"><ElInput v-model="towerSearch" clearable placeholder="搜索杆塔号、结构、型号或部门" aria-label="筛选杆塔" class="ledger-search"/>
 <ElSelect v-model="towerDepartment" clearable placeholder="全部管辖部门" aria-label="管辖部门筛选" class="ledger-select"><ElOption v-for="d in departments" :key="d" :label="d" :value="d"/></ElSelect>

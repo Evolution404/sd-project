@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import {ElDialog} from 'element-plus';
+import {ElDialog,ElMessageBox} from 'element-plus';
 import {requestApi} from './api/client';
 import './styles/business-dialog.css';
 import './styles/detail-pages.css';
@@ -33,7 +33,7 @@ const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./components/Plan
 
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
-const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref(rememberedView('ledger-tab','towers')),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
+const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref('topology'),ledgerDraftDirty=ref(false),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
 const nav=ref('overview'),page=ref('overview'),user=ref<Rec|null>(null);
 const username=ref(''),password=ref('');
 const busy=ref(false),error=ref(''),success=ref('');
@@ -357,11 +357,20 @@ async function advance(stageName:'stock'|'approve',reason:string){
 }
 async function loadDemands(){const query=new URLSearchParams();if(statusFilter.value)query.set('status',statusFilter.value);if(search.value)query.set('search',search.value);if(lineFilter.value)query.set('line_id',lineFilter.value);demands.value=await api('/demands?'+query.toString())}
 async function openNav(next:string){
+ if(['lines','towers','spans'].includes(next)&&user.value?.role!=='admin'){
+  error.value='基础台账仅管理员可访问';return;
+ }
+ if(ledgerDraftDirty.value&&['lines','towers','spans'].includes(nav.value)&&next!==nav.value){
+  try{await ElMessageBox.confirm('拓扑还有未提交的变更。离开基础台账将放弃这些草稿。','离开拓扑编辑器',{
+    confirmButtonText:'放弃并离开',cancelButtonText:'继续编辑',type:'warning'});
+    ledgerDraftDirty.value=false;
+  }catch{return}
+ }
  nav.value=next;detail.value=null;edit.value=null;error.value='';
  stage.value='';projectAction.value='';executionAction.value='';completionItem.value=null;reasonAction.value='';
  if(next==='entry'&&roleWrite.value)await loadDrafts();
  if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
-function openLedger(value:Rec){ledgerLineId.value=value.lineId;ledgerTab.value=value.tab||'towers';ledgerTowerId.value=value.towerId||'';void openNav('lines')}
+function openLedger(value:Rec){if(user.value?.role!=='admin'){error.value='基础台账仅管理员可访问';return}ledgerLineId.value=value.lineId;ledgerTab.value=value.tab||'towers';ledgerTowerId.value=value.towerId||'';void openNav('lines')}
 async function seedLedgerDemands(value:Rec){
  resetBatch();demandLocationKind.value=value.kind;selectedLine.value=value.line_id;
  if(value.kind==='span'){demandSpanRows.value=value.rows.map((s:Rec)=>({...s,span_id:s.id,span_version:s.version}));common.work_target_type='line'}
@@ -477,7 +486,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   </div>
   <p v-if="visibleError" role="alert" class="alert error">{{visibleError}} <ElButton @click="error=''">×</ElButton></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
   <DashboardPage v-if="nav==='overview'" :overview="overview" :demands="demands" @navigate="openNav" @open-demand="id=>{openNav('demands');showDemand(id)}"/>
-  <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands"/>
+  <LedgerWorkspace v-if="['lines','towers','spans'].includes(nav)" :user="user" :view="nav" v-model:line-id="ledgerLineId" v-model:focus-tab="ledgerTab" :focus-tower="ledgerTowerId" @workspace="openLedger" @changed="refresh" @demands="seedLedgerDemands" @draft-dirty="ledgerDraftDirty=$event"/>
   <ReferencePriceWorkspace v-if="nav==='prices'" :items="items" :voltage="voltage" :can-edit="roleAdmin"/>
   <FundingWorkspace v-if="['frameworks','agreements'].includes(nav)" :kind="nav" :can-write="!!roleWrite" :can-delete="roleAdmin" :can-authorize="roleAdmin" @changed="loadStructure"/>
   <template v-if="nav==='projects'">
