@@ -4,3 +4,37 @@
 .business-modal .el-dialog__body{padding:24px 25px;max-height:calc(100vh - 170px);overflow:auto;overscroll-behavior:contain}
 .business-modal .form-actions{display:flex;justify-content:flex-end;gap:10px}
 .business-modal .form-modal-error{color:#b4403a;font-size:12px;margin:0 0 12px}
+
+/* Tall edit forms must not place their commit/cancel controls below the
+   viewport. Keep the header stable, scroll only the form and pin actions. */
+.business-modal.el-dialog{
+ display:flex;
+ flex-direction:column;
+ max-height:calc(100dvh - 40px);
+ margin:20px auto;
+ overflow:hidden;
+}
+.business-modal .el-dialog__header{flex:none}
+.business-modal .el-dialog__body{
+ flex:1 1 auto;
+ min-height:0;
+ max-height:none;
+ overflow-y:auto;
+ overflow-x:hidden;
+}
+.business-modal .el-dialog__footer{flex:none}
+.business-modal .el-dialog__body .form-actions{
+ position:sticky;
+ bottom:-24px;
+ z-index:2;
+ background:#fff;
+ border-top:1px solid #e9eef6;
+ padding:13px 0 10px;
+ margin-top:16px;
+}
+@media(max-width:800px){
+ .business-modal.el-dialog{max-height:calc(100dvh - 24px);margin:12px auto}
+ .business-modal .el-dialog__header{padding:16px 18px}
+ .business-modal .el-dialog__body{padding:18px}
+ .business-modal .el-dialog__body .form-actions{bottom:-18px}
+}

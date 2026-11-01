@@ -411,4 +411,13 @@ watch([query,queryLine,()=>props.view],()=>{queryPage.value=1;void loadQuery()})
 .ledger-query-tools .ledger-select{width:245px;max-width:100%}
 .ledger-query-tools .ledger-search{width:275px;max-width:100%}
 @media(max-width:760px){.ledger-query-tools .ledger-select,.ledger-query-tools .ledger-search{width:100%}}
+/* The directory must not consume an entire short-screen workspace above
+   the actual topology editor. Switch to a stacked navigator earlier. */
+@media (max-width:1100px){
+ .ledger-workspace .ledger-layout{grid-template-columns:minmax(0,1fr)}
+ .ledger-workspace .ledger-directory{position:static}
+ .ledger-workspace .ledger-tree{min-height:0;max-height:135px}
+ .ledger-workspace .ledger-directory .section-header{margin-bottom:6px}
+ .ledger-workspace .ledger-directory label{margin:7px 0}
+}
 </style>

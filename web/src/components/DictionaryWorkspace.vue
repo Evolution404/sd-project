@@ -110,7 +110,7 @@ onMounted(load);
    <div class="dictionary-metrics"><ElCard v-for="metric in metricCards" :key="metric.label" shadow="never"><div class="dictionary-metric"><span :class="['dictionary-metric-icon',metric.color]"><ElIcon><component :is="metric.icon"/></ElIcon></span><div><ElStatistic :title="metric.label" :value="metric.value"/><small>{{metric.description}}</small></div></div></ElCard></div>
    <div class="dictionary-toolbar">
     <ElInput v-model="query" aria-label="搜索字典" placeholder="搜索名称、编码或应用领域" :prefix-icon="Search" clearable/>
-    <ElSelect v-model="category" aria-label="字典类型" :disabled="busy"><ElOption v-for="type in categories" :key="type.id" :value="type.id" :label="type.title"/></ElSelect>
+    <span class="dictionary-type-label">字典分类</span><ElSelect v-model="category" aria-label="字典类型" filterable :disabled="busy"><ElOption v-for="type in categories" :key="type.id" :value="type.id" :label="type.title"/></ElSelect>
     <ElSelect v-model="statusFilter" aria-label="状态筛选" :empty-values="[null,undefined]"><ElOption label="全部状态" value=""/><ElOption label="启用" value="active"/><ElOption label="停用" value="inactive"/><ElOption label="已删除" value="deleted"/></ElSelect>
     <ElSegmented v-model="origin" aria-label="词条来源" :options="[{label:'全部',value:''},{label:'系统内置',value:'builtin'},{label:'自定义',value:'custom'}]"/>
     <div class="dictionary-toolbar-actions"><ElButton :disabled="!selection.length||busy" @click="requestStatus(selection,'inactive')">批量停用{{selection.length?'（'+selection.length+'）':''}}</ElButton><ElButton :icon="Download" @click="exportRows">导出</ElButton><ElButton type="primary" :icon="Plus" :disabled="loading||busy" @click="open()">新增词条</ElButton></div>

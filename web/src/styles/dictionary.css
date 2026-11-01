@@ -36,6 +36,7 @@
 .dictionary-metric .el-statistic__head{font-size:12px;font-weight:600;color:#40516b;line-height:1.5;margin:0}
 .dictionary-metric .el-statistic__number{font-size:28px;line-height:1.3;font-weight:700;color:#203555}
 .dictionary-metric small{display:block;color:#8d9bb0;font-size:10px;line-height:1.6;margin-top:5px}
+.dictionary-type-label{display:none}
 .dictionary-toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:15px}
 .dictionary-toolbar>.el-input{flex:1;min-width:220px}
 .dictionary-toolbar>.el-select{width:130px}
@@ -118,3 +119,29 @@
 .dictionary-deletion-note{font-size:12px;color:#889bb4;margin-top:16px}
 
 .dictionary-ui.dictionary-dialog h3{color:#3e5474}
+
+
+/* A fixed three-column layout cannot fit inside the application workspace on
+   narrow desktops: categories, record table and help must reflow rather than
+   compress the record table into a column of individual Chinese characters. */
+@media (max-width:1180px){
+ .dictionary-columns{grid-template-columns:minmax(0,1fr);gap:12px}
+ /* On narrow workspaces the category selector is already in the toolbar.
+    Do not repeat it as a tall navigation card above the actual records. */
+ .dictionary-categories{display:none}
+ .dictionary-explanation{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .dictionary-table-card{min-width:0}
+ .dictionary-table-card .el-table{width:100%}
+ .dictionary-type-label{display:inline;font-size:12px;color:#61738d;white-space:nowrap}
+}
+@media (max-width:1000px){
+ .dictionary-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .dictionary-metric{gap:12px}
+ .dictionary-metric .el-statistic__head{white-space:normal}
+}
+@media (max-width:850px){
+ .dictionary-explanation{grid-template-columns:minmax(0,1fr)}
+ .dictionary-toolbar>.el-input{min-width:180px}
+ .dictionary-toolbar-actions{margin-left:0}
+ .dictionary-form-grid{grid-template-columns:minmax(0,1fr)}
+}

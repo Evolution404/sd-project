@@ -106,6 +106,22 @@ const thisLineTotal=computed(()=>logical.value.filter(x=>x.line_id===selectedLin
 const selectedLines=computed(()=>lines.value.filter(l=>selectedRows.value.some(x=>x.line_id===l.id)));
 const sectionLabel=computed(()=>nav.value==='entry'?'需求中心':['demands'].includes(nav.value)?'需求中心':['projects'].includes(nav.value)?'项目中心':nav.value==='prices'?'参考单价':['frameworks','agreements'].includes(nav.value)?'框架与协议':['lines','towers','spans'].includes(nav.value)?'基础台账':['dictionary','access','audit'].includes(nav.value)?'系统管理':'项目全流程');
 const displayTitle=computed(()=>nav.value==='entry'?'新建需求':nav.value==='projects'?'项目中心':nav.value==='overview'?'工作台':mediaTitle.value);
+const pageDescriptions:Record<string,string>={
+ overview:'查看当前项目、需求与实施进度。',
+ demands:'查看、核实和跟踪每一条需求。',
+ entry:'选择多个位置，共同内容填一次；逐基差异在预览中调整。',
+ projects:'从项目储备到立项及分次执行的全过程管理。',
+ prices:'管理检修项目参考单价及历史价格版本。',
+ frameworks:'查看年度项目框架及资金授权情况。',
+ agreements:'管理执行协议及框架额度占用情况。',
+ lines:'查看线路拓扑，维护杆塔、档距及版本历史。',
+ towers:'跨线路查找杆塔，定位其所属线路。',
+ spans:'跨线路查找档距，核对两端杆塔及状态。',
+ dictionary:'维护系统基础数据与应用范围。',
+ audit:'查询业务操作记录及历史处理说明。',
+ access:'由管理员配置允许访问服务器的 IP 地址。'
+};
+
 const roleStageApprove=computed(()=>user.value?.role==='admin');
 const roleWrite=computed(()=>user.value&&['admin','editor'].includes(user.value.role));
 const roleVerify=computed(()=>user.value&&['admin','verifier'].includes(user.value.role));
@@ -482,7 +498,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <div v-if="nav!=='dictionary'" class="page-heading">
    <div class="breadcrumb"><span>{{sectionLabel}}</span><span class="breadcrumb-slash">/</span><strong>{{nav==='entry'?'新建需求':displayTitle}}</strong></div>
    <div class="page-heading-title"><h1>{{displayTitle}}</h1><span v-if="nav==='entry'" class="subtle-tag">逐基独立生成</span></div>
-   <p class="page-description">{{nav==='entry'?'选择多个位置，共同内容填一次；逐基差异在预览中调整。':nav==='overview'?'掌握项目与需求的当前状态。':nav==='demands'?'查看、核实和跟踪每一条需求。':nav==='access'?'由管理员逐个配置允许访问服务器的 IP 地址。':nav==='projects'?'从项目储备到立项及分次执行的全过程管理。':'维护真实业务台账与版本历史。'}}</p>
+   <p class="page-description">{{pageDescriptions[nav]||''}}</p>
   </div>
   <p v-if="visibleError" role="alert" class="alert error">{{visibleError}} <ElButton @click="error=''">×</ElButton></p><p v-if="success" role="status" class="alert ok">{{success}}</p>
   <DashboardPage v-if="nav==='overview'" :overview="overview" :demands="demands" @navigate="openNav" @open-demand="id=>{openNav('demands');showDemand(id)}"/>
