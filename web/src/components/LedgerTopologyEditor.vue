@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import {computed,reactive,ref,watch} from 'vue';
+import {computed,reactive,ref,watch,onMounted,onBeforeUnmount,nextTick} from 'vue';
 import {ElButton,ElCard,ElDialog,ElEmpty,ElForm,ElFormItem,ElInput,ElOption,ElSelect,ElTag} from 'element-plus';
 import {requestApi} from '../api/client';
 import {newClientId} from '../utils/client-id';
+import {topologyTowerLabel,estimateTowerLabelWidth} from '../utils/topology-labels';
 
 type Rec=Record<string,any>;
 type DraftTower={client_id:string;after_id:string|null;data:{tower_no:string;management_department:string;maintenance_team:string;tower_type:string;model:string;height:string;longitude:string;latitude:string}};
@@ -19,6 +20,11 @@ const draftSpans=ref<DraftSpan[]>([]);
 const past=ref<string[]>([]);
 const future=ref<string[]>([]);
 const camera=reactive({x:0,y:0,w:1100,h:490});
+const canvasElement=ref<SVGSVGElement|null>(null);
+const canvasSize=reactive({width:1000,height:440});
+let sizeObserver:ResizeObserver|undefined;
+const pixelsPerUnit=computed(()=>Math.max(.001,Math.min(canvasSize.width/camera.w,canvasSize.height/camera.h)));
+const labelFontUnits=computed(()=>12/pixelsPerUnit.value);
 const dragging=ref(false);
 let dragX=0,dragY=0;
 const towerDialog=ref(false),previewDialog=ref(false),previewBusy=ref(false),saving=ref(false);
@@ -36,8 +42,17 @@ function restore(raw:string){const v=JSON.parse(raw);draftTowers.value=v.towers;
 function undo(){if(!past.value.length)return;future.value.push(snapshots());restore(past.value.pop()!)}
 function redo(){if(!future.value.length)return;past.value.push(snapshots());restore(future.value.pop()!)}
 function clearDraft(){draftTowers.value=[];draftSpans.value=[];past.value=[];future.value=[];preview.value=null;previewDialog.value=false;firstEndpoint.value='';selected.value='';message.value=''}
-watch(()=>props.lineId,()=>{clearDraft();resetCamera()});
-watch(layout,()=>{resetCamera();firstEndpoint.value=''});
+watch(()=>props.lineId,()=>{clearDraft();void nextTick(fitAll)});
+watch(layout,()=>{firstEndpoint.value='';void nextTick(fitAll)});
+onMounted(()=>{
+ const element=canvasElement.value;
+ if(!element)return;
+ const update=()=>{const r=element.getBoundingClientRect();canvasSize.width=Math.max(1,r.width);canvasSize.height=Math.max(1,r.height)};
+ update();
+ sizeObserver=new ResizeObserver(update);sizeObserver.observe(element);
+ void nextTick(fitAll);
+});
+onBeforeUnmount(()=>sizeObserver?.disconnect());
 function resetCamera(){Object.assign(camera,{x:0,y:0,w:1100,h:490})}
 const baseNodes=computed<Rec[]>(()=>[
  ...(props.workspace.junction?[{...props.workspace.junction,is_junction:true}]:[]),
@@ -83,6 +98,30 @@ const visibleLinks=computed(()=>links.value.filter(e=>{
 }));
 const viewBox=computed(()=>[camera.x,camera.y,camera.w,camera.h].join(' '));
 const selectedNode=computed(()=>nodeMap.value.get(selected.value));
+// Text is measured in CSS pixels, NOT topology units. Cull colliding labels
+// in geographic/zoomed-out views. Selected nodes and drafts have priority.
+const visibleLabelIds=computed(()=>{
+ const scale=pixelsPerUnit.value;
+ const occupied:{left:number;right:number;top:number;bottom:number}[]=[];
+ const shown=new Set<string>();
+ const priority=[...visibleNodes.value].sort((a,b)=>
+  Number(b.id===selected.value)-Number(a.id===selected.value)
+  || Number(b.draft)-Number(a.draft)
+  || a.x-b.x);
+ for(const node of priority){
+  const label=topologyTowerLabel(node.tower_no,props.workspace.line?.name);
+  if(!label)continue;
+  const x=(node.x-camera.x)*scale,y=(node.y-camera.y)*scale;
+  const half=estimateTowerLabelWidth(label)/2;
+  const baseline=y-(node.id===selected.value?15:10)-9;
+  const box={left:x-half-3,right:x+half+3,top:baseline-14,bottom:baseline+3};
+  // Screen-edge labels can be clipped naturally; they still participate
+  // in collision checks to prevent doubled text at the canvas boundary.
+  if(occupied.some(other=>box.left<other.right&&box.right>other.left&&box.top<other.bottom&&box.bottom>other.top))continue;
+  occupied.push(box);shown.add(node.id);
+ }
+ return shown;
+});
 function focus(id:string){const n=nodeMap.value.get(id);if(!n)return;selected.value=id;camera.x=n.x-camera.w/2;camera.y=n.y-camera.h/2}
 function zoom(factor:number){const midX=camera.x+camera.w/2,midY=camera.y+camera.h/2;camera.w=Math.max(190,Math.min(5000,camera.w*factor));camera.h=camera.w*490/1100;camera.x=midX-camera.w/2;camera.y=midY-camera.h/2}
 function fitAll(){
@@ -177,20 +216,24 @@ async function apply(){
    </div>
   </div>
   <div class="topology-canvas-wrap">
-   <svg class="topology-canvas" :viewBox="viewBox" aria-label="杆塔和档距的二维平面拓扑图" @pointerdown="panStart" @pointermove="panMove" @pointerup="panEnd" @pointercancel="panEnd" @wheel.prevent="wheelZoom">
-    <defs><pattern id="topology-grid" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#D4E0F0"/></pattern></defs>
+   <svg ref="canvasElement" class="topology-canvas" :viewBox="viewBox" aria-label="杆塔和档距的二维平面拓扑图" @pointerdown="panStart" @pointermove="panMove" @pointerup="panEnd" @pointercancel="panEnd" @wheel.prevent="wheelZoom">
+    <defs><pattern id="topology-grid" :width="24/pixelsPerUnit" :height="24/pixelsPerUnit" patternUnits="userSpaceOnUse"><circle :cx="1.5/pixelsPerUnit" :cy="1.5/pixelsPerUnit" :r="1/pixelsPerUnit" fill="#D4E0F0"/></pattern></defs>
     <rect :x="camera.x" :y="camera.y" :width="camera.w" :height="camera.h" fill="#F8FBFF"/>
     <rect :x="camera.x" :y="camera.y" :width="camera.w" :height="camera.h" fill="url(#topology-grid)" style="touch-action:none"/>
     <template v-for="e in visibleLinks" :key="e.id">
      <line :x1="nodeMap.get(e.start)?.x" :y1="nodeMap.get(e.start)?.y" :x2="nodeMap.get(e.end)?.x" :y2="nodeMap.get(e.end)?.y"
-      :stroke="e.draft?'#E39A35':'#3478F6'" :stroke-width="e.draft?3.5:2.6" :stroke-dasharray="e.draft?'9 5':undefined" stroke-linecap="round"/>
+      :stroke="e.draft?'#E39A35':'#3478F6'" :stroke-width="(e.draft?3.5:2.6)/pixelsPerUnit" :stroke-dasharray="e.draft?'9 5':undefined" stroke-linecap="round"/>
     </template>
     <g v-for="n in visibleNodes" :key="n.id" class="topology-node" role="button" :aria-label="'选择杆塔 '+n.tower_no" tabindex="0"
      @click.stop="clickNode(n)" @keydown.enter.prevent="clickNode(n)" @keydown.space.prevent="clickNode(n)">
-     <circle :cx="n.x" :cy="n.y" :r="selected===n.id?17:12" :fill="n.draft?'#FFF3DB':selected===n.id?'#D9EAFE':'white'" :stroke="n.draft?'#E39A35':'#3478F6'" :stroke-width="selected===n.id?3.5:2.4"/>
-     <circle v-if="firstEndpoint===n.id" :cx="n.x" :cy="n.y" r="23" fill="none" stroke="#3478F6" stroke-dasharray="4 4"/>
-     <text v-if="camera.w<2600" :x="n.x" :y="n.y-22" text-anchor="middle" font-size="13" font-weight="600" fill="#334A69">{{n.tower_no}}</text>
-     <text v-if="n.is_junction" :x="n.x" :y="n.y+31" text-anchor="middle" font-size="11" fill="#667A95">接入</text>
+     <title>{{n.tower_no}}</title>
+     <circle :cx="n.x" :cy="n.y" :r="(selected===n.id?15:10)/pixelsPerUnit" :fill="n.draft?'#FFF3DB':selected===n.id?'#D9EAFE':'white'" :stroke="n.draft?'#E39A35':'#3478F6'" :stroke-width="(selected===n.id?3.5:2.4)/pixelsPerUnit"/>
+     <circle v-if="firstEndpoint===n.id" :cx="n.x" :cy="n.y" :r="23/pixelsPerUnit" fill="none" stroke="#3478F6" :stroke-width="2/pixelsPerUnit" :stroke-dasharray="(4/pixelsPerUnit)+' '+(4/pixelsPerUnit)"/>
+     <text v-if="visibleLabelIds.has(n.id)" class="topology-label" :x="n.x"
+      :y="n.y-((selected===n.id?15:10)+9)/pixelsPerUnit" text-anchor="middle"
+      :font-size="labelFontUnits" font-weight="600" fill="#334A69">{{topologyTowerLabel(n.tower_no,workspace.line?.name)}}</text>
+     <text v-if="n.is_junction && pixelsPerUnit>0.9" :x="n.x" :y="n.y+28/pixelsPerUnit"
+      text-anchor="middle" :font-size="10/pixelsPerUnit" fill="#667A95">接入</text>
     </g>
    </svg>
    <div class="topology-zoom">
