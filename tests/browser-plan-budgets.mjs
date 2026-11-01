@@ -64,11 +64,11 @@ try{
  await page.getByRole('row').filter({hasText:'同一需求分两个检修计划'}).getByRole('button',{name:'需求范围与阶段'}).click();
  const openPlan=async(id)=>{
   const number=id===f.a.id?f.a.number:f.b.number;
-  await page.locator('.project-overlay .scope-item').filter({hasText:number+' · '}).getByRole('button',{name:'进入执行'}).click();
-  await page.locator('.execution-overlay [aria-label="检修计划预算"]').getByRole('heading',{name:'检修计划预算',exact:true}).waitFor();
+  await page.locator('.project-detail-view .scope-item').filter({hasText:number+' · '}).getByRole('button',{name:'进入执行'}).click();
+  await page.locator('.execution-detail-view [aria-label="检修计划预算"]').getByRole('heading',{name:'检修计划预算',exact:true}).waitFor();
  };
  await openPlan(f.a.id);
- const workspace=page.locator('.execution-overlay [aria-label="检修计划预算"]');
+ const workspace=page.locator('.execution-detail-view [aria-label="检修计划预算"]');
  const budget=workspace.getByTestId('plan-confirmed-budget');
  await budget.getByText('未核定',{exact:true}).waitFor();
  await workspace.getByRole('button',{name:'编制预算',exact:true}).click();
@@ -89,7 +89,7 @@ try{
  }
  dialog=await confirmRow('A计划核定600元');await dialog.getByRole('button',{name:'确认核定'}).click();await dialog.waitFor({state:'hidden'});
  await budget.getByText('600.00',{exact:true}).waitFor();
- await page.locator('.execution-overlay').getByRole('button',{name:'返回项目'}).click();
+ await page.locator('.execution-detail-view').getByRole('button',{name:'返回项目'}).click();
  await page.getByTestId('plan-budget-allocation-summary').getByText(/已核定计划预算 600\.00 元/).waitFor();
  await openPlan(f.b.id);
  await workspace.getByRole('button',{name:'编制预算',exact:true}).click();
@@ -108,7 +108,7 @@ try{
  dialog=await confirmRow('B计划核定300元');await dialog.getByRole('button',{name:'确认核定'}).click();await dialog.waitFor({state:'hidden'});
  await budget.getByText('300.00',{exact:true}).waitFor();
  // Cancellation retains the 300 allocation. Explicit release is a separate confirmation.
- await page.locator('.execution-overlay').getByRole('button',{name:'取消未开工批次',exact:true}).click();
+ await page.locator('.execution-detail-view').getByRole('button',{name:'取消未开工批次',exact:true}).click();
  const cancel=page.getByRole('dialog',{name:'取消未开工批次',exact:true});
  await cancel.getByRole('textbox',{name:'操作依据 / 说明'}).fill('取消计划仍保留预算');
  await cancel.getByRole('button',{name:'确认',exact:true}).click();await cancel.waitFor({state:'hidden'});
@@ -141,7 +141,7 @@ try{
  await workspace.getByRole('row').filter({hasText:'待删除的预算草稿'}).getByRole('button',{name:'详情 / 历史',exact:true}).click();
  dialog=page.getByRole('dialog',{name:'预算草稿详情与历史',exact:true});
  await dialog.getByText('不再采用的编制方案',{exact:true}).waitFor();await dialog.locator('.el-dialog__headerbtn').click();
- await page.locator('.execution-overlay').getByRole('button',{name:'返回项目'}).click();
+ await page.locator('.execution-detail-view').getByRole('button',{name:'返回项目'}).click();
  await page.getByTestId('plan-budget-allocation-summary').getByText(/已核定计划预算 600\.00 元/).waitFor();
  await page.reload();await page.locator('.sidebar').getByRole('menuitem',{name:'项目中心',exact:true}).click();
  await page.getByRole('row').filter({hasText:'同一需求分两个检修计划'}).getByRole('button',{name:'需求范围与阶段'}).click();

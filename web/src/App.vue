@@ -512,8 +512,8 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   :form="form" :frameworks="frameworks" :agreements="agreements" :categories="options('project_category')"
   @save="saveStructure" @close="stage='';edit=null"/>
   </template>
-  <section v-if="projectView&&!executionView&&nav==='projects'" class="business-detail-page project-detail-page project-overlay" aria-label="项目详情页面"><div class="detail-panel business-detail-surface">
-   <div class="section-header"><div><h2>{{projectView.name}}</h2><StatusTag :status="projectView.status"/></div><ElButton class="light" @click="projectView=null">关闭 ×</ElButton></div>
+  <section v-if="projectView&&!executionView&&nav==='projects'" class="business-detail-page project-detail-page project-detail-view" aria-label="项目详情页面"><div class="detail-panel business-detail-surface">
+   <div class="section-header"><div><h2>{{projectView.name}}</h2><StatusTag :status="projectView.status"/></div><ElButton class="light" aria-label="返回项目列表" @click="projectView=null">返回项目列表</ElButton></div>
    <div class="info-grid"><div><small>已知估算（元）</small><strong>{{money(projectView.estimate.known_total_fen)}}</strong></div><div><small>待定价项</small><strong>{{projectView.estimate.missing_price_count}}</strong></div><div><small>批准预算（元）</small><strong>{{money(projectView.approved_budget_fen)}}</strong></div><div><small>需求范围条数</small><strong>{{projectView.estimate.total}}</strong></div></div>
    <h3>项目类别与初步估算</h3>
    <div class="toolbar">
@@ -667,7 +667,7 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
    </ElDialog>
    <h3>阶段快照</h3><div v-for="e in projectView.events" :key="e.id" class="history">{{e.created_at}} · {{e.stage==='stocked'?'入库':'立项'}} · {{e.reason}} · 版本 {{e.project_version}}</div>
   </div></section>
-  <section v-if="executionView&&nav==='projects'" class="business-detail-page execution-detail-page execution-overlay" aria-label="检修计划详情页面"><div class="detail-panel business-detail-surface">
+  <section v-if="executionView&&nav==='projects'" class="business-detail-page execution-detail-page execution-detail-view" aria-label="检修计划详情页面"><div class="detail-panel business-detail-surface">
    <div class="section-header"><div><h2>{{executionView.plan_type==='outage'?'停电检修':'不停电检修'}}计划 {{executionView.number}}</h2><StatusTag :status="executionView.status"/></div><ElButton class="light" @click="executionView=null">返回项目</ElButton></div>
    <p>{{executionView.description||'本次执行需求范围'}}</p>
    <div v-for="i in executionView.items" :key="i.id" class="scope-item">

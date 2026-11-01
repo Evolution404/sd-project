@@ -157,7 +157,8 @@ async function submit(){
  </ElDialog>
 </template>
 <style scoped>
-.plan-finance{display:grid;gap:12px;margin-top:18px}
+.plan-finance{display:grid;grid-template-columns:minmax(0,1fr);min-width:0;max-width:100%;gap:12px;margin-top:18px}
+.plan-finance>*{min-width:0;max-width:100%}
 .plan-finance-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .plan-finance-heading h3{margin:0 0 5px}
 .plan-finance-heading p{margin:0}
@@ -173,4 +174,7 @@ async function submit(){
 .plan-finance-evidence{max-width:240px;word-break:break-word}
 .plan-finance h4{margin:12px 0 0}
 
+
+@media(max-width:1100px){.plan-finance-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:800px){.plan-finance-metrics{grid-template-columns:minmax(0,1fr)}}
 </style>

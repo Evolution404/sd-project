@@ -63,15 +63,15 @@ try{
  await page.goto(uiUrl+'/');
  await page.locator('.sidebar').getByRole('menuitem',{name:'项目中心',exact:true}).click();
  await page.getByRole('row').filter({hasText:'同一需求分两个检修计划'}).getByRole('button',{name:'需求范围与阶段'}).click();
- const enter=async()=>{await page.locator('.project-overlay .scope-item').filter({hasText:f.a.number+' · '}).getByRole('button',{name:'进入执行'}).click();await page.locator('.execution-overlay [aria-label="实际完成记录"]').getByRole('heading',{name:'实际完成记录',exact:true}).waitFor()};
+ const enter=async()=>{await page.locator('.project-detail-view .scope-item').filter({hasText:f.a.number+' · '}).getByRole('button',{name:'进入执行'}).click();await page.locator('.execution-detail-view [aria-label="实际完成记录"]').getByRole('heading',{name:'实际完成记录',exact:true}).waitFor()};
  await enter();
- const workspace=page.locator('.execution-overlay [aria-label="实际完成记录"]');
+ const workspace=page.locator('.execution-detail-view [aria-label="实际完成记录"]');
  async function stage(button,title){
-  await page.locator('.execution-overlay').getByRole('button',{name:button,exact:true}).click();
+  await page.locator('.execution-detail-view').getByRole('button',{name:button,exact:true}).click();
   const modal=page.getByRole('dialog',{name:title,exact:true});await modal.getByRole('textbox',{name:'操作依据 / 说明'}).fill('浏览器检修确认');await modal.getByRole('button',{name:'确认',exact:true}).click();await modal.waitFor({state:'hidden'});
  }
  await stage('确认开工','确认开工');
- await page.locator('.execution-overlay').getByRole('button',{name:'确认完成量',exact:true}).click();
+ await page.locator('.execution-detail-view').getByRole('button',{name:'确认完成量',exact:true}).click();
  let modal=page.getByRole('dialog',{name:/确认实际完成量：/});
  await modal.getByLabel('本次确认量').fill('2');await modal.getByLabel('完成依据 / 验收说明').fill('R02原始验收两套');
  await modal.getByRole('button',{name:'确认实际完成量',exact:true}).click();await modal.waitFor({state:'hidden'});
@@ -90,8 +90,8 @@ try{
  await modal.getByRole('button',{name:'保存更正'}).click();await modal.waitFor({state:'hidden'});
  await workspace.getByRole('row').filter({hasText:'R02复核完成一套'}).waitFor();
  const detail=await fetchApi('/executions/'+f.a.id);assert.equal(detail.items[0].completed_quantity_scaled,10000);
- await page.locator('.execution-overlay .plan-finance tbody tr').first().getByText('1',{exact:true}).waitFor();
- const financial=page.locator('.execution-overlay .plan-finance');
+ await page.locator('.execution-detail-view .plan-finance tbody tr').first().getByText('1',{exact:true}).waitFor();
+ const financial=page.locator('.execution-detail-view .plan-finance');
  await financial.getByRole('button',{name:'登记结算凭证',exact:true}).click();modal=page.getByRole('dialog',{name:'登记检修计划结算',exact:true});
  await selectUiOption(modal.getByLabel('结算性质'),'final');await modal.getByLabel('凭证编号').fill('R02-UI-FINAL');await modal.getByLabel('结算金额（元）').fill('100');await modal.getByLabel('结算依据').fill('终结结算凭证');
  await modal.getByRole('button',{name:'确认登记',exact:true}).click();await modal.waitFor({state:'hidden'});
@@ -111,8 +111,8 @@ try{
  await modal.getByText('R02原始验收两套',{exact:true}).first().waitFor();await modal.getByText('原始确认',{exact:true}).waitFor();await page.waitForTimeout(300);await page.screenshot({path:'release/completion-history.png'});await modal.locator('.el-dialog__headerbtn').click();
  assert.equal((await fetchApi('/executions/'+f.a.id)).items[0].completed_quantity_scaled,0);
  assert.equal((await fetchApi('/projects/'+f.project.id+'/settlement-summary')).settled_fen,10000);
- await page.locator('.execution-overlay').getByRole('button',{name:'返回项目',exact:true}).click();
- await page.locator('.project-overlay').getByText(/确认实施 0 \/ 批准 10/).waitFor();
+ await page.locator('.execution-detail-view').getByRole('button',{name:'返回项目',exact:true}).click();
+ await page.locator('.project-detail-view').getByText(/确认实施 0 \/ 批准 10/).waitFor();
  await page.reload();await page.locator('.sidebar').getByRole('menuitem',{name:'项目中心',exact:true}).click();await page.getByRole('row').filter({hasText:'同一需求分两个检修计划'}).getByRole('button',{name:'需求范围与阶段'}).click();await enter();
  await workspace.getByRole('combobox',{name:'完成记录状态',exact:true}).press('Enter');await page.getByRole('option',{name:'已撤销记录',exact:true}).click();await workspace.getByRole('row').filter({hasText:'R02复核完成一套'}).waitFor();
  assert.deepEqual(errors,[]);assert.equal(backendErrors,'');assert.equal(viteErrors,'');

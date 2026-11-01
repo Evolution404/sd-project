@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import {useResponsiveDescriptions} from '../utils/responsive-descriptions';
 import {computed,ref,watch} from 'vue';
 import {ElButton,ElCard,ElDescriptions,ElDescriptionsItem,ElEmpty,ElTable,ElTableColumn,ElTabPane,ElTabs,ElTag,ElTimeline,ElTimelineItem} from 'element-plus';
+const responsiveColumns=useResponsiveDescriptions(2);
 type Rec=Record<string,any>;
 const props=defineProps<{tower:Rec;lineName:string;canWrite:boolean;canInsert:boolean;inCurrentLine:boolean}>();
 const emit=defineEmits<{
@@ -53,7 +55,7 @@ const heading=(item:Rec)=>item._kind==='name'?'杆塔命名调整':
   <ElCard shadow="never" class="tower-detail-content">
    <ElTabs v-model="activeTab" class="tower-detail-tabs">
     <ElTabPane label="基础信息" name="base">
-     <ElDescriptions border :column="2" class="tower-detail-descriptions">
+     <ElDescriptions border :column="Math.min(2,responsiveColumns)" class="tower-detail-descriptions">
       <ElDescriptionsItem label="线路名称">{{lineName}}</ElDescriptionsItem>
       <ElDescriptionsItem label="杆塔编号">{{tower.tower_no}}</ElDescriptionsItem>
       <ElDescriptionsItem label="管辖部门">{{value(tower.management_department||'待核实')}}</ElDescriptionsItem>

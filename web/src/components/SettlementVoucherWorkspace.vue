@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import {useResponsiveDescriptions} from '../utils/responsive-descriptions';
 import {computed,reactive,ref,watch} from 'vue';
 import {ElAlert,ElButton,ElCheckbox,ElDescriptions,ElDescriptionsItem,ElDialog,ElForm,ElFormItem,ElInput,ElOption,ElSelect,ElTable,ElTableColumn,ElTag} from 'element-plus';
 import type {FormInstance} from 'element-plus';
 import {settlementApi as api} from '../utils/settlement-api';
 import {newClientId} from '../utils/client-id';
+const responsiveColumns=useResponsiveDescriptions(3);
 type Row=Record<string,any>;
 const props=defineProps<{projectId:string;executionId?:string;canSettle:boolean;refreshKey?:number}>();
 const emit=defineEmits<{changed:[];reverse:[entry:Row]}>();
@@ -77,7 +79,7 @@ async function submit(){
    <ElTableColumn label="操作" min-width="220"><template #default="{row}"><ElButton link type="primary" @click="showDetail(row)">详情 / 历史</ElButton><template v-if="canSettle&&row.status==='active'"><ElButton link type="primary" @click="openAction(row,'correct')">更正</ElButton><ElButton link type="danger" @click="openAction(row,'void')">撤销</ElButton><ElButton v-if="row.entry_kind==='payment'&&remaining(row)>0" link type="primary" @click="emit('reverse',row)">{{executionId?'冲销余额':row.execution_item_id?'进入计划冲销':'登记冲销'}}</ElButton></template></template></ElTableColumn>
   </ElTable>
   <ElDialog :model-value="mode==='detail'" title="结算凭证详情与历史" width="1000px" class="dictionary-ui dictionary-dialog" append-to-body align-center destroy-on-close @close="mode=''">
-   <template v-if="detail"><ElDescriptions :column="3" border><ElDescriptionsItem label="凭证编号">{{detail.entry.settlement_no}}</ElDescriptionsItem><ElDescriptionsItem label="当前状态">{{detail.entry.status==='active'?'有效':'已撤销'}}</ElDescriptionsItem><ElDescriptionsItem label="当前金额（元）">{{money(detail.entry.amount_fen)}}</ElDescriptionsItem><ElDescriptionsItem label="子项目">{{detail.entry.project_name}}</ElDescriptionsItem><ElDescriptionsItem label="检修计划">{{detail.entry.plan_number||'项目级未归集'}}</ElDescriptionsItem><ElDescriptionsItem label="专业需求">{{detail.entry.demand_no}}</ElDescriptionsItem><ElDescriptionsItem label="批准版本">第 {{detail.entry.approval_version_no}} 版</ElDescriptionsItem><ElDescriptionsItem label="结算依据" :span="2">{{detail.entry.evidence}}</ElDescriptionsItem></ElDescriptions>
+   <template v-if="detail"><ElDescriptions :column="responsiveColumns" border><ElDescriptionsItem label="凭证编号">{{detail.entry.settlement_no}}</ElDescriptionsItem><ElDescriptionsItem label="当前状态">{{detail.entry.status==='active'?'有效':'已撤销'}}</ElDescriptionsItem><ElDescriptionsItem label="当前金额（元）">{{money(detail.entry.amount_fen)}}</ElDescriptionsItem><ElDescriptionsItem label="子项目">{{detail.entry.project_name}}</ElDescriptionsItem><ElDescriptionsItem label="检修计划">{{detail.entry.plan_number||'项目级未归集'}}</ElDescriptionsItem><ElDescriptionsItem label="专业需求">{{detail.entry.demand_no}}</ElDescriptionsItem><ElDescriptionsItem label="批准版本">第 {{detail.entry.approval_version_no}} 版</ElDescriptionsItem><ElDescriptionsItem label="结算依据" :span="Math.min(2,responsiveColumns)">{{detail.entry.evidence}}</ElDescriptionsItem></ElDescriptions>
     <h4>原始登记与历次处理</h4><ElTable :data="detail.versions" max-height="320"><ElTableColumn label="版本" width="65"><template #default="{row}">{{row.version}}</template></ElTableColumn><ElTableColumn label="操作" width="80"><template #default="{row}">{{row.action==='record'?'原始登记':row.action==='correct'?'更正':'撤销'}}</template></ElTableColumn><ElTableColumn prop="settlement_no" label="当时编号" min-width="140"/><ElTableColumn label="金额（元）" width="120"><template #default="{row}">{{money(row.amount_fen)}}</template></ElTableColumn><ElTableColumn prop="occurred_on" label="凭证日期" width="115"/><ElTableColumn label="当时性质" width="100"><template #default="{row}">{{nature({...row,entry_kind:detail.entry.entry_kind})}}</template></ElTableColumn><ElTableColumn prop="evidence" label="当时凭证依据" min-width="150"/><ElTableColumn prop="reason" label="操作依据" min-width="150"/><ElTableColumn prop="changed_by_name" label="经办人" width="95"/><ElTableColumn prop="changed_at" label="操作时间" width="205"/></ElTable>
     <h4>正向与冲销凭证追溯</h4><ElTable :data="detail.related" @row-click="showDetail"><ElTableColumn prop="settlement_no" label="凭证编号"/><ElTableColumn label="性质"><template #default="{row}">{{nature(row)}}</template></ElTableColumn><ElTableColumn label="金额（元）"><template #default="{row}">{{money(row.amount_fen)}}</template></ElTableColumn><ElTableColumn label="状态"><template #default="{row}">{{row.status==='active'?'有效':'已撤销'}}</template></ElTableColumn><ElTableColumn label="操作"><template #default="{row}"><ElButton link type="primary" @click.stop="showDetail(row)">查看此凭证</ElButton></template></ElTableColumn></ElTable>
    </template>
@@ -97,5 +99,13 @@ async function submit(){
  </section>
 </template>
 <style scoped>
-.voucher-workspace{margin-top:20px}.voucher-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}.voucher-toolbar h4{margin:0 auto 0 0;white-space:nowrap}.voucher-toolbar>.el-input{width:240px}.voucher-toolbar>.el-select{width:190px}.voucher-sub{display:block;color:#8493a9;font-size:12px;margin-top:4px}.voucher-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;margin-top:16px}.voucher-notice{color:#258260;font-size:13px}.el-checkbox{margin:14px 0}
+.voucher-workspace{margin-top:20px;min-width:0;max-width:100%}.voucher-toolbar{display:flex;align-items:center;gap:12px;margin-bottom:12px}.voucher-toolbar h4{margin:0 auto 0 0;white-space:nowrap}.voucher-toolbar>.el-input{width:240px}.voucher-toolbar>.el-select{width:190px}.voucher-sub{display:block;color:#8493a9;font-size:12px;margin-top:4px}.voucher-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;margin-top:16px}.voucher-notice{color:#258260;font-size:13px}.el-checkbox{margin:14px 0}
+
+@media(max-width:1350px){
+ .voucher-toolbar{flex-wrap:wrap}
+ .voucher-toolbar h4{flex-basis:100%;margin:0}
+ .voucher-toolbar>.el-input{flex:1 1 220px;min-width:155px;width:auto}
+ .voucher-toolbar>.el-select{flex:0 1 190px;width:auto}
+}
+@media(max-width:900px){.voucher-form-grid{grid-template-columns:minmax(0,1fr)}}
 </style>

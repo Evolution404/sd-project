@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {selectUiOption,assertSearchableUiSelect} from './helpers/select-ui-option.mjs';
 import {navigate} from './browser-navigation.mjs';
+import {auditDetail} from './helpers/detail-ui-audit.mjs';
 import {mkdtempSync,rmSync,existsSync,mkdirSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -107,6 +108,7 @@ try{
  await page.getByText('需求 XQ-').first().waitFor();assert.equal(await page.locator('.demand-detail-page').count(),1,'需求详情在主内容区中');
  assert.equal(await page.locator('.demand-detail-page').evaluate(el=>getComputedStyle(el).position),'static','需求详情不得固定悬浮');
  assert.equal(await page.locator('.demand-detail-page').evaluate(el=>Math.round(el.getBoundingClientRect().right)<=innerWidth),true,'需求详情不得横向越界');
+ await auditDetail(page,'.demand-detail-page','demand');
  for(const width of [1500,1280,760]){
   await page.setViewportSize({width,height:900});
   const noOverflow=await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1);
@@ -165,6 +167,8 @@ try{
  await selectUiOption(st.getByLabel('所属年度框架'),{index:1});
  await st.getByRole('button',{name:'保存',exact:true}).click();await st.waitFor({state:'hidden'});
  await page.getByRole('button',{name:'需求范围与阶段'}).first().click();
+ await auditDetail(page,'.project-detail-page','project');
+ await page.setViewportSize({width:1440,height:1000});
  await page.locator('.detail-panel').getByRole('button',{name:/关联需求范围/}).click();
  let actionModal=page.getByRole('dialog',{name:'关联需求范围'});
  await selectUiOption(actionModal.getByLabel('纳入有效需求'),{index:1});
@@ -238,7 +242,7 @@ try{
  const settlementProgress=await page.evaluate(async()=>await(await fetch('/api/projects/'+
    (await(await fetch('/api/projects')).json()).find(x=>x.name==='浏览器子项目').id+'/progress')).json());
  if(settlementProgress.settled_fen!==2000)throw Error('Settlement should persist exact cents and appear in project progress');
- await page.locator('.detail-panel').getByRole('button',{name:/关闭/}).click();
+ await page.locator('.project-detail-page').getByRole('button',{name:'返回项目列表'}).click();
  await page.reload();await nav('子项目储备');
  await page.getByText('浏览器子项目',{exact:true}).waitFor();
  await page.setViewportSize({width:1280,height:900});
@@ -317,7 +321,7 @@ try{
  if(previewAmount!=='260.00')throw Error('Quoted 2 sets at 130 yuan must give 260 yuan, got '+previewAmount);
  await prelim.getByRole('button',{name:'取消'}).click();
  await prelim.waitFor({state:'hidden'});
- await page.locator('.detail-panel').getByRole('button',{name:/关闭/}).click();
+ await page.locator('.project-detail-page').getByRole('button',{name:'返回项目列表'}).click();
  console.log('REFERENCE_ESTIMATE_BROWSER_OK price version v2 selected, 2 × 130.00 estimate reflected');
 
  await nav('子项目储备');

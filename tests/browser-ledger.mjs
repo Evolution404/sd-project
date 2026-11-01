@@ -79,6 +79,10 @@ try{
   assert.ok(await towerDetailPage.evaluate(el=>el.getBoundingClientRect().width>200),'杆塔详情应占有可见主页面宽度');
   mkdirSync('release',{recursive:true});
   await page.screenshot({path:join(process.cwd(),'release','tower-detail-'+width+'.png'),fullPage:false});
+  if(width===760){
+   const summaryCells=await towerDetailPage.locator('.el-descriptions__table tbody tr').first().locator('th,td').count();
+   assert.equal(summaryCells,2,'tower fact sheet must use one label/value pair at 760px');
+  }
  }
  await page.setViewportSize({width:1500,height:1000});
  await towerDetailPage.getByRole('tab',{name:/关联线路/}).click();

@@ -5,6 +5,7 @@ import {join} from 'node:path';
 import {execFileSync,spawn} from 'node:child_process';
 import {createServer} from 'node:net';
 import {chromium} from 'playwright';
+import {auditDetail} from './helpers/detail-ui-audit.mjs';
 
 const root=mkdtempSync(join(tmpdir(),'sd-w5-ui-'));
 const chrome=process.env.CHROME_PATH||'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
@@ -129,10 +130,18 @@ try{
  const projectRow=page.getByRole('row').filter({hasText:'浏览器检修计划'});
  await projectRow.getByRole('button',{name:'需求范围与阶段'}).click();
  await page.getByTestId('settlement-allocation-summary').getByText(/已归集至检修计划 60\.00 元/).waitFor();
+ await auditDetail(page,'.project-detail-page','project-funded');
+ await page.setViewportSize({width:1360,height:900});
  const planRow=page.locator('.detail-panel').locator('.scope-item').filter({hasText:'W5-PLAN · 停电检修'});
  await planRow.getByRole('button',{name:'进入执行'}).click();
- const embedded=page.locator('.execution-overlay .plan-finance');
+ const embedded=page.locator('.execution-detail-view .plan-finance');
  await embedded.getByRole('heading',{name:'检修计划结算'}).waitFor();
+ await auditDetail(page,'.execution-detail-page','execution');
+ const narrowBudgetCells=await page.locator('.execution-detail-view .plan-budget-workspace .el-descriptions__table tbody tr').first().locator('th,td').count();
+ assert.equal(narrowBudgetCells,2,'760px budget summary must be one readable label/value pair per row');
+ await page.locator('.execution-detail-view .voucher-toolbar').scrollIntoViewIfNeeded();
+ await page.screenshot({path:'release/ui-deep-audit/execution-vouchers-760.png',fullPage:false});
+ await page.setViewportSize({width:1360,height:900});
  assert.match(await embedded.locator('.plan-finance-metrics strong').first().innerText(),/60\.00/);
  await embedded.getByRole('button',{name:'登记结算凭证'}).click();
  const embeddedDialog=page.getByRole('dialog',{name:'登记检修计划结算'});
@@ -144,7 +153,7 @@ try{
  await embedded.getByText('W5-APP-INTEGRATED').waitFor();
  assert.match(await embedded.locator('.plan-finance-metrics strong').first().innerText(),/90\.00/);
  assert.equal((await fetchApi('/projects/'+project.id+'/settlement-summary')).allocated_fen,9000);
- await page.locator('.execution-overlay [aria-label="检修计划预算"]').getByText('90.00',{exact:true}).waitFor();
+ await page.locator('.execution-detail-view [aria-label="检修计划预算"]').getByText('90.00',{exact:true}).waitFor();
  // R01: real Element Plus dialogs, inline validation, immutable history and family revocation.
  let voucherRow=embedded.getByRole('row').filter({hasText:'W5-UI-001'});
  await voucherRow.getByRole('button',{name:'更正',exact:true}).click();
@@ -184,7 +193,7 @@ try{
  await revocation.getByRole('button',{name:'确认撤销'}).click();
  await revocation.waitFor({state:'hidden'});
  await embedded.locator('.plan-finance-metrics strong').first().getByText(/30\.00/).waitFor();
- await page.locator('.execution-overlay [aria-label="检修计划预算"]').getByText('30.00',{exact:true}).waitFor();
+ await page.locator('.execution-detail-view [aria-label="检修计划预算"]').getByText('30.00',{exact:true}).waitFor();
  await embedded.getByRole('combobox',{name:'凭证状态'}).press('Enter');
  await page.getByRole('option',{name:'已撤销凭证',exact:true}).click();
  await embedded.getByRole('row').filter({hasText:'W5-UI-001'}).getByText('已撤销',{exact:true}).waitFor();
@@ -195,7 +204,7 @@ try{
  assert.equal(fullHistory.original.amount_fen,10000);
  assert.equal(fullHistory.versions.length,3);
  assert.equal((await fetchApi('/frameworks/'+fw.id+'/settlement-summary')).settled_fen,3000);
- await page.locator('.execution-overlay').getByRole('button',{name:'返回项目'}).click();
+ await page.locator('.execution-detail-view').getByRole('button',{name:'返回项目'}).click();
  await page.getByTestId('settlement-allocation-summary').getByText(/已归集至检修计划 30\.00 元/).waitFor();
  await page.reload();
  await page.locator('.sidebar').getByRole('menuitem',{name:'项目中心',exact:true}).click();

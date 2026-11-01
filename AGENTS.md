@@ -108,3 +108,13 @@
 - 列表操作列在横向滚动表格中应始终可见；必要时使用 Element Plus 固定操作列，不得以裁剪操作按钮替代适配。
 - 页面副标题必须描述当前业务用途，不复用通用的“维护真实业务台账与版本历史”；所有视图保持现有 Element Plus 蓝白主题及已裁决的管理员权限、无侧栏详情规则。
 - 本次调整全部属于视觉与交互治理，严禁借机修改删除/历史保留、项目审批、财务或 PMS 测试数据相关规则。
+
+
+## 2026-11-01 复杂业务详情全宽与响应式硬门禁
+
+- 需求、子项目、检修计划详情全部为主内容区内的真实文档流页面；代码和测试禁止再使用 project-overlay / execution-overlay 旧命名。子项目详情按钮用“返回项目列表”，检修计划详情用“返回项目”。
+- 有真实台账、需求、计划预算和结算数据时，在真实 Chrome 对需求详情、项目详情、检修计划详情分别执行 1500/1280/960/760px 视觉及几何测试，检查所有非表格按钮、筛选框、统计卡是否超出主内容区，不得只检测 document.scrollWidth。
+- 全部业务事实说明表（Element Plus ElDescriptions）必须依据宽度自适应：桌面三列或两列、中宽两列、窄屏单列；长字段 span 不能超过当前列数。统一使用 web/src/utils/responsive-descriptions.ts。
+- 嵌入检修计划的结算模块采用显式 minmax(0,1fr) CSS Grid 轨道和 min-width:0 子容器。过滤操作栏需可换行，不得由表格最小宽度把搜索、刷新按钮顶出视口；宽表只能在 Element Plus 表格局部水平滚动。
+- 检修预算操作栏、完成记录、结算凭证、费用栏均保持小屏换行；费用更正与历史保留规则本次不改动，旧版业务金额仍靠服务端事务约束。
+- 相关测试：tests/helpers/detail-ui-audit.mjs（由 tests/browser.mjs 与 browser-plan-finance.mjs 驱动）、tests/browser-ledger.mjs、tests/responsive-descriptions.test.mjs。保留独立临时 SQLite 数据库，不删除当前 Mac 试验台账。
