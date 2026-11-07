@@ -1109,8 +1109,6 @@ CREATE TABLE cost_versions (
  funding_version_id TEXT REFERENCES project_funding_versions(id) ON DELETE RESTRICT,
  version_no INTEGER NOT NULL CHECK(version_no>0),
  status TEXT NOT NULL CHECK(status IN ('active','voided')),
- category_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
- category_snapshot TEXT NOT NULL,
  title TEXT NOT NULL CHECK(length(trim(title))>0),
  occurred_on TEXT NOT NULL CHECK(occurred_on IS NULL OR (length(occurred_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(occurred_on))=occurred_on,0))),
  amount_fen INTEGER NOT NULL CHECK(amount_fen>0),
@@ -1738,7 +1736,6 @@ CREATE INDEX idx_project_changes ON project_change_orders(project_id,status);
 -- Replaced by typed evidence_links (no generic attachment foreign keys).
 CREATE INDEX idx_source_record_type ON source_records(type_id);
 CREATE INDEX idx_demand_sources_reverse ON demand_sources(source_id,demand_id);
-CREATE INDEX idx_cost_versions_category ON cost_versions(category_id);
 CREATE INDEX idx_change_order_approval ON project_change_orders(base_approval_version_id);
 CREATE INDEX idx_spans_line_status ON line_spans(line_id,status);
 CREATE INDEX idx_scope_project_status ON project_demand_scopes(project_id,proposal_status);
@@ -1937,8 +1934,14 @@ BEGIN
  THEN RAISE(ABORT,'结算作业范围必须属于结算单所在子项目') END;
  SELECT CASE WHEN EXISTS(SELECT 1 FROM project_cost_nodes c WHERE c.parent_id=NEW.cost_node_id)
  THEN RAISE(ABORT,'只能结算费用树的末级费用项') END;
- SELECT CASE WHEN COALESCE((SELECT status FROM v_project_cost_node_current WHERE id=NEW.cost_node_id),'undefined')<>'active'
- THEN RAISE(ABORT,'已停用费用项不能新增结算明细') END;
+ SELECT CASE WHEN EXISTS(
+ WITH RECURSIVE fee_path(id,parent_id) AS (
+  SELECT id,parent_id FROM project_cost_nodes WHERE id=NEW.cost_node_id
+  UNION ALL SELECT n.id,n.parent_id FROM project_cost_nodes n
+    JOIN fee_path p ON n.id=p.parent_id)
+ SELECT 1 FROM fee_path p LEFT JOIN v_project_cost_node_current v ON v.id=p.id
+ WHERE COALESCE(v.status,'undefined')<>'active')
+ THEN RAISE(ABORT,'费用项及全部上级科目必须启用才能新增结算明细') END;
 END;
 CREATE TRIGGER settlement_item_identity_update BEFORE UPDATE ON settlement_items
 BEGIN SELECT RAISE(ABORT,'结算明细身份不可更改；改内容需增加结算版本'); END;
@@ -1968,6 +1971,11 @@ BEGIN
    ON nv.node_id=i.cost_node_id
  WHERE i.id=NEW.settlement_item_id AND nv.id=NEW.cost_node_version_id)
  THEN RAISE(ABORT,'结算明细采用的费用定义版本与费用节点不匹配') END;
+ SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM project_cost_node_versions nv
+ JOIN settlement_versions sv ON sv.id=NEW.settlement_version_id
+ WHERE nv.id=NEW.cost_node_version_id AND nv.recorded_at<=sv.recorded_at)
+ THEN RAISE(ABORT,'结算明细不能引用登记时间晚于结算版本的费用科目定义') END;
  SELECT CASE WHEN EXISTS(SELECT 1 FROM settlement_versions v
  WHERE v.id=NEW.settlement_version_id AND v.change_type='void')
  THEN RAISE(ABORT,'注销结算版本不应再包含有效明细') END;
@@ -2361,6 +2369,17 @@ BEGIN SELECT RAISE(ABORT,'历史档距版本不可删除'); END;
 -- Fee tree is an immutable parent chain; labels/status have full history.
 CREATE TRIGGER project_cost_node_insert_guard BEFORE INSERT ON project_cost_nodes
 BEGIN
+ -- The ENTIRE parent chain must be active; active children cannot bypass
+ -- a disabled higher-level fee group.
+ SELECT CASE WHEN NEW.parent_id IS NOT NULL AND EXISTS(
+ WITH RECURSIVE parents(id,parent_id) AS (
+  SELECT id,parent_id FROM project_cost_nodes WHERE id=NEW.parent_id
+  UNION ALL SELECT n.id,n.parent_id FROM project_cost_nodes n
+    JOIN parents p ON n.id=p.parent_id)
+ SELECT 1 FROM parents p
+ LEFT JOIN v_project_cost_node_current v ON v.id=p.id
+ WHERE COALESCE(v.status,'undefined')<>'active')
+ THEN RAISE(ABORT,'新费用子项所在的整条父级科目路径必须启用') END;
  SELECT CASE WHEN NEW.parent_id IS NOT NULL AND EXISTS(
   SELECT 1 FROM cost_entries e WHERE e.cost_node_id=NEW.parent_id
   UNION ALL SELECT 1 FROM settlement_items i WHERE i.cost_node_id=NEW.parent_id)
@@ -2375,6 +2394,19 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM project_cost_node_versions v WHERE v.node_id=NEW.node_id)
  THEN RAISE(ABORT,'费用节点定义版本必须连续') END;
+ SELECT CASE WHEN NEW.recorded_at <
+  (SELECT created_at FROM project_cost_nodes WHERE id=NEW.node_id)
+ THEN RAISE(ABORT,'费用节点历史定义不能早于其稳定身份创建') END;
+ SELECT CASE WHEN NEW.version_no>1 AND NEW.recorded_at<
+  (SELECT recorded_at FROM project_cost_node_versions
+   WHERE node_id=NEW.node_id ORDER BY version_no DESC LIMIT 1)
+ THEN RAISE(ABORT,'费用节点正式版本登记时间不能倒序') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+  SELECT 1 FROM project_cost_node_versions prior
+  WHERE prior.node_id=NEW.node_id
+    AND prior.version_no=NEW.version_no-1
+    AND prior.name=NEW.name AND prior.status=NEW.status)
+ THEN RAISE(ABORT,'费用节点的名称和状态均未变化，无需新增空版本') END;
 END;
 CREATE TRIGGER project_cost_node_version_immutable_update BEFORE UPDATE ON project_cost_node_versions
 BEGIN SELECT RAISE(ABORT,'费用节点定义历史不可覆盖'); END;
@@ -2384,8 +2416,14 @@ CREATE TRIGGER cost_entry_node_insert_guard BEFORE INSERT ON cost_entries
 BEGIN
  SELECT CASE WHEN EXISTS(SELECT 1 FROM project_cost_nodes c WHERE c.parent_id=NEW.cost_node_id)
  THEN RAISE(ABORT,'实际费用只能登记至末级费用项') END;
- SELECT CASE WHEN COALESCE((SELECT status FROM v_project_cost_node_current WHERE id=NEW.cost_node_id),'undefined')<>'active'
- THEN RAISE(ABORT,'已停用费用项不能新增实际费用') END;
+ SELECT CASE WHEN EXISTS(
+ WITH RECURSIVE fee_path(id,parent_id) AS (
+  SELECT id,parent_id FROM project_cost_nodes WHERE id=NEW.cost_node_id
+  UNION ALL SELECT n.id,n.parent_id FROM project_cost_nodes n
+    JOIN fee_path p ON n.id=p.parent_id)
+ SELECT 1 FROM fee_path p LEFT JOIN v_project_cost_node_current v ON v.id=p.id
+ WHERE COALESCE(v.status,'undefined')<>'active')
+ THEN RAISE(ABORT,'费用项及全部上级科目必须启用才能新增实际费用') END;
 END;
 
 CREATE TRIGGER cost_entry_immutable_update BEFORE UPDATE ON cost_entries
@@ -2407,6 +2445,10 @@ BEGIN
    ON nv.node_id=e.cost_node_id
  WHERE e.id=NEW.entry_id AND nv.id=NEW.cost_node_version_id)
  THEN RAISE(ABORT,'实际费用采用的费用定义版本与费用节点不匹配') END;
+ SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM project_cost_node_versions nv
+ WHERE nv.id=NEW.cost_node_version_id AND nv.recorded_at<=NEW.confirmed_at)
+ THEN RAISE(ABORT,'实际费用不能引用确认时间之后才登记的费用科目定义') END;
  SELECT CASE WHEN NOT (
   (SELECT ce.project_id FROM cost_entries ce WHERE ce.id=NEW.entry_id)
   IS (SELECT p.id FROM project_funding_versions fv

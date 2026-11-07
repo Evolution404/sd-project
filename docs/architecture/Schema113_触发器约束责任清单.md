@@ -240,3 +240,8 @@
 ## 最新裁决：不建独立物资领退历史
 
 用户确认不需要实际领料、退料流水。随 `material_usage_records` 与 `material_usage_revisions` 两张表移除六项相关触发器；保留统一物资主数据、需求物资、项目批准物资与各自正式历史约束。
+
+
+## 第十轮：唯一费用科目与树历史约束强化
+
+费用分类唯一权威为 `project_cost_nodes` + `project_cost_node_versions`；`cost_versions` 删除平行分类字段及索引，但**不改变当前触发器数量 204**。原有 `project_cost_node_insert_guard` 增加“从直属父级到根的整条科目路径均处于启用状态”检查；`project_cost_node_version_insert_guard` 增加时间顺序与同内容空版本拒绝；`cost_version_sequential_insert`、`settlement_item_version_insert_guard` 均拒绝引用比财务确认/结算版本登记更晚的费用节点定义。新增费用身份及结算行的现有身份约束也已扩展为**整条科目路径必须启用**，不是只检查直接末级状态。所有约束均是可重复验证的真实历史完整性，不维护统计金额或应用状态。

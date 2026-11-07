@@ -37,7 +37,6 @@ before_json|操作前的结构化审计事实
 bytes|证据文件字节数
 catalog_id|标准参考价格的目录稳定身份
 category_id|业务类别字典项
-category_snapshot|历史发生时的费用类别文字
 change_order_id|引起正式批准版本变化的变更单
 change_reason|台账设备属性变化原因
 change_type|本次正式版本属于新增、修订还是作废

@@ -616,8 +616,7 @@ db.execute("RELEASE draft_edit")
 add("cost_entries",id="audit_ce",project_id="p",
     created_by="u",created_at="2026-11-07T13:00:00.000Z")
 add("cost_versions",id="audit_cv",entry_id="audit_ce",version_no=1,
-    funding_version_id="fund2",status="active",category_id="expense",
-    category_snapshot="费用",title="真实发生的费用",
+    funding_version_id="fund2",status="active",title="真实发生的费用",
     occurred_on="2026-11-07",amount_fen=10000,evidence="凭据",
     reason="首次确认",confirmed_by="u",confirmed_at="2026-11-07T13:00:00.000Z",
     request_key="audit_cv")
@@ -665,14 +664,13 @@ ok("historical cost version retains the original agreement identity",
 
 # Existing cost's historical funding identity may not be silently nulled.
 blocked("funded actual expense correction cannot erase historical agreement",
-    "INSERT INTO cost_versions(id,entry_id,version_no,status,category_id,"
-    "category_snapshot,title,occurred_on,amount_fen,evidence,reason,"
+    "INSERT INTO cost_versions(id,entry_id,version_no,status,"
+    "title,occurred_on,amount_fen,evidence,reason,"
     "confirmed_by,confirmed_at,request_key) VALUES('audit_cv_bad2','audit_ce',"
-    "2,'active','expense','费用','费用复核','2026-11-07',9500,'依据','更正',"
+    "2,'active','费用复核','2026-11-07',9500,'依据','更正',"
     "'u','2026-11-07T16:00:00.000Z','audit_cv_bad2')")
 add("cost_versions",id="audit_cv2",entry_id="audit_ce",
     version_no=2,funding_version_id="fund2",status="active",
-    category_id="expense",category_snapshot="费用",
     title="真实费用更正",occurred_on="2026-11-07",amount_fen=9500,
     evidence="新核对凭据",reason="实际成本复核",confirmed_by="u",
     confirmed_at="2026-11-07T16:00:00.000Z",request_key="audit_cv2")
@@ -764,8 +762,7 @@ add("settlement_review_events",id="approveclose",settlement_version_id="vclose",
 add("cost_entries",id="pclose_real_cost",project_id="pclose",
     created_by="u",created_at="2026-11-07T10:01:10.000Z")
 add("cost_versions",id="pclose_real_cv",entry_id="pclose_real_cost",
-    version_no=1,status="active",category_id="expense",
-    category_snapshot="费用",title="结项实际费用",
+    version_no=1,status="active",title="结项实际费用",
     occurred_on="2026-11-07",amount_fen=1000,
     evidence="实际费用凭据",reason="结项前真实发生",
     confirmed_by="u",confirmed_at="2026-11-07T10:01:11.000Z",
@@ -821,8 +818,7 @@ ok("closure persists authenticated immutable closing timestamp",
 add("cost_entries",id="cost_after_close",project_id="pclose",
     created_by="u",created_at="2026-11-08T10:00:00.000Z")
 add("cost_versions",id="cv_after_close",entry_id="cost_after_close",
-    version_no=1,status="active",category_id="expense",
-    category_snapshot="费用",title="事后发现的真实费用",
+    version_no=1,status="active",title="事后发现的真实费用",
     occurred_on="2026-11-07",amount_fen=200,
     evidence="事后凭据",reason="关闭后补报",
     confirmed_by="u",confirmed_at="2026-11-08T10:00:00.000Z",
@@ -1207,10 +1203,10 @@ blocked("material version category must be actual material dictionary",
      "非法分类","u","2026-11-08T00:00:00.000Z"))
 blocked("invalid VAT calculation metadata rejected",
     "INSERT INTO cost_versions(id,entry_id,version_no,"
-    "funding_version_id,status,category_id,category_snapshot,title,"
+    "funding_version_id,status,title,"
     "occurred_on,amount_fen,tax_mode,tax_rate_basis_points,evidence,reason,"
     "confirmed_by,confirmed_at,request_key) VALUES('bad_tax','audit_ce',3,"
-    "'fund2','active','expense','费用','不合法税率','2026-11-07',1000,"
+    "'fund2','active','不合法税率','2026-11-07',1000,"
     "'none',1100,'票据','税率错误','u','2026-11-07T20:00:00.000Z','bad_tax')")
 
 add("agreement_versions",id="agv3",agreement_id="ag",version_no=2,
@@ -1338,8 +1334,7 @@ blocked("delta revision may not erase required quantity",
 add("cost_entries",id="distinct_cost_for_reconciliation",project_id="p",
     created_by="u",created_at="2026-11-07T23:25:00.000Z")
 add("cost_versions",id="distinct_cost_version",entry_id="distinct_cost_for_reconciliation",
-    version_no=1,funding_version_id="fund2",status="active",
-    category_id="expense",category_snapshot="费用",title="另一笔实际费用",
+    version_no=1,funding_version_id="fund2",status="active",title="另一笔实际费用",
     occurred_on="2026-11-07",amount_fen=6000,evidence="另一笔凭证",
     reason="核实费用身份",confirmed_by="u",
     confirmed_at="2026-11-07T23:25:00.000Z",
@@ -1618,7 +1613,6 @@ add("cost_entries",id="independent_project_cost",
     created_by="u",created_at="2026-11-07T20:01:00.000Z")
 add("cost_versions",id="independent_project_cost_v1",
     entry_id="independent_project_cost",version_no=1,status="active",
-    category_id="expense",category_snapshot="费用",
     title="结算前实际发生的工作费用",occurred_on="2026-11-07",
     amount_fen=17500,evidence="真实费用依据",reason="结算前已发生",
     confirmed_by="u",confirmed_at="2026-11-07T20:02:00.000Z",
@@ -1745,8 +1739,7 @@ stage("end_to_end_p","approved",time="2026-11-07T20:34:00.000Z")
 add("cost_entries",id="end_to_end_cost",project_id="end_to_end_p",
     created_by="u",created_at="2026-11-07T20:37:00.000Z")
 add("cost_versions",id="end_to_end_cv",entry_id="end_to_end_cost",
-    version_no=1,status="active",category_id="expense",
-    category_snapshot="费用",title="现场实际费用",occurred_on="2026-11-07",
+    version_no=1,status="active",title="现场实际费用",occurred_on="2026-11-07",
     amount_fen=3000,evidence="实际费用凭据",reason="发生事实",
     confirmed_by="u",confirmed_at="2026-11-07T20:38:00.000Z",
     request_key="end_to_end_cv")
@@ -1793,8 +1786,7 @@ add("cost_reconciliation_versions",id="end_to_end_reconcile",
 # SAME stable cost entry, even after the true expense is formally corrected.
 # Per-statement "is_final" flags are not a substitute for the derived balance.
 add("cost_versions",id="end_to_end_cv_v2",entry_id="end_to_end_cost",
-    version_no=2,status="active",category_id="expense",
-    category_snapshot="费用",title="现场实际费用追加",
+    version_no=2,status="active",title="现场实际费用追加",
     occurred_on="2026-11-07",amount_fen=3500,
     evidence="新增实际费用500分",reason="实际费用正式补录",
     confirmed_by="u",confirmed_at="2026-11-07T20:44:05.000Z",
@@ -2169,8 +2161,7 @@ try:
         created_by="u",created_at="2026-11-08T02:00:00.000Z")
     add("cost_versions",id="installment_cost_v1",
         entry_id="installment_cost",funding_version_id="fund2",
-        version_no=1,status="active",category_id="expense",
-        category_snapshot="费用",title="待分期结算的真实费用",
+        version_no=1,status="active",title="待分期结算的真实费用",
         occurred_on="2026-11-08",amount_fen=10000,
         evidence="实际费用确认凭据",reason="实际发生",
         confirmed_by="u",confirmed_at="2026-11-08T02:01:00.000Z",
@@ -2384,8 +2375,7 @@ try:
         add('cost_entries',id=ident,project_id='p',cost_node_id=leaf,
             created_by='u',created_at=t)
         add('cost_versions',id=ident+'_v1',entry_id=ident,version_no=1,
-            funding_version_id='fund2',status='active',category_id='expense',
-            category_snapshot='人工费' if leaf=='fee_labor_work' else '材料费',
+            funding_version_id='fund2',status='active',
             title='已核定实际费用',occurred_on='2026-11-08',amount_fen=amount,
             evidence='实际费用确认依据',reason='实际费用入账',confirmed_by='u',
             confirmed_at=t,request_key=ident+'_v1')
@@ -2486,7 +2476,6 @@ try:
     # The reconciliation cap applies across ALL versions of the same expense.
     add('cost_versions',id='fee_material_cost_v2',entry_id='fee_material_cost',
         version_no=2,funding_version_id='fund2',status='active',
-        category_id='expense',category_snapshot='施工材料费',
         title='材料费用补录',occurred_on='2026-11-08',amount_fen=5500,
         evidence='500分补充费用确认',reason='实际费用增补',confirmed_by='u',
         confirmed_at=t,request_key='fee_material_cost_v2')
@@ -2596,7 +2585,6 @@ try:
     add('cost_versions',id='fee_material_cost_v3',
         entry_id='fee_material_cost',version_no=3,
         funding_version_id='fund2',status='active',
-        category_id='expense',category_snapshot='材料费',
         title='材料退补后的最终实际费用',occurred_on='2026-11-08',
         amount_fen=4000,evidence='实际材料费用正式核减1500分',
         reason='更正应结金额',confirmed_by='u',
@@ -2616,6 +2604,156 @@ try:
          'fee_material_cost_v3','fee_doc_4_item','fee_doc_4_item_v1',
          100,100,0,'不可再次核对超支历史','u',t,
          'after_downward_overpay'))
+    # Fee-tree identity is the ONLY account taxonomy. No second category
+    # can disagree with the leaf and its immutable definition version.
+    cost_fields={c['name'] for c in db.execute('PRAGMA table_info(cost_versions)')}
+    ok('actual expense has exactly one fee-tree category authority',
+        {'entry_id','cost_node_version_id','title','amount_fen'}.issubset(cost_fields)
+        and 'category_id' not in cost_fields
+        and 'category_snapshot' not in cost_fields
+        and row("SELECT COUNT(*) n FROM sqlite_master WHERE type='index' "
+                "AND name='idx_cost_versions_category'")['n']==0)
+    blocked('identical fee-node content cannot create fake history version',
+        'INSERT INTO project_cost_node_versions(id,node_id,version_no,name,'
+        'status,reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?,?)',
+        ('fee_material_duplicate','fee_material',4,'设备材料费',
+         'active','重复无意义版本','u','2026-11-09T03:00:00.000Z'))
+    blocked('new fee-node definition cannot precede original fee identity',
+        'INSERT INTO project_cost_node_versions(id,node_id,version_no,name,'
+        'status,reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?,?)',
+        ('fee_material_backdated','fee_material',4,'修正材料费',
+         'active','补写早期记录','u','2026-11-07T01:00:00.000Z'))
+    add('project_cost_node_versions',id='fee_material_future_v4',
+        node_id='fee_material',version_no=4,name='未来材料费',
+        status='active',reason='未来正式改名',actor_id='u',
+        recorded_at='2026-11-10T03:00:00.000Z')
+    add('cost_entries',id='fee_future_cost',project_id='p',
+        cost_node_id='fee_material',created_by='u',created_at=t)
+    blocked('actual expense cannot pin a fee version published after confirmation',
+        'INSERT INTO cost_versions(id,entry_id,cost_node_version_id,'
+        'funding_version_id,version_no,status,title,occurred_on,amount_fen,'
+        'evidence,reason,confirmed_by,confirmed_at,request_key) '
+        'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('fee_cost_future_invalid','fee_future_cost','fee_material_future_v4',
+         'fund2',1,'active','材料费测试','2026-11-08',100,'合法凭据',
+         '检验未来版本','u',t,'fee_cost_future_invalid'))
+    add('settlements',id='fee_future_statement',project_id='p',
+        number='FEE-FUTURE',created_by='u',created_at=t)
+    add('settlement_items',id='fee_future_statement_item',
+        settlement_id='fee_future_statement',cost_node_id='fee_material',
+        project_scope_id=None,created_at=t)
+    add('settlement_versions',id='fee_future_statement_v1',
+        settlement_id='fee_future_statement',version_no=1,
+        approval_version_id='av2',funding_version_id='fund2',
+        change_type='initial',reason='测试科目未来版本时间',
+        created_by='u',recorded_at=t)
+    blocked('settlement line cannot pin a fee version published after statement',
+        'INSERT INTO settlement_item_versions('
+        'id,settlement_version_id,settlement_item_id,cost_node_version_id,'
+        'approval_scope_version_id,quantity_scaled,amount_fen,'
+        'evidence,scope_snapshot_json) VALUES(?,?,?,?,?,?,?,?,?)',
+        ('fee_future_item_invalid','fee_future_statement_v1',
+         'fee_future_statement_item','fee_material_future_v4',
+         None,0,100,'结算科目未来版本','{}'))
+    blocked('cannot attach a fee child to an undefined parent',
+        'INSERT INTO project_cost_nodes(id,project_id,parent_id,created_by,created_at)'
+        ' VALUES(?,?,?,?,?)',
+        ('invalid_child_undefined','p','fee_without_definition','u',t))
+    add('project_cost_nodes',id='fee_inactive_group',project_id='p',
+        parent_id=None,created_by='u',created_at=t)
+    add('project_cost_node_versions',id='fee_inactive_group_v1',
+        node_id='fee_inactive_group',version_no=1,name='待启停的费用分组',
+        status='active',reason='建档',actor_id='u',recorded_at=t)
+    add('project_cost_node_versions',id='fee_inactive_group_v2',
+        node_id='fee_inactive_group',version_no=2,name='待启停的费用分组',
+        status='inactive',reason='暂时停用',actor_id='u',
+        recorded_at='2026-11-09T03:00:00.000Z')
+    blocked('cannot create new child below an inactive fee group',
+        'INSERT INTO project_cost_nodes(id,project_id,parent_id,created_by,created_at)'
+        ' VALUES(?,?,?,?,?)',
+        ('invalid_inactive_child','p','fee_inactive_group','u',
+         '2026-11-10T03:00:00.000Z'))
+    blocked('fee node history event time cannot move backwards',
+        'INSERT INTO project_cost_node_versions(id,node_id,version_no,name,'
+        'status,reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?,?)',
+        ('fee_inactive_backdated','fee_inactive_group',3,'可用费用分组',
+         'active','错误倒序','u','2026-11-08T10:00:00.000Z'))
+    add('project_cost_node_versions',id='fee_inactive_group_v3',
+        node_id='fee_inactive_group',version_no=3,name='恢复可用费用分组',
+        status='active',reason='审批恢复',actor_id='u',
+        recorded_at='2026-11-10T03:00:00.000Z')
+    add('project_cost_nodes',id='fee_reactivated_child',project_id='p',
+        parent_id='fee_inactive_group',created_by='u',
+        created_at='2026-11-10T03:01:00.000Z')
+    ok('reactivation allows genuine new fee subtree without altering past versions',
+        row('SELECT parent_id FROM project_cost_nodes '
+            "WHERE id='fee_reactivated_child'")['parent_id']=='fee_inactive_group'
+        and row('SELECT status FROM project_cost_node_versions '
+            "WHERE id='fee_inactive_group_v2'")['status']=='inactive')
+    add('project_cost_node_versions',id='fee_reactivated_child_v1',
+        node_id='fee_reactivated_child',version_no=1,
+        name='深层费用末级',status='active',reason='首次建档',
+        actor_id='u',recorded_at='2026-11-10T03:01:00.000Z')
+    add('project_cost_node_versions',id='fee_inactive_group_v4',
+        node_id='fee_inactive_group',version_no=4,
+        name='恢复可用费用分组',status='inactive',
+        reason='再次停用整个分类分组',actor_id='u',
+        recorded_at='2026-11-12T03:00:00.000Z')
+    blocked('grandparent disable blocks new expense on otherwise active leaf',
+        'INSERT INTO cost_entries(id,project_id,cost_node_id,created_by,created_at)'
+        ' VALUES(?,?,?,?,?)',
+        ('fee_under_disabled_ancestor_cost','p','fee_reactivated_child','u',
+         '2026-11-12T03:01:00.000Z'))
+    blocked('grandparent disable blocks new settlement on otherwise active leaf',
+        'INSERT INTO settlement_items(id,settlement_id,cost_node_id,created_at)'
+        ' VALUES(?,?,?,?)',
+        ('fee_under_disabled_ancestor_item','st','fee_reactivated_child',
+         '2026-11-12T03:01:00.000Z'))
+    blocked('grandparent disable blocks nesting new child under active child',
+        'INSERT INTO project_cost_nodes(id,project_id,parent_id,created_by,created_at)'
+        ' VALUES(?,?,?,?,?)',
+        ('fee_under_disabled_ancestor_grandchild','p','fee_reactivated_child',
+         'u','2026-11-12T03:01:00.000Z'))
+    add('project_cost_node_versions',id='fee_inactive_group_v5',
+        node_id='fee_inactive_group',version_no=5,
+        name='恢复可用费用分组',status='active',reason='正式恢复',
+        actor_id='u',recorded_at='2026-11-13T03:00:00.000Z')
+    add('cost_entries',id='fee_after_ancestor_restore',project_id='p',
+        cost_node_id='fee_reactivated_child',created_by='u',
+        created_at='2026-11-13T03:01:00.000Z')
+    ok('ancestor reactivation restores valid new expense identity',
+        row('SELECT cost_node_id FROM cost_entries '
+            "WHERE id='fee_after_ancestor_restore'")['cost_node_id']
+            =='fee_reactivated_child')
+    add('project_cost_node_versions',id='fee_material_inactive_v5',
+        node_id='fee_material',version_no=5,name='未来材料费',
+        status='inactive',reason='停止新增材料费用',actor_id='u',
+        recorded_at='2026-11-11T03:00:00.000Z')
+    blocked('disabled fee leaf cannot accept a new actual expense identity',
+        'INSERT INTO cost_entries(id,project_id,cost_node_id,created_by,created_at)'
+        ' VALUES(?,?,?,?,?)',
+        ('disabled_fee_cost','p','fee_material','u',
+         '2026-11-11T03:01:00.000Z'))
+    blocked('disabled fee leaf cannot accept a new settlement line identity',
+        'INSERT INTO settlement_items(id,settlement_id,cost_node_id,created_at)'
+        ' VALUES(?,?,?,?)',
+        ('disabled_fee_statement','st','fee_material',
+         '2026-11-11T03:01:00.000Z'))
+    ok('disabled fee leaf preserves historical costs and accepted statement lines',
+        row('SELECT COUNT(*) n FROM cost_entries '
+            "WHERE id='fee_material_cost'")['n']==1
+        and row('SELECT COUNT(*) n FROM settlement_item_versions '
+            "WHERE id='fee_doc_1_fee_material_v1'")['n']==1)
+    # Historic snapshots do not change even though the current label moved.
+    ok('historical fee node snapshot survives later category rename',
+        row('SELECT nv.name name FROM cost_versions cv '
+            'JOIN project_cost_node_versions nv ON nv.id=cv.cost_node_version_id '
+            "WHERE cv.id='fee_material_cost_v1'")['name']=='材料费'
+        and row('SELECT nv.name name FROM settlement_item_versions iv '
+            'JOIN project_cost_node_versions nv ON nv.id=iv.cost_node_version_id '
+            "WHERE iv.id='fee_doc_1_fee_material_v1'")['name']=='施工材料费'
+        and row('SELECT name,status FROM v_project_cost_node_current WHERE id=?',
+            'fee_material')['status']=='inactive')
 finally:
     db.execute('ROLLBACK TO hierarchical_fee_installments')
     db.execute('RELEASE hierarchical_fee_installments')
