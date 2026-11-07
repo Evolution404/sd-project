@@ -1617,14 +1617,32 @@ BEGIN
            AND done.status='active'
         ),0)))
  THEN RAISE(ABORT,'未完成工作量必须逐项明确取消或延期依据；跨项目移交尚未授权') END;
+ -- Close-out is based on the SAME effective financial facts as the
+ -- application balance: stable cost identity across historical versions and
+ -- only the latest approved snapshot of each independent settlement.
+ -- The explicit is_final approval remains significant: a provisional
+ -- reconciliation may already allocate money, but cannot finalize a project.
+ -- Only final-approved cost portions count toward full close-out; the
+ -- final settlement share may legitimately differ due to audited deductions.
  SELECT CASE WHEN EXISTS(
  SELECT 1 FROM v_cost_current c
  WHERE c.project_id=NEW.id AND c.status='active'
  AND COALESCE((SELECT SUM(r.reconciled_cost_fen)
-  FROM v_cost_reconciliation_current r
-  WHERE r.cost_version_id=c.id AND r.status='active' AND r.is_final=1),0)
-  <c.amount_fen)
- THEN RAISE(ABORT,'存在未完成最终核对的费用记录，不能关闭项目') END;
+  FROM v_effective_cost_reconciliations r
+  WHERE r.entry_id=c.entry_id AND r.is_final=1),0)<>c.amount_fen)
+ THEN RAISE(ABORT,'实际费用与各期有效最终核对金额不一致，不能关闭项目') END;
+ -- An approved statement is itself a formal liability assertion. Even if
+ -- every recorded actual cost is matched, unmatched/obsolete statement lines
+ -- cannot be silently considered settled at project closure.
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM v_effective_settlement_items i
+ WHERE i.project_id=NEW.id
+ AND COALESCE((SELECT SUM(r.reconciled_settlement_fen)
+  FROM v_effective_cost_reconciliations r
+  WHERE r.settlement_item_version_id=i.settlement_item_version_id
+   AND r.is_final=1),0)
+  <>i.amount_fen)
+ THEN RAISE(ABORT,'存在未完成实际费用核对的有效结算明细，不能关闭项目') END;
 END;
 
 

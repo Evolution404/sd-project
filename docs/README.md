@@ -10,6 +10,7 @@
 - [数据库收口与治理状态](architecture/Schema113_仓库收口与治理状态_2026-11-07.md) · 完成情况、测试证据、待治理问题
 - [Schema 113 统一设计](architecture/数据库V3_Schema113_统一结构设计与无技术债审计_2026-11-07.md)
 - [Schema 113 字段字典](architecture/Schema113_逐字段数据字典.md)
+- [Schema 113 结项与核对专项治理](architecture/Schema113_第七轮结项与核对一致性治理_2026-11-07.md)
 
 **当前运行仍是 Schema 112**；不要把 Schema 113 候选 SQL 直接用于已有 `data/` 数据库。
 

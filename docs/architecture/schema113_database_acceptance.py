@@ -810,6 +810,25 @@ add("completion_records",id="completionclose",project_scope_id="sclose",settleme
     quantity_scaled=10000,occurred_on="2026-11-07",evidence="验收",
     confirmed_by="u",confirmed_at="2026-11-07T10:00:00.000Z",
     request_key="completionclose")
+# The existing closure fixture must reflect the SAME finalized cost/statement
+# contract: an approved 1000-fen statement without matching actual cost is
+# not a completed financial closeout.
+add("cost_entries",id="pclose_real_cost",project_id="pclose",
+    created_by="u",created_at="2026-11-07T10:01:10.000Z")
+add("cost_versions",id="pclose_real_cv",entry_id="pclose_real_cost",
+    version_no=1,status="active",category_id="expense",
+    category_snapshot="费用",title="结项实际费用",
+    occurred_on="2026-11-07",amount_fen=1000,
+    evidence="实际费用凭据",reason="结项前真实发生",
+    confirmed_by="u",confirmed_at="2026-11-07T10:01:11.000Z",
+    request_key="pclose_real_cv")
+add("cost_reconciliation_versions",id="pclose_real_recon",
+    record_id="pclose_real_recon",version_no=1,status="active",
+    cost_version_id="pclose_real_cv",settlement_item_id="itclose",
+    settlement_item_version_id="ivclose",
+    reconciled_cost_fen=1000,reconciled_settlement_fen=1000,
+    is_final=1,evidence="已审核结项核对",actor_id="u",
+    created_at="2026-11-07T10:01:12.000Z",request_key="pclose_real_recon")
 # A fully accepted project-change decision must first become a real approved
 # scope snapshot. Merely approving its change-order header is not enough.
 add("project_change_orders",id="chg_close",project_id="pclose",
@@ -1922,15 +1941,241 @@ add("cost_reconciliation_versions",id="end_to_end_reconcile",
     is_final=1,evidence="业务核对依据",
     actor_id="u",created_at="2026-11-07T20:44:00.000Z",
     request_key="end_to_end_reconcile")
+# Regression: final closure must count historical reconciliations against the
+# SAME stable cost entry, even after the true expense is formally corrected.
+# Per-statement "is_final" flags are not a substitute for the derived balance.
+add("cost_versions",id="end_to_end_cv_v2",entry_id="end_to_end_cost",
+    version_no=2,status="active",category_id="expense",
+    category_snapshot="费用",title="现场实际费用追加",
+    occurred_on="2026-11-07",amount_fen=3500,
+    evidence="新增实际费用500分",reason="实际费用正式补录",
+    confirmed_by="u",confirmed_at="2026-11-07T20:44:05.000Z",
+    request_key="end_to_end_cv_v2")
+add("settlements",id="end_to_end_st2",project_id="end_to_end_p",
+    number="E2E-S2",created_by="u",created_at="2026-11-07T20:44:10.000Z")
+add("settlement_items",id="end_to_end_item2",
+    settlement_id="end_to_end_st2",project_scope_id="end_to_end_scope",
+    created_at="2026-11-07T20:44:11.000Z")
+add("settlement_versions",id="end_to_end_sv2",
+    settlement_id="end_to_end_st2",version_no=1,
+    approval_version_id="end_to_end_ap",change_type="initial",
+    reason="第二期新增费用结算",created_by="u",
+    recorded_at="2026-11-07T20:44:12.000Z")
+add("settlement_item_versions",id="end_to_end_itemv2",
+    settlement_item_id="end_to_end_item2",
+    settlement_version_id="end_to_end_sv2",
+    approval_scope_version_id="end_to_end_aps",
+    quantity_scaled=0,amount_fen=500,
+    evidence="追加费用结算",scope_snapshot_json="{}")
+add("settlement_review_events",id="end_to_end_submit2",
+    settlement_version_id="end_to_end_sv2",event_seq=1,
+    action="submit",actor_id="u",recorded_at="2026-11-07T20:44:13.000Z")
+add("settlement_review_events",id="end_to_end_approve2",
+    settlement_version_id="end_to_end_sv2",event_seq=2,
+    action="approve",actor_id="u",
+    recorded_at="2026-11-07T20:44:14.000Z",
+    effective_on="2026-11-07")
+add("cost_reconciliation_versions",id="end_to_end_reconcile2",
+    record_id="end_to_end_reconcile2",version_no=1,status="active",
+    cost_version_id="end_to_end_cv_v2",
+    settlement_item_id="end_to_end_item2",
+    settlement_item_version_id="end_to_end_itemv2",
+    reconciled_cost_fen=500,reconciled_settlement_fen=500,
+    is_final=1,evidence="追加结算最终核对",
+    actor_id="u",created_at="2026-11-07T20:44:15.000Z",
+    request_key="end_to_end_reconcile2")
+ok("cross-version installment reconciliation covers corrected actual cost",
+    row("SELECT sum(reconciled_cost_fen) n FROM "
+        "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost'")["n"]==3500
+    and row("SELECT amount_fen FROM v_cost_current "
+        "WHERE entry_id='end_to_end_cost'")["amount_fen"]==3500)
+# A revised statement supersedes its former approved snapshot and MUST
+# invalidate the previous 3000-fen cost application (not erase its history).
+add("settlement_versions",id="end_to_end_sv_revision",
+    settlement_id="end_to_end_st",version_no=2,
+    previous_version_id="end_to_end_sv",
+    approval_version_id="end_to_end_ap",change_type="revision",
+    reason="第一期实际结算金额减少500分",
+    created_by="u",recorded_at="2026-11-07T20:44:16.000Z")
+add("settlement_item_versions",id="end_to_end_itemv_revision",
+    settlement_item_id="end_to_end_item",
+    settlement_version_id="end_to_end_sv_revision",
+    approval_scope_version_id="end_to_end_aps",
+    quantity_scaled=10000,amount_fen=2500,
+    evidence="第一期正式更正",scope_snapshot_json="{}")
+add("settlement_review_events",id="end_to_end_revision_submit",
+    settlement_version_id="end_to_end_sv_revision",event_seq=1,
+    action="submit",actor_id="u",recorded_at="2026-11-07T20:44:17.000Z")
+add("settlement_review_events",id="end_to_end_revision_approve",
+    settlement_version_id="end_to_end_sv_revision",event_seq=2,
+    action="approve",actor_id="u",
+    recorded_at="2026-11-07T20:44:18.000Z",effective_on="2026-11-07")
+ok("approved revision removes superseded installment from effective cost",
+    row("SELECT sum(reconciled_cost_fen) n FROM "
+        "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost'")["n"]==500
+    and row("SELECT amount_fen FROM v_effective_settlement_items "
+        "WHERE id='end_to_end_item'")["amount_fen"]==2500)
 add("project_closures",id="end_to_end_close",
     project_id="end_to_end_p",approval_version_id="end_to_end_ap",
     reason="完工已验收且最终费用已核对",close_snapshot_json="{}",
     closed_by="u",closed_at="2026-11-07T20:45:00.000Z")
+# Closure must reject an older approved reconciliation as evidence for a
+# newer changed statement snapshot, even though its history still exists.
+def e2e_close_rejection(label, message):
+    version=row("SELECT version FROM projects WHERE id='end_to_end_p'")["version"]+1
+    db.execute("SAVEPOINT invalid_e2e_close")
+    try:
+        add("project_stage_events",id="invalid_e2e_close",
+            project_id="end_to_end_p",stage="closed",
+            project_version=version,reason="拟核对结项",
+            actor_id="u",created_at="2026-11-07T20:44:19.000Z")
+    except sqlite3.IntegrityError as error:
+        ok(label,message in str(error))
+    else:
+        raise AssertionError("Unreconciled project was permitted to close: "+label)
+    finally:
+        db.execute("ROLLBACK TO invalid_e2e_close")
+        db.execute("RELEASE invalid_e2e_close")
+
+e2e_close_rejection("revised statement cannot close using former approved cost reconciliation",
+                    "实际费用与各期有效最终核对金额不一致")
+add("cost_reconciliation_versions",id="end_to_end_reconcile_revision",
+    record_id="end_to_end_reconcile_revision",version_no=1,status="active",
+    cost_version_id="end_to_end_cv_v2",
+    settlement_item_id="end_to_end_item",
+    settlement_item_version_id="end_to_end_itemv_revision",
+    reconciled_cost_fen=2500,reconciled_settlement_fen=2500,
+    is_final=1,evidence="新版第一期最终核对",
+    actor_id="u",created_at="2026-11-07T20:44:20.000Z",
+    request_key="end_to_end_reconcile_revision")
+# The second approved installment is still only 500: one more new
+# 500-fen statement is needed after the first statement reduction.
+add("settlements",id="end_to_end_st3",project_id="end_to_end_p",
+    number="E2E-S3",created_by="u",
+    created_at="2026-11-07T20:44:21.000Z")
+add("settlement_items",id="end_to_end_item3",
+    settlement_id="end_to_end_st3",project_scope_id="end_to_end_scope",
+    created_at="2026-11-07T20:44:22.000Z")
+add("settlement_versions",id="end_to_end_sv3",
+    settlement_id="end_to_end_st3",version_no=1,
+    approval_version_id="end_to_end_ap",change_type="initial",
+    reason="第一期更正后的余额结算",created_by="u",
+    recorded_at="2026-11-07T20:44:23.000Z")
+add("settlement_item_versions",id="end_to_end_itemv3",
+    settlement_item_id="end_to_end_item3",
+    settlement_version_id="end_to_end_sv3",
+    approval_scope_version_id="end_to_end_aps",
+    quantity_scaled=0,amount_fen=450,
+    evidence="余额费用核减50分后最终结算",scope_snapshot_json="{}")
+add("settlement_review_events",id="end_to_end_submit3",
+    settlement_version_id="end_to_end_sv3",event_seq=1,
+    action="submit",actor_id="u",
+    recorded_at="2026-11-07T20:44:24.000Z")
+add("settlement_review_events",id="end_to_end_approve3",
+    settlement_version_id="end_to_end_sv3",event_seq=2,
+    action="approve",actor_id="u",
+    recorded_at="2026-11-07T20:44:25.000Z",
+    effective_on="2026-11-07")
+add("cost_reconciliation_versions",id="end_to_end_reconcile3",
+    record_id="end_to_end_reconcile3",version_no=1,status="active",
+    cost_version_id="end_to_end_cv_v2",
+    settlement_item_id="end_to_end_item3",
+    settlement_item_version_id="end_to_end_itemv3",
+    reconciled_cost_fen=500,reconciled_settlement_fen=450,
+    is_final=0,evidence="本期发生500分，核减50分，确认结算450分",
+    actor_id="u",created_at="2026-11-07T20:44:26.000Z",
+    request_key="end_to_end_reconcile3")
+ok("newly revised three-installment settlement reconciles complete true cost",
+    row("SELECT sum(reconciled_cost_fen) n FROM "
+        "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost'")["n"]==3500)
+# Although every cent is provisionally mapped, is_final=0 means a real
+# review is still outstanding. The closeout cannot infer finality from sums.
+e2e_close_rejection("amount matching alone cannot mark a provisional reconciliation final",
+                    "实际费用与各期有效最终核对金额不一致")
+add("cost_reconciliation_versions",id="end_to_end_reconcile3_final",
+    record_id="end_to_end_reconcile3",version_no=2,status="active",
+    cost_version_id="end_to_end_cv_v2",
+    settlement_item_id="end_to_end_item3",
+    settlement_item_version_id="end_to_end_itemv3",
+    reconciled_cost_fen=500,reconciled_settlement_fen=450,
+    is_final=1,evidence="发生500分、核减50分的最终审核",
+    actor_id="u",created_at="2026-11-07T20:44:26.001Z",
+    request_key="end_to_end_reconcile3_final")
+ok("final review is an independently versioned approval fact, not an inferred running balance",
+    row("SELECT sum(reconciled_cost_fen) n FROM "
+        "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost' "
+        "AND is_final=1")["n"]==3500
+    and row("SELECT is_final FROM v_cost_reconciliation_current "
+        "WHERE record_id='end_to_end_reconcile3'")["is_final"]==1)
+ok("audited deduction does not create false outstanding actual-cost balance",
+    row("SELECT sum(reconciled_cost_fen) n FROM "
+        "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost' "
+        "AND is_final=1")["n"]==3500
+    and row("SELECT sum(reconciled_settlement_fen) n FROM "
+        "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost' "
+        "AND is_final=1")["n"]==3450
+    and row("SELECT sum(net_amount_fen) n FROM "
+        "v_effective_settlement_items WHERE project_id='end_to_end_p'")["n"]==3450)
+# Additional approved statement with no associated actual expense MUST NOT
+# be treated as settlement merely because all other actual costs are covered.
+add("settlements",id="end_to_end_st_extra",project_id="end_to_end_p",
+    number="E2E-EXTRA",created_by="u",
+    created_at="2026-11-07T20:44:27.000Z")
+add("settlement_items",id="end_to_end_extra_item",
+    settlement_id="end_to_end_st_extra",project_scope_id="end_to_end_scope",
+    created_at="2026-11-07T20:44:28.000Z")
+add("settlement_versions",id="end_to_end_extra_v1",
+    settlement_id="end_to_end_st_extra",version_no=1,
+    approval_version_id="end_to_end_ap",change_type="initial",
+    reason="待核对的额外结算",created_by="u",
+    recorded_at="2026-11-07T20:44:29.000Z")
+add("settlement_item_versions",id="end_to_end_extra_itemv",
+    settlement_item_id="end_to_end_extra_item",
+    settlement_version_id="end_to_end_extra_v1",
+    approval_scope_version_id="end_to_end_aps",
+    quantity_scaled=0,amount_fen=25,
+    evidence="无实际费用核对的金额",scope_snapshot_json="{}")
+add("settlement_review_events",id="end_to_end_extra_submit",
+    settlement_version_id="end_to_end_extra_v1",event_seq=1,
+    action="submit",actor_id="u",
+    recorded_at="2026-11-07T20:44:30.000Z")
+add("settlement_review_events",id="end_to_end_extra_approve",
+    settlement_version_id="end_to_end_extra_v1",event_seq=2,
+    action="approve",actor_id="u",
+    recorded_at="2026-11-07T20:44:31.000Z",effective_on="2026-11-07")
+e2e_close_rejection("approved unmatched settlement amount cannot be hidden by fully paid costs",
+                    "未完成实际费用核对的有效结算明细")
+# Explicit approved void supersedes only that extra statement. Nothing is
+# silently erased from the audit history or earlier approved snapshots.
+add("settlement_versions",id="end_to_end_extra_void",
+    settlement_id="end_to_end_st_extra",version_no=2,
+    previous_version_id="end_to_end_extra_v1",
+    approval_version_id="end_to_end_ap",change_type="void",
+    reason="额外结算缺少真实费用，正式注销",
+    created_by="u",recorded_at="2026-11-07T20:44:32.000Z")
+add("settlement_review_events",id="end_to_end_extra_void_submit",
+    settlement_version_id="end_to_end_extra_void",event_seq=1,
+    action="submit",actor_id="u",
+    recorded_at="2026-11-07T20:44:33.000Z")
+add("settlement_review_events",id="end_to_end_extra_void_approve",
+    settlement_version_id="end_to_end_extra_void",event_seq=2,
+    action="approve",actor_id="u",
+    recorded_at="2026-11-07T20:44:34.000Z",effective_on="2026-11-07")
+ok("formal statement void preserves history and removes unsupported effective balance",
+    row("SELECT count(*) n FROM v_effective_settlement_items "
+        "WHERE settlement_id='end_to_end_st_extra'")["n"]==0
+    and row("SELECT count(*) n FROM settlement_item_versions "
+        "WHERE settlement_item_id='end_to_end_extra_item'")["n"]==1)
 stage("end_to_end_p","closed",time="2026-11-07T20:46:00.000Z")
 ok("complete end-to-end business facts can settle, reconcile and close",
     row("SELECT status FROM projects WHERE id='end_to_end_p'")["status"]=="closed"
     and row("SELECT net_amount_fen FROM v_effective_settlement_items "
-        "WHERE id='end_to_end_item'")["net_amount_fen"]==3000
+        "WHERE id='end_to_end_item'")["net_amount_fen"]==2500
+    and row("SELECT count(*) n FROM v_effective_settlement_items "
+        "WHERE project_id='end_to_end_p'")["n"]==3
+    and row("SELECT sum(reconciled_cost_fen) n FROM "
+        "v_effective_cost_reconciliations "
+        "WHERE entry_id='end_to_end_cost'")["n"]==3500
     and row("SELECT status FROM v_cost_reconciliation_current "
         "WHERE record_id='end_to_end_reconcile'")["status"]=="active")
 # A catalog version is separate from project approval history; exact
@@ -2497,6 +2742,32 @@ try:
     ok('new formally approved statement amount is separately reconciled',
         effective_applied('fee_material_cost')==4500
         and 5500-effective_applied('fee_material_cost')==1000)
+    # A later true-cost reduction may be smaller than the already reviewed
+    # portions. Recording the correction is valid; automatic deletion or
+    # reinterpretation of historical approved settlements is NOT.
+    add('cost_versions',id='fee_material_cost_v3',
+        entry_id='fee_material_cost',version_no=3,
+        funding_version_id='fund2',status='active',
+        category_id='expense',category_snapshot='材料费',
+        title='材料退补后的最终实际费用',occurred_on='2026-11-08',
+        amount_fen=4000,evidence='实际材料费用正式核减1500分',
+        reason='更正应结金额',confirmed_by='u',
+        confirmed_at=t,request_key='fee_material_cost_v3')
+    ok('downward cost correction retains authentic over-reconciled exception',
+        row('SELECT amount_fen FROM v_cost_current '
+            "WHERE entry_id='fee_material_cost'")['amount_fen']==4000
+        and effective_applied('fee_material_cost')==4500
+        and row('SELECT COUNT(*) n FROM v_cost_reconciliation_current '
+            "WHERE record_id='fee_doc_1_fee_material_recon'")['n']==1)
+    blocked('cannot add more active reconciliation to an already over-matched cost',
+        'INSERT INTO cost_reconciliation_versions(id,record_id,version_no,'
+        'status,cost_version_id,settlement_item_id,settlement_item_version_id,'
+        'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
+        'actor_id,created_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('after_downward_overpay','after_downward_overpay',1,'active',
+         'fee_material_cost_v3','fee_doc_4_item','fee_doc_4_item_v1',
+         100,100,0,'不可再次核对超支历史','u',t,
+         'after_downward_overpay'))
 finally:
     db.execute('ROLLBACK TO hierarchical_fee_installments')
     db.execute('RELEASE hierarchical_fee_installments')
