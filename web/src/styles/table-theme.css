@@ -27,4 +27,27 @@
  font-weight:600;
  padding:12px 0;
 }
-.el-table .cell{padding:0 8px;line-height:1.6}
+/* Consistent readable inset for ordinary table cells, including sticky columns. */
+.el-table .cell{padding:0 var(--app-cell-inline-padding);line-height:1.6;overflow-wrap:anywhere}
+/* Selection and centered icon columns have intentionally narrow fixed widths. */
+.el-table .el-table__cell.is-center .cell,
+.el-table .el-table-column--selection .cell{padding-inline:8px}
+
+/* Bordered ElDescriptions are genuine label/value cells, not generic HTML tables.
+   Element Plus and the application's native table rules otherwise leave labels and
+   values too close to the cell borders in tower, plan and completion details. */
+.el-descriptions .el-descriptions__body .el-descriptions__table.is-bordered .el-descriptions__cell{
+ padding:12px var(--app-description-inline-padding);
+ line-height:1.65;
+ vertical-align:middle;
+ white-space:normal;
+ overflow-wrap:anywhere;
+}
+.el-descriptions .el-descriptions__table.is-bordered .el-descriptions__label{
+ color:var(--el-text-color-regular);
+ font-weight:600;
+}
+.el-descriptions .el-descriptions__table.is-bordered .el-descriptions__content{
+ color:var(--el-text-color-primary);
+ font-weight:400;
+}

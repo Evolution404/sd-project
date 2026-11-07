@@ -5,7 +5,7 @@ import {mkdirSync} from 'node:fs';
  * intentionally scrollable; business page headings/actions must stay in-flow.
  */
 export async function auditDetail(page, selector, key, widths=[1500,1280,960,760]){
- mkdirSync('release/ui-deep-audit',{recursive:true});
+ mkdirSync('test-results/ui-deep-audit',{recursive:true});
  const report=[];
  for(const width of widths){
   await page.setViewportSize({width,height:900});
@@ -28,7 +28,7 @@ export async function auditDetail(page, selector, key, widths=[1500,1280,960,760
     visibleHeadings:[...el.querySelectorAll('h2,h3')].filter(visible).length,
     issues};
   });
-  await page.screenshot({path:'release/ui-deep-audit/'+key+'-'+width+'.png'});
+  await page.screenshot({path:'test-results/ui-deep-audit/'+key+'-'+width+'.png'});
   report.push(result);
   console.log('DEEP_UI',key,JSON.stringify(result));
   assert.equal(result.position,'static',key+' detail may not be fixed/overlay');

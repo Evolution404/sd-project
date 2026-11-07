@@ -7,6 +7,8 @@
  --app-table-body-text:#607089;
  --app-table-hover-bg:#f6f9ff;
  --app-table-selected-bg:#eef5ff;
+ --app-cell-inline-padding:14px;
+ --app-description-inline-padding:16px;
  --el-color-danger:#dc384a;
  --el-color-success:#27834c;
  --el-color-warning:#b47827;

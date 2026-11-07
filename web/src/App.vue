@@ -1,39 +1,43 @@
 <script setup lang="ts">
 import {ElDialog,ElMessageBox} from 'element-plus';
-import {requestApi} from './api/client';
+import {requestApi} from './shared/api/client';
 import './styles/business-dialog.css';
 import './styles/detail-pages.css';
 import {ElForm,ElFormItem,ElCollapse,ElCollapseItem,ElUpload,ElLink,type FormInstance} from 'element-plus';
 import {ElTable,ElTableColumn} from 'element-plus';
 import {ElInput,ElCheckbox,ElRadio,ElDatePicker} from 'element-plus';
 import {ElSelect,ElOption} from 'element-plus';
-import {ElButton} from 'element-plus';
+import {ElButton,ElPagination} from 'element-plus';
 import {computed,defineAsyncComponent,nextTick,onMounted,reactive,ref,watch} from 'vue';
-import {newClientId} from './utils/client-id';
-import CustomFields from './components/CustomFields.vue';
-const LedgerWorkspace=defineAsyncComponent(()=>import('./components/LedgerWorkspace.vue'));
-import DemandTowerGrid from './components/DemandTowerGrid.vue';
-import ApplicationShell from './components/ApplicationShell.vue';
-import LoginPage from './pages/LoginPage.vue';
-const DashboardPage=defineAsyncComponent(()=>import('./pages/DashboardPage.vue'));
-const AccessPage=defineAsyncComponent(()=>import('./pages/AccessPage.vue'));
-const ProjectListPage=defineAsyncComponent(()=>import('./pages/ProjectListPage.vue'));
-import StatusTag from './components/StatusTag.vue';
-const ReferencePriceWorkspace=defineAsyncComponent(()=>import('./components/ReferencePriceWorkspace.vue'));
-const StructureCreateModal=defineAsyncComponent(()=>import('./components/StructureCreateModal.vue'));
-const AuditWorkspace=defineAsyncComponent(()=>import('./components/AuditWorkspace.vue'));
-const FundingWorkspace=defineAsyncComponent(()=>import('./components/FundingWorkspace.vue'));
-const DictionaryWorkspace=defineAsyncComponent(()=>import('./components/DictionaryWorkspace.vue'));
-const SettlementVoucherWorkspace=defineAsyncComponent(()=>import('./components/SettlementVoucherWorkspace.vue'));
-const CostWorkspace=defineAsyncComponent(()=>import('./components/CostWorkspace.vue'));
-const CostReconciliationWorkspace=defineAsyncComponent(()=>import('./components/CostReconciliationWorkspace.vue'));
-const CompletionWorkspace=defineAsyncComponent(()=>import('./components/CompletionWorkspace.vue'));
-const PlanBudgetWorkspace=defineAsyncComponent(()=>import('./components/PlanBudgetWorkspace.vue'));
-const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./components/PlanSettlementWorkspace.vue'));
+import {newClientId} from './shared/utils/client-id';
+import {sumQuantities} from './shared/utils/quantity-display';
+import {readOperationDefinition} from './shared/utils/operation-definition';
+import CustomFields from './shared/components/CustomFields.vue';
+import {LINE_LEDGER_TABS} from './modules/ledger/ledger-tabs';
+const LedgerWorkspace=defineAsyncComponent(()=>import('./modules/ledger/LedgerWorkspace.vue'));
+import DemandTowerGrid from './modules/demands/DemandTowerGrid.vue';
+import DemandBatchWorkspace from './modules/demands/DemandBatchWorkspace.vue';
+import ApplicationShell from './app/layout/ApplicationShell.vue';
+import LoginPage from './app/auth/LoginPage.vue';
+const DashboardPage=defineAsyncComponent(()=>import('./modules/dashboard/DashboardPage.vue'));
+const AccessPage=defineAsyncComponent(()=>import('./app/auth/AccessPage.vue'));
+const ProjectListPage=defineAsyncComponent(()=>import('./modules/projects/ProjectListPage.vue'));
+import StatusTag from './shared/components/StatusTag.vue';
+const ReferencePriceWorkspace=defineAsyncComponent(()=>import('./modules/finance/ReferencePriceWorkspace.vue'));
+const StructureCreateModal=defineAsyncComponent(()=>import('./modules/ledger/StructureCreateModal.vue'));
+const AuditWorkspace=defineAsyncComponent(()=>import('./modules/system/AuditWorkspace.vue'));
+const FundingWorkspace=defineAsyncComponent(()=>import('./modules/finance/FundingWorkspace.vue'));
+const DictionaryWorkspace=defineAsyncComponent(()=>import('./modules/system/DictionaryWorkspace.vue'));
+const SettlementVoucherWorkspace=defineAsyncComponent(()=>import('./modules/finance/SettlementVoucherWorkspace.vue'));
+const CostWorkspace=defineAsyncComponent(()=>import('./modules/finance/CostWorkspace.vue'));
+const CostReconciliationWorkspace=defineAsyncComponent(()=>import('./modules/finance/CostReconciliationWorkspace.vue'));
+const CompletionWorkspace=defineAsyncComponent(()=>import('./modules/plans/CompletionWorkspace.vue'));
+const PlanBudgetWorkspace=defineAsyncComponent(()=>import('./modules/plans/PlanBudgetWorkspace.vue'));
+const PlanSettlementWorkspace=defineAsyncComponent(()=>import('./modules/plans/PlanSettlementWorkspace.vue'));
 
 type Rec = Record<string,any>;
 function rememberedView(key:string,fallback:string){try{return sessionStorage.getItem(key)||fallback}catch{return fallback}}
-const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref('topology'),ledgerDraftDirty=ref(false),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
+const ledgerLineId=ref(rememberedView('ledger-line','')),ledgerTab=ref<string>(LINE_LEDGER_TABS[0].id),ledgerDraftDirty=ref(false),ledgerTowerId=ref(''),demandLocationKind=ref('tower'),demandSpanRows=ref<Rec[]>([]);
 const nav=ref('overview'),page=ref('overview'),user=ref<Rec|null>(null);
 const username=ref(''),password=ref('');
 const busy=ref(false),error=ref(''),success=ref('');
@@ -73,6 +77,8 @@ const eligibleExecutionScopes=computed<Rec[]>(()=> (projectView.value?.scopes||[
 const eligibleDemands=computed(()=>approvedDemandOptions.value.filter(x=>!(projectView.value?.scopes||[]).some((s:Rec)=>s.demand_id===x.id)));
 const statusFilter=ref(''),search=ref(''),lineFilter=ref('');
 const selectedLine=ref(''),towerSearch=ref(''),fromRank=ref(''),toRank=ref('');
+const towerPage=ref(1),groupPage=ref(1);
+const spanChoices=ref<Rec[]>([]),spanChoiceTotal=ref(0),spanLoading=ref(false);let spanRequest=0;
 const rangeOpen=ref(false),sourcesOpen=ref(true),entryAdvancedOpen=ref(false);
 const batchSources=ref<Rec[]>([{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}]);
 const selected=reactive<Record<string,boolean>>({});
@@ -84,23 +90,19 @@ const completionItem=ref<Rec|null>(null);
 const demandEdit=ref<Rec|null>(null),attachmentDialog=ref(false);
 const reasonAction=ref(''),reasonValue=ref('');
 
-const drafts=ref<Rec[]>([]),currentDraft=ref<Rec|null>(null),draftsOpen=ref(false);
-const duplicateDialog=ref(false),duplicateFindings=ref<Rec[]>([]);
-const duplicateChoices=reactive<Record<number,Rec>>({});
-const batchKey=ref<string>(newClientId()),lastResult=ref<Rec|null>(null);
 const newCommon=():Rec=> ({work_target_type:'line',operation_id:'',target_object:'',quantity:'1',unit_id:'',completion_standard:'',problem_description:'',priority_id:'',expected_on:'',custom_fields:{},source:{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}});
 const common=reactive<Rec>(newCommon());
 const initialForm:Rec={};
 const form=reactive<Rec>({});
 const labels:Rec={overview:'工作台',lines:'线路台账',towers:'杆塔查询',spans:'档距查询',entry:'新建需求',demands:'需求中心',dictionary:'数据字典',access:'IP访问管理',frameworks:'项目框架',agreements:'执行协议',projects:'子项目储备',prices:'检修参考单价',audit:'操作记录'};
 const tabs=['overview','entry','demands','lines','physical','logical','dictionary','access'];
-const ops=computed(()=>items.value.filter(x=>x.type_id==='operation'&&x.status==='active'&&(x.work_target_type===common.work_target_type||x.work_target_type==='both')));
+const ops=computed(()=>items.value.filter(x=>x.type_id==='operation'&&x.status==='active'));
 const units=computed(()=>items.value.filter(x=>x.type_id==='unit'&&x.status==='active'));
 const sources=computed(()=>items.value.filter(x=>x.type_id==='source'&&x.status==='active'));
 const priorities=computed(()=>items.value.filter(x=>x.type_id==='priority'&&x.status==='active'));
 const thisLineTowers=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&x.status==='active'&&(!towerSearch.value||[x.tower_no,x.logical_code,x.physical_code].some(y=>String(y||'').toLowerCase().includes(towerSearch.value.toLowerCase())))).sort((a,b)=>a.sort_rank-b.sort_rank));
 const selectedRows=computed<Rec[]>(()=> (demandLocationKind.value==='span'?demandSpanRows.value:logical.value.filter(x=>selected[x.id])).filter(x=>!excluded[x.id]).map(x=>({...x,tower_no:x.span_id?x.start_tower_no+'—'+x.end_tower_no:x.tower_no,quantity:overrides[x.id]?.quantity??String(common.quantity),target_object:overrides[x.id]?.target_object??String(common.target_object),custom_fields:{...common.custom_fields,...overrides[x.id]?.custom_fields}})));
-const totalQty=computed(()=>selectedRows.value.reduce((acc,x)=>acc+(Number(x.quantity)||0),0));
+const totalQty=computed(()=>sumQuantities(selectedRows.value.map(x=>x.quantity)));
 const thisLineSelected=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&selected[x.id]&&!excluded[x.id]).length);
 const thisLineTotal=computed(()=>logical.value.filter(x=>x.line_id===selectedLine.value&&x.status==='active').length);
 const selectedLines=computed(()=>lines.value.filter(l=>selectedRows.value.some(x=>x.line_id===l.id)));
@@ -109,7 +111,7 @@ const displayTitle=computed(()=>nav.value==='entry'?'新建需求':nav.value==='
 const pageDescriptions:Record<string,string>={
  overview:'查看当前项目、需求与实施进度。',
  demands:'查看、核实和跟踪每一条需求。',
- entry:'选择多个位置，共同内容填一次；逐基差异在预览中调整。',
+ entry:'在线批量录入或导入 Excel，统一检查后提交核实，每批最多5000条。',
  projects:'从项目储备到立项及分次执行的全过程管理。',
  prices:'管理检修项目参考单价及历史价格版本。',
  frameworks:'查看年度项目框架及资金授权情况。',
@@ -130,9 +132,45 @@ const roleAdmin=computed(()=>user.value?.role==='admin');
 const mediaTitle=computed(()=>labels[nav.value]||'');
 const options=(type:string)=>items.value.filter(x=>x.type_id===type).sort((a,b)=>a.sort_order-b.sort_order);
 const selectedOp=computed(()=>items.value.find(x=>x.id===common.operation_id));
+const commonOperationDefinition=computed(()=>readOperationDefinition(selectedOp.value,items.value));
 const fieldDefinitions=computed<Rec[]>(()=>{try{const fields=JSON.parse(selectedOp.value?.fields_json||'[]');return Array.isArray(fields)?fields:[]}catch{return []}});
 
 const entryFormRef=ref<FormInstance>();
+const batchWorkspace=ref<InstanceType<typeof DemandBatchWorkspace>>();
+const groupOpen=ref(false);
+const groupBaseline=ref('');
+function openDemandGroup(){resetBatch();towerPage.value=1;groupPage.value=1;groupBaseline.value=JSON.stringify(payload());groupOpen.value=true;void nextTick(()=>entryFormRef.value?.clearValidate())}
+async function beforeCloseDemandGroup(done:()=>void){
+ if(JSON.stringify(payload())!==groupBaseline.value){try{await ElMessageBox.confirm('这一组内容尚未加入清单。关闭将放弃本组修改，已在清单中的需求保留。','放弃本组修改？',{confirmButtonText:'放弃本组修改',cancelButtonText:'继续编辑'})}catch{return}}
+ done();
+}
+async function demandBatchSubmitted(result:Rec){notify('新建 '+result.count+' 条待核实需求，关联已有需求 '+result.linked_ids.length+' 条');await refresh();await loadDemands()}
+
+async function chooseCommonOperation(id:string){
+ const operation=items.value.find(x=>x.id===id),definition=readOperationDefinition(operation,items.value);if(!definition)return;
+ const incompatible=selectedRows.value.length>0&&!definition.location_kinds.includes(demandLocationKind.value);
+ if(common.operation_id&&common.operation_id!==id||incompatible){try{await ElMessageBox.confirm(incompatible?'本操作不支持当前作业位置，将清空本组已选位置；已加入清单的需求保留。单位不自动换算，请重新核对数量和部位。':'切换操作会采用新的单位、对象和附加字段定义；数量不自动换算，请核对部位和工作量。','切换操作定义',{confirmButtonText:'切换并核对',cancelButtonText:'保留原操作'})}catch{return}}
+ const first=!common.operation_id;
+ if(incompatible){Object.keys(selected).forEach(k=>delete selected[k]);demandSpanRows.value=[];Object.keys(overrides).forEach(k=>delete overrides[k]);Object.keys(excluded).forEach(k=>delete excluded[k])}
+ const nextKind=selectedRows.value.length&&definition.location_kinds.includes(demandLocationKind.value)?demandLocationKind.value:definition.default_location_kind;
+ if(demandLocationKind.value!==nextKind){towerSearch.value='';towerPage.value=1;rangeOpen.value=false}
+ common.operation_id=id;demandLocationKind.value=nextKind;
+ if(first&&operation?.default_quantity_scaled)common.quantity=String(operation.default_quantity_scaled/10000);
+ if(!common.target_object)common.target_object=definition.default_target_object;
+ if(!common.completion_standard)common.completion_standard=operation?.completion_standard||'';
+}
+async function chooseCommonPosition(kind:string){
+ if(!commonOperationDefinition.value?.location_kinds.includes(kind))return;
+ if(selectedRows.value.length){try{await ElMessageBox.confirm('切换作业位置将清空本组已选杆塔／档距，已加入清单的需求保留。','切换作业位置',{confirmButtonText:'切换并重新选择',cancelButtonText:'保留当前位置'})}catch{return}}
+ Object.keys(selected).forEach(k=>delete selected[k]);demandSpanRows.value=[];Object.keys(excluded).forEach(k=>delete excluded[k]);Object.keys(overrides).forEach(k=>delete overrides[k]);demandLocationKind.value=kind;towerPage.value=1;towerSearch.value='';rangeOpen.value=false;
+}
+function toggleDemandSpan(span:Rec,checked:boolean){const index=demandSpanRows.value.findIndex(s=>s.id===span.id);if(checked&&index<0)demandSpanRows.value.push({...span,span_id:span.id,span_version:span.version});else if(!checked&&index>=0)demandSpanRows.value.splice(index,1)}
+watch([selectedLine,demandLocationKind,towerSearch,towerPage,groupOpen],async()=>{
+ const request=++spanRequest;
+ if(demandLocationKind.value!=='span'||!selectedLine.value||!groupOpen.value){spanChoices.value=[];spanChoiceTotal.value=0;spanLoading.value=false;return}
+ spanChoices.value=[];spanChoiceTotal.value=0;spanLoading.value=true;
+ try{const result=await api('/demand-entry/spans?'+new URLSearchParams({line_id:selectedLine.value,page:String(towerPage.value),search:towerSearch.value}));if(request===spanRequest){spanChoices.value=result.rows;spanChoiceTotal.value=result.total}}catch(e){if(request===spanRequest)error.value=errorMessage(e)}finally{if(request===spanRequest)spanLoading.value=false}
+});
 const entryModel=computed(()=>({selectedLine:selectedLine.value,common,batchSources:batchSources.value,rows:selectedRows.value}));
 function requiredCustomError(value:any){
  const missing=fieldDefinitions.value.filter(f=>{
@@ -159,7 +197,9 @@ const rowCompletenessRules=[{validator:(_rule:unknown,values:any,done:(err?:Erro
  done();
 },trigger:'change'}];
 
-watch(()=>common.operation_id,()=>{common.custom_fields=Object.fromEntries(fieldDefinitions.value.filter(f=>f.default!==undefined).map(f=>[f.key,f.default]));for(const row of Object.values(overrides))delete row.custom_fields},{flush:'sync'});
+watch([selectedLine,towerSearch],()=>{towerPage.value=1});
+watch(selectedLine,()=>{fromRank.value='';toRank.value=''});
+watch(()=>common.operation_id,()=>{const definition=readOperationDefinition(selectedOp.value,items.value);common.unit_id=definition?.unit_id||'';common.work_target_type=definition?.work_target_type||'';common.custom_fields=Object.fromEntries(fieldDefinitions.value.filter(f=>f.default!==undefined).map(f=>[f.key,f.default]));for(const row of Object.values(overrides))delete row.custom_fields},{flush:'sync'});
 const dateStr=(s:string)=>s?s.slice(0,10):'';
 const fmtQty=(v:any)=>Number(v||0)/10000;
 const visibleError=computed(()=>error.value);
@@ -372,7 +412,7 @@ async function advance(stageName:'stock'|'approve',reason:string){
  }catch(e){error.value=errorMessage(e)}
 }
 async function loadDemands(){const query=new URLSearchParams();if(statusFilter.value)query.set('status',statusFilter.value);if(search.value)query.set('search',search.value);if(lineFilter.value)query.set('line_id',lineFilter.value);demands.value=await api('/demands?'+query.toString())}
-async function openNav(next:string){
+async function openNav(next:string,preserveLedgerFocus=false){
  if(['lines','towers','spans'].includes(next)&&user.value?.role!=='admin'){
   error.value='基础台账仅管理员可访问';return;
  }
@@ -382,69 +422,37 @@ async function openNav(next:string){
     ledgerDraftDirty.value=false;
   }catch{return}
  }
+ if(next==='lines'&&!preserveLedgerFocus){ledgerTab.value=LINE_LEDGER_TABS[0].id;ledgerTowerId.value=''}
  nav.value=next;detail.value=null;edit.value=null;error.value='';
  stage.value='';projectAction.value='';executionAction.value='';completionItem.value=null;reasonAction.value='';
- if(next==='entry'&&roleWrite.value)await loadDrafts();
+
  if(next==='demands')await loadDemands();else if(next==='overview')await refresh();else if(['frameworks','agreements','projects'].includes(next))await loadStructure()}
-function openLedger(value:Rec){if(user.value?.role!=='admin'){error.value='基础台账仅管理员可访问';return}ledgerLineId.value=value.lineId;ledgerTab.value=value.tab||'towers';ledgerTowerId.value=value.towerId||'';void openNav('lines')}
+function openLedger(value:Rec){if(user.value?.role!=='admin'){error.value='基础台账仅管理员可访问';return}ledgerLineId.value=value.lineId;ledgerTab.value=value.tab||LINE_LEDGER_TABS[0].id;ledgerTowerId.value=value.towerId||'';void openNav('lines',true)}
 async function seedLedgerDemands(value:Rec){
  resetBatch();demandLocationKind.value=value.kind;selectedLine.value=value.line_id;
  if(value.kind==='span'){demandSpanRows.value=value.rows.map((s:Rec)=>({...s,span_id:s.id,span_version:s.version}));common.work_target_type='line'}
  else for(const t of value.rows)selected[t.id]=true;
- await refresh();await openNav('entry');notify('已带入 '+value.rows.length+' 个'+(value.kind==='span'?'档距':'杆塔')+'位置，请填写本次工作内容和工程量');
+ await refresh();await openNav('entry');groupBaseline.value=JSON.stringify(payload());groupOpen.value=true;notify('已带入 '+value.rows.length+' 个'+(value.kind==='span'?'档距':'杆塔')+'位置，请填写本次工作内容和工程量');
 }
 function addSource(){batchSources.value.push({type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''});}
 function removeSource(index:number){if(batchSources.value.length>1)batchSources.value.splice(index,1);}
 function removeSelectedLine(){for(const item of logical.value.filter(x=>x.line_id===selectedLine.value))selected[item.id]=false;}
 function selectVisible(){for(const tower of thisLineTowers.value)selected[tower.id]=true;for(const tower of thisLineTowers.value)delete excluded[tower.id];}
 function sourcePayload(){return batchSources.value.map(item=>({...item}));}
-function applyDefault(){const op=selectedOp.value;if(!op)return;if(op.default_unit_id&&units.value.some(x=>x.id===op.default_unit_id))common.unit_id=op.default_unit_id;if(op.default_quantity_scaled)common.quantity=String(op.default_quantity_scaled/10000);if(op.completion_standard)common.completion_standard=op.completion_standard;notify('已更新共同默认值；逐行自定义保留')}
+function applyDefault(){const op=selectedOp.value;if(!op)return;if(op.default_unit_id&&units.value.some(x=>x.id===op.default_unit_id))common.unit_id=op.default_unit_id;if(op.default_quantity_scaled)common.quantity=String(op.default_quantity_scaled/10000);if(op.completion_standard)common.completion_standard=op.completion_standard;if(commonOperationDefinition.value?.default_target_object)common.target_object=commonOperationDefinition.value.default_target_object;notify('已更新共同默认值；逐行自定义保留')}
 function selectRange(){if(!fromRank.value||!toRank.value){error.value='请选择起止杆塔';return}const a=logical.value.find(x=>x.id===fromRank.value),b=logical.value.find(x=>x.id===toRank.value);if(!a||!b||a.line_id!==b.line_id)return;const min=Math.min(a.sort_rank,b.sort_rank),max=Math.max(a.sort_rank,b.sort_rank);for(const t of logical.value.filter(x=>x.line_id===a.line_id&&x.sort_rank>=min&&x.sort_rank<=max&&x.status==='active'))selected[t.id]=true;notify('已按台账顺序选择区段')}
 function toggleAll(){selectVisible();}
-function resetBatch(){duplicateDialog.value=false;duplicateFindings.value=[];Object.keys(duplicateChoices).forEach(k=>delete duplicateChoices[Number(k)]);demandLocationKind.value='tower';demandSpanRows.value=[];currentDraft.value=null;Object.assign(common,newCommon());batchSources.value=[{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}];Object.keys(selected).forEach(k=>delete selected[k]);Object.keys(excluded).forEach(k=>delete excluded[k]);Object.keys(overrides).forEach(k=>delete overrides[k]);batchKey.value=newClientId();lastResult.value=null;}
-function payload(){return {...common,source:{...sourcePayload()[0]},sources:sourcePayload(),location_kind:demandLocationKind.value,rows:selectedRows.value.map((x,index)=>({...((x.span_id)?{span_id:x.span_id,span_version:x.span_version}:{logical_tower_id:x.id}),target_object:x.target_object,quantity:x.quantity,custom_fields:overrides[x.id]?.custom_fields||{},
- duplicate_review:duplicateChoices[index]||undefined})),idempotency_key:batchKey.value,...(currentDraft.value?{draft_id:currentDraft.value.id,draft_version:currentDraft.value.version}:{})};}
-function draftSummary(draft:Rec){
- try{const saved=JSON.parse(draft.draft_json);return (items.value.find(x=>x.id===saved.operation_id)?.name||'未选操作')+' · '+(saved.rows?.length||0)+' 个位置'}catch{return '待完善草稿'}
-}
-async function loadDrafts(){drafts.value=await api('/demand-batches?status=draft')}
-async function restoreDraft(id:string){error.value='';try{
- const draft=await api('/demand-batches/'+id),saved=JSON.parse(draft.draft_json);
- resetBatch();
- common.operation_id=saved.operation_id||'';
- const {rows,sources,source,idempotency_key,draft_id,draft_version,location_kind,...fields}=saved;
- Object.assign(common,fields);common.custom_fields=saved.custom_fields||{};
- batchSources.value=sources?.length?sources:source?[source]:batchSources.value;
- if((rows||[]).some((row:Rec)=>row.span_id)){demandLocationKind.value='span';const spans=await api('/ledger/spans?status=all');demandSpanRows.value=(rows||[]).map((row:Rec)=>({...spans.find((x:Rec)=>x.id===row.span_id),id:row.span_id,span_id:row.span_id,span_version:row.span_version}));}
- for(const row of rows||[]){const id=row.span_id||row.logical_tower_id;selected[id]=true;overrides[id]={target_object:row.target_object,quantity:row.quantity,custom_fields:row.custom_fields||{}}}
- const first=logical.value.find(x=>x.id===rows?.[0]?.logical_tower_id);if(first)selectedLine.value=first.line_id;else if(demandSpanRows.value[0]?.line_id){selectedLine.value=demandSpanRows.value[0].line_id;ledgerLineId.value=selectedLine.value;}
- await nextTick();common.custom_fields={...saved.custom_fields};batchKey.value=idempotency_key||newClientId();currentDraft.value=draft;lastResult.value=null;
- notify('已恢复草稿；停用选项或位置会在提交时重新检查');
- }catch(e){error.value=errorMessage(e)}}
-async function submitBatch(draft:boolean,duplicateChecked=false){error.value='';busy.value=true;try{
- if(draft){
-  if(lastResult.value)throw Error('本批已提交，请清空重填后新建草稿');
-  currentDraft.value=currentDraft.value?await api('/demand-batches/'+currentDraft.value.id,'PATCH',{version:currentDraft.value.version,draft:payload()}):await api('/demand-batches/drafts','POST',payload());
-  await loadDrafts();notify('草稿已保存');return;
- }
- if(!duplicateChecked&&!lastResult.value){
-  const review=await api('/demands/duplicate-candidates','POST',payload());
-  const findings=(review.rows||[]).filter((x:Rec)=>x.candidates?.length);
-  if(findings.length){
-   duplicateFindings.value=findings;duplicateDialog.value=true;
-   for(const x of findings)if(!duplicateChoices[x.index])duplicateChoices[x.index]={decision:'',candidate_id:x.candidates[0].id,reason:''};
-   return;
+function resetBatch(){demandLocationKind.value='tower';demandSpanRows.value=[];Object.assign(common,newCommon());batchSources.value=[{type_id:'',discovered_on:new Date().toLocaleDateString('en-CA'),proposed_by:'',description:'',external_ref:''}];Object.keys(selected).forEach(k=>delete selected[k]);Object.keys(excluded).forEach(k=>delete excluded[k]);Object.keys(overrides).forEach(k=>delete overrides[k]);}
+function payload(){return {...common,sources:sourcePayload(),location_kind:demandLocationKind.value,rows:selectedRows.value.map(x=>({...((x.span_id)?{span_id:x.span_id,span_version:x.span_version}:{logical_tower_id:x.id}),target_object:x.target_object,quantity:x.quantity,custom_fields:overrides[x.id]?.custom_fields||{}}))};}
+async function submitBatch(draft:boolean){
+ error.value='';try{
+  if(await batchWorkspace.value?.addGroup(payload(),draft)){
+   groupOpen.value=false;
+   if(draft)await batchWorkspace.value?.saveDraft();
+   else notify('已加入待提交清单，可继续添加其他作业或统一提交核实');
   }
- }
- for(const finding of duplicateFindings.value){
-  const review=duplicateChoices[finding.index];
-  if(!review?.decision||!review?.candidate_id||!review?.reason?.trim())throw Error('每一条疑似重复需求都必须选择处理方式并填写判定依据');
- }
- const r=await api('/demand-batches/submit','POST',payload());
- lastResult.value=r;duplicateDialog.value=false;
- notify('新建 '+r.count+' 条待核实需求，关联已有需求 '+(r.linked_ids?.length||0)+' 条（'+batchSources.value.length+' 条来源）');
- await loadDrafts();await refresh();await loadDemands();
- }catch(e){error.value=errorMessage(e)}finally{busy.value=false}}
+ }catch(e){error.value=errorMessage(e)}
+}
 async function revalidateDemandLocation(reason:string){
  if(!detail.value)return;error.value='';
  try{detail.value=await api('/demands/'+detail.value.id+'/revalidate-location','POST',{version:detail.value.version,reason});notify('位置已更新为新版本，请重新确认有效');await loadDemands()}catch(e){error.value=errorMessage(e)}
@@ -705,23 +713,28 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
   <AccessPage v-if="nav==='access'&&roleAdmin"/>
   <AuditWorkspace v-if="nav==='audit'&&roleAdmin"/>
   <DictionaryWorkspace v-if="nav==='dictionary'" @changed="refresh"/>
-  <template v-if="nav==='entry'">
+  <div v-if="roleWrite" v-show="nav==='entry'" class="demand-entry-workspace">
+   <DemandBatchWorkspace ref="batchWorkspace" :lines="lines" :logical="logical" :items="items" :user="user!" @add-group="openDemandGroup" @submitted="demandBatchSubmitted"/>
+   <ElDialog v-model="groupOpen" title="添加一组需求" width="1150px" class="business-modal demand-group-modal" :before-close="beforeCloseDemandGroup" :close-on-click-modal="false" :close-on-press-escape="false">
    <ElForm ref="entryFormRef" :model="entryModel" label-position="top" novalidate class="entry-main" @submit.prevent="runValidated(entryFormRef,()=>submitBatch(false))">
-    <section v-if="roleWrite" class="panel"><div class="section-header"><h2>{{currentDraft?'正在编辑草稿':'需求草稿'}}</h2><ElButton native-type="button" class="secondary" @click="draftsOpen=!draftsOpen;loadDrafts()">{{draftsOpen?'收起草稿':'查看草稿'}}（{{drafts.length}}）</ElButton></div>
-     <div v-if="draftsOpen"><p v-if="!drafts.length" class="muted">暂无未提交草稿</p><div v-for="draft in drafts" :key="draft.id" class="scope-item"><span>{{draftSummary(draft)}} · {{draft.updated_at}}</span><ElButton native-type="button" class="link" @click="restoreDraft(draft.id)">继续编辑</ElButton></div></div>
-    </section>
     <div class="entry-card">
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">01</span><h2>选择位置</h2></div><span class="section-note">可跨线路追加</span></div>
-      <div v-if="demandLocationKind==='span'" class="scope-item"><strong>当前按档距创建需求</strong><p>已选 {{demandSpanRows.length}} 个档距。长度是台账参考，本次工程量请在共同内容或逐档预览中确认。</p><p v-for="span in demandSpanRows" :key="span.id">{{span.line_name}} {{span.start_tower_no}}—{{span.end_tower_no}} · 台账长度 {{span.length_scaled===null?'未填写':fmtQty(span.length_scaled)+'米'}}</p><ElButton native-type="button" class="secondary" @click="openLedger({lineId:selectedLine,tab:'spans'})">返回线路调整所选档距</ElButton></div>
-      <template v-else>
+       <div class="field-label-group">
+        <div class="inline-field-top"><span class="field-title">操作类型 <span class="required-star" aria-hidden="true">*</span></span><ElButton native-type="button" v-if="roleAdmin" class="text-button small" @click="openNav('dictionary')">管理选项</ElButton></div>
+        <ElFormItem prop="common.operation_id" :rules="selectRules('操作类型')"><ElSelect aria-label="操作类型" filterable :model-value="common.operation_id" @update:model-value="chooseCommonOperation"><ElOption :label="'请选择操作类型'" data-option-value="" value="">请选择操作类型</ElOption><ElOption :label="String(op.name)" :data-option-value="op.id" v-for="op in ops" :key="op.id" :value="op.id" :disabled="!readOperationDefinition(op,items)">{{op.name}}</ElOption></ElSelect></ElFormItem>
+       </div>
+      <ElFormItem label="作业位置"><ElInput v-if="!commonOperationDefinition||commonOperationDefinition.location_kinds.length===1" :model-value="commonOperationDefinition?(demandLocationKind==='span'?'档距':'杆塔'):''" readonly aria-label="作业位置" placeholder="先选择操作类型"/><ElSelect v-else :model-value="demandLocationKind" aria-label="作业位置" @update:model-value="chooseCommonPosition"><ElOption v-for="kind in commonOperationDefinition.location_kinds" :key="kind" :value="kind" :label="kind==='span'?'档距':'杆塔'"/></ElSelect></ElFormItem>
+      <p v-if="commonOperationDefinition?.entry_hint" class="field-hint">{{commonOperationDefinition.entry_hint}}</p>
+      <p v-if="demandLocationKind==='span'" class="field-hint"><strong>当前按档距创建需求</strong> · 请从已有连接中选择，本次工作量人工填写。</p>
       <ElFormItem class="field-full" label="选择线路" prop="selectedLine" :rules="selectRules('线路')"><ElSelect v-model="selectedLine" filterable required placeholder="搜索线路名称或电压等级"><ElOption :label="'请选择线路'" data-option-value="" value="">请选择线路</ElOption><ElOption :label="String(l.voltage_name) + ' · ' + String(l.name)" :data-option-value="l.id" v-for="l in lines.filter(x=>x.status==='active')" :value="l.id" :key="l.id">{{l.voltage_name}} · {{l.name}}</ElOption></ElSelect>
       </ElFormItem>
+      <template v-if="demandLocationKind==='tower'">
       <p class="field-hint">切换线路后已选位置仍保留，选择1基即可单条创建。</p>
       <div class="selection-tools">
        <strong>本线路已选 {{thisLineSelected}} / {{thisLineTotal}} 基</strong>
        <div class="selection-actions">
-        <ElButton native-type="button" class="text-button" @click="selectVisible" :disabled="!selectedLine">全选本线路</ElButton>
+        <ElButton native-type="button" class="text-button" @click="selectVisible" :disabled="!selectedLine">全选筛选结果</ElButton>
         <ElButton native-type="button" class="text-button" @click="removeSelectedLine" :disabled="!selectedLine">清空本线路</ElButton>
         <ElButton native-type="button" class="text-button" @click="rangeOpen=!rangeOpen">{{rangeOpen?'收起按杆段选择':'按杆段选择'}}</ElButton>
        </div>
@@ -733,31 +746,25 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
       </div>
       <label class="field-full tower-filter"><span class="field-caption">筛选杆塔</span><ElInput v-model="towerSearch" placeholder="输入杆塔号"/>
       </label>
-      <DemandTowerGrid :towers="thisLineTowers" :selected="selected" :excluded="excluded"
+      <DemandTowerGrid :towers="thisLineTowers.slice((towerPage-1)*100,towerPage*100)" :selected="selected" :excluded="excluded"
        @select="(id,checked)=>{selected[id]=checked;delete excluded[id]}"/>
+      <ElPagination v-if="thisLineTowers.length>100" v-model:current-page="towerPage" :page-size="100" :total="thisLineTowers.length" layout="prev,pager,next,total"/>
       <div v-if="selectedLines.length" class="selected-lines">
        <span class="small-chip" v-for="l in selectedLines" :key="l.id">{{l.name}} {{selectedRows.filter(x=>x.line_id===l.id).length}} 基</span>
       </div>
       </template>
+      <template v-else><ElInput v-model="towerSearch" aria-label="筛选档距" placeholder="输入起点或终点杆塔编号"/><p v-if="spanLoading" class="muted">正在读取已有档距…</p><ElTable :data="spanChoices"><ElTableColumn label="选择" width="70"><template #default="{row}"><ElCheckbox :model-value="demandSpanRows.some(s=>s.id===row.id)" :aria-label="'选择档距 '+row.start_tower_no+'—'+row.end_tower_no" @change="v=>toggleDemandSpan(row,!!v)"/></template></ElTableColumn><ElTableColumn prop="start_tower_no" label="起点杆塔"/><ElTableColumn prop="end_tower_no" label="终点杆塔"/></ElTable><ElPagination v-if="spanChoiceTotal>100" v-model:current-page="towerPage" :page-size="100" :total="spanChoiceTotal" layout="prev,pager,next,total"/><p class="muted">跨线路累计已选 {{demandSpanRows.length}} 个档距，选择结果在本组保留。</p></template>
      </section>
 
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">02</span><h2>共同工作内容</h2></div><span class="section-note">应用于本批需求</span></div>
-      <label class="field-full">作业对象 <span class="required-star" aria-hidden="true">*</span></label>
-      <div class="segmented-work" role="group" aria-label="作业对象">
-       <ElButton native-type="button" :class="{chosen:common.work_target_type==='line'}" @click="common.work_target_type='line';common.operation_id=''">线路侧设备</ElButton>
-       <ElButton native-type="button" :class="{chosen:common.work_target_type==='physical'}" :disabled="demandLocationKind==='span'" @click="common.work_target_type='physical';common.operation_id=''">共用物理杆塔</ElButton>
-      </div>
-      <p class="field-hint">{{common.work_target_type==='line'?'各线路杆塔独立生成需求，不因共塔自动合并。':'共塔同部位的作业必须明确选择一个主位置，其他回路在关联位置中记录。'}}</p>
+      <ElFormItem label="作业对象"><ElInput :model-value="commonOperationDefinition?.target_label||''" readonly aria-label="作业对象" placeholder="选择操作类型后自动确定"/></ElFormItem>
+      <p class="field-hint">先选择操作类型，系统按该操作定义自动确定作业对象和计量单位；已有业务采用的版本与快照保持不变。</p>
       <div class="form-grid entry-fields">
-       <div class="field-label-group">
-        <div class="inline-field-top"><span class="field-title">操作类型 <span class="required-star" aria-hidden="true">*</span></span><ElButton native-type="button" v-if="roleAdmin" class="text-button small" @click="openNav('dictionary')">管理选项</ElButton></div>
-        <ElFormItem prop="common.operation_id" :rules="selectRules('操作类型')"><ElSelect aria-label="操作类型" v-model="common.operation_id"><ElOption :label="'请选择操作类型'" data-option-value="" value="">请选择操作类型</ElOption><ElOption :label="String(op.name)" :data-option-value="op.id" v-for="op in ops" :key="op.id" :value="op.id">{{op.name}}</ElOption></ElSelect></ElFormItem>
-       </div>
        <ElFormItem label="共同处理部位" prop="common.target_object" :rules="requiredRules('共同处理部位')"><ElInput v-model="common.target_object" required placeholder="例如 横担上部"/></ElFormItem>
        <div class="field-label-group"><div class="inline-field-top"><span class="field-title">{{demandLocationKind==='span'?'每档工作量':'每基工作量'}} <span class="required-star" aria-hidden="true">*</span></span><ElButton native-type="button" class="text-button small" @click="applyDefault">应用操作默认值</ElButton></div>
-        <div class="quantity-inputs"><ElFormItem prop="common.quantity" :rules="quantityRules"><ElInput :aria-label="demandLocationKind==='span'?'每档工作量':'每基工作量'" v-model="common.quantity" data-validate="quantity" inputmode="decimal" placeholder="1"/></ElFormItem><ElFormItem prop="common.unit_id" :rules="selectRules('计量单位')"><ElSelect v-model="common.unit_id" aria-label="计量单位"><ElOption :label="'单位'" data-option-value="" value="">单位</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in units" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></ElFormItem></div>
-        <p class="field-hint">每个位置的本次工作量为{{common.quantity||'—'}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}，选{{selectedRows.length}}个位置共{{Number(totalQty.toFixed(4))}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}。</p>
+        <div class="quantity-inputs"><ElFormItem prop="common.quantity" :rules="quantityRules"><ElInput :aria-label="demandLocationKind==='span'?'每档工作量':'每基工作量'" v-model="common.quantity" data-validate="quantity" inputmode="decimal" placeholder="1"/></ElFormItem><ElFormItem prop="common.unit_id" :rules="selectRules('计量单位')"><ElInput :model-value="commonOperationDefinition?.unit_name||''" readonly aria-label="计量单位" placeholder="由操作类型确定"/></ElFormItem></div>
+        <p class="field-hint">每个位置的本次工作量为{{common.quantity||'—'}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}，选{{selectedRows.length}}个位置共{{totalQty}}{{items.find(x=>x.id===common.unit_id)?.name||'单位'}}。</p>
        </div>
        <ElFormItem label="完成标准" prop="common.completion_standard" :rules="requiredRules('完成标准')"><ElInput v-model="common.completion_standard" required placeholder="按核定部位完成安装并验收合格"/></ElFormItem>
        <ElFormItem class="wide" label="问题描述 / 实施必要性" prop="common.problem_description" :rules="requiredRules('问题描述 / 实施必要性')"><ElInput type="textarea" v-model="common.problem_description" required :rows="3" placeholder="说明存在的问题、实施必要性及作业背景"/></ElFormItem>
@@ -789,45 +796,23 @@ watch([statusFilter,search,lineFilter],()=>{if(user.value&&nav.value==='demands'
      <section class="entry-section panel">
       <div class="entry-section-head"><div class="entry-section-title"><span class="step-number">04</span><h2>{{demandLocationKind==='span'?'逐档预览与调整':'逐基预览与调整'}}</h2></div><span class="section-note">{{selectedRows.length}} 条独立需求</span></div>
       <p class="field-hint">共同字段已填入每条需求；单独修改部位或数量仅影响对应杆塔。预览确认后提交待核实。</p>
-      <ElFormItem prop="rows" :rules="rowCompletenessRules" class="wide"><div class="table-wrap"><ElTable :data="selectedRows" class="preview-table">
+      <ElFormItem prop="rows" :rules="rowCompletenessRules" class="wide"><div class="table-wrap"><ElTable :data="selectedRows.slice((groupPage-1)*100,groupPage*100)" class="preview-table">
 <ElTableColumn><template #header>位置</template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><strong>{{x.tower_no}}</strong><small>{{x.line_name}}</small></div></template></template></ElTableColumn>
 <ElTableColumn><template #header>处理部位 <span class="required-star" aria-hidden="true">*</span></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElInput class="compact" :aria-label="'处理部位 '+x.tower_no" :model-value="x.target_object" :required="index>=0" @update:model-value="v=>overrides[x.id]={...overrides[x.id],target_object:v}"/></div></template></template></ElTableColumn>
 <ElTableColumn><template #header>工作量 <span class="required-star" aria-hidden="true">*</span></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElInput class="compact num" :aria-label="'工作量 '+x.tower_no" inputmode="decimal" :model-value="x.quantity==null?'':String(x.quantity)" :required="index>=0" :data-validate="index>=0?'quantity':undefined" @update:model-value="v=>overrides[x.id]={...overrides[x.id],quantity:v}"/></div></template></template></ElTableColumn>
 <ElTableColumn v-if="fieldDefinitions.length"><template #header>扩展字段</template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElCollapse><ElCollapseItem title="逐基调整" :name="x.id"><CustomFields :definitions="fieldDefinitions" :prefix="x.tower_no+' '" :model-value="x.custom_fields" @update:model-value="overrides[x.id]={...overrides[x.id],custom_fields:$event}"/></ElCollapseItem></ElCollapse></div></template></template></ElTableColumn>
 <ElTableColumn><template #header></template><template #default="{row,$index}"><template v-for="([x,index]) in [[row,$index]]"><div  :data-row-index="index"><ElButton native-type="button" class="text-button danger" @click="excluded[x.id]=true">排除</ElButton></div></template></template></ElTableColumn><template #empty><div class="empty">请先在上方勾选杆塔</div></template></ElTable></div></ElFormItem>
+      <ElPagination v-if="selectedRows.length>100" v-model:current-page="groupPage" :page-size="100" :total="selectedRows.length" layout="prev,pager,next,total"/>
       <div class="batch-review">
        <div><strong>本批 {{selectedRows.length}} 条需求</strong><small>{{selectedLines.length}} 条线路 · {{batchSources.length}} 条来源依据 · 独立生成</small></div>
-       <div class="form-actions"><ElButton native-type="button" class="light" @click="resetBatch">清空重填</ElButton><ElButton native-type="button" class="secondary" :disabled="busy" @click="submitBatch(true)">保存草稿</ElButton><ElButton native-type="submit" class="primary" :disabled="busy||!roleWrite||!selectedRows.length">提交 {{selectedRows.length}} 条核实</ElButton></div>
+       <div class="form-actions"><ElButton native-type="button" class="light" @click="resetBatch">清空重填</ElButton><ElButton native-type="button" class="secondary" :disabled="busy" @click="submitBatch(true)">保存草稿</ElButton><ElButton native-type="submit" class="primary" :disabled="busy||!roleWrite||!selectedRows.length">加入待提交清单</ElButton></div>
       </div>
-      <p v-if="lastResult" class="saved-batch">批次 {{lastResult.batch_id}} 已保存，共 {{lastResult.count}} 条。重复提交不会重复建立记录。</p>
      </section>
     </div>
    </ElForm>
-  </template>
-  <ElDialog :model-value="duplicateDialog" title="疑似重复需求核实"  width="860px" @close="duplicateDialog=false" class="business-modal form-panel" :destroy-on-close="true" :close-on-click-modal="true" :close-on-press-escape="true" :lock-scroll="false"><p v-if="visibleError" class="form-modal-error" role="alert">{{visibleError}}</p>
-   <p class="muted">发现此前批次已有同位置、同操作、同部位的需求。请选择追加已有来源或确属新发的独立需求，不会自动合并工作量。</p>
-   <ElForm class="form-grid" @submit.prevent="submitBatch(false,true)">
-    <div v-for="x in duplicateFindings" :key="x.index" class="wide scope-item">
-     <strong>{{selectedRows[x.index]?.line_name}} {{selectedRows[x.index]?.tower_no}} · {{selectedRows[x.index]?.target_object}}</strong>
-     <label><span class="field-caption">已存在的需求</span>
-      <ElSelect v-model="duplicateChoices[x.index].candidate_id" required>
-       <ElOption :label="String(c.demand_no) + ' · ' + String(c.status) + ' · ' + String(c.target_object)" :data-option-value="c.id" v-for="c in x.candidates" :key="c.id" :value="c.id">{{c.demand_no}} · {{c.status}} · {{c.target_object}}</ElOption>
-      </ElSelect>
-     </label>
-     <label><span class="field-caption">核实处理</span>
-      <ElSelect v-model="duplicateChoices[x.index].decision" required>
-       <ElOption :label="'请选择'" data-option-value="" value="">请选择</ElOption>
-       <ElOption :label="'确属新发或不同范围，另建待核实需求'" data-option-value="separate" value="separate">确属新发或不同范围，另建待核实需求</ElOption>
-       <ElOption :label="'同一问题，仅把新来源关联既有需求（不增加工作量）'" data-option-value="link" v-if="roleAdmin" value="link">同一问题，仅把新来源关联既有需求（不增加工作量）</ElOption>
-      </ElSelect>
-     </label>
-     <label><span class="field-caption">核实依据</span>
-      <ElInput type="textarea" v-model="duplicateChoices[x.index].reason" :rows="2" required placeholder="说明新问题与历史问题的关系、时间和核对依据"/>
-     </label>
-    </div>
-    <div class="form-actions"><ElButton native-type="button" class="light" @click="duplicateDialog=false">取消</ElButton><ElButton native-type="submit" class="primary">按核实结论提交</ElButton></div>
-   </ElForm>
-  </ElDialog>
+   </ElDialog>
+  </div>
+
   <template v-if="nav==='demands'&&!detail"><section class="panel"><div class="section-header"><div><h2>需求列表</h2><p class="muted">当前查询结果 {{demands.length}} 条 · 导出范围与筛选一致</p></div><div class="actions"><ElButton class="secondary" @click="exportDemands">Excel 导出</ElButton><ElButton v-if="roleWrite" class="primary" @click="openNav('entry')">新建需求</ElButton></div></div><div class="toolbar"><label><span class="field-caption">状态</span><ElSelect v-model="statusFilter"><ElOption :label="'全部'" data-option-value="" value="">全部</ElOption><ElOption :label="'待核实'" data-option-value="pending" value="pending">待核实</ElOption><ElOption :label="'有效'" data-option-value="active" value="active">有效</ElOption><ElOption :label="'退回'" data-option-value="returned" value="returned">退回</ElOption><ElOption :label="'取消'" data-option-value="cancelled" value="cancelled">取消</ElOption></ElSelect></label><label><span class="field-caption">线路</span><ElSelect v-model="lineFilter" filterable placeholder="搜索线路名称"><ElOption :label="'全部线路'" data-option-value="" value="">全部线路</ElOption><ElOption :label="String(x.name)" :data-option-value="x.id" v-for="x in lines" :key="x.id" :value="x.id">{{x.name}}</ElOption></ElSelect></label><label><span class="field-caption">关键词</span><ElInput v-model="search" placeholder="编号、杆塔、问题或部位"/></label></div><div class="table-wrap"><ElTable :data="demands" >
 <ElTableColumn><template #header>编号</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div class="mono">{{d.demand_no}}</div></template></template></ElTableColumn>
 <ElTableColumn><template #header>位置</template><template #default="{row,$index}"><template v-for="([d]) in [[row,$index]]"><div >{{d.line_name_snapshot}} {{d.tower_no_snapshot}}</div></template></template></ElTableColumn>

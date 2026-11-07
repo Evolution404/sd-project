@@ -1,6 +1,6 @@
 export async function selectUiOption(locator,selection){
  if(await locator.evaluate(el=>el.tagName.toLowerCase())==='select')
-  return locator.selectOption(selection);
+  throw Error('UI门禁：检测到原生select，必须使用Element Plus ElSelect');
  const root=locator.locator('xpath=ancestor::html[1]');
  // Playwright getByLabel can resolve the outer ElSelect wrapper; aria-controls
  // belongs to its inner combobox, and may only appear after opening.

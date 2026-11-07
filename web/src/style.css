@@ -83,7 +83,7 @@ button.small{font-size:12px}
 .table-wrap{overflow:auto}
 table{width:100%;border-collapse:collapse;font-size:13px}
 th{text-align:left;color:var(--app-table-header-text);font-weight:600;background:var(--app-table-header-bg)}
-td,th{padding:12px 11px;border-bottom:1px solid var(--app-table-border);white-space:nowrap}
+td,th{padding:12px var(--app-cell-inline-padding);border-bottom:1px solid var(--app-table-border);white-space:nowrap}
 tr:last-child td{border-bottom:none}
 td{color:var(--app-table-body-text)}
 .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px}

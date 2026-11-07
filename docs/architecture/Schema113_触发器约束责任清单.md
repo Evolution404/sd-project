@@ -1,0 +1,249 @@
+# Schema 113｜触发器与约束责任全量审计
+
+本清单从最新候选 SQL 重建，数据库触发器职责限于真实外键之外的数据一致性、历史不可变、版本顺序和正式事实边界。应用操作权限、报表、预警不由 SQLite 触发器执行。
+
+## 分类数量
+
+| 责任类别 | 当前数量 |
+| --- | ---: |
+| 不可变历史或身份 | 115 |
+| 历史快照原子同步 | 18 |
+| 正式历史版本约束 | 29 |
+| 正式批准/结项一致性 | 5 |
+| 物资业务身份及关联 | 10 |
+| 状态事件合法性 | 2 |
+| 设备历史一致性 | 12 |
+| 费用身份及核对约束 | 3 |
+| 跨表关联和身份完整性 | 25 |
+
+## 完整触发器清单
+
+| 数据表 | 触发器 | 时点 | 责任类别 |
+| --- | --- | --- | --- |
+| `agreement_versions` | `agreement_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `agreement_versions` | `agreement_versions_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `agreement_versions` | `agreement_versions_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `agreements` | `agreement_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `agreements` | `agreement_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `audit_events` | `immutable_audit_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `audit_events` | `immutable_audit_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `batch_demand_sources` | `batch_demand_source_batch_identity_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `batch_demand_sources` | `batch_demand_source_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `batch_demand_sources` | `batch_demand_source_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `completion_records` | `completion_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `completion_records` | `completion_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `completion_records` | `completion_scope_consistency_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `completion_revisions` | `completion_revision_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `completion_revisions` | `completion_revision_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `completion_revisions` | `immutable_completion_revision_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `cost_allocation_versions` | `cost_allocation_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `cost_allocation_versions` | `cost_allocation_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `cost_allocation_versions` | `cost_allocation_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `cost_allocations` | `cost_allocation_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `cost_allocations` | `cost_allocation_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `cost_allocations` | `cost_allocation_identity_insert` | BEFORE/INSERT | 费用身份及核对约束 |
+| `cost_entries` | `cost_entry_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `cost_entries` | `cost_entry_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `cost_entries` | `cost_entry_node_insert_guard` | BEFORE/INSERT | 费用身份及核对约束 |
+| `cost_reconciliation_versions` | `cost_reconciliation_amount_cap` | BEFORE/INSERT | 费用身份及核对约束 |
+| `cost_reconciliation_versions` | `cost_reconciliation_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `cost_reconciliation_versions` | `immutable_cost_reconciliation_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `cost_reconciliation_versions` | `reconciliation_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `cost_versions` | `cost_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `cost_versions` | `cost_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `cost_versions` | `immutable_cost_version_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_batches` | `batch_source_provenance_update_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `demand_batches` | `demand_batch_draft_edit_version_guard` | BEFORE/UPDATE | 正式历史版本约束 |
+| `demand_batches` | `demand_batch_submitted_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_batches` | `demand_batch_submitted_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_lifecycle_events` | `demand_adopted_cancel_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `demand_lifecycle_events` | `demand_lifecycle_initial_guard` | BEFORE/INSERT | 状态事件合法性 |
+| `demand_lifecycle_events` | `demand_lifecycle_no_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_lifecycle_events` | `demand_lifecycle_no_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_material_items` | `demand_material_seed_frozen_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_material_items` | `demand_material_seed_frozen_insert` | BEFORE/INSERT | 不可变历史或身份 |
+| `demand_material_items` | `demand_material_seed_frozen_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_material_items` | `demand_material_v1_delete` | AFTER/DELETE | 物资业务身份及关联 |
+| `demand_material_items` | `demand_material_v1_insert` | AFTER/INSERT | 物资业务身份及关联 |
+| `demand_material_items` | `demand_material_v1_update` | AFTER/UPDATE | 物资业务身份及关联 |
+| `demand_material_items` | `material_master_inactive_new_demand` | BEFORE/INSERT | 物资业务身份及关联 |
+| `demand_material_version_items` | `demand_material_version_no_change_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_material_version_items` | `demand_material_version_no_change_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_material_version_items` | `demand_material_version_source_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `demand_revisions` | `demand_revision_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_revisions` | `demand_revision_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_revisions` | `demand_revision_publish` | AFTER/INSERT | 正式历史版本约束 |
+| `demand_revisions` | `demand_revision_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `demand_sources` | `demand_source_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_sources` | `demand_source_identity_protected_delete` | BEFORE/DELETE | 跨表关联和身份完整性 |
+| `demand_versions` | `demand_version_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `demand_versions` | `demand_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_versions` | `demand_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demands` | `demand_definition_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `demands` | `demand_initial_version_publish` | AFTER/INSERT | 正式历史版本约束 |
+| `demands` | `demand_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demands` | `demand_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demands` | `demand_work_object_match_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `dictionary_item_versions` | `dictionary_item_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `dictionary_item_versions` | `dictionary_item_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `dictionary_item_versions` | `dictionary_item_version_sequence` | BEFORE/INSERT | 正式历史版本约束 |
+| `dictionary_items` | `dictionary_item_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `dictionary_items` | `dictionary_item_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `evidence_files` | `evidence_file_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `evidence_files` | `evidence_file_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `evidence_links` | `evidence_link_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `evidence_links` | `evidence_link_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `framework_versions` | `framework_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `framework_versions` | `framework_versions_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `framework_versions` | `framework_versions_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `frameworks` | `framework_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `frameworks` | `framework_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `line_history` | `line_history_identity_insert` | BEFORE/INSERT | 设备历史一致性 |
+| `line_history` | `line_history_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `line_history` | `line_history_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `line_span_history` | `span_history_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `line_span_history` | `span_history_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `line_spans` | `span_first_version_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `line_spans` | `span_history_create` | AFTER/INSERT | 设备历史一致性 |
+| `line_spans` | `span_history_update` | AFTER/UPDATE | 设备历史一致性 |
+| `line_spans` | `span_history_update_guard` | BEFORE/UPDATE | 设备历史一致性 |
+| `line_spans` | `span_line_consistency_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `line_spans` | `span_line_consistency_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `logical_tower_history` | `logical_tower_history_identity_insert` | BEFORE/INSERT | 设备历史一致性 |
+| `logical_tower_history` | `logical_tower_history_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `logical_tower_history` | `logical_tower_history_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `logical_towers` | `active_span_logical_tower_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `logical_towers` | `logical_tower_history_append` | AFTER/UPDATE | 设备历史一致性 |
+| `logical_towers` | `logical_tower_history_initial` | AFTER/INSERT | 设备历史一致性 |
+| `logical_towers` | `logical_tower_history_version_guard` | BEFORE/UPDATE | 正式历史版本约束 |
+| `logical_towers` | `logical_tower_identity_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
+| `material_usage_records` | `material_consumption_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `material_usage_records` | `material_consumption_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `material_usage_records` | `material_usage_identity_insert` | BEFORE/INSERT | 物资业务身份及关联 |
+| `material_usage_revisions` | `material_consumption_revision_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `material_usage_revisions` | `material_consumption_revision_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `material_usage_revisions` | `material_consumption_revision_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `material_versions` | `material_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `material_versions` | `material_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `material_versions` | `material_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `materials` | `material_master_unit_insert` | BEFORE/INSERT | 物资业务身份及关联 |
+| `materials` | `material_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `materials` | `material_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `operation_versions` | `immutable_operation_version_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `operation_versions` | `object_type_guard_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `operation_versions` | `operation_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `operation_versions` | `operation_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `operations` | `operation_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `operations` | `operation_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `organizational_units` | `org_unit_cycle_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `physical_tower_history` | `physical_tower_history_identity_insert` | BEFORE/INSERT | 设备历史一致性 |
+| `physical_tower_history` | `physical_tower_history_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `physical_tower_history` | `physical_tower_history_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `physical_towers` | `active_physical_tower_retire_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `physical_towers` | `physical_tower_history_append` | AFTER/UPDATE | 设备历史一致性 |
+| `physical_towers` | `physical_tower_history_initial` | AFTER/INSERT | 设备历史一致性 |
+| `physical_towers` | `physical_tower_history_version_guard` | BEFORE/UPDATE | 正式历史版本约束 |
+| `physical_towers` | `physical_tower_identity_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_approval_material_items` | `approved_material_identity_insert` | BEFORE/INSERT | 物资业务身份及关联 |
+| `project_approval_material_items` | `approved_material_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_approval_material_items` | `approved_material_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_approval_material_items` | `approved_material_scope_insert` | BEFORE/INSERT | 物资业务身份及关联 |
+| `project_approval_material_items` | `draft_approval_material_valid_update` | BEFORE/UPDATE | 物资业务身份及关联 |
+| `project_approval_material_items` | `project_approval_material_frozen_after_approval` | BEFORE/INSERT | 不可变历史或身份 |
+| `project_approval_scope_versions` | `approved_scope_demand_version_relation` | BEFORE/INSERT | 正式历史版本约束 |
+| `project_approval_scope_versions` | `approved_scope_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_approval_scope_versions` | `approved_scope_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_approval_scope_versions` | `approved_scope_project_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_approval_scope_versions` | `draft_approval_scope_valid_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `project_approval_scope_versions` | `project_approval_scope_frozen_after_approval` | BEFORE/INSERT | 不可变历史或身份 |
+| `project_approval_versions` | `immutable_approval_version_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_approval_versions` | `immutable_approval_version_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_approval_versions` | `project_approval_finalize_guard` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `project_approval_versions` | `project_approval_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `project_approval_versions` | `project_demand_exclusive_approval` | BEFORE/UPDATE | 历史快照原子同步 |
+| `project_change_orders` | `approved_change_order_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_change_orders` | `approved_change_order_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_change_orders` | `change_order_approval_metadata_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `project_change_orders` | `change_order_project_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_closure_dispositions` | `closure_disposition_project_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_closure_dispositions` | `project_closure_disposition_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_closure_dispositions` | `project_closure_disposition_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_closures` | `closure_project_version_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `project_closures` | `project_closure_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_closures` | `project_closure_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_cost_node_versions` | `project_cost_node_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_cost_node_versions` | `project_cost_node_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_cost_node_versions` | `project_cost_node_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `project_cost_nodes` | `project_cost_node_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_cost_nodes` | `project_cost_node_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_cost_nodes` | `project_cost_node_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_demand_scopes` | `frozen_approved_project_scope` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_demand_scopes` | `settled_project_scope_identity_delete` | BEFORE/DELETE | 跨表关联和身份完整性 |
+| `project_funding_versions` | `project_funding_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_funding_versions` | `project_funding_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_funding_versions` | `project_funding_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_management_versions` | `management_version_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `project_management_versions` | `management_version_no_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_management_versions` | `management_version_no_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_scope_materials` | `project_material_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_scope_materials` | `project_material_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_scope_materials` | `project_material_identity_insert` | BEFORE/INSERT | 物资业务身份及关联 |
+| `project_stage_events` | `project_stage_event_apply` | AFTER/INSERT | 状态事件合法性 |
+| `project_stage_events` | `project_stage_event_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_stage_events` | `project_stage_event_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_stage_events` | `project_stage_event_transition` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `projects` | `project_approved_status_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `projects` | `project_category_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `projects` | `project_category_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `projects` | `project_close_guard` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `projects` | `project_closed_no_reopen_without_decision` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `projects` | `project_home_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `projects` | `project_home_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `projects` | `project_status_projection_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `reference_price_catalog` | `reference_price_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `reference_price_catalog` | `reference_price_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `reference_price_versions` | `immutable_reference_price_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `reference_price_versions` | `immutable_reference_price_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `reference_price_versions` | `reference_price_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `reference_price_versions` | `reference_price_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `settlement_drafts` | `settlement_draft_project_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `settlement_drafts` | `settlement_draft_project_guard_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `settlement_item_versions` | `settlement_item_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `settlement_item_versions` | `settlement_item_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `settlement_item_versions` | `settlement_item_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `settlement_items` | `settlement_item_identity_delete` | BEFORE/DELETE | 跨表关联和身份完整性 |
+| `settlement_items` | `settlement_item_identity_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `settlement_items` | `settlement_item_identity_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `settlement_review_events` | `settlement_review_event_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `settlement_review_events` | `settlement_review_event_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `settlement_review_events` | `settlement_review_event_insert_guard` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `settlement_versions` | `settlement_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `settlement_versions` | `settlement_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `settlement_versions` | `settlement_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
+| `settlements` | `settlement_identity_delete` | BEFORE/DELETE | 跨表关联和身份完整性 |
+| `settlements` | `settlement_identity_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `settlements` | `settlement_root_insert_only_active` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `source_records` | `source_category_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `source_records` | `source_category_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `source_records` | `source_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `source_records` | `source_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `transmission_lines` | `active_span_line_guard` | BEFORE/UPDATE | 历史快照原子同步 |
+| `transmission_lines` | `line_history_append` | AFTER/UPDATE | 设备历史一致性 |
+| `transmission_lines` | `line_history_initial` | AFTER/INSERT | 设备历史一致性 |
+| `transmission_lines` | `line_history_version_guard` | BEFORE/UPDATE | 正式历史版本约束 |
+| `transmission_lines` | `line_identity_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
+| `transmission_lines` | `valid_branch_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `transmission_lines` | `valid_branch_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `work_object_versions` | `work_object_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
+| `work_object_versions` | `work_object_versions_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `work_object_versions` | `work_object_versions_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `work_objects` | `work_object_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `work_objects` | `work_object_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+
+## 当前约束裁决
+
+- 已清除 4 个重复触发器：失效的历史定义 UPDATE 校验、重复协议框架身份保护、已被真实外键处理的引用物资删除检查。
+- 新增版本物资相关约束：材料根身份不可覆盖/删除、正式版本递增、记录时间有序、无实质变化不得制造新版本、正式版本不可修改/删除、历史物资关联只引用有效版本。
+- 需求、项目审批、结算和真实费用的已有完整性保护保持有效。
+- 本次增加子项目费用树的父子关系、末级入账、费用分类定义版本不可变和类别匹配等 7 项触发器，共 219 项；所有实际结算余额由应用层计算，不创建金额累计触发器。
+- 对每个触发器是否进一步缩减，必须有等价 FK/UNIQUE/CHECK 证明及非法数据反例；不追求将数量硬压到固定值。

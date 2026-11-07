@@ -1,13 +1,14 @@
-import {readFileSync,writeFileSync,readdirSync,existsSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import {resolve,relative,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parse} from '@vue/compiler-sfc';
+import {currentUiContract} from './ui-contract.mjs';
 
 // Count interactive UI elements via the Vue SFC template AST, not regex over
 // script strings or CSS. Ordinary semantic layout elements remain permitted.
 export const NATIVE_UI_TAGS=Object.freeze([
  'button','input','select','textarea','form','table','details','summary',
- 'datalist','dialog','progress','meter','a'
+ 'datalist','dialog','progress','meter','a','option','optgroup'
 ]);
 const prohibited=new Set(NATIVE_UI_TAGS);
 export function findNativeUi(source,filename='component.vue'){
@@ -16,8 +17,8 @@ export function findNativeUi(source,filename='component.vue'){
  const counts=Object.create(null);
  function visit(node){
   if(!node||typeof node!=='object')return;
-  if(node.type===1&&node.tagType===0&&prohibited.has(node.tag)){
-   counts[node.tag]=(counts[node.tag]||0)+1;
+  if(node.type===1&&prohibited.has(node.tag.toLowerCase())){
+   const tag=node.tag.toLowerCase();counts[tag]=(counts[tag]||0)+1;
   }
   if(Array.isArray(node.children))for(const child of node.children)visit(child);
   if(Array.isArray(node.branches))for(const branch of node.branches)visit(branch);
@@ -44,33 +45,23 @@ export function currentNativeUi(root){
 const sum=values=>Object.values(values).reduce((a,b)=>a+b.total,0);
 function check(){
  const root=resolve(fileURLToPath(new URL('..',import.meta.url)));
- const snapshot=resolve(root,'scripts/native-ui-baseline.json');
  const current=currentNativeUi(root);
- const isBaseline=process.argv.includes('--write-baseline');
- const strict=process.argv.includes('--strict');
- if(isBaseline){
-  if(strict)throw Error('Cannot use --strict with --write-baseline');
-  const result={version:1,scope:'Vue SFC template native interactive UI elements',files:current};
-  writeFileSync(snapshot,JSON.stringify(result,null,2)+'\n');
-  console.log('Recorded native UI baseline:',sum(current),'in',Object.keys(current).length,'files');
-  return;
+ const contractIssues=currentUiContract(root);
+ // All native UI exceptions were eliminated. No baselines or ratcheting.
+ if(process.argv.includes('--write-baseline')){
+  throw Error('原生 UI 已实行严格零容忍，不再允许创建或提高历史基线');
  }
  let violations=0;
- const baseline=existsSync(snapshot)?JSON.parse(readFileSync(snapshot,'utf8')).files:{};
- if(!strict&&!existsSync(snapshot))throw Error('Baseline missing; initial snapshot requires --write-baseline');
+ for(const issue of contractIssues){console.error('UI_CONTRACT_VIOLATION',issue.file+(issue.line?':'+issue.line:''),issue.rule,issue.message);violations++}
  for(const [file,entry] of Object.entries(current)){
-  const limit=strict?0:baseline[file]?.total||0;
+  const limit=0;
   if(entry.total>limit){
    console.error('NATIVE_UI_VIOLATION',file,'current',entry.total,'limit',limit,JSON.stringify(entry.tags));
    violations++;
   }
  }
- if(!strict)for(const [file,old]of Object.entries(baseline)){
-  const currentTotal=current[file]?.total||0;
-  if(currentTotal<old.total)console.log('UI debt reduced:',file,old.total,'->',currentTotal);
- }
- console.log('Native UI:',sum(current),'remaining /',sum(baseline),'baseline;',
-  Object.keys(current).length,'files;',strict?'strict zero mode':'ratchet mode');
+ console.log('Native UI:',sum(current),'remaining;',Object.keys(current).length,'files; strict zero mode');
+ console.log('UI contract:',contractIssues.length,'violations (widget types, styles, forms, scripts)');
  if(violations)process.exitCode=1;
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))check();

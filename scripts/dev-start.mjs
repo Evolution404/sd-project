@@ -2,7 +2,8 @@ import { randomBytes, scryptSync } from 'node:crypto';
 import { networkInterfaces } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { createServer } from 'node:net';
-import { db, one, exec, now, uid, transaction, dataRoot } from '../server/db.mjs';
+import {now,uid,transaction,dataRoot} from '../server/database/index.mjs';
+import {userCount,createFirstAdmin} from '../server/database/repositories/users.mjs';
 
 function askPassword(label) {
   return new Promise((resolve, reject) => {
@@ -42,7 +43,7 @@ function askPassword(label) {
 }
 
 async function initializeAdminIfNeeded() {
-  if (one('SELECT COUNT(*) AS n FROM users').n !== 0) return;
+  if (userCount() !== 0) return;
   if (!process.stdin.isTTY) throw new Error('本地测试数据库没有管理员账号。请在 Mac Terminal 中执行 make dev 并设置密码。');
 
   console.log('\n首次启动：初始化本地测试管理员（不会创建默认账号密码）');
@@ -59,11 +60,11 @@ async function initializeAdminIfNeeded() {
   const confirmation = await askPassword('再次输入管理员密码: ');
   if (password !== confirmation) throw new Error('两次密码不一致，未创建账号');
   if (password.length === 0) throw new Error('密码不能为空');
-  if (one('SELECT COUNT(*) AS n FROM users').n !== 0) throw new Error('已有管理员账号，停止重复初始化');
+  if (userCount() !== 0) throw new Error('已有管理员账号，停止重复初始化');
 
   const salt = randomBytes(16).toString('hex');
   const hash = salt + ':' + scryptSync(password, salt, 64).toString('hex');
-  transaction(() => exec('INSERT INTO users VALUES(?,?,?,?,?,?)', uid(), username, hash, 'admin', 'active', now()));
+  transaction(() => createFirstAdmin(uid(),username,hash,now()));
   console.log('管理员初始化成功：' + username);
 }
 
@@ -122,7 +123,7 @@ try {
     console.log('当前监听地址：' + host + '（如果是 127.0.0.1，局域网设备无法访问）');
   }
   console.log('按 Ctrl+C 停止服务。\n');
-  await import('../server/server.mjs');
+  await import('../server/main.mjs');
 } catch (error) {
   console.error('启动失败：' + error.message);
   db.close();

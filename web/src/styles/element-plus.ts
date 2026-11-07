@@ -34,3 +34,13 @@ import 'element-plus/es/components/timeline/style/css';
 import 'element-plus/es/components/timeline-item/style/css';
 import 'element-plus/es/components/empty/style/css';
 import 'element-plus/es/components/message-box/style/css';
+
+import 'element-plus/es/components/collapse/style/css';
+import 'element-plus/es/components/collapse-item/style/css';
+import 'element-plus/es/components/upload/style/css';
+import 'element-plus/es/components/link/style/css';
+import 'element-plus/es/components/radio/style/css';
+import 'element-plus/es/components/date-picker/style/css';
+import 'element-plus/es/components/option/style/css';
+import 'element-plus/es/components/message/style/css';
+import 'element-plus/es/components/progress/style/css';

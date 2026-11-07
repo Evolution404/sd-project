@@ -7,7 +7,7 @@ export async function financeFixture(api,tag,options={}){
  let secondTower=null;
  if(options.twoScopes){const ph=await api('/physical-towers','POST',{tower_code:tag+'-T2'},201);secondTower=await api('/logical-towers','POST',{logical_code:tag+'-LT2',line_id:l.id,physical_tower_id:ph.id,tower_no:'#2',sort_rank:2},201)}
  const unit=await api('/dictionary-items','POST',{type_id:'unit',code:tag+'-UNIT',name:'套'},201);
- const op=await api('/dictionary-items','POST',{type_id:'operation',code:tag+'-OP',name:'更换防鸟装置',work_target_type:'line'},201);
+ const op=await api('/dictionary-items','POST',{type_id:'operation',operation_profile:{location_kinds:['tower'],default_location_kind:'tower',default_target_object:'',entry_hint:''},default_unit_id:unit.id,code:tag+'-OP',name:'更换防鸟装置',work_target_type:'line'},201);
  const src=await api('/dictionary-items','POST',{type_id:'source',code:tag+'-SRC',name:'巡视'},201);
  const cat=await api('/dictionary-items','POST',{type_id:'project_category',code:tag+'-CAT',name:'检修'},201);
  const batch=await api('/demand-batches/submit','POST',{

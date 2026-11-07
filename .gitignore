@@ -7,13 +7,7 @@ data/
 .DS_Store
 test-results/
 
-# Local macOS test database and server output
-.local-test-data/
-.local-test-server.log
-.local-test-server.pid
-
-# Generated release bundles, runtime downloads, and browser artifacts
-release/
+# Generated browser and coverage artifacts
 playwright-report/
 coverage/
 
@@ -28,3 +22,6 @@ coverage/
 !.env.example
 *.log
 *.pid
+
+# Windows release temporary staging and runtime download cache
+.build/

@@ -2,6 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $node = Join-Path (Split-Path -Parent $PSScriptRoot) 'runtime\node.exe'
 $root = Split-Path -Parent $PSScriptRoot
+$env:DATA_DIR = Join-Path $root 'data'
 if (!(Test-Path -LiteralPath $node)) { throw '找不到内置 Node.js，请检查 ZIP 是否完整解压。' }
 Set-Location -LiteralPath $root
 Write-Host '输电项目全流程管理 - 首次管理员初始化'
@@ -25,6 +26,7 @@ try {
 }
 finally {
     Remove-Item Env:\SD_ADMIN_USER -ErrorAction SilentlyContinue
+    Remove-Item Env:\DATA_DIR -ErrorAction SilentlyContinue
     Remove-Item Env:\SD_ADMIN_PASSWORD -ErrorAction SilentlyContinue
     if ($ptr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
     if ($confirmPtr -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($confirmPtr) }

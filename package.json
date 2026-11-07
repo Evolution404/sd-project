@@ -4,17 +4,19 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 & node --watch server/server.mjs",
-    "dev:api": "node --watch server/server.mjs",
+    "dev": "vite --host 127.0.0.1 & node --watch server/main.mjs",
+    "dev:api": "node --watch server/main.mjs",
     "build": "vue-tsc --noEmit && vite build",
-    "start": "node server/server.mjs",
+    "start": "node server/main.mjs",
     "init-admin": "node scripts/init-admin.mjs",
-    "test": "node --test tests/*.test.mjs",
-    "check": "npm run check:ui:strict && npm run build && npm test",
+    "test": "node --test",
+    "check": "npm run check:ui:strict && npm run build && npm test && npm run check:database-boundary",
     "check:ui": "node scripts/check-native-ui.mjs",
     "check:ui:strict": "node scripts/check-native-ui.mjs --strict",
     "backup": "node scripts/backup.mjs",
-    "test:browser": "npm run build && node tests/browser.mjs && node tests/browser-audit.mjs && node tests/browser-lan-smoke.mjs && node tests/browser-validation.mjs && node tests/browser-ledger.mjs && node tests/browser-topology.mjs && node tests/browser-topology-labels.mjs && node tests/browser-ui-audit.mjs && node tests/browser-ui-dialog-audit.mjs && node tests/browser-dictionary.mjs && node tests/browser-funding-audit.mjs && node tests/browser-plan-finance.mjs && node tests/browser-plan-budgets.mjs && node tests/browser-completion.mjs && node tests/browser-costs.mjs"
+    "test:browser": "npm run build && node tests/browser/browser.mjs && node tests/browser/browser-audit.mjs && node tests/browser/browser-lan-smoke.mjs && node tests/browser/browser-validation.mjs && node tests/browser/browser-ledger.mjs && node tests/browser/browser-shared-detach.mjs && node tests/browser/browser-topology.mjs && node tests/browser/browser-topology-labels.mjs && node tests/browser/browser-ui-audit.mjs && node tests/browser/browser-ui-dialog-audit.mjs && node tests/browser/browser-dictionary.mjs && node tests/browser/browser-funding-audit.mjs && node tests/browser/browser-plan-finance.mjs && node tests/browser/browser-plan-budgets.mjs && node tests/browser/browser-completion.mjs && node tests/browser/browser-costs.mjs && node tests/browser/browser-demand-import.mjs",
+    "package:win": "npm run build && node scripts/release/package-win10.mjs",
+    "check:database-boundary": "node scripts/check-database-boundary.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

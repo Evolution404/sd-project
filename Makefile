@@ -5,12 +5,12 @@
 
 # Development schemas intentionally have no in-place migrations. Use a fresh
 # directory for each canonical schema version while preserving all older data.
-# Read the version from db.mjs; do not maintain a second hardcoded number.
-SCHEMA_VERSION := $(shell sed -nE 's/^const SCHEMA_VERSION=([0-9]+);.*/\1/p' server/db.mjs)
+# Read the version from schema-version.mjs; do not maintain a second hardcoded number.
+SCHEMA_VERSION := $(shell sed -nE 's/^export const SCHEMA_VERSION=([0-9]+);.*/\1/p' server/database/schema-version.mjs)
 ifeq ($(strip $(SCHEMA_VERSION)),)
-$(error Cannot determine schema version from server/db.mjs)
+$(error Cannot determine schema version from server/database/schema-version.mjs)
 endif
-DATA_DIR ?= $(HOME)/.local/share/sd-project
+DATA_DIR ?= $(CURDIR)/data
 HOST ?= 0.0.0.0
 PORT ?= 8787
 
