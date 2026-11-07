@@ -495,7 +495,6 @@ CREATE TABLE evidence_links (
  project_approval_version_id TEXT REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
  settlement_version_id TEXT REFERENCES settlement_versions(id) ON DELETE RESTRICT,
  settlement_review_event_id TEXT REFERENCES settlement_review_events(id) ON DELETE RESTRICT,
- material_consumption_id TEXT REFERENCES material_usage_records(id) ON DELETE RESTRICT,
  cost_version_id TEXT REFERENCES cost_versions(id) ON DELETE RESTRICT,
  reconciliation_version_id TEXT REFERENCES cost_reconciliation_versions(id) ON DELETE RESTRICT,
  project_closure_id TEXT REFERENCES project_closures(id) ON DELETE RESTRICT,
@@ -516,7 +515,6 @@ CREATE TABLE evidence_links (
  (line_span_history_id IS NOT NULL)+
  (change_order_id IS NOT NULL)+(project_approval_version_id IS NOT NULL)+
  (settlement_version_id IS NOT NULL)+(settlement_review_event_id IS NOT NULL)+
- (material_consumption_id IS NOT NULL)+
  (cost_version_id IS NOT NULL)+(reconciliation_version_id IS NOT NULL)+
  (project_closure_id IS NOT NULL)=1),
  FOREIGN KEY(demand_version_demand_id,demand_version_no)
@@ -536,7 +534,7 @@ CREATE TABLE evidence_links (
  UNIQUE(file_id,change_order_id),
  UNIQUE(file_id,project_approval_version_id),UNIQUE(file_id,settlement_version_id),
  UNIQUE(file_id,settlement_review_event_id),
- UNIQUE(file_id,material_consumption_id),UNIQUE(file_id,cost_version_id),
+ UNIQUE(file_id,cost_version_id),
  UNIQUE(file_id,reconciliation_version_id),UNIQUE(file_id,project_closure_id)
 ) STRICT;
 
@@ -1092,51 +1090,6 @@ CREATE TABLE settlement_item_versions (
 
 
 
--- Actual physical work belongs to an approved project's demand scope and
--- can be recorded before any settlement exists. Later settlement association
--- is optional and must match the exact project scope.
-
-
-
-
--- Actual material movements belong to project work, not a settlement.
--- Optional settlement-item association can be recorded if it already exists.
--- Separate issue and return records retain independent evidence and history.
-CREATE TABLE material_usage_records (
- id TEXT NOT NULL PRIMARY KEY,
- project_material_id TEXT NOT NULL REFERENCES project_scope_materials(id) ON DELETE RESTRICT,
- settlement_item_id TEXT REFERENCES settlement_items(id) ON DELETE RESTRICT,
- movement_kind TEXT NOT NULL DEFAULT 'consume' CHECK(movement_kind IN ('consume','return')),
- occurred_on TEXT NOT NULL CHECK(length(occurred_on)=10 AND
-  COALESCE(strftime('%Y-%m-%d',julianday(occurred_on))=occurred_on,0)),
- -- NULL means an actual material used without appearing on the approved BOM.
- approval_material_id TEXT REFERENCES project_approval_material_items(id) ON DELETE RESTRICT,
- actual_quantity_scaled INTEGER NOT NULL CHECK(actual_quantity_scaled>0),
- evidence TEXT NOT NULL DEFAULT '',
- unplanned_reason TEXT NOT NULL DEFAULT '',
- recorded_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
- CHECK(approval_material_id IS NOT NULL OR length(trim(unplanned_reason))>0)
-) STRICT;
-
-CREATE TABLE material_usage_revisions (
- id TEXT NOT NULL PRIMARY KEY,
- consumption_id TEXT NOT NULL REFERENCES material_usage_records(id) ON DELETE RESTRICT,
- version_no INTEGER NOT NULL CHECK(version_no>=2),
- action TEXT NOT NULL CHECK(action IN ('correct','void')),
- status TEXT NOT NULL CHECK(status IN ('active','voided')),
- actual_quantity_scaled INTEGER NOT NULL CHECK(actual_quantity_scaled>=0),
- evidence TEXT NOT NULL DEFAULT '',
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
- actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
- UNIQUE(consumption_id,version_no),
- CHECK((action='correct' AND status='active' AND actual_quantity_scaled>0)
- OR (action='void' AND status='voided' AND actual_quantity_scaled=0))
-) STRICT;
-
-
-
 -- Actual expenses exist independently of a settlement document; reconciliation may occur later.
 -- An expense belongs to exactly one project. Never create a fictional settlement solely to record costs.
 CREATE TABLE cost_entries (
@@ -1309,18 +1262,6 @@ JOIN project_approval_versions p ON p.id=a.approval_version_id
 WHERE p.status='approved'
  AND p.version_no=(SELECT MAX(x.version_no) FROM project_approval_versions x
  WHERE x.project_id=p.project_id AND x.status='approved');
-
-CREATE VIEW v_material_usage_current AS
-SELECT c.id,c.project_material_id,c.settlement_item_id,c.approval_material_id,
- c.movement_kind,c.occurred_on,
- COALESCE(r.status,'active') AS status,
- COALESCE(r.actual_quantity_scaled,c.actual_quantity_scaled) AS actual_quantity_scaled,
- COALESCE(r.evidence,c.evidence) AS evidence,
- COALESCE(r.version_no,1) AS version_no
-FROM material_usage_records c
-LEFT JOIN material_usage_revisions r ON r.consumption_id=c.id
- AND r.version_no=(SELECT MAX(x.version_no)
-  FROM material_usage_revisions x WHERE x.consumption_id=c.id);
 
 CREATE VIEW v_cost_allocation_current AS
 SELECT a.id,a.cost_entry_id,a.settlement_item_id,
@@ -2106,43 +2047,6 @@ WHEN EXISTS(SELECT 1 FROM project_approval_versions a
 BEGIN SELECT RAISE(ABORT,'已批准项目需求范围历史不可删除'); END;
 
 
-
--- Physical material consumption is a separate actual fact: no limitation
--- against planned material quantities, but each correction has full provenance.
-CREATE TRIGGER material_usage_identity_insert BEFORE INSERT ON material_usage_records
-BEGIN
- SELECT CASE WHEN NEW.settlement_item_id IS NOT NULL AND NOT EXISTS(
-  SELECT 1 FROM settlement_items i
-  JOIN project_scope_materials pm ON pm.project_scope_id=i.project_scope_id
-  WHERE i.id=NEW.settlement_item_id AND pm.id=NEW.project_material_id)
- THEN RAISE(ABORT,'实际物资流水对应的结算明细必须属于同一项目需求范围') END;
- SELECT CASE WHEN NEW.approval_material_id IS NOT NULL AND NOT EXISTS(
-  SELECT 1 FROM project_approval_material_items a
-  JOIN project_approval_versions approval ON approval.id=a.approval_version_id
-  WHERE a.id=NEW.approval_material_id
-    AND a.project_material_id=NEW.project_material_id
-    AND approval.status='approved')
- THEN RAISE(ABORT,'关联物资批准快照必须属于同一项目物资及正式批准版本') END;
-END;
-CREATE TRIGGER material_consumption_immutable_update
- BEFORE UPDATE ON material_usage_records
-BEGIN SELECT RAISE(ABORT,'物资实际消耗原始事实不可覆盖'); END;
-CREATE TRIGGER material_consumption_immutable_delete
- BEFORE DELETE ON material_usage_records
-BEGIN SELECT RAISE(ABORT,'物资实际消耗原始事实不可删除'); END;
-CREATE TRIGGER material_consumption_revision_insert_guard
- BEFORE INSERT ON material_usage_revisions
-BEGIN SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),1)+1
- FROM material_usage_revisions v
- WHERE v.consumption_id=NEW.consumption_id)
- THEN RAISE(ABORT,'物资更正版本号必须连续增加') END; END;
-CREATE TRIGGER material_consumption_revision_immutable_update
- BEFORE UPDATE ON material_usage_revisions
-BEGIN SELECT RAISE(ABORT,'物资实际消耗更正历史不可覆盖'); END;
-CREATE TRIGGER material_consumption_revision_immutable_delete
- BEFORE DELETE ON material_usage_revisions
-BEGIN SELECT RAISE(ABORT,'物资实际消耗更正历史不可删除'); END;
-
 -- Expense allocation is not a payment nor an independent additional cost.
 -- Actual expense and settlement detail must belong to the same project, but
 -- a cost may be incurred before any settlement has been created.
@@ -2733,8 +2637,6 @@ END;
 
 CREATE INDEX idx_demand_material_master ON demand_material_items(material_id,demand_id);
 CREATE INDEX idx_project_scope_material_master ON project_scope_materials(material_id,project_scope_id);
-CREATE INDEX idx_actual_material_project_material
- ON material_usage_records(project_material_id,settlement_item_id);
 
 CREATE TRIGGER approved_scope_demand_version_relation BEFORE INSERT ON project_approval_scope_versions
 BEGIN SELECT CASE WHEN NOT EXISTS(
@@ -3262,10 +3164,7 @@ BEGIN SELECT RAISE(ABORT,'原始导入批次的需求来源历史不能删除');
 
 
 -- Index only high-cardinality, expected reverse-lookup relations; do not
--- blindly create indexes for all 224 foreign-key groups (many are audit actors).
-CREATE INDEX idx_material_usage_optional_settlement
- ON material_usage_records(settlement_item_id)
- WHERE settlement_item_id IS NOT NULL;
+-- blindly create indexes for every foreign-key group (many are audit actors).
 CREATE INDEX idx_reconciliation_cost_version
  ON cost_reconciliation_versions(cost_version_id);
 CREATE INDEX idx_evidence_demand_version

@@ -6,11 +6,11 @@
 
 | 责任类别 | 当前数量 |
 | --- | ---: |
-| 不可变历史或身份 | 109 |
+| 不可变历史或身份 | 105 |
 | 历史快照原子同步 | 18 |
-| 正式历史版本约束 | 28 |
+| 正式历史版本约束 | 27 |
 | 正式批准/结项一致性 | 5 |
-| 物资业务身份及关联 | 10 |
+| 物资业务身份及关联 | 9 |
 | 状态事件合法性 | 2 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 3 |
@@ -111,12 +111,6 @@
 | `logical_towers` | `logical_tower_history_initial` | AFTER/INSERT | 设备历史一致性 |
 | `logical_towers` | `logical_tower_history_version_guard` | BEFORE/UPDATE | 正式历史版本约束 |
 | `logical_towers` | `logical_tower_identity_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
-| `material_usage_records` | `material_consumption_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
-| `material_usage_records` | `material_consumption_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `material_usage_records` | `material_usage_identity_insert` | BEFORE/INSERT | 物资业务身份及关联 |
-| `material_usage_revisions` | `material_consumption_revision_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
-| `material_usage_revisions` | `material_consumption_revision_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `material_usage_revisions` | `material_consumption_revision_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `material_versions` | `material_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `material_versions` | `material_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `material_versions` | `material_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
@@ -236,9 +230,13 @@
 - 已清除 4 个重复触发器：失效的历史定义 UPDATE 校验、重复协议框架身份保护、已被真实外键处理的引用物资删除检查。
 - 新增版本物资相关约束：材料根身份不可覆盖/删除、正式版本递增、记录时间有序、无实质变化不得制造新版本、正式版本不可修改/删除、历史物资关联只引用有效版本。
 - 需求、项目审批、结算和真实费用的已有完整性保护保持有效。
-- 本次增加子项目费用树的父子关系、末级入账、费用分类定义版本不可变和类别匹配等 7 项触发器，共 210 项；所有实际结算余额由应用层计算，不创建金额累计触发器。
+- 此前费用树增加了父子关系、末级入账、版本不可变及费用类别匹配等 7 项完整性触发器。按后续业务裁决移除施工与物资领退相关触发器后，**当前总数为 204 项**；结算余额仍由应用层计算，不创建金额累计触发器。
 - 对每个触发器是否进一步缩减，必须有等价 FK/UNIQUE/CHECK 证明及非法数据反例；不追求将数量硬压到固定值。
 
 ## 最近裁决：不再保留独立施工完成对象
 
 取消检修计划与施工完成流程之后，移除了对应完工历史和剩余工作量处置的 9 项触发器；项目关闭仍按全部有效费用与结算最终核对的真实历史进行检查。
+
+## 最新裁决：不建独立物资领退历史
+
+用户确认不需要实际领料、退料流水。随 `material_usage_records` 与 `material_usage_revisions` 两张表移除六项相关触发器；保留统一物资主数据、需求物资、项目批准物资与各自正式历史约束。

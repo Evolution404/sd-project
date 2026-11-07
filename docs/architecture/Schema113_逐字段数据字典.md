@@ -152,7 +152,7 @@
 | `category_id` | TEXT | 是 | — | 外键→dictionary_items.id（组1） | 业务类别字典项 | 保留：历史/审核事实 |
 | `category_snapshot` | TEXT | 是 | — | 见原生CHECK | 历史发生时的费用类别文字 | 保留：不可追溯重算的历史快照 |
 | `title` | TEXT | 是 | — | 见原生CHECK | 字典、费用或操作定义标题 | 保留：历史/审核事实 |
-| `occurred_on` | TEXT | 是 | — | 见原生CHECK | 实际工作、费用或领退料发生的业务日期 | 保留：历史/审核事实 |
+| `occurred_on` | TEXT | 是 | — | 见原生CHECK | 本次真实费用等独立业务事实的发生日期 | 保留：历史/审核事实 |
 | `amount_fen` | INTEGER | 是 | — | 见原生CHECK | 本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额 | 保留：历史/审核事实 |
 | `tax_mode` | TEXT | 否 | — | 见原生CHECK | 含税、不含税或无税业务口径 | 保留：历史/审核事实 |
 | `tax_rate_basis_points` | INTEGER | 否 | — | 见原生CHECK | 税率，万分比整数 | 保留：历史/审核事实 |
@@ -300,7 +300,7 @@
 | `span_version` | INTEGER | 否 | — | 生成列<escape>|</escape>外键→line_span_history.version_no（组0） | 需求关联档距的正式版本号 | 派生（不另存） |
 | `priority_id` | TEXT | 否 | — | 生成列<escape>|</escape>外键→dictionary_items.id（组4） | 优先级字典项 | 派生（不另存） |
 | `expected_on` | TEXT | 否 | — | 生成列 | 专业需求期望办理日期 | 派生（不另存） |
-| `recorded_by` | TEXT | 是 | — | 外键→users.id（组3） | 登记真实领退或费用的用户 | 保留：历史/审核事实 |
+| `recorded_by` | TEXT | 是 | — | 外键→users.id（组3） | 登记正式业务事实的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
 ## `demands` — 需求首次登记身份和原始事实
@@ -398,33 +398,32 @@
 
 ## `evidence_links` — 证据文件与正式业务身份关联
 
-业务领域：账户、证据与运行基础。字段数：29；外键分量：26。
+业务领域：账户、证据与运行基础。字段数：28；外键分量：25。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `file_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→evidence_files.id（组22） | 不可变证据文件身份 | 保留：独立属性或真实关联 |
-| `material_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→material_versions.id（组21） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
-| `source_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→source_records.id（组20） | 来源记录稳定身份 | 保留：独立属性或真实关联 |
-| `demand_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demands.id（组19） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
-| `demand_revision_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_revisions.id（组18） | 专业需求修订历史记录 | 保留：独立属性或真实关联 |
+| `file_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→evidence_files.id（组21） | 不可变证据文件身份 | 保留：独立属性或真实关联 |
+| `material_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→material_versions.id（组20） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
+| `source_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→source_records.id（组19） | 来源记录稳定身份 | 保留：独立属性或真实关联 |
+| `demand_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demands.id（组18） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
+| `demand_revision_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_revisions.id（组17） | 专业需求修订历史记录 | 保留：独立属性或真实关联 |
 | `demand_version_demand_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_versions.demand_id（组1） | 证据所关联的专业需求版本复合身份 | 保留：独立属性或真实关联 |
 | `demand_version_no` | INTEGER | 否 | — | 组合唯一<escape>|</escape>外键→demand_versions.version（组1） | 证据所关联的专业需求正式版本号 | 保留：独立属性或真实关联 |
 | `demand_material_demand_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_material_version_items.demand_id（组0） | 物资版本证据所归属的需求身份 | 保留：独立属性或真实关联 |
 | `demand_material_version_no` | INTEGER | 否 | — | 组合唯一<escape>|</escape>外键→demand_material_version_items.demand_version（组0） | 版本化物资的需求版本号 | 保留：独立属性或真实关联 |
 | `demand_material_master_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_material_version_items.material_id（组0） | 版本物资所引用的统一物资身份 | 保留：独立属性或真实关联 |
-| `demand_lifecycle_event_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_lifecycle_events.id（组17） | 需求状态确认/退回历史事件 | 保留：独立属性或真实关联 |
-| `project_stage_event_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_stage_events.id（组16） | 子项目储备入库立项结项事件 | 保留：独立属性或真实关联 |
-| `project_management_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_management_versions.id（组15） | 子项目责任与计划版本 | 保留：独立属性或真实关联 |
-| `project_funding_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_funding_versions.id（组14） | 子项目资金归属版本 | 保留：独立属性或真实关联 |
-| `project_approval_material_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_approval_material_items.id（组13） | 具体已批准物资快照的证据归属 | 保留：独立属性或真实关联 |
-| `cost_allocation_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→cost_allocation_versions.id（组12） | 具体费用分摊版本 | 保留：独立属性或真实关联 |
-| `line_span_history_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→line_span_history.id（组11） | 档距历史版本的证据关联 | 保留：独立属性或真实关联 |
-| `change_order_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_change_orders.id（组10） | 引起正式批准版本变化的变更单 | 保留：独立属性或真实关联 |
-| `project_approval_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_approval_versions.id（组9） | 项目正式批准版本的证据归属 | 保留：独立属性或真实关联 |
-| `settlement_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组8） | 正式结算版本身份 | 保留：独立属性或真实关联 |
-| `settlement_review_event_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→settlement_review_events.id（组7） | 具体结算审核事件 | 保留：独立属性或真实关联 |
-| `material_consumption_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→material_usage_records.id（组6） | 材料实际领退事件的证据归属 | 保留：独立属性或真实关联 |
+| `demand_lifecycle_event_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→demand_lifecycle_events.id（组16） | 需求状态确认/退回历史事件 | 保留：独立属性或真实关联 |
+| `project_stage_event_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_stage_events.id（组15） | 子项目储备入库立项结项事件 | 保留：独立属性或真实关联 |
+| `project_management_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_management_versions.id（组14） | 子项目责任与计划版本 | 保留：独立属性或真实关联 |
+| `project_funding_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_funding_versions.id（组13） | 子项目资金归属版本 | 保留：独立属性或真实关联 |
+| `project_approval_material_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_approval_material_items.id（组12） | 具体已批准物资快照的证据归属 | 保留：独立属性或真实关联 |
+| `cost_allocation_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→cost_allocation_versions.id（组11） | 具体费用分摊版本 | 保留：独立属性或真实关联 |
+| `line_span_history_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→line_span_history.id（组10） | 档距历史版本的证据关联 | 保留：独立属性或真实关联 |
+| `change_order_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_change_orders.id（组9） | 引起正式批准版本变化的变更单 | 保留：独立属性或真实关联 |
+| `project_approval_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_approval_versions.id（组8） | 项目正式批准版本的证据归属 | 保留：独立属性或真实关联 |
+| `settlement_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组7） | 正式结算版本身份 | 保留：独立属性或真实关联 |
+| `settlement_review_event_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→settlement_review_events.id（组6） | 具体结算审核事件 | 保留：独立属性或真实关联 |
 | `cost_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→cost_versions.id（组5） | 实际费用正式确认或修订版本 | 保留：独立属性或真实关联 |
 | `reconciliation_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→cost_reconciliation_versions.id（组4） | 费用与结算历史核对版本 | 保留：独立属性或真实关联 |
 | `project_closure_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_closures.id（组3） | 正式关闭审批身份 | 保留：独立属性或真实关联 |
@@ -583,44 +582,9 @@
 | `updated_by` | TEXT | 否 | — | 外键→users.id（组0） | 修改主数据或可编辑业务草稿的用户 | 保留：独立属性或真实关联 |
 | `change_reason` | TEXT | 是 | '首次建档' | 见原生CHECK | 台账设备属性变化原因 | 保留：独立属性或真实关联 |
 
-## `material_usage_records` — 项目物资多次领退真实流水
-
-业务领域：独立物资领退流水。字段数：11；外键分量：4。
-
-| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_material_id` | TEXT | 是 | — | 外键→project_scope_materials.id（组3） | 子项目范围内的统一物资稳定身份 | 保留：独立属性或真实关联 |
-| `settlement_item_id` | TEXT | 否 | — | 外键→settlement_items.id（组2） | 结算明细身份（实际实施登记时可空） | 保留：独立属性或真实关联 |
-| `movement_kind` | TEXT | 是 | 'consume' | 见原生CHECK | 物资真实发生方向，领用或退回 | 保留：独立属性或真实关联 |
-| `occurred_on` | TEXT | 是 | — | 见原生CHECK | 实际工作、费用或领退料发生的业务日期 | 保留：登记/发生时间 |
-| `approval_material_id` | TEXT | 否 | — | 外键→project_approval_material_items.id（组1） | 实际用料所依据的批准物资历史明细 | 保留：独立属性或真实关联 |
-| `actual_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按统一缩放因子保存的实际数量 | 保留：独立属性或真实关联 |
-| `evidence` | TEXT | 是 | '' | 见原生CHECK | 现场实际或成本确认的书面依据 | 保留：独立属性或真实关联 |
-| `unplanned_reason` | TEXT | 是 | '' | 见原生CHECK | 未经预计的实际物资领退原因 | 保留：独立属性或真实关联 |
-| `recorded_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记真实领退或费用的用户 | 保留：独立属性或真实关联 |
-| `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：登记/发生时间 |
-
-## `material_usage_revisions` — 领退事件更正/撤销
-
-业务领域：独立物资领退流水。字段数：10；外键分量：2。
-
-| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `consumption_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→material_usage_records.id（组1） | 物资实际领退事件的稳定身份 | 保留：历史/审核事实 |
-| `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
-| `action` | TEXT | 是 | — | 见原生CHECK | 当前业务记录操作类型 | 保留：历史/审核事实 |
-| `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `actual_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按统一缩放因子保存的实际数量 | 保留：历史/审核事实 |
-| `evidence` | TEXT | 是 | '' | 见原生CHECK | 现场实际或成本确认的书面依据 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | — | 见原生CHECK | 登记、修订、审批或撤销的正式理由 | 保留：历史/审核事实 |
-| `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
-| `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
-
 ## `material_versions` — 物资正式定义历史及可修订的PMS外部编码（当前唯一映射）
 
-业务领域：独立物资领退流水。字段数：13；外键分量：3。
+业务领域：来源、需求和物资主数据。字段数：13；外键分量：3。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -640,7 +604,7 @@
 
 ## `materials` — 统一物资稳定身份：编码、单位不可无痕改写
 
-业务领域：独立物资领退流水。字段数：5；外键分量：2。
+业务领域：来源、需求和物资主数据。字段数：5；外键分量：2。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1217,6 +1181,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：73；字段总数（含生成列）：697；需要人工补写独立描述的字段名：0。
+基础数据表数：71；字段总数（含生成列）：675；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。

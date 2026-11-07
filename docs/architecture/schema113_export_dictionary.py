@@ -21,7 +21,6 @@ allocation_id|实际费用分摊稳定身份
 allow_span|操作类型是否允许选择档距
 allow_tower|操作类型是否允许选择杆塔
 amount_fen|本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额
-approval_material_id|实际用料所依据的批准物资历史明细
 approval_scope_version_id|本条结算明细对应的正式批准范围版本
 approval_version_id|项目正式批准版本身份
 approved_amount_fen|本次批准的范围金额，NULL表示未核定
@@ -53,7 +52,6 @@ commissioned_on|设备投运业务日期
 completion_standard|需求内容的质量或结果验收判据，不是施工完成记录
 confirmed_at|实际费用或现场事实的确认UTC时间
 confirmed_by|实际费用确认人员
-consumption_id|物资实际领退事件的稳定身份
 context_line_id|共享物理杆塔所在的具体线路背景
 contract_number|执行协议合同编号
 cost_allocation_version_id|具体费用分摊版本
@@ -140,20 +138,18 @@ management_department|设备主管部门
 manager_id|子项目管理人员
 matched_demand_id|去重审查中已存在的需求
 material_code_snapshot|批准时冻结的物资主数据编码
-material_consumption_id|材料实际领退事件的证据归属
 material_id|统一物资主数据身份
 material_version_id|正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义
 material_model|批准时冻结的物资型号
 material_name|批准时冻结的物资名称
 mime|证据文件的MIME媒体类型
 model|设备或物资型号
-movement_kind|物资真实发生方向，领用或退回
 name|业务名称
 new_demand_id|去重审查关联的新建需求
 note|与业务对象关联的备注
 number|项目内结算单编号
 observed_physical_tower_id|录入时实际观察到的物理杆塔
-occurred_on|实际工作、费用或领退料发生的业务日期
+occurred_on|本次真实费用等独立业务事实的发生日期
 operation_id|正式操作类型身份
 operation_snapshot|历史需求关联的操作类型文字
 operation_version|操作类型正式版本号
@@ -200,7 +196,7 @@ reconciled_settlement_fen|该核对记录确认的正式结算金额
 reconciliation_version_id|费用与结算历史核对版本
 record_id|历史修订归属的原始业务事实
 recorded_at|历史业务事件录入数据库的UTC时间点
-recorded_by|登记真实领退或费用的用户
+recorded_by|登记正式业务事实的用户
 reference_price_version_id|本次采用的参考单价正式版本
 remaining_quantity_scaled|正式结项时未完成数量
 request_hash|幂等请求的原始内容摘要
@@ -253,7 +249,6 @@ unit_id|计量单位字典项
 unit_price_fen|单位数量价格，以人民币分存储
 unit_snapshot|正式批准或发生时的单位名称快照
 unit_version|计量单位字典正式版本号
-unplanned_reason|未经预计的实际物资领退原因
 updated_at|允许更新的草稿或主数据最后修改UTC时间
 updated_by|修改主数据或可编辑业务草稿的用户
 uploaded_by|证据文件上传用户

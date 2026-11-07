@@ -267,15 +267,6 @@ settlement_version("stv1",1,8000)
 event("stv1",1,"submit")
 event("stv1",2,"approve")
 ok("settlement over budget accepted",net()==8000)
-add("material_usage_records",id="consume",settlement_item_id="it",
-    occurred_on="2026-11-07",
-    project_material_id="mat",approval_material_id="am1",actual_quantity_scaled=2000,
-    evidence="领料",recorded_by="u",recorded_at="2026-11-07T00:00:00.000Z")
-ok("real material quantity exceeds initial approved quantity without being blocked",
-    row("SELECT actual_quantity_scaled FROM v_material_usage_current "
-        "WHERE project_material_id='mat'")["actual_quantity_scaled"]==2000
-    and row("SELECT approved_quantity_scaled FROM v_approved_material_current "
-        "WHERE project_material_id='mat'")["approved_quantity_scaled"]==1000)
 blocked("immutable historical settlement item",
     "UPDATE settlement_item_versions SET amount_fen=0 WHERE id='itemstv1'")
 # Formal project change V2, including approved amount and material changes.
@@ -309,10 +300,10 @@ ok("approved scope and installment settlement remain separate real facts",
     ==(30000,4000,8000))
 approved_material=row("SELECT approved_quantity_scaled FROM v_approved_material_current "
     "WHERE project_material_id='mat'")["approved_quantity_scaled"]
-actual_material=row("SELECT actual_quantity_scaled FROM v_material_usage_current "
-    "WHERE project_material_id='mat'")["actual_quantity_scaled"]
-ok("actual material identity persists across approval versions",
-    (approved_material,actual_material)==(3000,2000))
+ok("approved material remains a separate formal versioned project fact",
+    approved_material==3000
+    and row("SELECT approved_quantity_scaled FROM project_approval_material_items "
+            "WHERE id='am1'")["approved_quantity_scaled"]==1000)
 add("project_funding_versions",id="fund2",project_id="p",
     version_no=2,agreement_id="ag",reason="后续选择执行协议",
     actor_id="u",recorded_at="2026-11-07T00:00:00.000Z")
@@ -408,11 +399,11 @@ ok("new approved version entirely replaces old effective scope",
     and row("SELECT project_scope_id FROM v_approval_scope_current a "
         "JOIN project_approval_versions ap ON ap.id=a.approval_version_id "
         "WHERE ap.project_id='p'")["project_scope_id"]=="scope2")
-ok("old material actuals remain in immutable facts after scope retirement",
+ok("old material approval history survives scope retirement",
     row("SELECT COUNT(*) n FROM v_approved_material_current "
         "WHERE project_material_id='mat'")["n"]==0
-    and row("SELECT actual_quantity_scaled FROM v_material_usage_current "
-        "WHERE project_material_id='mat'")["actual_quantity_scaled"]==2000)
+    and row("SELECT COUNT(*) n FROM project_approval_material_items "
+            "WHERE project_material_id='mat'")["n"]==2)
 ok("approved project budget uses newest full version",
     row("SELECT approved_budget_fen FROM v_project_current_approval "
         "WHERE project_id='p'")["approved_budget_fen"]==20000)
@@ -454,37 +445,17 @@ add("materials",id="master2",code="MAT-002",name="连接金具",
     created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
 add("project_scope_materials",id="unplanned_mat",project_scope_id="scope",
     material_id="master2",addition_reason="作业中新增",created_at="2026-11-07T00:00:00.000Z")
-add("material_usage_records",id="unplanned_usage",
-    settlement_item_id="it",
-    occurred_on="2026-11-07",project_material_id="unplanned_mat",
-    approval_material_id=None,actual_quantity_scaled=7500,
-    evidence="现场验收记录",unplanned_reason="作业现场新增物资",
-    recorded_by="u",recorded_at="2026-11-07T00:00:00.000Z")
-ok("unplanned real material has identity and a reason, not fake approved BOM",
-    row("SELECT m.code AS code,c.actual_quantity_scaled,c.approval_material_id,"
-        "c.unplanned_reason FROM material_usage_records c "
-        "JOIN project_scope_materials pm ON pm.id=c.project_material_id "
+ok("additional project material has shared master identity, not a fake approval",
+    row("SELECT m.code code,pm.addition_reason reason "
+        "FROM project_scope_materials pm "
         "JOIN materials m ON m.id=pm.material_id "
-        "WHERE c.id='unplanned_usage'")["code"]=="MAT-002"
-    and row("SELECT actual_quantity_scaled FROM v_material_usage_current "
-        "WHERE project_material_id='unplanned_mat'")["actual_quantity_scaled"]==7500
-    and row("SELECT COUNT(*) n FROM v_approved_material_current "
+        "WHERE pm.id='unplanned_mat'")["code"]=="MAT-002"
+    and row("SELECT COUNT(*) n FROM project_approval_material_items "
         "WHERE project_material_id='unplanned_mat'")["n"]==0)
-blocked("unplanned use cannot mislabel another material's approved BOM",
-    "INSERT INTO material_usage_records"
-    "(id,settlement_item_id,project_material_id,approval_material_id,"
-    "actual_quantity_scaled,occurred_on,unplanned_reason,recorded_by,recorded_at)"
-    " VALUES('badBOM','it','unplanned_mat','am1',100,'2026-11-07',"
-    "'现场确有变更','u','2026-11-07T00:00:00.000Z')")
-# A project-material identity must belong to this exact project scope.
-add("project_scope_materials",id="other_scope_material",
-    project_scope_id="scope2",material_id="master2",addition_reason="现场新增",created_at="2026-11-07T00:00:00.000Z")
-blocked("actual material cannot come from another project demand scope",
-    "INSERT INTO material_usage_records"
-    "(id,settlement_item_id,project_material_id,actual_quantity_scaled,"
-    "occurred_on,unplanned_reason,recorded_by,recorded_at)"
-    " VALUES('badScope','it','other_scope_material',500,'2026-11-07',"
-    "'确实发生','u','2026-11-07T00:00:00.000Z')")
+blocked("newly included project material requires a reason",
+    "INSERT INTO project_scope_materials(id,project_scope_id,material_id,"
+    "addition_reason,created_at) VALUES('unexplained_material','scope',"
+    "'master2','','2026-11-07T00:00:00.000Z')")
 # Material names/models become immutable version records; approved snapshots
 # keep their own time-of-approval facts.
 revise_material("master1",name="复合绝缘子",model="A-改",
@@ -503,13 +474,8 @@ ok("approved material snapshot preserves historical name and model",
         "WHERE id='am1'")["material_model"]=="A"
     and row("SELECT material_code_snapshot FROM project_approval_material_items "
         "WHERE id='am1'")["material_code_snapshot"]=="MAT-001")
-ok("cross-project material can be grouped by stable catalog ID on demand",
-    row("SELECT SUM(c.actual_quantity_scaled) AS total "
-        "FROM v_material_usage_current c "
-        "JOIN project_scope_materials pm ON pm.id=c.project_material_id "
-        "WHERE c.status='active' AND pm.material_id='master1'")["total"]==2000)
 # A different project with its own demand still references the SAME master ID.
-# Cross-project usage must aggregate quantities, not match editable name/model.
+# The same material master can be approved separately for two projects.
 demand("d3")
 add("demand_material_items",id="dm3",demand_id="d3",item_no=1,
     material_id="master1",quantity_scaled=2000,created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
@@ -540,20 +506,17 @@ add("settlements",id="st3",project_id="p3",number="S3",
     created_by="u",created_at="2026-11-07T00:00:00.000Z")
 add("settlement_items",id="it3",settlement_id="st3",
     project_scope_id="s3",created_at="2026-11-07T00:00:00.000Z")
-add("material_usage_records",id="p3consume",
-    settlement_item_id="it3",
-    occurred_on="2026-11-07",project_material_id="p3m",
-    approval_material_id=None,actual_quantity_scaled=3500,
-    evidence="现场验收",unplanned_reason="现场确需新增物资",
-    recorded_by="u",recorded_at="2026-11-07T00:00:00.000Z")
-ok("same master material has distinct project facts with a single catalog identity",
-    row("SELECT SUM(c.actual_quantity_scaled) total "
-        "FROM v_material_usage_current c "
-        "JOIN project_scope_materials pm ON pm.id=c.project_material_id "
-        "WHERE c.status='active' AND pm.material_id='master1'")["total"]==5500
-    and row("SELECT COUNT(DISTINCT pm.project_scope_id) scopes "
-        "FROM project_scope_materials pm "
-        "WHERE pm.material_id='master1'")["scopes"]==2)
+ok("two projects reuse one material master with distinct approved material identities",
+    row("SELECT COUNT(DISTINCT pm.project_scope_id) scopes "
+        "FROM project_scope_materials pm WHERE pm.material_id='master1'")["scopes"]==2
+    and row("SELECT COUNT(DISTINCT a.project_material_id) ids "
+        "FROM project_approval_material_items a "
+        "JOIN project_scope_materials pm ON pm.id=a.project_material_id "
+        "WHERE pm.material_id='master1'")["ids"]==2
+    and row("SELECT material_model FROM project_approval_material_items "
+        "WHERE id='p3am'")["material_model"]=="A-改"
+    and row("SELECT material_model FROM project_approval_material_items "
+        "WHERE id='am1'")["material_model"]=="A")
 # Previously proven failures must remain blocked forever.
 blocked("STRICT forbids null material primary keys",
     "INSERT INTO materials(id,code,unit_id,created_at)"
@@ -581,11 +544,6 @@ blocked("material code unique ignores ASCII case",
 blocked("same scope and material cannot create duplicate project identity",
     "INSERT INTO project_scope_materials(id,project_scope_id,material_id,created_at)"
     " VALUES('duplicate_master','scope','master1','2026-11-07T00:00:00.000Z')")
-blocked("unplanned consumption must explain addition",
-    "INSERT INTO material_usage_records(id,settlement_item_id,"
-    "project_material_id,actual_quantity_scaled,occurred_on,recorded_by,recorded_at)"
-    " VALUES('no_reason','it','unplanned_mat',200,'2026-11-07','u',"
-    "'2026-11-07T00:00:00.000Z')")
 db.execute("SAVEPOINT inactive")
 revise_material("master2",status="inactive",
     recorded_at="2026-11-07T01:00:00.000Z",reason="暂时停用物资")
@@ -1616,14 +1574,24 @@ ok("settlement-only schema has no obsolete evidence FK for completed work",
             for x in db.execute("PRAGMA table_info(evidence_links)"))
     and not any(x["table"]=="completion_records"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
+ok("no standalone material issue/return transactions or evidence references exist",
+    all(row("SELECT COUNT(*) n FROM sqlite_master "
+            "WHERE type='table' AND name=?",name)["n"]==0
+        for name in ("material_usage_records","material_usage_revisions"))
+    and row("SELECT COUNT(*) n FROM sqlite_master WHERE type='view' "
+            "AND name='v_material_usage_current'")["n"]==0
+    and not any(x["name"]=="material_consumption_id"
+                for x in db.execute("PRAGMA table_info(evidence_links)"))
+    and not any(x["table"]=="material_usage_records"
+                for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==24
+    len(present)==23
     and {'v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
          'v_effective_cost_reconciliations',
          'v_effective_settlement_items','v_demand_current',
-         'v_material_usage_current','v_material_current'}.issubset(present))
+         'v_material_current'}.issubset(present))
 closure_ddl=row("SELECT sql FROM sqlite_master WHERE type='trigger'"
     " AND name='project_close_guard'")["sql"]
 ok("database trigger bodies have no embedded application role-authorization rules",
@@ -1677,76 +1645,9 @@ ok("existing cost allocations keep their original amount without double counting
     row("SELECT project_id FROM cost_entries WHERE id='audit_ce'")["project_id"]=="p"
     and row("SELECT id FROM v_cost_current WHERE entry_id='audit_ce'")["id"]
       =="audit_cv2")
-# Material movements must be recordable BEFORE any settlement is created,
-# and multiple physical issues/returns have separate immutable identities.
-demand("d_material_pre_settlement")
-activate_demand("d_material_pre_settlement")
-add("project_demand_scopes",id="scope_material_pre_settlement",
-    project_id="expense_first_project",demand_id="d_material_pre_settlement",
-    demand_version=1,proposed_quantity_scaled=10000,
-    created_at="2026-11-07T20:00:00.000Z",
-    updated_at="2026-11-07T20:00:00.000Z")
-add("project_scope_materials",id="material_pre_settlement",
-    project_scope_id="scope_material_pre_settlement",
-    material_id="master2",addition_reason="现场确需新增材料",
-    created_at="2026-11-07T20:00:00.000Z")
-for mid,movement,qty in [("issue_one","consume",4000),
-                          ("issue_two","consume",3000),
-                          ("return_one","return",1000)]:
-    add("material_usage_records",id=mid,
-        project_material_id="material_pre_settlement",
-        settlement_item_id=None,movement_kind=movement,
-        occurred_on="2026-11-07",actual_quantity_scaled=qty,
-        approval_material_id=None,
-        unplanned_reason="原需求未列，真实领退料记录",
-        evidence="现场材料交接依据",
-        recorded_by="u",recorded_at="2026-11-07T20:10:00.000Z")
-ok("actual material usage exists before any settlement",
-    row("SELECT COUNT(*) n FROM settlements "
-        "WHERE project_id='expense_first_project'")["n"]==0
-    and row("SELECT COUNT(*) n FROM material_usage_records "
-        "WHERE project_material_id='material_pre_settlement'")["n"]==3)
-ok("multiple material issues and return are separate real events",
-    row("SELECT COUNT(*) n FROM v_material_usage_current "
-        "WHERE project_material_id='material_pre_settlement'"
-        " AND status='active'")["n"]==3
-    and row("SELECT SUM(CASE WHEN movement_kind='return'"
-        " THEN -actual_quantity_scaled ELSE actual_quantity_scaled END) net "
-        "FROM v_material_usage_current WHERE "
-        "project_material_id='material_pre_settlement'")["net"]==6000)
-add("material_usage_revisions",id="issue_one_revision",
-    consumption_id="issue_one",version_no=2,action="correct",
-    status="active",actual_quantity_scaled=4500,
-    evidence="二次核对交接单",reason="现场计量订正",
-    actor_id="u",recorded_at="2026-11-07T20:11:00.000Z")
-ok("usage revision replaces only the corrected event, not the whole issue ledger",
-    row("SELECT SUM(CASE WHEN movement_kind='return'"
-        " THEN -actual_quantity_scaled ELSE actual_quantity_scaled END) net "
-        "FROM v_material_usage_current WHERE "
-        "project_material_id='material_pre_settlement'")["net"]==6500
-    and row("SELECT COUNT(*) n FROM v_material_usage_current "
-        "WHERE project_material_id='material_pre_settlement'")["n"]==3)
-blocked("material usage cannot link to a settlement belonging to another project scope",
-    "INSERT INTO material_usage_records(id,project_material_id,settlement_item_id,"
-    "movement_kind,occurred_on,actual_quantity_scaled,evidence,"
-    "unplanned_reason,recorded_by,recorded_at) VALUES('material_cross_project',"
-    "'material_pre_settlement','it','consume','2026-11-07',100,'交接单',"
-    "'实际新增','u','2026-11-07T20:12:00.000Z')")
-blocked("material movement kind must be physical consume or return",
-    "INSERT INTO material_usage_records(id,project_material_id,movement_kind,"
-    "occurred_on,actual_quantity_scaled,evidence,unplanned_reason,"
-    "recorded_by,recorded_at) VALUES('invalid_movement',"
-    "'material_pre_settlement','invoice','2026-11-07',100,'交接单',"
-    "'实际新增','u','2026-11-07T20:13:00.000Z')")
 # Explicit query-plan coverage: prioritize domain reverse lookups, not an
 # index on every rarely-read audit actor FK.
 query_index_contracts=[
- ("actual material issue/return by project material",
-  "SELECT id FROM material_usage_records WHERE project_material_id=?",
-  ("mat",),"idx_actual_material_project_material"),
- ("optional material association to settlement detail",
-  "SELECT id FROM material_usage_records WHERE settlement_item_id=?",
-  ("it",),"idx_material_usage_optional_settlement"),
  ("real costs by project irrespective of settlement",
   "SELECT id FROM cost_entries WHERE project_id=?",
   ("p",),"idx_cost_entries_project"),
@@ -1841,12 +1742,6 @@ db.execute("UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T20:33:00.000Z'"
     " WHERE id='end_to_end_ap'")
 stage("end_to_end_p","approved",time="2026-11-07T20:34:00.000Z")
-add("material_usage_records",id="end_to_end_usage",
-    project_material_id="end_to_end_pm",settlement_item_id=None,
-    movement_kind="consume",occurred_on="2026-11-07",
-    approval_material_id="end_to_end_apm",
-    actual_quantity_scaled=1000,evidence="领料单",
-    recorded_by="u",recorded_at="2026-11-07T20:36:00.000Z")
 add("cost_entries",id="end_to_end_cost",project_id="end_to_end_p",
     created_by="u",created_at="2026-11-07T20:37:00.000Z")
 add("cost_versions",id="end_to_end_cv",entry_id="end_to_end_cost",
@@ -1855,11 +1750,11 @@ add("cost_versions",id="end_to_end_cv",entry_id="end_to_end_cost",
     amount_fen=3000,evidence="实际费用凭据",reason="发生事实",
     confirmed_by="u",confirmed_at="2026-11-07T20:38:00.000Z",
     request_key="end_to_end_cv")
-ok("project records material and actual costs before independent settlement",
+ok("project retains approved material snapshot and real cost before settlement",
     row("SELECT COUNT(*) n FROM settlements "
         "WHERE project_id='end_to_end_p'")["n"]==0
-    and row("SELECT actual_quantity_scaled FROM v_material_usage_current "
-        "WHERE id='end_to_end_usage'")["actual_quantity_scaled"]==1000
+    and row("SELECT approved_quantity_scaled FROM project_approval_material_items "
+        "WHERE id='end_to_end_apm'")["approved_quantity_scaled"]==1000
     and row("SELECT amount_fen FROM v_cost_current "
         "WHERE entry_id='end_to_end_cost'")["amount_fen"]==3000)
 add("settlements",id="end_to_end_st",project_id="end_to_end_p",
