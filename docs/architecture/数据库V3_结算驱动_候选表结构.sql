@@ -489,7 +489,6 @@ CREATE TABLE evidence_links (
  project_management_version_id TEXT REFERENCES project_management_versions(id) ON DELETE RESTRICT,
  project_funding_version_id TEXT REFERENCES project_funding_versions(id) ON DELETE RESTRICT,
  project_approval_material_id TEXT REFERENCES project_approval_material_items(id) ON DELETE RESTRICT,
- cost_allocation_version_id TEXT REFERENCES cost_allocation_versions(id) ON DELETE RESTRICT,
  line_span_history_id TEXT REFERENCES line_span_history(id) ON DELETE RESTRICT,
  change_order_id TEXT REFERENCES project_change_orders(id) ON DELETE RESTRICT,
  project_approval_version_id TEXT REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
@@ -511,7 +510,7 @@ CREATE TABLE evidence_links (
  (demand_material_demand_id IS NOT NULL)+
  (demand_lifecycle_event_id IS NOT NULL)+(project_stage_event_id IS NOT NULL)+
  (project_management_version_id IS NOT NULL)+(project_funding_version_id IS NOT NULL)+
- (project_approval_material_id IS NOT NULL)+(cost_allocation_version_id IS NOT NULL)+
+ (project_approval_material_id IS NOT NULL)+
  (line_span_history_id IS NOT NULL)+
  (change_order_id IS NOT NULL)+(project_approval_version_id IS NOT NULL)+
  (settlement_version_id IS NOT NULL)+(settlement_review_event_id IS NOT NULL)+
@@ -529,7 +528,7 @@ CREATE TABLE evidence_links (
  UNIQUE(file_id,demand_material_demand_id,demand_material_version_no,demand_material_master_id),
  UNIQUE(file_id,demand_lifecycle_event_id),UNIQUE(file_id,project_stage_event_id),
  UNIQUE(file_id,project_management_version_id),UNIQUE(file_id,project_funding_version_id),
- UNIQUE(file_id,project_approval_material_id),UNIQUE(file_id,cost_allocation_version_id),
+ UNIQUE(file_id,project_approval_material_id),
  UNIQUE(file_id,line_span_history_id),
  UNIQUE(file_id,change_order_id),
  UNIQUE(file_id,project_approval_version_id),UNIQUE(file_id,settlement_version_id),
@@ -1127,28 +1126,8 @@ CREATE TABLE cost_versions (
 ) STRICT;
 
 -- Stable allocation identity; corrected allocations are append-only revisions.
-CREATE TABLE cost_allocations (
- id TEXT NOT NULL PRIMARY KEY,
- cost_entry_id TEXT NOT NULL REFERENCES cost_entries(id) ON DELETE RESTRICT,
- settlement_item_id TEXT NOT NULL REFERENCES settlement_items(id) ON DELETE RESTRICT,
- created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
- UNIQUE(cost_entry_id,settlement_item_id)
-) STRICT;
 
 
-CREATE TABLE cost_allocation_versions (
- id TEXT NOT NULL PRIMARY KEY,
- allocation_id TEXT NOT NULL REFERENCES cost_allocations(id) ON DELETE RESTRICT,
- version_no INTEGER NOT NULL CHECK(version_no>=1),
- cost_version_id TEXT NOT NULL REFERENCES cost_versions(id) ON DELETE RESTRICT,
- amount_fen INTEGER NOT NULL CHECK(amount_fen>=0),
- status TEXT NOT NULL CHECK(status IN ('active','voided')),
- reason TEXT NOT NULL DEFAULT '',
- actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
- UNIQUE(allocation_id,version_no),
- CHECK(status='active' OR amount_fen=0)
-) STRICT;
 
 
 -- A reconciliation points to BOTH stable business item identity and the exact
@@ -1169,6 +1148,7 @@ CREATE TABLE cost_reconciliation_versions (
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
  request_key TEXT NOT NULL UNIQUE,
  UNIQUE(record_id,version_no),
+ CHECK(status='active' OR (version_no>1 AND is_final=0)),
  FOREIGN KEY(settlement_item_version_id,settlement_item_id)
   REFERENCES settlement_item_versions(id,settlement_item_id) ON DELETE RESTRICT
 ) STRICT;
@@ -1202,7 +1182,6 @@ CREATE INDEX idx_cost_entries_node ON cost_entries(cost_node_id);
 CREATE INDEX idx_settlement_items_cost_node ON settlement_items(cost_node_id);
 CREATE UNIQUE INDEX ux_settlement_items_unscoped_cost_node
  ON settlement_items(settlement_id,cost_node_id) WHERE project_scope_id IS NULL;
-CREATE INDEX idx_cost_allocations_item ON cost_allocations(settlement_item_id);
 CREATE INDEX idx_cost_reconciliation_item ON cost_reconciliation_versions(settlement_item_id);
 CREATE VIEW v_project_cost_node_current AS
 SELECT n.id,n.project_id,n.parent_id,v.id AS current_version_id,
@@ -1261,16 +1240,6 @@ WHERE p.status='approved'
  AND p.version_no=(SELECT MAX(x.version_no) FROM project_approval_versions x
  WHERE x.project_id=p.project_id AND x.status='approved');
 
-CREATE VIEW v_cost_allocation_current AS
-SELECT a.id,a.cost_entry_id,a.settlement_item_id,
- v.id AS allocation_version_id,v.cost_version_id,v.version_no,
- v.status,v.amount_fen
-FROM cost_allocations a JOIN cost_allocation_versions v ON v.allocation_id=a.id
-WHERE v.version_no=(SELECT MAX(x.version_no)
- FROM cost_allocation_versions x WHERE x.allocation_id=a.id);
-
--- Only the latest formally approved COMPLETE version per stable settlement
--- contributes money. Later pending versions have no effect.
 CREATE VIEW v_effective_settlement_items AS
 SELECT i.id,i.settlement_id,i.project_scope_id,
  iv.id AS settlement_item_version_id,iv.settlement_version_id,
@@ -1838,7 +1807,12 @@ LEFT JOIN project_funding_versions f ON f.project_id=p.id
 CREATE TRIGGER cost_reconciliation_amount_cap
 BEFORE INSERT ON cost_reconciliation_versions
 BEGIN
- SELECT CASE WHEN NOT EXISTS(
+ -- A NEW active application of money requires the CURRENT approved
+ -- statement snapshot and a currently active real cost. A historical
+ -- void is not a new application and must remain possible after either
+ -- side has been formally superseded. Its unchanged prior identity and
+ -- amounts are checked in reconciliation_version_sequential_insert.
+ SELECT CASE WHEN NEW.status='active' AND NOT EXISTS(
   SELECT 1 FROM cost_versions cv JOIN cost_entries ce ON ce.id=cv.entry_id
   JOIN v_cost_current current_cv ON current_cv.entry_id=ce.id
     AND current_cv.status='active'
@@ -2055,37 +2029,6 @@ WHEN EXISTS(SELECT 1 FROM project_approval_versions a
 BEGIN SELECT RAISE(ABORT,'已批准项目需求范围历史不可删除'); END;
 
 
--- Expense allocation is not a payment nor an independent additional cost.
--- Actual expense and settlement detail must belong to the same project, but
--- a cost may be incurred before any settlement has been created.
-CREATE TRIGGER cost_allocation_identity_insert BEFORE INSERT ON cost_allocations
-BEGIN SELECT CASE WHEN NOT EXISTS(
- SELECT 1 FROM cost_entries e
- JOIN settlement_items i ON i.id=NEW.settlement_item_id
- JOIN settlements s ON s.id=i.settlement_id AND s.project_id=e.project_id
- AND i.cost_node_id=e.cost_node_id
- WHERE e.id=NEW.cost_entry_id)
- THEN RAISE(ABORT,'费用分摊明细必须与真实费用所属子项目一致') END; END;
-CREATE TRIGGER cost_allocation_version_insert_guard BEFORE INSERT ON cost_allocation_versions
-BEGIN
- SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
- FROM cost_allocation_versions v WHERE v.allocation_id=NEW.allocation_id)
- THEN RAISE(ABORT,'费用分摊版本号必须连续增加') END;
- SELECT CASE WHEN NOT EXISTS(
- SELECT 1 FROM cost_allocations a JOIN cost_versions cv ON cv.entry_id=a.cost_entry_id
- WHERE a.id=NEW.allocation_id AND cv.id=NEW.cost_version_id)
- THEN RAISE(ABORT,'费用分摊版本必须对应所属真实费用版本') END;
- SELECT CASE WHEN NEW.status='active' AND
- NEW.amount_fen+COALESCE((SELECT SUM(a.amount_fen) FROM v_cost_allocation_current a
- WHERE a.cost_version_id=NEW.cost_version_id AND a.status='active'
- AND a.id<>NEW.allocation_id),0)>
- (SELECT amount_fen FROM cost_versions WHERE id=NEW.cost_version_id)
- THEN RAISE(ABORT,'同一笔真实费用的明细分摊不能重复超过该笔费用自身') END;
-END;
-CREATE TRIGGER cost_allocation_version_immutable_update BEFORE UPDATE ON cost_allocation_versions
-BEGIN SELECT RAISE(ABORT,'费用分摊历史不可覆盖'); END;
-CREATE TRIGGER cost_allocation_version_immutable_delete BEFORE DELETE ON cost_allocation_versions
-BEGIN SELECT RAISE(ABORT,'费用分摊历史不可删除'); END;
 
 -- Other business definitions require snapshots but not full event-sourcing.
 CREATE TRIGGER framework_versions_immutable_update BEFORE UPDATE ON framework_versions
@@ -2110,7 +2053,6 @@ CREATE INDEX idx_settlement_item_versions_approval
  ON settlement_item_versions(approval_scope_version_id);
 CREATE INDEX idx_settlement_approvals_time
  ON settlement_review_events(action,recorded_at,effective_on);
-CREATE INDEX idx_cost_allocation_versions_cost ON cost_allocation_versions(cost_version_id);
 CREATE INDEX idx_reconciliation_history_item ON cost_reconciliation_versions(settlement_item_version_id);
 CREATE INDEX idx_approved_scope_snapshot ON project_approval_scope_versions(project_scope_id,approval_version_id);
 
@@ -2430,10 +2372,6 @@ CREATE TRIGGER cost_entry_immutable_update BEFORE UPDATE ON cost_entries
 BEGIN SELECT RAISE(ABORT,'真实费用原始身份与所属子项目不可被改挂'); END;
 CREATE TRIGGER cost_entry_immutable_delete BEFORE DELETE ON cost_entries
 BEGIN SELECT RAISE(ABORT,'原始费用业务身份不可删除'); END;
-CREATE TRIGGER cost_allocation_identity_immutable_update BEFORE UPDATE ON cost_allocations
-BEGIN SELECT RAISE(ABORT,'费用分摊身份与所属结算明细不可改挂'); END;
-CREATE TRIGGER cost_allocation_identity_immutable_delete BEFORE DELETE ON cost_allocations
-BEGIN SELECT RAISE(ABORT,'费用分摊历史身份不可删除'); END;
 CREATE TRIGGER cost_version_sequential_insert BEFORE INSERT ON cost_versions
 BEGIN
 
@@ -2479,6 +2417,11 @@ BEGIN
  -- record_id is a stable business reconciliation identity. A correction
  -- may point to another version of the SAME actual cost entry, but may not
  -- repurpose that identity for a different cost or settlement item.
+ SELECT CASE WHEN NEW.version_no>1 AND NEW.created_at<
+  (SELECT previous.created_at FROM cost_reconciliation_versions previous
+   WHERE previous.record_id=NEW.record_id AND
+         previous.version_no=NEW.version_no-1)
+ THEN RAISE(ABORT,'正式费用核对更正时间不能早于上一版本') END;
  SELECT CASE WHEN NEW.version_no>1 AND NOT EXISTS(
  SELECT 1 FROM cost_reconciliation_versions original
  JOIN cost_versions original_cost ON original_cost.id=original.cost_version_id
@@ -2487,6 +2430,20 @@ BEGIN
  AND original.settlement_item_id=NEW.settlement_item_id
  AND original_cost.entry_id=proposed_cost.entry_id)
  THEN RAISE(ABORT,'核对历史版本不得更换实际费用身份或结算明细身份') END;
+ -- Formal voiding keeps the exact preceding money assertion for audit.
+ -- The current fact view excludes status='voided' from money totals.
+ -- A void event is allowed even if its old statement was superseded.
+ SELECT CASE WHEN NEW.status='voided' AND NOT EXISTS(
+  SELECT 1 FROM cost_reconciliation_versions previous
+  WHERE previous.record_id=NEW.record_id
+   AND previous.version_no=NEW.version_no-1
+   AND previous.cost_version_id=NEW.cost_version_id
+   AND previous.settlement_item_id=NEW.settlement_item_id
+   AND previous.settlement_item_version_id=NEW.settlement_item_version_id
+   AND previous.status='active'
+   AND previous.reconciled_cost_fen=NEW.reconciled_cost_fen
+   AND previous.reconciled_settlement_fen=NEW.reconciled_settlement_fen)
+ THEN RAISE(ABORT,'撤销历史核对不得伪造或改变前一版本的金额及核对归属') END;
 END;
 CREATE TRIGGER demand_revision_sequential_insert BEFORE INSERT ON demand_revisions
 BEGIN SELECT CASE WHEN NEW.version<>(SELECT COALESCE(MAX(v.version),1)+1

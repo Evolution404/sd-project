@@ -14,6 +14,7 @@
 - [Schema 113 最新裁决：取消施工，仅按费用多次结算](architecture/Schema113_第八轮取消施工与纯结算模型治理_2026-11-07.md)
 - [Schema 113 最新裁决：取消独立物资领退流水](architecture/Schema113_第九轮取消物资领退流水_2026-11-07.md)
 - [Schema 113 费用树唯一科目与历史版本治理](architecture/Schema113_第十轮费用树唯一科目与历史版本治理_2026-11-07.md)
+- [Schema 113 最新费用核对归一与历史撤销治理](architecture/Schema113_第十一轮消除费用分摊双账与核对撤销治理_2026-11-07.md)
 
 **当前运行仍是 Schema 112**；不要把 Schema 113 候选 SQL 直接用于已有 `data/` 数据库。
 

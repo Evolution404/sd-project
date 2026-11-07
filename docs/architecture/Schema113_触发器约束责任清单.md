@@ -6,14 +6,14 @@
 
 | 责任类别 | 当前数量 |
 | --- | ---: |
-| 不可变历史或身份 | 105 |
+| 不可变历史或身份 | 101 |
 | 历史快照原子同步 | 18 |
-| 正式历史版本约束 | 27 |
+| 正式历史版本约束 | 26 |
 | 正式批准/结项一致性 | 5 |
 | 物资业务身份及关联 | 9 |
 | 状态事件合法性 | 2 |
 | 设备历史一致性 | 12 |
-| 费用身份及核对约束 | 3 |
+| 费用身份及核对约束 | 2 |
 | 跨表关联和身份完整性 | 23 |
 
 ## 完整触发器清单
@@ -30,12 +30,6 @@
 | `batch_demand_sources` | `batch_demand_source_batch_identity_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `batch_demand_sources` | `batch_demand_source_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `batch_demand_sources` | `batch_demand_source_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `cost_allocation_versions` | `cost_allocation_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
-| `cost_allocation_versions` | `cost_allocation_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `cost_allocation_versions` | `cost_allocation_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
-| `cost_allocations` | `cost_allocation_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
-| `cost_allocations` | `cost_allocation_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `cost_allocations` | `cost_allocation_identity_insert` | BEFORE/INSERT | 费用身份及核对约束 |
 | `cost_entries` | `cost_entry_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `cost_entries` | `cost_entry_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `cost_entries` | `cost_entry_node_insert_guard` | BEFORE/INSERT | 费用身份及核对约束 |
@@ -230,7 +224,7 @@
 - 已清除 4 个重复触发器：失效的历史定义 UPDATE 校验、重复协议框架身份保护、已被真实外键处理的引用物资删除检查。
 - 新增版本物资相关约束：材料根身份不可覆盖/删除、正式版本递增、记录时间有序、无实质变化不得制造新版本、正式版本不可修改/删除、历史物资关联只引用有效版本。
 - 需求、项目审批、结算和真实费用的已有完整性保护保持有效。
-- 此前费用树增加了父子关系、末级入账、版本不可变及费用类别匹配等 7 项完整性触发器。按后续业务裁决移除施工与物资领退相关触发器后，**当前总数为 204 项**；结算余额仍由应用层计算，不创建金额累计触发器。
+- 此前费用树增加了父子关系、末级入账、版本不可变及费用类别匹配等 7 项完整性触发器。按后续业务裁决移除施工与物资领退相关触发器后，**当前总数为 198 项**；结算余额仍由应用层计算，不创建金额累计触发器。
 - 对每个触发器是否进一步缩减，必须有等价 FK/UNIQUE/CHECK 证明及非法数据反例；不追求将数量硬压到固定值。
 
 ## 最近裁决：不再保留独立施工完成对象
@@ -245,3 +239,7 @@
 ## 第十轮：唯一费用科目与树历史约束强化
 
 费用分类唯一权威为 `project_cost_nodes` + `project_cost_node_versions`；`cost_versions` 删除平行分类字段及索引，但**不改变当前触发器数量 204**。原有 `project_cost_node_insert_guard` 增加“从直属父级到根的整条科目路径均处于启用状态”检查；`project_cost_node_version_insert_guard` 增加时间顺序与同内容空版本拒绝；`cost_version_sequential_insert`、`settlement_item_version_insert_guard` 均拒绝引用比财务确认/结算版本登记更晚的费用节点定义。新增费用身份及结算行的现有身份约束也已扩展为**整条科目路径必须启用**，不是只检查直接末级状态。所有约束均是可重复验证的真实历史完整性，不维护统计金额或应用状态。
+
+## 第十一轮：删除独立分摊历史，强化正式核对撤销
+
+撤销 `cost_allocations` 与 `cost_allocation_versions` 的独立经济金额，连同六个仅服务分摊的触发器一起删除；金额关系统一由 `cost_reconciliation_versions` 与 `v_effective_cost_reconciliations` 保存和审核。`cost_reconciliation_amount_cap` 只限制新增有效金额；`reconciliation_version_sequential_insert` 验证正式撤销必须保留上一条核对的准确费用、单据身份和双金额。仍不建立数据库侧报表及统计余额。

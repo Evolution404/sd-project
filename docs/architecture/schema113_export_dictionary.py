@@ -17,7 +17,6 @@ actual_quantity_scaled|按统一缩放因子保存的实际数量
 addition_reason|超出需求原材料清单的新增理由
 after_json|操作后的结构化审计事实
 agreement_id|业务归属执行协议
-allocation_id|实际费用分摊稳定身份
 allow_span|操作类型是否允许选择档距
 allow_tower|操作类型是否允许选择杆塔
 amount_fen|本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额
@@ -53,7 +52,6 @@ confirmed_at|实际费用或现场事实的确认UTC时间
 confirmed_by|实际费用确认人员
 context_line_id|共享物理杆塔所在的具体线路背景
 contract_number|执行协议合同编号
-cost_allocation_version_id|具体费用分摊版本
 cost_entry_id|实际费用稳定身份
 cost_node_id|子项目费用树的稳定节点；只有末级能登记实际费用或结算
 cost_node_version_id|本次实际费用确认或结算明细采用的费用名称定义历史版本

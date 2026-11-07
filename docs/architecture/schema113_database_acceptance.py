@@ -1084,21 +1084,6 @@ blocked("settlement cannot use a future funding association version",
     "'fund3','initial','穿越资金归属','u',"
     "'2026-11-07T13:00:00.000Z')")
 
-# Application-layer closure review will compare immutable fact times.
-closure_time=row("SELECT closed_at FROM project_closures "
-    "WHERE project_id='pclose'")["closed_at"]
-add("cost_allocations",id="late_alloc",cost_entry_id="cost_after_close",
-    settlement_item_id="itclose",created_at="2026-11-08T11:00:00.000Z")
-add("cost_allocation_versions",id="late_alloc_v1",allocation_id="late_alloc",
-    version_no=1,cost_version_id="cv_after_close",amount_fen=200,
-    status="active",reason="事后责任费用分摊",actor_id="u",
-    recorded_at="2026-11-08T11:00:00.000Z")
-ok("cost allocation version retains late-registration evidence for application review",
-    row("SELECT recorded_at FROM cost_allocation_versions "
-        "WHERE id='late_alloc_v1'")["recorded_at"]>closure_time
-    and row("SELECT amount_fen FROM cost_allocation_versions "
-        "WHERE id='late_alloc_v1'")["amount_fen"]==200)
-
 # Model metadata, organization hierarchy and source provenance are typed,
 # without duplicating current values inside projects and external_ref.
 add("organizational_units",id="ou",code="T-OPS",name="输电运检中心")
@@ -1525,8 +1510,6 @@ add("evidence_links",id="ev_management",file_id="ef",
     project_management_version_id="mgt2",linked_by="u",linked_at=evidence_ts)
 add("evidence_links",id="ev_funding",file_id="ef",
     project_funding_version_id="fund2",linked_by="u",linked_at=evidence_ts)
-add("evidence_links",id="ev_allocation",file_id="ef",
-    cost_allocation_version_id="late_alloc_v1",linked_by="u",linked_at=evidence_ts)
 add("evidence_links",id="ev_lifecycle",file_id="ef",
     demand_lifecycle_event_id="d_activate",linked_by="u",linked_at=evidence_ts)
 add("evidence_links",id="ev_approved_material",file_id="ef",
@@ -1540,7 +1523,7 @@ span_history_id=row("SELECT id FROM line_span_history WHERE span_id='span' "
 add("evidence_links",id="ev_span_history",file_id="ef",
     line_span_history_id=span_history_id,linked_by="u",linked_at=evidence_ts)
 ok("all new typed evidence owner targets are FK-linked and valid",
-    row("SELECT COUNT(*) n FROM evidence_links WHERE id LIKE 'ev_%'")["n"]==9)
+    row("SELECT COUNT(*) n FROM evidence_links WHERE id LIKE 'ev_%'")["n"]==8)
 # Business analytics and reporting belong to the future application
 # service, not to the persistent database schema. Canonical effective-fact
 # projections used for integrity must remain available.
@@ -1579,8 +1562,18 @@ ok("no standalone material issue/return transactions or evidence references exis
                 for x in db.execute("PRAGMA table_info(evidence_links)"))
     and not any(x["table"]=="material_usage_records"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
+ok("no independent preapproval allocation table, projection or evidence FK",
+    all(row("SELECT count(*) n FROM sqlite_master WHERE type='table' "
+            "AND name=?",name)["n"]==0
+        for name in ("cost_allocations","cost_allocation_versions"))
+    and row("SELECT count(*) n FROM sqlite_master WHERE type='view' "
+            "AND name='v_cost_allocation_current'")["n"]==0
+    and not any(x["name"]=="cost_allocation_version_id"
+                for x in db.execute("PRAGMA table_info(evidence_links)"))
+    and not any(x["table"]=="cost_allocation_versions"
+                for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==23
+    len(present)==22
     and {'v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
@@ -1601,7 +1594,7 @@ ok("project closeout checks effective financial facts without construction views
     and 'v_settlement_workflow' not in closure_ddl)
 # Actual expenses are project facts, NOT settlement documents. They must
 # be accepted before a project even has a settlement number; later settlement
-# allocation/reconciliation must match project identity, not be fictional cost.
+# reconciliation must match the same project and approved fee leaf.
 add("projects",id="expense_first_project",code="EXP-FIRST",
     name="先发生费用后结算的子项目",framework_id="f",
     created_by="u",created_at="2026-11-07T20:00:00.000Z",
@@ -1623,10 +1616,6 @@ ok("valid actual cost exists without any settlement document",
         =="expense_first_project"
     and row("SELECT amount_fen FROM v_cost_current "
         "WHERE entry_id='independent_project_cost'")["amount_fen"]==17500)
-blocked("independent cost cannot be allocated to another project's settlement",
-    "INSERT INTO cost_allocations(id,cost_entry_id,settlement_item_id,created_at) "
-    "VALUES('cross_project_cost_alloc','independent_project_cost','it',"
-    "'2026-11-07T20:03:00.000Z')")
 blocked("independent cost cannot reconcile another project's settlement item",
     "INSERT INTO cost_reconciliation_versions(id,record_id,version_no,status,"
     "cost_version_id,settlement_item_id,settlement_item_version_id,"
@@ -1635,7 +1624,7 @@ blocked("independent cost cannot reconcile another project's settlement item",
     "'cross_project_reconcile',1,'active','independent_project_cost_v1',"
     "'it','itemstv2',500,500,0,'真实凭据','u',"
     "'2026-11-07T20:04:00.000Z','cross_project_reconcile')")
-ok("existing cost allocations keep their original amount without double counting",
+ok("independent real costs keep their latest historical amount without duplicate writes",
     row("SELECT project_id FROM cost_entries WHERE id='audit_ce'")["project_id"]=="p"
     and row("SELECT id FROM v_cost_current WHERE entry_id='audit_ce'")["id"]
       =="audit_cv2")
@@ -2153,8 +2142,8 @@ ok("old external PMS alias can be reassigned only after it is no longer current"
 # User-confirmed business model: one subproject can be settled in MANY
 # independent installments. Each approved settlement item is its THIS-TIME
 # amount, never a cumulative amount. Actual cost is settled progressively
-# through real cost-to-statement reconciliation; avoid counting historic
-# replaced statement versions or counting allocation+reconciliation twice.
+# through sole real cost-to-statement reconciliation; never count old
+# replaced statement versions twice.
 db.execute("SAVEPOINT user_confirmed_installments")
 try:
     add("cost_entries",id="installment_cost",project_id="p",
@@ -2530,8 +2519,8 @@ try:
         ('fee_overpay','fee_overpay',1,'active','fee_material_cost_v2',
          'fee_doc_4_item','fee_doc_4_item_v1',600,600,0,'错误重复结算','u',
          t,'fee_overpay'))
-    # A newer APPROVED full-statement revision supersedes earlier allocations.
-    # Old reconciliation history remains inspectable but is not net settlement.
+    # A newer APPROVED full-statement revision supersedes old reconciliation
+    # amounts. Old versions remain inspectable but are no longer effective.
     add('settlement_versions',id='fee_doc_3_v2',settlement_id='fee_doc_3',
         version_no=2,previous_version_id='fee_doc_3_v1',
         approval_version_id='av2',funding_version_id='fund2',
@@ -2568,6 +2557,73 @@ try:
          'fee_material_cost_v2','fee_doc_3_fee_material',
          'fee_doc_3_fee_material_v1',200,200,0,'已失效单据','u',t,
          'old_item_new_recon'))
+    # A formally replaced statement invalidates the old reconciliation.
+    # It must remain possible to append a VOID event to that historical
+    # reconciliation even though its former statement is no longer effective.
+    add('cost_reconciliation_versions',
+        id='fee_doc_3_fee_material_void_v2',
+        record_id='fee_doc_3_fee_material_recon',version_no=2,
+        status='voided',cost_version_id='fee_material_cost_v1',
+        settlement_item_id='fee_doc_3_fee_material',
+        settlement_item_version_id='fee_doc_3_fee_material_v1',
+        reconciled_cost_fen=2000,reconciled_settlement_fen=2000,
+        is_final=0,evidence='旧批准结算已由新版替代，正式撤销原核对',
+        actor_id='u',created_at=t,
+        request_key='fee_doc_3_fee_material_void_v2')
+    ok('superseded installment can preserve formal voided reconciliation history',
+        row("SELECT status FROM v_cost_reconciliation_current "
+            "WHERE record_id='fee_doc_3_fee_material_recon'")['status']=='voided'
+        and effective_applied('fee_material_cost')==3000)
+    blocked('cannot invent a first-version void without a financial record',
+        'INSERT INTO cost_reconciliation_versions('
+        'id,record_id,version_no,status,cost_version_id,'
+        'settlement_item_id,settlement_item_version_id,'
+        'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
+        'actor_id,created_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('invented_void','invented_void',1,'voided',
+         'fee_material_cost_v1','fee_doc_3_fee_material',
+         'fee_doc_3_fee_material_v1',2000,2000,0,
+         '不能伪造无原始核对的撤销','u',t,'invented_void'))
+    blocked('voided reconciliation must preserve previous business amounts',
+        'INSERT INTO cost_reconciliation_versions('
+        'id,record_id,version_no,status,cost_version_id,'
+        'settlement_item_id,settlement_item_version_id,'
+        'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
+        'actor_id,created_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('fake_void_amount','fee_doc_3_fee_material_recon',3,'voided',
+         'fee_material_cost_v1','fee_doc_3_fee_material',
+         'fee_doc_3_fee_material_v1',1999,2000,0,
+         '不能借撤销改写原始金额','u',t,'fake_void_amount'))
+    blocked('voided reconciliation cannot carry final approval flag',
+        'INSERT INTO cost_reconciliation_versions('
+        'id,record_id,version_no,status,cost_version_id,'
+        'settlement_item_id,settlement_item_version_id,'
+        'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
+        'actor_id,created_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('fake_void_final','fee_doc_3_fee_material_recon',3,'voided',
+         'fee_material_cost_v1','fee_doc_3_fee_material',
+         'fee_doc_3_fee_material_v1',2000,2000,1,
+         '撤销不能标记仍已最终核对','u',t,'fake_void_final'))
+    blocked('cannot void a reconciliation that was already formally voided',
+        'INSERT INTO cost_reconciliation_versions('
+        'id,record_id,version_no,status,cost_version_id,'
+        'settlement_item_id,settlement_item_version_id,'
+        'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
+        'actor_id,created_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('repeated_void','fee_doc_3_fee_material_recon',3,'voided',
+         'fee_material_cost_v1','fee_doc_3_fee_material',
+         'fee_doc_3_fee_material_v1',2000,2000,0,'不能重复撤销','u',
+         '2026-11-08T03:00:00.100Z','repeated_void'))
+    blocked('financial reconciliation revision cannot backdate formal history',
+        'INSERT INTO cost_reconciliation_versions('
+        'id,record_id,version_no,status,cost_version_id,'
+        'settlement_item_id,settlement_item_version_id,'
+        'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
+        'actor_id,created_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('backdated_recon','fee_doc_1_fee_material_recon',2,'active',
+         'fee_material_cost_v1','fee_doc_1_fee_material',
+         'fee_doc_1_fee_material_v1',2000,2000,1,'不能倒签核对历史','u',
+         '2026-11-07T03:00:00.000Z','backdated_recon'))
     add('cost_reconciliation_versions',id='revised_fee_doc_3_recon',
         record_id='revised_fee_doc_3_recon',version_no=1,status='active',
         cost_version_id='fee_material_cost_v2',

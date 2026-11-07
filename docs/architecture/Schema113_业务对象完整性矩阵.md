@@ -1,4 +1,4 @@
-# Schema 113｜71 张表业务对象完整性矩阵
+# Schema 113｜69 张表业务对象完整性矩阵
 
 **治理顺序：功能完备 → 业务关系 → 历史一致性 → 字段精简。** 本矩阵由当前候选 SQL 生成，覆盖全部实际表。
 
@@ -58,13 +58,11 @@
 | 结算文件与审核 | `settlements` | 5 | 2 | 结算单稳定身份 |
 | 来源、需求和物资主数据 | `materials` | 5 | 2 | 统一物资稳定身份：编码、单位不可无痕改写 |
 | 来源、需求和物资主数据 | `material_versions` | 13 | 3 | 物资正式定义历史及可修订的PMS外部编码（当前唯一映射） |
-| 实际费用、分摊与核对 | `cost_allocation_versions` | 9 | 3 | 费用分摊更正历史 |
-| 实际费用、分摊与核对 | `project_cost_nodes` | 5 | 3 | 子项目费用树的稳定节点、父子层级及所属项目，末级可发生费用 |
-| 实际费用、分摊与核对 | `project_cost_node_versions` | 8 | 2 | 费用节点名称和启停状态的不可变版本历史 |
-| 实际费用、分摊与核对 | `cost_allocations` | 4 | 2 | 费用到结算明细的分摊身份 |
-| 实际费用、分摊与核对 | `cost_entries` | 5 | 3 | 独立于结算的项目实际费用身份 |
-| 实际费用、分摊与核对 | `cost_reconciliation_versions` | 14 | 4 | 费用与结算核对历史 |
-| 实际费用、分摊与核对 | `cost_versions` | 17 | 4 | 实际费用金额、税务及确认历史；采用费用树历史版本为唯一分类，不重复存类别 |
+| 实际费用与正式核对 | `project_cost_nodes` | 5 | 3 | 子项目费用树的稳定节点、父子层级及所属项目，末级可发生费用 |
+| 实际费用与正式核对 | `project_cost_node_versions` | 8 | 2 | 费用节点名称和启停状态的不可变版本历史 |
+| 实际费用与正式核对 | `cost_entries` | 5 | 3 | 独立于结算的项目实际费用身份 |
+| 实际费用与正式核对 | `cost_reconciliation_versions` | 14 | 4 | 费用与结算核对历史 |
+| 实际费用与正式核对 | `cost_versions` | 17 | 4 | 实际费用金额、税务及确认历史；采用费用树历史版本为唯一分类，不重复存类别 |
 | 费用最终结清 | `project_closures` | 7 | 3 | 正式结项审批与关闭依据 |
 | 账户、证据与运行基础 | `allowed_ips` | 5 | 1 | IP 许可配置 |
 | 账户、证据与运行基础 | `audit_events` | 9 | 1 | 审计事件 |
@@ -86,7 +84,7 @@
 | 需求版本与版本物资清单 | demand_versions、demand_material_version_items | 已建模；物资主数据版本含PMS外部编码历史；业务物资批准快照独立保存 |
 | 储备、入库、立项与正式项目变更 | project_stage_events、project_approval_versions、project_change_orders | 审批历史及非法变更检查已覆盖 |
 | 框架预算与可选执行协议 | framework_versions、agreement_versions、project_funding_versions | 预算仅为软基准，金额可超额 |
-| 结算前费用发生、费用分摊与核对 | cost_entries、cost_versions、cost_allocations、cost_reconciliation_versions | 已修复：费用归项目，不先创建虚构结算 |
+| 独立真实费用与批准结算逐笔核对 | cost_entries、cost_versions、settlement_item_versions、cost_reconciliation_versions | 已修复：费用归项目，核对只关联实际已批准的结算明细 |
 | 完整结算版本、退回、批准及结项 | settlement_versions、settlement_review_events、project_closures | 正式版本与结项完整性可验证 |
 | 月季度报表、25% 季度目标与预警 | cost_versions.occurred_on、framework_versions.limit_fen、project_management_versions | 事实完整；计算由应用层实现，不建报表视图 |
 | 应用角色与授权 | users、permission_definitions、role_permissions | 授权由服务层执行，数据库保留身份外键及审计 |
