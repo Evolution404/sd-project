@@ -100,7 +100,18 @@ assert "organizational_unit_versions" in tables
 assert "v_organizational_unit_current" in views
 version_fields={r["name"] for r in db.execute(
     "PRAGMA table_xinfo(project_management_versions)")}
-assert {"name","category_version","responsible_unit_version_id"}<=version_fields
+assert {"name","category_version","managing_unit_id",
+        "managing_unit_version_id"}<=version_fields
+assert not {"responsible_unit_id","responsible_unit_version_id"} & version_fields
+# This is the subproject's administrative managing unit, not a contractor or
+# physical execution unit. Its active meaning is one unit per profile version,
+# with an immutable typed master definition binding both stable and version IDs.
+unit_columns={r["name"]:r for r in db.execute(
+    "PRAGMA table_info(project_management_versions)")}
+assert unit_columns["managing_unit_id"]["notnull"]==0
+assert unit_columns["managing_unit_version_id"]["notnull"]==0
+assert any(x["name"]=="idx_project_managing_unit" for x in db.execute(
+    "PRAGMA index_list(project_management_versions)"))
 
 # A complete set of relevant indexes is preferable to blind FK indexing,
 # but any non-partial explicit index exactly covered by a longer equivalent

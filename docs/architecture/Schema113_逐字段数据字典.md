@@ -852,7 +852,7 @@
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `project_management_versions` — 完整项目档案（名称、项目类别正式版本）、责任人、责任单位精确版本、计划期间与初估历史
+## `project_management_versions` — 完整项目档案（名称、项目类别正式版本）、责任人、子项目归口单位精确组织版本、计划期间与初估历史（非施工或结算单位）
 
 业务领域：框架、协议、项目与批准。字段数：17；外键分量：10。
 
@@ -866,8 +866,8 @@
 | `category_version` | INTEGER | 否 | — | 外键→dictionary_item_versions.version（组1） | 项目类别采用的正式字典版本号，不随字典更名重算 | 保留：历史/审核事实 |
 | `owner_id` | TEXT | 否 | — | 外键→users.id（组5） | 子项目责任人 | 保留：历史/审核事实 |
 | `manager_id` | TEXT | 否 | — | 外键→users.id（组4） | 子项目管理人员 | 保留：历史/审核事实 |
-| `responsible_unit_id` | TEXT | 否 | — | 外键→organizational_unit_versions.unit_id（组0）<escape>|</escape>外键→organizational_units.id（组3） | 负责实施的部门或班组 | 保留：历史/审核事实 |
-| `responsible_unit_version_id` | TEXT | 否 | — | 外键→organizational_unit_versions.id（组0） | 项目责任历史当次明确采用的组织单位完整定义版本 | 保留：历史/审核事实 |
+| `managing_unit_id` | TEXT | 否 | — | 外键→organizational_unit_versions.unit_id（组0）<escape>|</escape>外键→organizational_units.id（组3） | 本子项目归口管理的组织单位身份，不表示实际作业单位、施工单位或结算单位 | 保留：历史/审核事实 |
+| `managing_unit_version_id` | TEXT | 否 | — | 外键→organizational_unit_versions.id（组0） | 子项目归口单位当次采用的组织定义正式版本，历史归口关系不随组织更名变化 | 保留：历史/审核事实 |
 | `planned_start_on` | TEXT | 否 | — | 见原生CHECK | 子项目预计开始业务日期 | 保留：历史/审核事实 |
 | `planned_end_on` | TEXT | 否 | — | 见原生CHECK | 子项目预计结束业务日期 | 保留：历史/审核事实 |
 | `preliminary_estimate_fen` | INTEGER | 否 | — | 见原生CHECK | 子项目初步估算金额（非正式批准） | 保留：尚未批准的独立预计事实 |

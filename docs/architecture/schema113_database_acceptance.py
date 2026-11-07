@@ -68,9 +68,11 @@ def add(t, **data):
             reason='项目首次建档',actor_id=data.get('created_by','u'),
             recorded_at=data['created_at'])
         return
-    if t=="project_management_versions" and 'responsible_unit_id' in data             and 'responsible_unit_version_id' not in data:
-        unit_id=data['responsible_unit_id']
-        data['responsible_unit_version_id']=(
+    if (t=="project_management_versions" and
+        'managing_unit_id' in data and
+        'managing_unit_version_id' not in data):
+        unit_id=data['managing_unit_id']
+        data['managing_unit_version_id']=(
             db.execute('SELECT unit_version_id FROM v_organizational_unit_current '
                        'WHERE id=?',(unit_id,)).fetchone()[0] if unit_id else None)
     if t=="project_management_versions":
@@ -1152,12 +1154,12 @@ blocked_reason("organization units cannot be their own ancestors",
     "'非法倒挂','u','2026-11-07T00:00:01.000Z')",
     "组织单位层级历史不能建立当前父子循环")
 add("project_management_versions",id="mgt1",project_id="p",
-    version_no=2,owner_id="u",manager_id="u",responsible_unit_id="ou",
+    version_no=2,owner_id="u",manager_id="u",managing_unit_id="ou",
     planned_start_on="2026-11-08",planned_end_on="2026-11-30",
     preliminary_estimate_fen=7000,preliminary_estimate_basis="初步估算",
     reason="首次计划",actor_id="u",recorded_at="2026-11-07T18:00:00.000Z")
 add("project_management_versions",id="mgt2",project_id="p",
-    version_no=3,owner_id="u",manager_id="u",responsible_unit_id="ou",
+    version_no=3,owner_id="u",manager_id="u",managing_unit_id="ou",
     planned_start_on="2026-11-08",planned_end_on="2026-12-31",
     preliminary_estimate_fen=8000,preliminary_estimate_basis="范围核定后估算",
     reason="调整目标时间",actor_id="u",recorded_at="2026-11-07T19:00:00.000Z")
@@ -3039,7 +3041,7 @@ try:
     prev=row('SELECT * FROM v_project_management_current WHERE project_id=?','p')
     blocked('project management version cannot backdate a formal owner change',
         'INSERT INTO project_management_versions('
-        'id,project_id,version_no,owner_id,manager_id,responsible_unit_id,'
+        'id,project_id,version_no,owner_id,manager_id,managing_unit_id,'
         'preliminary_estimate_fen,reason,actor_id,recorded_at) '
         'VALUES(?,?,?,?,?,?,?,?,?,?)',
         ('temporal_management_bad','p',prev['version_no']+1,
@@ -3239,12 +3241,12 @@ finally:
     db.execute('RELEASE full_import_security_audit')
 
 # Organizational history: a unit rename/reparent must not retroactively
-# relabel project responsibility already approved in an older profile.
+# relabel a subproject managing unit used in an older profile.
 db.execute('SAVEPOINT full_organization_history_audit')
 try:
-    ok('existing project responsibility pins one exact organization definition',
-        row('SELECT responsible_unit_version_id FROM project_management_versions '
-            "WHERE id='mgt1'")['responsible_unit_version_id']=='ou_v1')
+    ok('existing subproject managing unit pins one exact organization definition',
+        row('SELECT managing_unit_version_id FROM project_management_versions '
+            "WHERE id='mgt1'")['managing_unit_version_id']=='ou_v1')
     add('organizational_unit_versions',id='ou_v2',
         unit_id='ou',version_no=2,name='输电运检中心（正式更名）',
         parent_unit_id=None,status='active',reason='单位名称变更',
@@ -3254,8 +3256,8 @@ try:
             "WHERE id='ou'")['name']=='输电运检中心（正式更名）'
         and row('SELECT name FROM organizational_unit_versions '
             "WHERE id='ou_v1'")['name']=='输电运检中心'
-        and row('SELECT responsible_unit_version_id FROM project_management_versions '
-            "WHERE id='mgt2'")['responsible_unit_version_id']=='ou_v1')
+        and row('SELECT managing_unit_version_id FROM project_management_versions '
+            "WHERE id='mgt2'")['managing_unit_version_id']=='ou_v1')
     blocked_reason('organization cannot create a content-free duplicate version',
         'INSERT INTO organizational_unit_versions('
         'id,unit_id,version_no,name,parent_unit_id,status,reason,actor_id,recorded_at)'
@@ -3269,34 +3271,34 @@ try:
     blocked('old unit definition cannot be silently overwritten',
         'UPDATE organizational_unit_versions SET name=? WHERE id=?',
         ('非法覆盖历史组织名','ou_v1'))
-    blocked_reason('project cannot pin a responsible organization from the future',
+    blocked_reason('project managing unit cannot pin an organization version from the future',
         'INSERT INTO project_management_versions('
-        'id,project_id,version_no,name,responsible_unit_id,'
-        'responsible_unit_version_id,reason,actor_id,recorded_at)'
+        'id,project_id,version_no,name,managing_unit_id,'
+        'managing_unit_version_id,reason,actor_id,recorded_at)'
         ' VALUES(?,?,?,?,?,?,?,?,?)',
-        '项目责任历史不能引用未来才登记的组织单位版本',
+        '子项目归口单位历史不能引用未来才登记的组织定义版本',
         ('mgt_future_org','p',4,'无协议子项目','ou','ou_v2',
          '不能引用未来组织','u','2026-11-07T19:30:00.000Z'))
-    blocked('project responsibility cannot pair different organization root and version',
+    blocked('project managing unit cannot pair different organization root and version',
         'INSERT INTO project_management_versions('
-        'id,project_id,version_no,name,responsible_unit_id,'
-        'responsible_unit_version_id,reason,actor_id,recorded_at)'
+        'id,project_id,version_no,name,managing_unit_id,'
+        'managing_unit_version_id,reason,actor_id,recorded_at)'
         ' VALUES(?,?,?,?,?,?,?,?,?)',
         ('mgt_cross_org','p',4,'无协议子项目','ou','childou_v1',
          '单位身份错配','u','2026-11-08T02:01:00.000Z'))
     add('project_management_versions',id='mgt_using_new_org',
         project_id='p',version_no=4,owner_id='u',manager_id='u',
-        responsible_unit_id='ou',responsible_unit_version_id='ou_v2',
+        managing_unit_id='ou',managing_unit_version_id='ou_v2',
         planned_start_on='2026-11-08',planned_end_on='2026-12-31',
         preliminary_estimate_fen=8000,
         preliminary_estimate_basis='范围核定后估算',
         reason='正式确认新单位名称',actor_id='u',
         recorded_at='2026-11-08T02:02:00.000Z')
-    ok('new project management profile can explicitly select latest unit version',
-        row('SELECT responsible_unit_version_id FROM v_project_management_current '
-            "WHERE project_id='p'")['responsible_unit_version_id']=='ou_v2'
-        and row('SELECT responsible_unit_version_id FROM project_management_versions '
-            "WHERE id='mgt1'")['responsible_unit_version_id']=='ou_v1')
+    ok('new project profile can explicitly select latest managing-unit definition',
+        row('SELECT managing_unit_version_id FROM v_project_management_current '
+            "WHERE project_id='p'")['managing_unit_version_id']=='ou_v2'
+        and row('SELECT managing_unit_version_id FROM project_management_versions '
+            "WHERE id='mgt1'")['managing_unit_version_id']=='ou_v1')
     add('organizational_unit_versions',id='childou_v2',
         unit_id='childou',version_no=2,name='输电班组',
         parent_unit_id=None,status='active',reason='班组正式调整为直属单位',
@@ -3306,6 +3308,45 @@ try:
             "WHERE id='childou_v1'")['parent_unit_id']=='ou'
         and row('SELECT parent_unit_id FROM v_organizational_unit_current '
             "WHERE id='childou'")['parent_unit_id'] is None)
+
+    # User's final terminology: managing unit is the subproject's
+    # administrative owner/归口单位, NOT a performing/contracting/settling unit.
+    profile_fields={x['name'] for x in db.execute(
+        'PRAGMA table_info(project_management_versions)')}
+    ok('subproject ownership uses exactly one optional managing-unit identity',
+        {'managing_unit_id','managing_unit_version_id'}<=profile_fields
+        and not {'responsible_unit_id','responsible_unit_version_id'}&profile_fields
+        and row('SELECT managing_unit_id FROM project_management_versions '
+                "WHERE id='project_profile_p_pending_v1'")['managing_unit_id']
+            is None)
+    add('project_management_versions',id='mgt_transfer_to_childou',
+        project_id='p',version_no=5,owner_id='u',manager_id='u',
+        managing_unit_id='childou',
+        managing_unit_version_id='childou_v2',
+        planned_start_on='2026-11-08',planned_end_on='2026-12-31',
+        preliminary_estimate_fen=8000,
+        preliminary_estimate_basis='范围核定后估算',
+        reason='子项目归口从输电中心正式调整到班组',
+        actor_id='u',recorded_at='2026-11-08T03:10:00.000Z')
+    ok('transferring subproject managing unit preserves the former assignment',
+        row('SELECT managing_unit_id FROM v_project_management_current '
+            "WHERE project_id='p'")['managing_unit_id']=='childou'
+        and row('SELECT managing_unit_id FROM project_management_versions '
+            "WHERE id='mgt_using_new_org'")['managing_unit_id']=='ou')
+    add('projects',id='another_project_same_managing_unit',
+        code='AUDIT-ANOTHER-MANAGING-UNIT',name='另一归口同班组的子项目',
+        framework_id='f',created_by='u',
+        created_at='2026-11-08T03:11:00.000Z')
+    add('project_management_versions',id='mgt_other_shared_unit',
+        project_id='another_project_same_managing_unit',version_no=2,
+        managing_unit_id='childou',
+        managing_unit_version_id='childou_v2',
+        reason='归口同一班组管理多个子项目',
+        actor_id='u',recorded_at='2026-11-08T03:12:00.000Z')
+    ok('same managing unit can own many subprojects without execution-unit facts',
+        row('SELECT COUNT(DISTINCT project_id) n '
+            'FROM v_project_management_current WHERE managing_unit_id=?',
+            'childou')['n']>=2)
 finally:
     db.execute('ROLLBACK TO full_organization_history_audit')
     db.execute('RELEASE full_organization_history_audit')

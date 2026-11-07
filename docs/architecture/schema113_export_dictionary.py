@@ -200,8 +200,8 @@ reference_price_version_id|本次采用的参考单价正式版本
 remaining_quantity_scaled|正式结项时未完成数量
 request_hash|幂等请求的原始内容摘要
 request_key|重复请求去重的稳定幂等标识
-responsible_unit_id|负责实施的部门或班组
-responsible_unit_version_id|项目责任历史当次明确采用的组织单位完整定义版本
+managing_unit_id|本子项目归口管理的组织单位身份，不表示实际作业单位、施工单位或结算单位
+managing_unit_version_id|子项目归口单位当次采用的组织定义正式版本，历史归口关系不随组织更名变化
 result_json|幂等请求已完成的结果快照
 role|应用层角色名称
 row_number|Excel/PMS来源所在数据行号

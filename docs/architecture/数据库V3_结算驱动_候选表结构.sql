@@ -653,8 +653,11 @@ CREATE TABLE project_management_versions (
  category_version INTEGER,
  owner_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
  manager_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
- responsible_unit_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
- responsible_unit_version_id TEXT,
+ -- Owning administrative/management department for this subproject.
+ -- NOT a performing contractor, execution unit or settlement recipient.
+ -- Both nullable only while the managing unit is not yet formally assigned.
+ managing_unit_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
+ managing_unit_version_id TEXT,
  planned_start_on TEXT CHECK(planned_start_on IS NULL OR
   (length(planned_start_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(planned_start_on))=planned_start_on,0))),
  planned_end_on TEXT CHECK(planned_end_on IS NULL OR
@@ -668,10 +671,10 @@ CREATE TABLE project_management_versions (
  UNIQUE(project_id,version_no),
  FOREIGN KEY(category_id,category_version)
   REFERENCES dictionary_item_versions(item_id,version) ON DELETE RESTRICT,
- FOREIGN KEY(responsible_unit_version_id,responsible_unit_id)
+ FOREIGN KEY(managing_unit_version_id,managing_unit_id)
   REFERENCES organizational_unit_versions(id,unit_id) ON DELETE RESTRICT,
  CHECK((category_id IS NULL)=(category_version IS NULL)),
- CHECK((responsible_unit_id IS NULL)=(responsible_unit_version_id IS NULL)),
+ CHECK((managing_unit_id IS NULL)=(managing_unit_version_id IS NULL)),
  CHECK(planned_start_on IS NULL OR planned_end_on IS NULL OR planned_end_on>=planned_start_on)
 ) STRICT;
 
@@ -3135,24 +3138,24 @@ CREATE TRIGGER management_version_guard BEFORE INSERT ON project_management_vers
 BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(version_no),0)+1
  FROM project_management_versions WHERE project_id=NEW.project_id)
- THEN RAISE(ABORT,'项目责任、计划和初步估算需保留连续版本') END;
+ THEN RAISE(ABORT,'子项目管理档案需保留连续版本') END;
  SELECT CASE WHEN NEW.recorded_at<
  (SELECT p.created_at FROM projects p WHERE p.id=NEW.project_id)
  OR NEW.recorded_at<
  (SELECT MAX(v.recorded_at) FROM project_management_versions v
   WHERE v.project_id=NEW.project_id)
- THEN RAISE(ABORT,'项目责任和初步估算版本不能倒序或早于子项目身份') END;
+ THEN RAISE(ABORT,'子项目管理档案版本不能倒序或早于子项目创建') END;
  SELECT CASE WHEN NEW.category_id IS NOT NULL AND NOT EXISTS(
  SELECT 1 FROM dictionary_item_versions cat
  WHERE cat.item_id=NEW.category_id AND cat.version=NEW.category_version
  AND cat.changed_at<=NEW.recorded_at)
  THEN RAISE(ABORT,'项目正式类别不能引用该版本登记之后才发布的字典名称') END;
- SELECT CASE WHEN NEW.responsible_unit_id IS NOT NULL AND NOT EXISTS(
+ SELECT CASE WHEN NEW.managing_unit_id IS NOT NULL AND NOT EXISTS(
  SELECT 1 FROM organizational_unit_versions org
- WHERE org.id=NEW.responsible_unit_version_id
- AND org.unit_id=NEW.responsible_unit_id
+ WHERE org.id=NEW.managing_unit_version_id
+ AND org.unit_id=NEW.managing_unit_id
  AND org.recorded_at<=NEW.recorded_at)
- THEN RAISE(ABORT,'项目责任历史不能引用未来才登记的组织单位版本') END;
+ THEN RAISE(ABORT,'子项目归口单位历史不能引用未来才登记的组织定义版本') END;
  SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
  SELECT 1 FROM project_management_versions old
  WHERE old.project_id=NEW.project_id AND old.version_no=NEW.version_no-1
@@ -3161,8 +3164,8 @@ BEGIN
  AND old.category_version IS NEW.category_version
  AND old.owner_id IS NEW.owner_id
  AND old.manager_id IS NEW.manager_id
- AND old.responsible_unit_id IS NEW.responsible_unit_id
- AND old.responsible_unit_version_id IS NEW.responsible_unit_version_id
+ AND old.managing_unit_id IS NEW.managing_unit_id
+ AND old.managing_unit_version_id IS NEW.managing_unit_version_id
  AND old.planned_start_on IS NEW.planned_start_on
  AND old.planned_end_on IS NEW.planned_end_on
  AND old.preliminary_estimate_fen IS NEW.preliminary_estimate_fen
@@ -3172,15 +3175,15 @@ BEGIN
  THEN RAISE(ABORT,'已关闭项目的管理计划不可私自改动') END;
 END;
 CREATE TRIGGER management_version_no_update BEFORE UPDATE ON project_management_versions
-BEGIN SELECT RAISE(ABORT,'项目责任和计划历史不可覆盖'); END;
+BEGIN SELECT RAISE(ABORT,'子项目归口及管理档案历史不可覆盖'); END;
 CREATE TRIGGER management_version_no_delete BEFORE DELETE ON project_management_versions
-BEGIN SELECT RAISE(ABORT,'项目责任和计划历史不可删除'); END;
+BEGIN SELECT RAISE(ABORT,'子项目归口及管理档案历史不可删除'); END;
 CREATE UNIQUE INDEX uq_pms_source_record
  ON source_records(source_system,external_record_id) WHERE external_record_id IS NOT NULL;
 CREATE UNIQUE INDEX uq_excel_source_row
  ON source_records(source_file_id,worksheet_name,row_number)
  WHERE source_file_id IS NOT NULL AND worksheet_name IS NOT NULL AND row_number IS NOT NULL;
-CREATE INDEX idx_project_unit ON project_management_versions(responsible_unit_id,project_id);
+CREATE INDEX idx_project_managing_unit ON project_management_versions(managing_unit_id,project_id);
 CREATE INDEX idx_material_category ON material_versions(category_id);
 
 
