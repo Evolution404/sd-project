@@ -11,6 +11,7 @@
 - [Schema 113 统一设计](architecture/数据库V3_Schema113_统一结构设计与无技术债审计_2026-11-07.md)
 - [Schema 113 字段字典](architecture/Schema113_逐字段数据字典.md)
 - [Schema 113 结项与核对专项治理](architecture/Schema113_第七轮结项与核对一致性治理_2026-11-07.md)
+- [Schema 113 最新裁决：取消施工，仅按费用多次结算](architecture/Schema113_第八轮取消施工与纯结算模型治理_2026-11-07.md)
 
 **当前运行仍是 Schema 112**；不要把 Schema 113 候选 SQL 直接用于已有 `data/` 数据库。
 

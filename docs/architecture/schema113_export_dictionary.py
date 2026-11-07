@@ -50,10 +50,9 @@ closed_at|正式关闭批准UTC时间
 closed_by|执行正式关闭的审核人员
 code|唯一业务编码
 commissioned_on|设备投运业务日期
-completion_record_id|现场完工事实的证据归属
-completion_standard|实施验收标准和完成判据
+completion_standard|需求内容的质量或结果验收判据，不是施工完成记录
 confirmed_at|实际费用或现场事实的确认UTC时间
-confirmed_by|实际费用/完工确认人员
+confirmed_by|实际费用确认人员
 consumption_id|物资实际领退事件的稳定身份
 context_line_id|共享物理杆塔所在的具体线路背景
 contract_number|执行协议合同编号

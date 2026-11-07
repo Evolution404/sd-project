@@ -1,4 +1,4 @@
-# Schema 113｜76 张表业务对象完整性矩阵
+# Schema 113｜73 张表业务对象完整性矩阵
 
 **治理顺序：功能完备 → 业务关系 → 历史一致性 → 字段精简。** 本矩阵由当前候选 SQL 生成，覆盖全部实际表。
 
@@ -56,12 +56,10 @@
 | 结算文件与审核 | `settlement_review_events` | 8 | 2 | 提交退回批准历史 |
 | 结算文件与审核 | `settlement_versions` | 12 | 5 | 结算单完整历史版本；每个版本的明细金额仅表示本次部分结算 |
 | 结算文件与审核 | `settlements` | 5 | 2 | 结算单稳定身份 |
-| 实际完工与材料流水 | `completion_records` | 9 | 3 | 结算前后均可记录的现场完工 |
-| 实际完工与材料流水 | `completion_revisions` | 12 | 2 | 完工更正/撤销历史 |
-| 实际完工与材料流水 | `material_usage_records` | 11 | 4 | 项目物资多次领退真实流水 |
-| 实际完工与材料流水 | `material_usage_revisions` | 10 | 2 | 领退事件更正/撤销 |
-| 实际完工与材料流水 | `materials` | 5 | 2 | 统一物资稳定身份：编码、单位不可无痕改写 |
-| 实际完工与材料流水 | `material_versions` | 13 | 3 | 物资正式定义历史及可修订的PMS外部编码（当前唯一映射） |
+| 独立物资领退流水 | `material_usage_records` | 11 | 4 | 项目物资多次领退真实流水 |
+| 独立物资领退流水 | `material_usage_revisions` | 10 | 2 | 领退事件更正/撤销 |
+| 独立物资领退流水 | `materials` | 5 | 2 | 统一物资稳定身份：编码、单位不可无痕改写 |
+| 独立物资领退流水 | `material_versions` | 13 | 3 | 物资正式定义历史及可修订的PMS外部编码（当前唯一映射） |
 | 实际费用、分摊与核对 | `cost_allocation_versions` | 9 | 3 | 费用分摊更正历史 |
 | 实际费用、分摊与核对 | `project_cost_nodes` | 5 | 3 | 子项目费用树的稳定节点、父子层级及所属项目，末级可发生费用 |
 | 实际费用、分摊与核对 | `project_cost_node_versions` | 8 | 2 | 费用节点名称和启停状态的不可变版本历史 |
@@ -69,8 +67,7 @@
 | 实际费用、分摊与核对 | `cost_entries` | 5 | 3 | 独立于结算的项目实际费用身份 |
 | 实际费用、分摊与核对 | `cost_reconciliation_versions` | 14 | 4 | 费用与结算核对历史 |
 | 实际费用、分摊与核对 | `cost_versions` | 19 | 5 | 实际成本金额及确认历史 |
-| 正式结项与剩余量处置 | `project_closure_dispositions` | 6 | 2 | 结项剩余量逐项处置 |
-| 正式结项与剩余量处置 | `project_closures` | 7 | 3 | 正式结项审批与关闭依据 |
+| 费用最终结清 | `project_closures` | 7 | 3 | 正式结项审批与关闭依据 |
 | 账户、证据与运行基础 | `allowed_ips` | 5 | 1 | IP 许可配置 |
 | 账户、证据与运行基础 | `audit_events` | 9 | 1 | 审计事件 |
 | 账户、证据与运行基础 | `evidence_files` | 8 | 1 | 文件哈希与存储元信息 |
@@ -91,7 +88,6 @@
 | 需求版本与版本物资清单 | demand_versions、demand_material_version_items | 已建模；物资主数据版本含PMS外部编码历史；业务物资批准快照独立保存 |
 | 储备、入库、立项与正式项目变更 | project_stage_events、project_approval_versions、project_change_orders | 审批历史及非法变更检查已覆盖 |
 | 框架预算与可选执行协议 | framework_versions、agreement_versions、project_funding_versions | 预算仅为软基准，金额可超额 |
-| 结算前完工、分批完工与更正 | completion_records、completion_revisions | 已修复：归项目需求范围，不依赖结算单 |
 | 结算前费用发生、费用分摊与核对 | cost_entries、cost_versions、cost_allocations、cost_reconciliation_versions | 已修复：费用归项目，不先创建虚构结算 |
 | 结算前多次领料、退料和历史修正 | material_usage_records、material_usage_revisions | 已修复：领退事件独立记录，可选关联结算 |
 | 完整结算版本、退回、批准及结项 | settlement_versions、settlement_review_events、project_closures | 正式版本与结项完整性可验证 |
@@ -101,7 +97,7 @@
 
 ## 仍需明确的业务流程裁决
 
-1. 跨子项目正式移交剩余需求数量：必须明确审批、实施和资金归属；禁止静默重复承接。
+1. 跨子项目正式调整需求归属：必须明确审批及资金归属；禁止静默重复承接。
 2. 正式关闭项目重新授权开启：须独立审批历史，不能简单把状态改回已批准。
 3. 用户已确认：同一子项目可多次部分结算，单据金额都是本次结算；不再设预付款/进度/最终的累计口径分类。
 4. 仓库库存、供应商采购、实际银行付款和完整发票台账属于新增业务范围，不能混同项目费用发生。
@@ -112,7 +108,7 @@
 - 仅删除可由权威事实唯一确定、没有独立历史价值的重复字段，例如已删除的需求根记录常量状态、固定版本与无效修改时间。
 - 项目批准物资快照、物资主数据版本、需求历史版本、结算正式全量版本和实际费用更正均为不同业务证据，必须保留。
 - 当前设备属性与设备全量历史通过受控触发器同步；不能让用户分别写入两套当前值。
-- 实际成本、实际完工、领退物资均独立于结算，结算后续核对或关联只是另一项事实。
+- 实际费用及领退物资各有独立事实，结算本身不表示施工完成，结算后续核对或关联只是另一项事实。
 - 避免数据库承担权限决策、分析报表、进度预警等应用层职责。
 
 详见 `Schema113_逐字段数据字典.md`。

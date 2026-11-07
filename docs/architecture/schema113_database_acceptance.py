@@ -267,9 +267,6 @@ settlement_version("stv1",1,8000)
 event("stv1",1,"submit")
 event("stv1",2,"approve")
 ok("settlement over budget accepted",net()==8000)
-add("completion_records",id="c",project_scope_id="scope",settlement_item_id="it",
-    quantity_scaled=20000,occurred_on="2026-11-07",evidence="现场验收",
-    confirmed_by="u",confirmed_at="2026-11-07T00:00:00.000Z",request_key="c")
 add("material_usage_records",id="consume",settlement_item_id="it",
     occurred_on="2026-11-07",
     project_material_id="mat",approval_material_id="am1",actual_quantity_scaled=2000,
@@ -305,14 +302,11 @@ ok("new approved budget replaces old budget not adds",
         "WHERE project_id='p'")["approved_budget_fen"]==7000)
 approved_scope=row("SELECT quantity_scaled,approved_amount_fen "
     "FROM v_approval_scope_current WHERE project_scope_id='scope'")
-done=row("SELECT COALESCE(SUM(c.quantity_scaled),0) AS n FROM v_completion_current c "
-    "JOIN settlement_items i ON i.id=c.settlement_item_id "
-    "WHERE i.project_scope_id='scope' AND c.status='active'")["n"]
 settled=row("SELECT COALESCE(SUM(net_amount_fen),0) AS n "
     "FROM v_effective_settlement_items WHERE project_scope_id='scope'")["n"]
-ok("latest approved scope is canonical, actual completion and settlement independent",
-    (approved_scope["quantity_scaled"],approved_scope["approved_amount_fen"],done,settled)
-    ==(30000,4000,20000,8000))
+ok("approved scope and installment settlement remain separate real facts",
+    (approved_scope["quantity_scaled"],approved_scope["approved_amount_fen"],settled)
+    ==(30000,4000,8000))
 approved_material=row("SELECT approved_quantity_scaled FROM v_approved_material_current "
     "WHERE project_material_id='mat'")["approved_quantity_scaled"]
 actual_material=row("SELECT actual_quantity_scaled FROM v_material_usage_current "
@@ -806,10 +800,6 @@ add("settlement_review_events",id="submitclose",settlement_version_id="vclose",
 add("settlement_review_events",id="approveclose",settlement_version_id="vclose",
     event_seq=2,action="approve",actor_id="u",
     recorded_at="2026-11-07T10:01:00.000Z",effective_on="2026-11-07")
-add("completion_records",id="completionclose",project_scope_id="sclose",settlement_item_id="itclose",
-    quantity_scaled=10000,occurred_on="2026-11-07",evidence="验收",
-    confirmed_by="u",confirmed_at="2026-11-07T10:00:00.000Z",
-    request_key="completionclose")
 # The existing closure fixture must reflect the SAME finalized cost/statement
 # contract: an approved 1000-fen statement without matching actual cost is
 # not a completed financial closeout.
@@ -1049,7 +1039,7 @@ add("demand_revisions",id="d_rev3",demand_id="d",version=3,
       '"problem_description":"复核后的B相缺陷",'
       '"materials":[{"material_id":"master1","quantity_scaled":2000},'
       '{"material_id":"master3","quantity_scaled":3000}]}',
-    reason="施工物资预计清单正式调整",changed_by="u",
+    reason="物资预计清单正式调整",changed_by="u",
     changed_at="2026-11-07T17:30:00.000Z")
 ok("current demand points to complete newest revision and amended work target",
     row("SELECT current_version,target_object,quantity_scaled FROM "
@@ -1126,15 +1116,8 @@ add("project_closures",id="close_null",project_id="pnull",
     approval_version_id="avnull",reason="结项前审核",
     close_snapshot_json="{}",closed_by="u",
     closed_at="2026-11-07T18:30:00.000Z")
-blocked("uncompleted latest approved scope cannot close without disposition",
-    "INSERT INTO project_stage_events(id,project_id,stage,project_version,"
-    "reason,actor_id,created_at) VALUES('bad_pnull_close','pnull','closed',4,"
-    "'跳过剩余工作','u','2026-11-07T18:31:00.000Z')")
-add("project_closure_dispositions",id="dispnull",project_closure_id="close_null",
-    project_scope_id="snull",remaining_quantity_scaled=10000,
-    disposition="defer",reason="延期处理手续")
 stage("pnull","closed",time="2026-11-07T18:32:00.000Z")
-ok("fully accounted remaining work may close with cancellation/defer evidence",
+ok("project with no cost or settlement may close without fictional work completion",
     row("SELECT status FROM projects WHERE id='pnull'")["status"]=="closed")
 
 # Money cannot point to funding recorded after its own ledger event.
@@ -1622,9 +1605,20 @@ present={x["name"] for x in db.execute(
     "SELECT name FROM sqlite_master WHERE type='view'")}
 ok("application reporting and analysis do not define SQLite views",
     not present.intersection(APPLICATION_ONLY_VIEWS))
+ok("settlement-only model has no construction, completion or maintenance-plan tables",
+    all(row("SELECT count(*) n FROM sqlite_master WHERE type='table' AND name=?",name)["n"]==0
+        for name in ("executions","execution_items","completion_records",
+                     "completion_revisions","project_closure_dispositions"))
+    and row("SELECT count(*) n FROM sqlite_master WHERE type='table' "
+            "AND name='settlements'")["n"]==1)
+ok("settlement-only schema has no obsolete evidence FK for completed work",
+    not any(x["name"]=="completion_record_id"
+            for x in db.execute("PRAGMA table_info(evidence_links)"))
+    and not any(x["table"]=="completion_records"
+                for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==25
-    and {'v_approval_scope_current','v_completion_current',
+    len(present)==24
+    and {'v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
          'v_effective_cost_reconciliations',
@@ -1636,9 +1630,10 @@ ok("database trigger bodies have no embedded application role-authorization rule
     row("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' "
         "AND sql LIKE '%role_permissions%'")["n"]==0
     and row("SELECT COUNT(*) n FROM role_permissions")["n"]>0)
-ok("project closure integrity is independent from report views",
-    'v_approval_scope_current' in closure_ddl
-    and 'v_completion_current' in closure_ddl
+ok("project closeout checks effective financial facts without construction views",
+    'v_effective_cost_reconciliations' in closure_ddl
+    and 'v_effective_settlement_items' in closure_ddl
+    and 'v_completion_current' not in closure_ddl
     and 'v_scope_progress' not in closure_ddl
     and 'v_settlement_workflow' not in closure_ddl)
 # Actual expenses are project facts, NOT settlement documents. They must
@@ -1743,44 +1738,9 @@ blocked("material movement kind must be physical consume or return",
     "recorded_by,recorded_at) VALUES('invalid_movement',"
     "'material_pre_settlement','invoice','2026-11-07',100,'交接单',"
     "'实际新增','u','2026-11-07T20:13:00.000Z')")
-# Physical work completion is also independent of financial settlement.
-# A real implementation must be recordable before any settlement document.
-add("completion_records",id="completion_before_settlement",
-    project_scope_id="scope_material_pre_settlement",
-    settlement_item_id=None,quantity_scaled=4000,
-    occurred_on="2026-11-07",evidence="真实现场完工验收",
-    confirmed_by="u",confirmed_at="2026-11-07T20:20:00.000Z",
-    request_key="completion_before_settlement")
-ok("actual completed work can be recorded before settlement exists",
-    row("SELECT project_scope_id FROM v_completion_current "
-        "WHERE id='completion_before_settlement'")["project_scope_id"]
-        =="scope_material_pre_settlement"
-    and row("SELECT COUNT(*) n FROM settlements "
-        "WHERE project_id='expense_first_project'")["n"]==0)
-blocked("completion may not refer to a settlement item in a different scope",
-    "INSERT INTO completion_records(id,project_scope_id,settlement_item_id,"
-    "quantity_scaled,occurred_on,evidence,confirmed_by,confirmed_at,request_key)"
-    " VALUES('cross_scope_completion','scope_material_pre_settlement','it',"
-    "100,'2026-11-07','虚假关联','u','2026-11-07T20:21:00.000Z',"
-    "'cross_scope_completion')")
-add("completion_revisions",id="completion_before_settlement_v2",
-    record_id="completion_before_settlement",version_no=2,
-    action="correct",status="active",quantity_scaled=5000,
-    occurred_on="2026-11-07",evidence="现场二次验收",
-    reason="验收数量复核",actor_id="u",
-    created_at="2026-11-07T20:22:00.000Z",
-    request_key="completion_before_settlement_v2")
-ok("independent completion retains its correction history",
-    row("SELECT quantity_scaled FROM v_completion_current "
-        "WHERE id='completion_before_settlement'")["quantity_scaled"]==5000
-    and row("SELECT quantity_scaled FROM completion_records "
-        "WHERE id='completion_before_settlement'")["quantity_scaled"]==4000)
 # Explicit query-plan coverage: prioritize domain reverse lookups, not an
 # index on every rarely-read audit actor FK.
 query_index_contracts=[
- ("completion by project demand scope",
-  "SELECT id FROM completion_records WHERE project_scope_id=?",
-  ("scope",),"idx_completion_scope"),
  ("actual material issue/return by project material",
   "SELECT id FROM material_usage_records WHERE project_material_id=?",
   ("mat",),"idx_actual_material_project_material"),
@@ -1881,11 +1841,6 @@ db.execute("UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T20:33:00.000Z'"
     " WHERE id='end_to_end_ap'")
 stage("end_to_end_p","approved",time="2026-11-07T20:34:00.000Z")
-add("completion_records",id="end_to_end_completion",
-    project_scope_id="end_to_end_scope",settlement_item_id=None,
-    quantity_scaled=10000,occurred_on="2026-11-07",evidence="现场验收",
-    confirmed_by="u",confirmed_at="2026-11-07T20:35:00.000Z",
-    request_key="end_to_end_completion")
 add("material_usage_records",id="end_to_end_usage",
     project_material_id="end_to_end_pm",settlement_item_id=None,
     movement_kind="consume",occurred_on="2026-11-07",
@@ -1900,11 +1855,9 @@ add("cost_versions",id="end_to_end_cv",entry_id="end_to_end_cost",
     amount_fen=3000,evidence="实际费用凭据",reason="发生事实",
     confirmed_by="u",confirmed_at="2026-11-07T20:38:00.000Z",
     request_key="end_to_end_cv")
-ok("full workflow preserves completion, material and cost before settlement",
+ok("project records material and actual costs before independent settlement",
     row("SELECT COUNT(*) n FROM settlements "
         "WHERE project_id='end_to_end_p'")["n"]==0
-    and row("SELECT quantity_scaled FROM v_completion_current "
-        "WHERE id='end_to_end_completion'")["quantity_scaled"]==10000
     and row("SELECT actual_quantity_scaled FROM v_material_usage_current "
         "WHERE id='end_to_end_usage'")["actual_quantity_scaled"]==1000
     and row("SELECT amount_fen FROM v_cost_current "
@@ -2017,7 +1970,7 @@ ok("approved revision removes superseded installment from effective cost",
         "WHERE id='end_to_end_item'")["amount_fen"]==2500)
 add("project_closures",id="end_to_end_close",
     project_id="end_to_end_p",approval_version_id="end_to_end_ap",
-    reason="完工已验收且最终费用已核对",close_snapshot_json="{}",
+    reason="本子项目全部费用已最终核对",close_snapshot_json="{}",
     closed_by="u",closed_at="2026-11-07T20:45:00.000Z")
 # Closure must reject an older approved reconciliation as evidence for a
 # newer changed statement snapshot, even though its history still exists.

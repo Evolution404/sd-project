@@ -4,7 +4,7 @@
 -- details, audit events and current/as-of history views.
 -- No frontend/backend changes are authorized.
 -- Main stable chain: annual framework -> project -> approved project scope ->
--- independent actual completion/material/expense facts; settlements are separate
+-- independent material movement and real cost facts; settlement documents are separate
 -- full versioned documents linked to the project, NEVER prerequisites to actuals.
 -- Money is integer fen, quantity integer scaled by 10000.
 -- Maintenance plan and plan budget entity layers deliberately absent.
@@ -495,7 +495,6 @@ CREATE TABLE evidence_links (
  project_approval_version_id TEXT REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
  settlement_version_id TEXT REFERENCES settlement_versions(id) ON DELETE RESTRICT,
  settlement_review_event_id TEXT REFERENCES settlement_review_events(id) ON DELETE RESTRICT,
- completion_record_id TEXT REFERENCES completion_records(id) ON DELETE RESTRICT,
  material_consumption_id TEXT REFERENCES material_usage_records(id) ON DELETE RESTRICT,
  cost_version_id TEXT REFERENCES cost_versions(id) ON DELETE RESTRICT,
  reconciliation_version_id TEXT REFERENCES cost_reconciliation_versions(id) ON DELETE RESTRICT,
@@ -517,7 +516,7 @@ CREATE TABLE evidence_links (
  (line_span_history_id IS NOT NULL)+
  (change_order_id IS NOT NULL)+(project_approval_version_id IS NOT NULL)+
  (settlement_version_id IS NOT NULL)+(settlement_review_event_id IS NOT NULL)+
- (completion_record_id IS NOT NULL)+(material_consumption_id IS NOT NULL)+
+ (material_consumption_id IS NOT NULL)+
  (cost_version_id IS NOT NULL)+(reconciliation_version_id IS NOT NULL)+
  (project_closure_id IS NOT NULL)=1),
  FOREIGN KEY(demand_version_demand_id,demand_version_no)
@@ -536,7 +535,7 @@ CREATE TABLE evidence_links (
  UNIQUE(file_id,line_span_history_id),
  UNIQUE(file_id,change_order_id),
  UNIQUE(file_id,project_approval_version_id),UNIQUE(file_id,settlement_version_id),
- UNIQUE(file_id,settlement_review_event_id),UNIQUE(file_id,completion_record_id),
+ UNIQUE(file_id,settlement_review_event_id),
  UNIQUE(file_id,material_consumption_id),UNIQUE(file_id,cost_version_id),
  UNIQUE(file_id,reconciliation_version_id),UNIQUE(file_id,project_closure_id)
 ) STRICT;
@@ -1096,33 +1095,8 @@ CREATE TABLE settlement_item_versions (
 -- Actual physical work belongs to an approved project's demand scope and
 -- can be recorded before any settlement exists. Later settlement association
 -- is optional and must match the exact project scope.
-CREATE TABLE completion_records (
- id TEXT NOT NULL PRIMARY KEY,
- project_scope_id TEXT NOT NULL REFERENCES project_demand_scopes(id) ON DELETE RESTRICT,
- settlement_item_id TEXT REFERENCES settlement_items(id) ON DELETE RESTRICT,
- quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
- occurred_on TEXT NOT NULL CHECK(occurred_on IS NULL OR (length(occurred_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(occurred_on))=occurred_on,0))),
- evidence TEXT NOT NULL CHECK(length(trim(evidence))>0),
- confirmed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- confirmed_at TEXT NOT NULL CHECK(confirmed_at IS NULL OR (length(confirmed_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(confirmed_at))=confirmed_at,0))),
- request_key TEXT NOT NULL UNIQUE
-) STRICT;
 
 
-CREATE TABLE completion_revisions (
- id TEXT NOT NULL PRIMARY KEY,
- record_id TEXT NOT NULL REFERENCES completion_records(id) ON DELETE RESTRICT,
- version_no INTEGER NOT NULL CHECK(version_no>=2),
- action TEXT NOT NULL CHECK(action IN ('correct','void')),
- status TEXT NOT NULL CHECK(status IN ('active','voided')),
- quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
- occurred_on TEXT NOT NULL CHECK(occurred_on IS NULL OR (length(occurred_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(occurred_on))=occurred_on,0))),evidence TEXT NOT NULL,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
- actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),request_key TEXT NOT NULL UNIQUE,
- UNIQUE(record_id,version_no),
- CHECK((action='correct' AND status='active') OR (action='void' AND status='voided'))
-) STRICT;
 
 
 -- Actual material movements belong to project work, not a settlement.
@@ -1250,8 +1224,8 @@ CREATE TABLE cost_reconciliation_versions (
 
 
 
--- Close-out is an explicit audited fact; unresolved quantities must be disposed
--- on child rows, and any pending settlements / costs are closed first.
+-- A financial close-out is an explicit audited fact after all effective
+-- project costs and installment statements have been finally reconciled.
 CREATE TABLE project_closures (
  id TEXT NOT NULL PRIMARY KEY,
  project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE RESTRICT,
@@ -1263,15 +1237,6 @@ CREATE TABLE project_closures (
 ) STRICT;
 
 
-CREATE TABLE project_closure_dispositions (
- id TEXT NOT NULL PRIMARY KEY,
- project_closure_id TEXT NOT NULL REFERENCES project_closures(id) ON DELETE RESTRICT,
- project_scope_id TEXT NOT NULL REFERENCES project_demand_scopes(id) ON DELETE RESTRICT,
- remaining_quantity_scaled INTEGER NOT NULL CHECK(remaining_quantity_scaled>0),
- disposition TEXT NOT NULL CHECK(disposition IN ('cancel','defer')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
- UNIQUE(project_closure_id,project_scope_id)
-) STRICT;
 
 
 
@@ -1280,8 +1245,6 @@ CREATE INDEX idx_work_object_versions_domain ON work_object_versions(work_target
 CREATE INDEX idx_operation_versions_work_object ON operation_versions(work_object_id,status);
 CREATE INDEX idx_approval_materials_scope ON project_approval_material_items(project_scope_id,approval_version_id);
 CREATE INDEX idx_settlement_items_scope ON settlement_items(project_scope_id,settlement_id);
-CREATE INDEX idx_completion_scope ON completion_records(project_scope_id);
-CREATE INDEX idx_completion_settlement_item ON completion_records(settlement_item_id);
 CREATE INDEX idx_cost_entries_project ON cost_entries(project_id);
 CREATE INDEX idx_cost_node_children ON project_cost_nodes(project_id,parent_id);
 CREATE INDEX idx_cost_entries_node ON cost_entries(cost_node_id);
@@ -1290,20 +1253,6 @@ CREATE UNIQUE INDEX ux_settlement_items_unscoped_cost_node
  ON settlement_items(settlement_id,cost_node_id) WHERE project_scope_id IS NULL;
 CREATE INDEX idx_cost_allocations_item ON cost_allocations(settlement_item_id);
 CREATE INDEX idx_cost_reconciliation_item ON cost_reconciliation_versions(settlement_item_id);
-CREATE INDEX idx_project_closure_dispositions_scope ON project_closure_dispositions(project_scope_id);
--- Latest correction/void always wins, but never modifies the original fact.
-CREATE VIEW v_completion_current AS
-SELECT c.id,c.project_scope_id,c.settlement_item_id,
- COALESCE(r.status,'active') AS status,
- COALESCE(r.quantity_scaled,c.quantity_scaled) AS quantity_scaled,
- COALESCE(r.occurred_on,c.occurred_on) AS occurred_on,
- COALESCE(r.evidence,c.evidence) AS evidence,
- COALESCE(r.version_no,1) AS version_no
-FROM completion_records c
-LEFT JOIN completion_revisions r ON r.record_id=c.id
- AND r.version_no=(SELECT MAX(h.version_no)
-   FROM completion_revisions h WHERE h.record_id=c.id);
-
 CREATE VIEW v_project_cost_node_current AS
 SELECT n.id,n.project_id,n.parent_id,v.id AS current_version_id,
  v.version_no,v.name,v.status
@@ -1447,22 +1396,6 @@ BEGIN
  WHERE s.id=NEW.project_scope_id AND v.id=NEW.approval_version_id)
  THEN RAISE(ABORT,'批准物资明细与项目需求范围不一致') END;
 END;
-CREATE TRIGGER completion_scope_consistency_insert
- BEFORE INSERT ON completion_records
- WHEN NEW.settlement_item_id IS NOT NULL
-BEGIN
- SELECT CASE WHEN NOT EXISTS(
-  SELECT 1 FROM settlement_items item
-  WHERE item.id=NEW.settlement_item_id
-    AND item.project_scope_id=NEW.project_scope_id)
- THEN RAISE(ABORT,'实际完工记录仅能关联相同子项目需求范围的结算明细') END;
-END;
-CREATE TRIGGER completion_immutable_update BEFORE UPDATE ON completion_records
-BEGIN SELECT RAISE(ABORT,'实际完成量原始记录不可覆盖'); END;
-CREATE TRIGGER completion_immutable_delete BEFORE DELETE ON completion_records
-BEGIN SELECT RAISE(ABORT,'实际完成量原始记录不可删除'); END;
-CREATE TRIGGER completion_revision_immutable_update BEFORE UPDATE ON completion_revisions
-BEGIN SELECT RAISE(ABORT,'实际完成更正版本不可覆盖'); END;
 CREATE TRIGGER cost_version_immutable_update BEFORE UPDATE ON cost_versions
 BEGIN SELECT RAISE(ABORT,'费用确认历史不可覆盖'); END;
 CREATE TRIGGER cost_reconciliation_immutable_update
@@ -1546,13 +1479,6 @@ BEGIN SELECT CASE WHEN NOT EXISTS(
  WHERE av.project_id=p.id AND av.status='approved')
  AND p.status='approved')
  THEN RAISE(ABORT,'结项必须引用子项目最新已批准范围与预算，不能引用历史过期版本') END; END;
-CREATE TRIGGER closure_disposition_project_guard
- BEFORE INSERT ON project_closure_dispositions
-BEGIN SELECT CASE WHEN NOT EXISTS(
- SELECT 1 FROM project_closures c JOIN project_demand_scopes s
- ON s.project_id=c.project_id
- WHERE c.id=NEW.project_closure_id AND s.id=NEW.project_scope_id)
- THEN RAISE(ABORT,'未完成量处置必须属于待关闭的子项目') END; END;
 CREATE TRIGGER project_close_guard
  BEFORE UPDATE OF status ON projects
  WHEN NEW.status='closed' AND OLD.status<>'closed'
@@ -1591,32 +1517,6 @@ BEGIN
  AND NOT EXISTS(SELECT 1 FROM project_approval_versions ap
  WHERE ap.change_order_id=ch.id AND ap.status='approved'))
  THEN RAISE(ABORT,'存在已审核但未落实到正式批准范围的项目变更，不能关闭项目') END;
- -- Completion integrity follows the authoritative latest formal approval
- -- and immutable effective completion facts. It must NOT depend on an
- -- application progress report or a mutable proposed-scope flag.
- SELECT CASE WHEN EXISTS(
- SELECT 1 FROM v_approval_scope_current a
- JOIN project_approval_versions approved ON approved.id=a.approval_version_id
- WHERE approved.project_id=NEW.id
- AND a.quantity_scaled>COALESCE((
-  SELECT SUM(done.quantity_scaled)
-  FROM v_completion_current done
-  WHERE done.project_scope_id=a.project_scope_id AND done.status='active'
- ),0)
- AND NOT EXISTS(
-  SELECT 1 FROM project_closures close_record
-  JOIN project_closure_dispositions disposition
-    ON disposition.project_closure_id=close_record.id
-  WHERE close_record.project_id=NEW.id
-    AND disposition.project_scope_id=a.project_scope_id
-    AND disposition.remaining_quantity_scaled =
-        a.quantity_scaled - COALESCE((
-         SELECT SUM(done.quantity_scaled)
-         FROM v_completion_current done
-         WHERE done.project_scope_id=a.project_scope_id
-           AND done.status='active'
-        ),0)))
- THEN RAISE(ABORT,'未完成工作量必须逐项明确取消或延期依据；跨项目移交尚未授权') END;
  -- Close-out is based on the SAME effective financial facts as the
  -- application balance: stable cost identity across historical versions and
  -- only the latest approved snapshot of each independent settlement.
@@ -1869,8 +1769,6 @@ BEGIN SELECT RAISE(ABORT,'费用结算核对历史不可清除'); END;
 
 
 -- Retained original asset, demand, category or audit rule.
-CREATE TRIGGER immutable_completion_revision_delete BEFORE DELETE ON completion_revisions
-BEGIN SELECT RAISE(ABORT,'完成记录更正历史不可清除'); END;
 
 CREATE INDEX idx_lines_voltage ON transmission_lines(voltage_level_id);
 CREATE INDEX idx_logical_towers_physical ON logical_towers(physical_tower_id);
@@ -2341,12 +2239,6 @@ CREATE TRIGGER project_closure_immutable_update BEFORE UPDATE ON project_closure
 BEGIN SELECT RAISE(ABORT,'子项目关闭审核历史不可覆盖'); END;
 CREATE TRIGGER project_closure_immutable_delete BEFORE DELETE ON project_closures
 BEGIN SELECT RAISE(ABORT,'子项目关闭审核历史不可删除'); END;
-CREATE TRIGGER project_closure_disposition_immutable_update
- BEFORE UPDATE ON project_closure_dispositions
-BEGIN SELECT RAISE(ABORT,'关闭时的剩余需求处置历史不可覆盖'); END;
-CREATE TRIGGER project_closure_disposition_immutable_delete
- BEFORE DELETE ON project_closure_dispositions
-BEGIN SELECT RAISE(ABORT,'关闭时的剩余需求处置历史不可删除'); END;
 
 
 CREATE TRIGGER project_material_identity_insert BEFORE INSERT ON project_scope_materials
@@ -2399,8 +2291,6 @@ CREATE INDEX idx_evidence_review_event ON evidence_links(settlement_review_event
  WHERE settlement_review_event_id IS NOT NULL;
 CREATE INDEX idx_evidence_cost ON evidence_links(cost_version_id)
  WHERE cost_version_id IS NOT NULL;
-CREATE INDEX idx_evidence_completion ON evidence_links(completion_record_id)
- WHERE completion_record_id IS NOT NULL;
 CREATE INDEX idx_evidence_demand ON evidence_links(demand_id)
  WHERE demand_id IS NOT NULL;
 CREATE INDEX idx_evidence_source ON evidence_links(source_id)
@@ -2634,12 +2524,6 @@ BEGIN
  WHERE prior.entry_id=NEW.entry_id AND prior.version_no=1)
  THEN RAISE(ABORT,'费用更正不得悄悄更改原始资金归属；需另行正式调拨') END;
 END;
-CREATE TRIGGER completion_revision_sequential_insert BEFORE INSERT ON completion_revisions
-BEGIN
- SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),1)+1
- FROM completion_revisions v WHERE v.record_id=NEW.record_id)
- THEN RAISE(ABORT,'验收更正版本必须连续增加') END;
-END;
 CREATE TRIGGER reconciliation_version_sequential_insert
  BEFORE INSERT ON cost_reconciliation_versions
 BEGIN
@@ -2862,7 +2746,7 @@ BEGIN SELECT CASE WHEN NOT EXISTS(
 CREATE TRIGGER project_closed_no_reopen_without_decision
  BEFORE UPDATE OF status ON projects
  WHEN OLD.status='closed' AND NEW.status<>'closed'
-BEGIN SELECT RAISE(ABORT,'正式结项不可直接改回实施中；应走独立有授权的重新启动程序'); END;
+BEGIN SELECT RAISE(ABORT,'费用全部结清后不得直接重新开启子项目；需另行正式授权'); END;
 CREATE TRIGGER settlement_root_insert_only_active
  BEFORE INSERT ON settlements
  WHEN (SELECT status FROM projects p WHERE p.id=NEW.project_id)='closed'

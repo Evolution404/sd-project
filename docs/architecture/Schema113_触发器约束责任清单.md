@@ -6,15 +6,15 @@
 
 | 责任类别 | 当前数量 |
 | --- | ---: |
-| 不可变历史或身份 | 115 |
+| 不可变历史或身份 | 109 |
 | 历史快照原子同步 | 18 |
-| 正式历史版本约束 | 29 |
+| 正式历史版本约束 | 28 |
 | 正式批准/结项一致性 | 5 |
 | 物资业务身份及关联 | 10 |
 | 状态事件合法性 | 2 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 3 |
-| 跨表关联和身份完整性 | 25 |
+| 跨表关联和身份完整性 | 23 |
 
 ## 完整触发器清单
 
@@ -30,12 +30,6 @@
 | `batch_demand_sources` | `batch_demand_source_batch_identity_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `batch_demand_sources` | `batch_demand_source_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `batch_demand_sources` | `batch_demand_source_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `completion_records` | `completion_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
-| `completion_records` | `completion_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `completion_records` | `completion_scope_consistency_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
-| `completion_revisions` | `completion_revision_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `completion_revisions` | `completion_revision_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
-| `completion_revisions` | `immutable_completion_revision_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `cost_allocation_versions` | `cost_allocation_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `cost_allocation_versions` | `cost_allocation_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `cost_allocation_versions` | `cost_allocation_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
@@ -165,9 +159,6 @@
 | `project_change_orders` | `approved_change_order_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_change_orders` | `change_order_approval_metadata_guard` | BEFORE/UPDATE | 历史快照原子同步 |
 | `project_change_orders` | `change_order_project_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
-| `project_closure_dispositions` | `closure_disposition_project_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
-| `project_closure_dispositions` | `project_closure_disposition_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
-| `project_closure_dispositions` | `project_closure_disposition_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_closures` | `closure_project_version_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `project_closures` | `project_closure_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_closures` | `project_closure_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
@@ -245,5 +236,9 @@
 - 已清除 4 个重复触发器：失效的历史定义 UPDATE 校验、重复协议框架身份保护、已被真实外键处理的引用物资删除检查。
 - 新增版本物资相关约束：材料根身份不可覆盖/删除、正式版本递增、记录时间有序、无实质变化不得制造新版本、正式版本不可修改/删除、历史物资关联只引用有效版本。
 - 需求、项目审批、结算和真实费用的已有完整性保护保持有效。
-- 本次增加子项目费用树的父子关系、末级入账、费用分类定义版本不可变和类别匹配等 7 项触发器，共 219 项；所有实际结算余额由应用层计算，不创建金额累计触发器。
+- 本次增加子项目费用树的父子关系、末级入账、费用分类定义版本不可变和类别匹配等 7 项触发器，共 210 项；所有实际结算余额由应用层计算，不创建金额累计触发器。
 - 对每个触发器是否进一步缩减，必须有等价 FK/UNIQUE/CHECK 证明及非法数据反例；不追求将数量硬压到固定值。
+
+## 最近裁决：不再保留独立施工完成对象
+
+取消检修计划与施工完成流程之后，移除了对应完工历史和剩余工作量处置的 9 项触发器；项目关闭仍按全部有效费用与结算最终核对的真实历史进行检查。
