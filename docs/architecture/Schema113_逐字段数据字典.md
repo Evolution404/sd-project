@@ -428,14 +428,14 @@
 | `fiscal_year` | INTEGER | 是 | — | 见原生CHECK | 所属年度 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `ledger_requests` — 接口幂等写入记录
+## `ledger_requests` — 有真实操作者、参数哈希与不可变响应的接口幂等凭证
 
-业务领域：账户、证据与运行基础。字段数：5；外键分量：0。
+业务领域：账户、证据与运行基础。字段数：5；外键分量：1。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `request_key` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 重复请求去重的稳定幂等标识 | 保留：稳定身份或唯一编码 |
-| `actor_id` | TEXT | 是 | — | 见原生CHECK | 执行业务事件的用户 | 保留：独立属性或真实关联 |
+| `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：独立属性或真实关联 |
 | `request_hash` | TEXT | 是 | — | 见原生CHECK | 幂等请求的原始内容摘要 | 保留：独立属性或真实关联 |
 | `result_json` | TEXT | 是 | — | 见原生CHECK | 幂等请求已完成的结果快照 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
@@ -622,17 +622,30 @@
 | `code` | TEXT | 是 | — | 唯一 | 唯一业务编码 | 保留：稳定身份或唯一编码 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `organizational_units` — 部门班组组织层级
+## `organizational_unit_versions` — 正式组织单位名称、上级与启停的完整不可变历史版本
 
-业务领域：输电设备及组织台账。字段数：5；外键分量：1。
+业务领域：输电设备及组织台账。字段数：9；外键分量：3。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
+| `unit_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→organizational_units.id（组2） | 计量单位字典项 | 保留：历史/审核事实 |
+| `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
+| `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
+| `parent_unit_id` | TEXT | 否 | — | 外键→organizational_units.id（组1） | 组织单位当次正式定义采用的上级单位稳定身份 | 保留：历史/审核事实 |
+| `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | — | 见原生CHECK | 登记、修订、审批或撤销的正式理由 | 保留：历史/审核事实 |
+| `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
+| `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
+
+## `organizational_units` — 组织单位稳定身份和编码，名称、父级及启停历史独立版本化
+
+业务领域：输电设备及组织台账。字段数：2；外键分量：0。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `code` | TEXT | 是 | — | 唯一 | 唯一业务编码 | 保留：稳定身份或唯一编码 |
-| `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：独立属性或真实关联 |
-| `parent_id` | TEXT | 否 | — | 外键→organizational_units.id（组0） | 组织单位或业务对象的父级身份 | 保留：独立属性或真实关联 |
-| `status` | TEXT | 是 | 'active' | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：独立属性或真实关联 |
 
 ## `permission_definitions` — 应用层权限项定义
 
@@ -839,24 +852,28 @@
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `project_management_versions` — 责任人、单位、计划期间与估算历史
+## `project_management_versions` — 完整项目档案（名称、项目类别正式版本）、责任人、责任单位精确版本、计划期间与初估历史
 
-业务领域：框架、协议、项目与批准。字段数：13；外键分量：5。
+业务领域：框架、协议、项目与批准。字段数：17；外键分量：10。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组4） | 子项目稳定身份 | 保留：历史/审核事实 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组7） | 子项目稳定身份 | 保留：历史/审核事实 |
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
-| `owner_id` | TEXT | 否 | — | 外键→users.id（组3） | 子项目责任人 | 保留：历史/审核事实 |
-| `manager_id` | TEXT | 否 | — | 外键→users.id（组2） | 子项目管理人员 | 保留：历史/审核事实 |
-| `responsible_unit_id` | TEXT | 否 | — | 外键→organizational_units.id（组1） | 负责实施的部门或班组 | 保留：历史/审核事实 |
+| `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
+| `category_id` | TEXT | 否 | — | 外键→dictionary_item_versions.item_id（组1）<escape>|</escape>外键→dictionary_items.id（组6） | 业务类别字典项 | 保留：历史/审核事实 |
+| `category_version` | INTEGER | 否 | — | 外键→dictionary_item_versions.version（组1） | 项目类别采用的正式字典版本号，不随字典更名重算 | 保留：历史/审核事实 |
+| `owner_id` | TEXT | 否 | — | 外键→users.id（组5） | 子项目责任人 | 保留：历史/审核事实 |
+| `manager_id` | TEXT | 否 | — | 外键→users.id（组4） | 子项目管理人员 | 保留：历史/审核事实 |
+| `responsible_unit_id` | TEXT | 否 | — | 外键→organizational_unit_versions.unit_id（组0）<escape>|</escape>外键→organizational_units.id（组3） | 负责实施的部门或班组 | 保留：历史/审核事实 |
+| `responsible_unit_version_id` | TEXT | 否 | — | 外键→organizational_unit_versions.id（组0） | 项目责任历史当次明确采用的组织单位完整定义版本 | 保留：历史/审核事实 |
 | `planned_start_on` | TEXT | 否 | — | 见原生CHECK | 子项目预计开始业务日期 | 保留：历史/审核事实 |
 | `planned_end_on` | TEXT | 否 | — | 见原生CHECK | 子项目预计结束业务日期 | 保留：历史/审核事实 |
 | `preliminary_estimate_fen` | INTEGER | 否 | — | 见原生CHECK | 子项目初步估算金额（非正式批准） | 保留：尚未批准的独立预计事实 |
 | `preliminary_estimate_basis` | TEXT | 否 | — | 见原生CHECK | 子项目初步估算金额的依据 | 保留：尚未批准的独立预计事实 |
 | `reason` | TEXT | 是 | — | 见原生CHECK | 登记、修订、审批或撤销的正式理由 | 保留：历史/审核事实 |
-| `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
+| `actor_id` | TEXT | 是 | — | 外键→users.id（组2） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
 ## `project_scope_materials` — 项目需求范围物资稳定身份
@@ -885,22 +902,19 @@
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
 
-## `projects` — 子项目稳定身份与阶段
+## `projects` — 子项目稳定身份、所属框架与阶段事件同步投影，无重复当前名称/类别/时间
 
-业务领域：框架、协议、项目与批准。字段数：10；外键分量：3。
+业务领域：框架、协议、项目与批准。字段数：7；外键分量：2。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `code` | TEXT | 是 | — | 唯一 | 唯一业务编码 | 保留：稳定身份或唯一编码 |
-| `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：独立属性或真实关联 |
-| `framework_id` | TEXT | 是 | — | 外键→frameworks.id（组2） | 所属年度框架稳定身份 | 保留：独立属性或真实关联 |
-| `category_id` | TEXT | 否 | — | 外键→dictionary_items.id（组1） | 业务类别字典项 | 保留：独立属性或真实关联 |
+| `framework_id` | TEXT | 是 | — | 外键→frameworks.id（组1） | 所属年度框架稳定身份 | 保留：独立属性或真实关联 |
 | `status` | TEXT | 是 | 'reserve' | 见原生CHECK | 当前状态或历史版本审核状态 | 投影：阶段事件同步维护，禁止独立修改 |
 | `version` | INTEGER | 是 | 1 | 见原生CHECK | 正式定义或设备当前连续版本 | 投影：阶段事件同步维护，禁止独立修改 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
-| `updated_at` | TEXT | 是 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
 
 ## `reference_price_catalog` — 参考单价身份
 
@@ -1151,6 +1165,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：69；字段总数（含生成列）：659；需要人工补写独立描述的字段名：0。
+基础数据表数：70；字段总数（含生成列）：666；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。

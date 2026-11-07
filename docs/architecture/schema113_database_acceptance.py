@@ -39,6 +39,49 @@ def add(t, **data):
             changed_by=data.get("created_by") or "u",
             recorded_at=data.get("updated_at") or data["created_at"])
         return
+    if t=="organizational_units":
+        # Test-only atomic organization root/V1 seed, like material master.
+        insert_raw('organizational_units',id=data['id'],code=data['code'])
+        insert_raw('organizational_unit_versions',
+            id=data['id']+'_v1',unit_id=data['id'],version_no=1,
+            name=data['name'],parent_unit_id=data.get('parent_id'),
+            status=data.get('status','active'),reason='组织首次建档',
+            actor_id=data.get('actor_id','u'),
+            recorded_at=data.get('recorded_at','2026-11-07T00:00:00.000Z'))
+        return
+    if t=="projects":
+        # Test-fixture convenience ONLY: project root and V1 complete immutable
+        # profile are written together; production uses one BEGIN IMMEDIATE txn.
+        name=data.pop('name')
+        category_id=data.pop('category_id',None)
+        data.pop('updated_at',None)  # phase timestamp is derived from stage events
+        insert_raw('projects',**data)
+        category_version=None
+        if category_id is not None:
+            category_version=db.execute(
+                'SELECT MAX(version) FROM dictionary_item_versions WHERE item_id=?',
+                (category_id,)).fetchone()[0]
+        insert_raw('project_management_versions',
+            id='project_profile_'+data['id']+'_v1',
+            project_id=data['id'],version_no=1,name=name,
+            category_id=category_id,category_version=category_version,
+            reason='项目首次建档',actor_id=data.get('created_by','u'),
+            recorded_at=data['created_at'])
+        return
+    if t=="project_management_versions" and 'responsible_unit_id' in data             and 'responsible_unit_version_id' not in data:
+        unit_id=data['responsible_unit_id']
+        data['responsible_unit_version_id']=(
+            db.execute('SELECT unit_version_id FROM v_organizational_unit_current '
+                       'WHERE id=?',(unit_id,)).fetchone()[0] if unit_id else None)
+    if t=="project_management_versions":
+        # A full historical profile retains all unchanged metadata even
+        # if only the project name OR only its category was updated.
+        current=db.execute('SELECT name,category_id,category_version '
+            'FROM v_project_management_current WHERE project_id=?',
+            (data['project_id'],)).fetchone()
+        assert current is not None,data['project_id']
+        for key in ('name','category_id','category_version'):
+            data.setdefault(key,current[key])
     if t=="project_approval_material_items" and "material_version_id" not in data:
         material_id=db.execute("SELECT material_id FROM project_scope_materials "
             "WHERE id=?",(data["project_material_id"],)).fetchone()[0]
@@ -109,6 +152,19 @@ def blocked(label, sql, args=()):
     finally:
         db.execute("ROLLBACK TO invalid")
         db.execute("RELEASE invalid")
+
+def blocked_reason(label, sql, expected_message, args=()):
+    """Prove a specific guard blocked the write, not some unrelated FK."""
+    db.execute('SAVEPOINT invalid_reason')
+    try:
+        db.execute(sql,args)
+    except sqlite3.IntegrityError as error:
+        ok(label,expected_message in str(error))
+    else:
+        raise AssertionError('Expected domain-specific reject: '+label)
+    finally:
+        db.execute('ROLLBACK TO invalid_reason')
+        db.execute('RELEASE invalid_reason')
 
 def approval(id, no, budget, change_id=None, status="draft"):
     assert status=="draft"
@@ -738,7 +794,7 @@ add("project_approval_scope_versions",id="asclose",
     created_at="2026-11-07T10:00:00.000Z")
 db.execute("UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T10:00:00.000Z' WHERE id='avclose'")
-stage("pclose","approved")
+stage("pclose","approved",time="2026-11-07T10:00:00.000Z")
 add("settlements",id="stclose",project_id="pclose",number="SCLOSE",
     created_by="u",created_at="2026-11-07T10:00:00.000Z")
 add("settlement_items",id="itclose",settlement_id="stclose",
@@ -804,7 +860,7 @@ blocked("closure must never cite outdated approved project version",
 add("project_closures",id="closure",project_id="pclose",
     approval_version_id="avclose2",reason="已全部完成",close_snapshot_json="{}",
     closed_by="u",closed_at="2026-11-07T12:00:00.000Z")
-stage("pclose","closed")
+stage("pclose","closed",time="2026-11-07T12:01:00.000Z")
 ok("complete project can formally close",
     row("SELECT status FROM projects WHERE id='pclose'")["status"]=="closed")
 blocked("closed project cannot silently reopen via status edit",
@@ -1058,7 +1114,7 @@ add("project_approval_scope_versions",id="avnullscope",
     snapshot_json="{}",created_at="2026-11-07T18:00:00.000Z")
 db.execute("UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T18:00:00.000Z' WHERE id='avnull'")
-stage("pnull","approved")
+stage("pnull","approved",time="2026-11-07T18:00:00.000Z")
 ok("unknown approved scope amount stays NULL, independent of proposed amount",
     row("SELECT approved_amount_fen FROM v_approval_scope_current "
         "WHERE project_scope_id='snull'")["approved_amount_fen"] is None
@@ -1089,21 +1145,25 @@ blocked("settlement cannot use a future funding association version",
 add("organizational_units",id="ou",code="T-OPS",name="输电运检中心")
 add("organizational_units",id="childou",code="T-OPS-1",
     name="输电班组",parent_id="ou")
-blocked("organization units cannot be their own ancestors",
-    "UPDATE organizational_units SET parent_id='childou' WHERE id='ou'")
+blocked_reason("organization units cannot be their own ancestors",
+    "INSERT INTO organizational_unit_versions(id,unit_id,version_no,name,"
+    "parent_unit_id,status,reason,actor_id,recorded_at)"
+    " VALUES('ou_bad_cycle','ou',2,'输电运检中心','childou','active',"
+    "'非法倒挂','u','2026-11-07T00:00:01.000Z')",
+    "组织单位层级历史不能建立当前父子循环")
 add("project_management_versions",id="mgt1",project_id="p",
-    version_no=1,owner_id="u",manager_id="u",responsible_unit_id="ou",
+    version_no=2,owner_id="u",manager_id="u",responsible_unit_id="ou",
     planned_start_on="2026-11-08",planned_end_on="2026-11-30",
     preliminary_estimate_fen=7000,preliminary_estimate_basis="初步估算",
     reason="首次计划",actor_id="u",recorded_at="2026-11-07T18:00:00.000Z")
 add("project_management_versions",id="mgt2",project_id="p",
-    version_no=2,owner_id="u",manager_id="u",responsible_unit_id="ou",
+    version_no=3,owner_id="u",manager_id="u",responsible_unit_id="ou",
     planned_start_on="2026-11-08",planned_end_on="2026-12-31",
     preliminary_estimate_fen=8000,preliminary_estimate_basis="范围核定后估算",
     reason="调整目标时间",actor_id="u",recorded_at="2026-11-07T19:00:00.000Z")
 ok("responsibility and schedule are separate historical project facts",
     row("SELECT version_no,planned_end_on FROM v_project_management_current "
-       "WHERE project_id='p'")["version_no"]==2
+       "WHERE project_id='p'")["version_no"]==3
     and row("SELECT planned_end_on FROM project_management_versions "
        "WHERE id='mgt1'")["planned_end_on"]=="2026-11-30")
 blocked("project management history cannot be overwritten",
@@ -1573,8 +1633,8 @@ ok("no independent preapproval allocation table, projection or evidence FK",
     and not any(x["table"]=="cost_allocation_versions"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==22
-    and {'v_approval_scope_current',
+    len(present)==23
+    and {'v_organizational_unit_current','v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
          'v_effective_cost_reconciliations',
@@ -2813,6 +2873,564 @@ try:
 finally:
     db.execute('ROLLBACK TO hierarchical_fee_installments')
     db.execute('RELEASE hierarchical_fee_installments')
+
+# Full-model financial history audit (isolated): financial baselines are soft,
+# yet identity/version order cannot be forged or counted as duplicate authority.
+db.execute('SAVEPOINT full_financial_history_audit')
+try:
+    add('frameworks',id='audit_framework',code='AUDIT-F-2026',
+        fiscal_year=2026,created_at='2026-11-07T01:00:00.000Z')
+    blocked('framework definition cannot predate framework identity',
+        'INSERT INTO framework_versions(id,framework_id,version_no,name,'
+        'limit_fen,status,reason,changed_by,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_fw_bad_early','audit_framework',1,'初始框架',1000,
+         'active','倒签','u','2026-11-07T00:59:59.000Z'))
+    add('framework_versions',id='audit_fw_v1',framework_id='audit_framework',
+        version_no=1,name='年度新框架',limit_fen=1000,status='active',
+        reason='初始额度',changed_by='u',recorded_at='2026-11-07T01:00:00.000Z')
+    blocked('framework version cannot be a false content-free revision',
+        'INSERT INTO framework_versions(id,framework_id,version_no,name,'
+        'limit_fen,status,reason,changed_by,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_fw_bad_repeat','audit_framework',2,'年度新框架',1000,
+         'active','只改备注','u','2026-11-07T02:00:00.000Z'))
+    blocked('framework budget revision cannot backdate a formal version',
+        'INSERT INTO framework_versions(id,framework_id,version_no,name,'
+        'limit_fen,status,reason,changed_by,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_fw_bad_time','audit_framework',2,'新年度框架',5000,
+         'active','倒序','u','2026-11-07T00:59:59.000Z'))
+    add('framework_versions',id='audit_fw_v2',framework_id='audit_framework',
+        version_no=2,name='年度新框架',limit_fen=5000,status='active',
+        reason='正式扩大软额度',changed_by='u',recorded_at='2026-11-07T02:00:00.000Z')
+    add('agreements',id='audit_ag',code='AUDIT-AG-2026',
+        framework_id='audit_framework',created_at='2026-11-07T01:30:00.000Z')
+    blocked('agreement legal definition cannot predate agreement identity',
+        'INSERT INTO agreement_versions(id,agreement_id,version_no,name,'
+        'limit_fen,status,reason,changed_by,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_ag_bad_early','audit_ag',1,'初始协议',1000,'active',
+         '倒签','u','2026-11-07T01:00:00.000Z'))
+    add('agreement_versions',id='audit_ag_v1',agreement_id='audit_ag',
+        version_no=1,name='执行协议',limit_fen=3000,status='active',
+        reason='首次确认',changed_by='u',recorded_at='2026-11-07T02:00:00.000Z')
+    blocked('agreement version cannot repeat the same commercial facts',
+        'INSERT INTO agreement_versions(id,agreement_id,version_no,name,'
+        'limit_fen,status,reason,changed_by,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_ag_bad_repeat','audit_ag',2,'执行协议',3000,'active',
+         '仅重复内容','u','2026-11-07T03:00:00.000Z'))
+    blocked('agreement terms revision cannot be inserted in reverse time',
+        'INSERT INTO agreement_versions(id,agreement_id,version_no,name,'
+        'limit_fen,status,reason,changed_by,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_ag_bad_time','audit_ag',2,'执行协议',6000,'active',
+         '倒序','u','2026-11-07T01:59:59.000Z'))
+    add('agreement_versions',id='audit_ag_v2',agreement_id='audit_ag',
+        version_no=2,name='执行协议',limit_fen=6000,status='active',
+        reason='更新协议软额度',changed_by='u',recorded_at='2026-11-07T03:00:00.000Z')
+    add('projects',id='audit_project',code='AUDIT-P2026',name='审计资金归属项目',
+        framework_id='audit_framework',created_by='u',
+        created_at='2026-11-07T04:00:00.000Z',
+        updated_at='2026-11-07T04:00:00.000Z')
+    blocked('funding relationship cannot predate owning project identity',
+        'INSERT INTO project_funding_versions(id,project_id,version_no,'
+        'agreement_id,reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?)',
+        ('audit_fund_bad_early','audit_project',1,'audit_ag',
+         '倒签','u','2026-11-07T03:59:59.000Z'))
+    add('project_funding_versions',id='audit_fund_v1',
+        project_id='audit_project',version_no=1,agreement_id='audit_ag',
+        reason='首次关联执行协议',actor_id='u',
+        recorded_at='2026-11-07T04:00:00.000Z')
+    blocked('funding association cannot produce a redundant no-op version',
+        'INSERT INTO project_funding_versions(id,project_id,version_no,'
+        'agreement_id,reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?)',
+        ('audit_fund_bad_noop','audit_project',2,'audit_ag',
+         '重复选择相同协议','u','2026-11-07T05:00:00.000Z'))
+    blocked('funding association cannot point to agreement in another framework',
+        'INSERT INTO project_funding_versions(id,project_id,version_no,'
+        'agreement_id,reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?)',
+        ('audit_fund_bad_cross','audit_project',2,'ag2',
+         '其他框架协议','u','2026-11-07T05:00:00.000Z'))
+    add('project_funding_versions',id='audit_fund_v2',
+        project_id='audit_project',version_no=2,agreement_id=None,
+        reason='正式调整为无协议关联',actor_id='u',
+        recorded_at='2026-11-07T05:00:00.000Z')
+    ok('framework, agreement and funding current views use one latest version only',
+        row('SELECT limit_fen FROM v_framework_current WHERE id=?',
+            'audit_framework')['limit_fen']==5000
+        and row('SELECT limit_fen FROM v_agreement_current WHERE id=?',
+                'audit_ag')['limit_fen']==6000
+        and row('SELECT agreement_id FROM v_project_funding_current '
+                'WHERE project_id=?','audit_project')['agreement_id'] is None)
+finally:
+    db.execute('ROLLBACK TO full_financial_history_audit')
+    db.execute('RELEASE full_financial_history_audit')
+
+# Full-model temporal audit: a corrected cost, project management fact,
+# settlement snapshot or formal review event cannot precede its stable
+# identity or prior formal history. All cases are isolated, no production DB.
+db.execute('SAVEPOINT full_financial_temporal_audit')
+try:
+    tbase='2026-11-07T04:00:00.000Z'
+    # The prior audit project exists only inside the earlier savepoint and
+    # was rolled back. Reuse main approved p for version and settlement cases.
+    add('projects',id='temporal_root_p',code='AUDIT-TEMP-P',
+        name='结项前临时储备项目',framework_id='f',created_by='u',
+        created_at='2026-11-07T20:00:00.000Z')
+    blocked_reason('project approval identity cannot predate its project root',
+        'INSERT INTO project_approval_versions('
+        'id,project_id,version_no,snapshot_json,approved_budget_fen,created_at)'
+        ' VALUES(?,?,?,?,?,?)',
+        '项目批准草稿版本不能早于子项目创建或历史批准版本',
+        ('temporal_bad_approval','temporal_root_p',1,'{}',500,
+         '2026-11-07T19:59:59.000Z'))
+    add('settlements',id='temporal_settle',project_id='p',number='TEMPORAL-S',
+        created_by='u',created_at='2026-11-07T20:00:00.000Z')
+    blocked('settlement version cannot predate its stable statement identity',
+        'INSERT INTO settlement_versions(id,settlement_id,version_no,'
+        'approval_version_id,funding_version_id,change_type,reason,'
+        'created_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        ('temporal_settle_v1_bad','temporal_settle',1,'av2','fund2',
+         'initial','不能倒签正式结算','u','2026-11-07T19:59:59.000Z'))
+    add('settlement_versions',id='temporal_settle_v1',
+        settlement_id='temporal_settle',version_no=1,
+        approval_version_id='av2',funding_version_id='fund2',
+        change_type='initial',reason='核对结算时点',
+        created_by='u',recorded_at='2026-11-07T20:00:00.000Z')
+    add('settlement_items',id='temporal_settle_item',
+        settlement_id='temporal_settle',project_scope_id=None,
+        created_at='2026-11-07T20:00:00.000Z')
+    add('settlement_item_versions',id='temporal_settle_itemv1',
+        settlement_version_id='temporal_settle_v1',
+        settlement_item_id='temporal_settle_item',
+        approval_scope_version_id=None,quantity_scaled=0,amount_fen=100,
+        evidence='真实费用核对',scope_snapshot_json='{}')
+    blocked('settlement review event cannot predate submitted statement version',
+        'INSERT INTO settlement_review_events(id,settlement_version_id,'
+        'event_seq,action,reason,actor_id,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?)',
+        ('temporal_review_early','temporal_settle_v1',1,'submit','',
+         'u','2026-11-07T19:59:59.000Z'))
+    add('settlement_review_events',id='temporal_review_submit',
+        settlement_version_id='temporal_settle_v1',event_seq=1,
+        action='submit',actor_id='u',
+        recorded_at='2026-11-07T20:00:00.000Z')
+    blocked('settlement review event cannot reverse prior review time',
+        'INSERT INTO settlement_review_events(id,settlement_version_id,'
+        'event_seq,action,reason,actor_id,recorded_at,effective_on) '
+        'VALUES(?,?,?,?,?,?,?,?)',
+        ('temporal_review_older','temporal_settle_v1',2,'approve','',
+         'u','2026-11-07T19:59:59.000Z','2026-11-07'))
+    blocked('cost correction cannot predate original cost identity',
+        'INSERT INTO cost_versions(id,entry_id,cost_node_version_id,'
+        'funding_version_id,version_no,status,title,occurred_on,'
+        'amount_fen,evidence,reason,confirmed_by,confirmed_at,request_key) '
+        'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        ('temporal_cost_bad','audit_ce',
+         row('SELECT cost_node_version_id FROM cost_versions WHERE id=?',
+             'audit_cv2')['cost_node_version_id'],
+         'fund2',3,'active','违规倒签费用','2026-11-07',10000,
+         '真实凭据','倒签费用事实','u','2026-11-07T12:59:00.000Z',
+         'temporal_cost_bad'))
+    # Management definition V3 is otherwise valid, but cannot be backdated
+    # before latest recorded project owner/manager history.
+    prev=row('SELECT * FROM v_project_management_current WHERE project_id=?','p')
+    blocked('project management version cannot backdate a formal owner change',
+        'INSERT INTO project_management_versions('
+        'id,project_id,version_no,owner_id,manager_id,responsible_unit_id,'
+        'preliminary_estimate_fen,reason,actor_id,recorded_at) '
+        'VALUES(?,?,?,?,?,?,?,?,?,?)',
+        ('temporal_management_bad','p',prev['version_no']+1,
+         'u','u','ou',9000,'倒签责任和预估','u',
+         '2026-11-07T00:00:00.000Z'))
+finally:
+    db.execute('ROLLBACK TO full_financial_temporal_audit')
+    db.execute('RELEASE full_financial_temporal_audit')
+
+# Complete project-profile identity audit: project name, category, owners
+# and estimates are one full immutable version. The root never carries a
+# second mutable display name, category or redundant stage timestamp.
+db.execute('SAVEPOINT full_project_profile_audit')
+try:
+    add('dictionary_types',id='project_category',title='项目类别')
+    add('dictionary_items',id='audit_project_cat',
+        type_id='project_category',code='AUDIT-CAT',
+        created_at='2026-11-07T22:00:00.000Z')
+    add('dictionary_item_versions',id='audit_cat_v1',
+        item_id='audit_project_cat',version=1,name='线路设备维护',
+        status='active',reason='首次定义',changed_by='u',
+        changed_at='2026-11-07T22:00:00.000Z')
+    # Direct roots can only be persisted as short-lived transaction
+    # participants; stage transition cannot accept a missing V1 profile.
+    insert_raw('projects',id='profile_missing_v1',code='AUDIT-EMPTY-PROFILE',
+        framework_id='f',created_by='u',
+        created_at='2026-11-07T23:00:00.000Z')
+    blocked_reason('project cannot advance to stocked without its V1 profile',
+        'INSERT INTO project_stage_events('
+        'id,project_id,stage,project_version,reason,actor_id,created_at)'
+        ' VALUES(?,?,?,?,?,?,?)',
+        '子项目必须具有完整的首版名称与类别档案',
+        ('missing_profile_stage','profile_missing_v1','stocked',2,
+         '尚未建档','u','2026-11-07T23:00:01.000Z'))
+    blocked_reason('project stage event cannot predate project root creation',
+        'INSERT INTO project_stage_events('
+        'id,project_id,stage,project_version,reason,actor_id,created_at)'
+        ' VALUES(?,?,?,?,?,?,?)',
+        '子项目必须具有完整的首版名称与类别档案',
+        ('invalid_phase_time_missing_profile','profile_missing_v1','stocked',2,
+         '尚无档案','u','2026-11-07T22:59:59.000Z'))
+    insert_raw('project_management_versions',
+        id='profile_missing_v1_ver1',project_id='profile_missing_v1',
+        version_no=1,name='补录正式项目初始名称',
+        reason='补录第一版',actor_id='u',
+        recorded_at='2026-11-07T23:00:00.000Z')
+    blocked_reason('phase event must not predate project creation even with V1 profile',
+        'INSERT INTO project_stage_events('
+        'id,project_id,stage,project_version,reason,actor_id,created_at)'
+        ' VALUES(?,?,?,?,?,?,?)',
+        '子项目阶段事件不能早于项目建档或上一阶段事件',
+        ('backdated_project_stage','profile_missing_v1','stocked',2,
+         '倒签阶段','u','2026-11-07T22:59:59.000Z'))
+    stage('profile_missing_v1','stocked',time='2026-11-07T23:00:01.000Z')
+    ok('project enters stocked only after complete typed initial profile',
+        row('SELECT status FROM projects WHERE id=?','profile_missing_v1')
+         ['status']=='stocked')
+    add('projects',id='audit_profile_p',code='AUDIT-PROFILE',
+        name='首次建档的子项目名称',framework_id='f',
+        category_id='audit_project_cat',created_by='u',
+        created_at='2026-11-07T23:00:00.000Z')
+    rootcols={x['name'] for x in db.execute('PRAGMA table_info(projects)')}
+    ok('project root has no duplicated mutable name category or stage time',
+        'name' not in rootcols and 'category_id' not in rootcols
+        and 'updated_at' not in rootcols
+        and 'code' in rootcols and 'framework_id' in rootcols)
+    ok('project identity initial profile keeps typed category version and name',
+        row('SELECT name,category_id,category_version,version_no '
+            'FROM v_project_management_current WHERE project_id=?',
+            'audit_profile_p')['name']=='首次建档的子项目名称'
+        and row('SELECT category_version FROM v_project_management_current '
+            "WHERE project_id='audit_profile_p'")['category_version']==1)
+    blocked('project stable code cannot be silently changed after creation',
+        'UPDATE projects SET code=? WHERE id=?',
+        ('TEMP-ALTERED','audit_profile_p'))
+    blocked('project root cannot be deleted without immutable business history',
+        'DELETE FROM projects WHERE id=?',('audit_profile_p',))
+    blocked('a project profile revision without changed facts is rejected',
+        'INSERT INTO project_management_versions('
+        'id,project_id,version_no,name,category_id,category_version,'
+        'reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_profile_repeat','audit_profile_p',2,
+         '首次建档的子项目名称','audit_project_cat',1,'只换原因',
+         'u','2026-11-07T23:05:00.000Z'))
+    blocked('project category must be a real project-category dictionary type',
+        'INSERT INTO project_management_versions('
+        'id,project_id,version_no,name,category_id,category_version,'
+        'reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        ('audit_profile_wrong_type','audit_profile_p',2,
+         '新的项目名称','expense',1,'非法类别','u',
+         '2026-11-07T23:05:00.000Z'))
+    add('project_management_versions',id='audit_profile_v2',
+        project_id='audit_profile_p',version_no=2,name='正式更名后的子项目',
+        reason='业务名称核定',actor_id='u',
+        recorded_at='2026-11-07T23:05:00.000Z')
+    ok('project name changes use immutable full profile history',
+        row('SELECT name FROM v_project_management_current WHERE project_id=?',
+            'audit_profile_p')['name']=='正式更名后的子项目'
+        and row('SELECT name FROM project_management_versions '
+            "WHERE id='project_profile_audit_profile_p_v1'")['name']
+            =='首次建档的子项目名称'
+        and row('SELECT category_version FROM project_management_versions '
+            "WHERE id='audit_profile_v2'")['category_version']==1)
+    add('dictionary_item_versions',id='audit_cat_v2',
+        item_id='audit_project_cat',version=2,name='输电设备维护',
+        status='active',reason='类别名称修订',changed_by='u',
+        changed_at='2026-11-07T23:06:00.000Z')
+    blocked_reason('project cannot pin a category definition from the future',
+        'INSERT INTO project_management_versions('
+        'id,project_id,version_no,name,category_id,category_version,'
+        'reason,actor_id,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        '项目正式类别不能引用该版本登记之后才发布的字典名称',
+        ('audit_profile_future_category','audit_profile_p',3,
+         '正式更名后的子项目','audit_project_cat',2,
+         '不能倒签字典版本','u','2026-11-07T23:05:30.000Z'))
+    add('project_management_versions',id='audit_profile_v3',
+        project_id='audit_profile_p',version_no=3,
+        name='正式更名后的子项目',
+        category_id='audit_project_cat',category_version=2,
+        reason='采用新版类别名称',actor_id='u',
+        recorded_at='2026-11-07T23:07:00.000Z')
+    ok('category master redefinition never overwrites historic project choice',
+        row('SELECT category_version FROM v_project_management_current '
+            "WHERE project_id='audit_profile_p'")['category_version']==2
+        and row('SELECT category_version FROM project_management_versions '
+            "WHERE id='audit_profile_v2'")['category_version']==1
+        and row('SELECT name FROM dictionary_item_versions '
+            "WHERE id='audit_cat_v1'")['name']=='线路设备维护')
+    blocked('published project identity version cannot be altered in place',
+        'UPDATE project_management_versions SET name=? WHERE id=?',
+        ('私自覆盖历史名称','audit_profile_v2'))
+finally:
+    db.execute('ROLLBACK TO full_project_profile_audit')
+    db.execute('RELEASE full_project_profile_audit')
+
+# Non-financial immutable factual audit: human duplicate-demand decisions,
+# transactional idempotency receipts and canonical voltage classifications.
+db.execute('SAVEPOINT full_import_security_audit')
+try:
+    add('demand_batches',id='audit_duplicate_batch',draft_json='[]',
+        created_by='u',created_at='2026-11-07T23:00:00.000Z',
+        updated_at='2026-11-07T23:00:00.000Z')
+    add('demand_duplicate_reviews',id='audit_dup_decision',
+        batch_id='audit_duplicate_batch',matched_demand_id='d',
+        decision='separate',reason='同杆塔不同处理事项，经复核独立保留',
+        actor_id='u',created_at='2026-11-07T23:01:00.000Z')
+    blocked('human duplicate-demand decision is never silently overwritten',
+        'UPDATE demand_duplicate_reviews SET decision=? WHERE id=?',
+        ('link','audit_dup_decision'))
+    blocked('human duplicate-demand decision history cannot be erased',
+        'DELETE FROM demand_duplicate_reviews WHERE id=?',
+        ('audit_dup_decision',))
+    add('demand_duplicate_reviews',id='audit_dup_review_again',
+        batch_id='audit_duplicate_batch',matched_demand_id='d',
+        decision='link',reason='复核后追加新意见，不覆盖历史结论',
+        actor_id='u',created_at='2026-11-07T23:02:00.000Z')
+    ok('duplicate demand can be re-reviewed with a new auditable decision',
+        row('SELECT COUNT(*) n FROM demand_duplicate_reviews '
+            "WHERE batch_id='audit_duplicate_batch'")['n']==2)
+    blocked('idempotency request cannot use nonexistent actor identity',
+        'INSERT INTO ledger_requests(request_key,actor_id,request_hash,'
+        'result_json,created_at) VALUES(?,?,?,?,?)',
+        ('audit_ghost_receipt','ghost','a'*64,'{}',
+         '2026-11-07T23:01:00.000Z'))
+    blocked('idempotency receipt rejects unstructured response text',
+        'INSERT INTO ledger_requests(request_key,actor_id,request_hash,'
+        'result_json,created_at) VALUES(?,?,?,?,?)',
+        ('audit_bad_json_receipt','u','a'*64,'garbled',
+         '2026-11-07T23:01:00.000Z'))
+    blocked('idempotency receipt rejects non-sha256 fingerprint',
+        'INSERT INTO ledger_requests(request_key,actor_id,request_hash,'
+        'result_json,created_at) VALUES(?,?,?,?,?)',
+        ('audit_bad_hash_receipt','u','bad','{}',
+         '2026-11-07T23:01:00.000Z'))
+    add('ledger_requests',request_key='audit_receipt_valid',actor_id='u',
+        request_hash='a'*64,result_json='{"result":"accepted"}',
+        created_at='2026-11-07T23:02:00.000Z')
+    blocked('confirmed idempotency result cannot be replayed with new answer',
+        'UPDATE ledger_requests SET result_json=? WHERE request_key=?',
+        ('{"result":"changed"}','audit_receipt_valid'))
+    blocked('confirmed idempotency request cannot be removed',
+        'DELETE FROM ledger_requests WHERE request_key=?',
+        ('audit_receipt_valid',))
+    blocked('voltage classification name cannot silently relabel old towers',
+        'UPDATE voltage_levels SET name=? WHERE id=?',
+        ('私自更名为错误电压','vol'))
+    blocked('voltage classification code is stable despite label reorder',
+        'UPDATE voltage_levels SET code=? WHERE id=?',
+        ('220','vol'))
+    db.execute('UPDATE voltage_levels SET sort_order=sort_order+1 WHERE id=?',
+        ('vol',))
+    ok('voltage display order can change without corrupting historical identity',
+        row('SELECT code,name FROM voltage_levels WHERE id=?','vol')['code']
+            =='110')
+finally:
+    db.execute('ROLLBACK TO full_import_security_audit')
+    db.execute('RELEASE full_import_security_audit')
+
+# Organizational history: a unit rename/reparent must not retroactively
+# relabel project responsibility already approved in an older profile.
+db.execute('SAVEPOINT full_organization_history_audit')
+try:
+    ok('existing project responsibility pins one exact organization definition',
+        row('SELECT responsible_unit_version_id FROM project_management_versions '
+            "WHERE id='mgt1'")['responsible_unit_version_id']=='ou_v1')
+    add('organizational_unit_versions',id='ou_v2',
+        unit_id='ou',version_no=2,name='输电运检中心（正式更名）',
+        parent_unit_id=None,status='active',reason='单位名称变更',
+        actor_id='u',recorded_at='2026-11-08T02:00:00.000Z')
+    ok('organizational rename retains old profile identity and original unit name',
+        row('SELECT name FROM v_organizational_unit_current '
+            "WHERE id='ou'")['name']=='输电运检中心（正式更名）'
+        and row('SELECT name FROM organizational_unit_versions '
+            "WHERE id='ou_v1'")['name']=='输电运检中心'
+        and row('SELECT responsible_unit_version_id FROM project_management_versions '
+            "WHERE id='mgt2'")['responsible_unit_version_id']=='ou_v1')
+    blocked_reason('organization cannot create a content-free duplicate version',
+        'INSERT INTO organizational_unit_versions('
+        'id,unit_id,version_no,name,parent_unit_id,status,reason,actor_id,recorded_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?)',
+        '组织单位名称、上级和状态均未变动',
+        ('ou_bad_duplicate','ou',3,'输电运检中心（正式更名）',
+         None,'active','只有不同备注','u','2026-11-08T02:01:00.000Z'))
+    blocked('organizational identity code is immutable',
+        'UPDATE organizational_units SET code=? WHERE id=?',
+        ('BAD-T-OPS','ou'))
+    blocked('old unit definition cannot be silently overwritten',
+        'UPDATE organizational_unit_versions SET name=? WHERE id=?',
+        ('非法覆盖历史组织名','ou_v1'))
+    blocked_reason('project cannot pin a responsible organization from the future',
+        'INSERT INTO project_management_versions('
+        'id,project_id,version_no,name,responsible_unit_id,'
+        'responsible_unit_version_id,reason,actor_id,recorded_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?)',
+        '项目责任历史不能引用未来才登记的组织单位版本',
+        ('mgt_future_org','p',4,'无协议子项目','ou','ou_v2',
+         '不能引用未来组织','u','2026-11-07T19:30:00.000Z'))
+    blocked('project responsibility cannot pair different organization root and version',
+        'INSERT INTO project_management_versions('
+        'id,project_id,version_no,name,responsible_unit_id,'
+        'responsible_unit_version_id,reason,actor_id,recorded_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?)',
+        ('mgt_cross_org','p',4,'无协议子项目','ou','childou_v1',
+         '单位身份错配','u','2026-11-08T02:01:00.000Z'))
+    add('project_management_versions',id='mgt_using_new_org',
+        project_id='p',version_no=4,owner_id='u',manager_id='u',
+        responsible_unit_id='ou',responsible_unit_version_id='ou_v2',
+        planned_start_on='2026-11-08',planned_end_on='2026-12-31',
+        preliminary_estimate_fen=8000,
+        preliminary_estimate_basis='范围核定后估算',
+        reason='正式确认新单位名称',actor_id='u',
+        recorded_at='2026-11-08T02:02:00.000Z')
+    ok('new project management profile can explicitly select latest unit version',
+        row('SELECT responsible_unit_version_id FROM v_project_management_current '
+            "WHERE project_id='p'")['responsible_unit_version_id']=='ou_v2'
+        and row('SELECT responsible_unit_version_id FROM project_management_versions '
+            "WHERE id='mgt1'")['responsible_unit_version_id']=='ou_v1')
+    add('organizational_unit_versions',id='childou_v2',
+        unit_id='childou',version_no=2,name='输电班组',
+        parent_unit_id=None,status='active',reason='班组正式调整为直属单位',
+        actor_id='u',recorded_at='2026-11-08T03:00:00.000Z')
+    ok('historic organization parent is preserved when its structure changes',
+        row('SELECT parent_unit_id FROM organizational_unit_versions '
+            "WHERE id='childou_v1'")['parent_unit_id']=='ou'
+        and row('SELECT parent_unit_id FROM v_organizational_unit_current '
+            "WHERE id='childou'")['parent_unit_id'] is None)
+finally:
+    db.execute('ROLLBACK TO full_organization_history_audit')
+    db.execute('RELEASE full_organization_history_audit')
+
+# Master reference catalogs are historical identities, not mutable
+# lookups. All fresh versions must be no earlier than their object root.
+db.execute('SAVEPOINT full_catalog_history_audit')
+try:
+    blocked_reason('dictionary history must never predate its dictionary root',
+        'INSERT INTO dictionary_item_versions('
+        'id,item_id,version,name,status,reason,changed_by,changed_at)'
+        ' VALUES(?,?,?,?,?,?,?,?)',
+        '字典正式定义不得早于根身份或上一历史版本',
+        ('unit_bad_past','unit',3,'台', 'active','非法倒签','u',
+         '2026-11-06T23:59:59.000Z'))
+    blocked_reason('unchanged dictionary content cannot fake a new version',
+        'INSERT INTO dictionary_item_versions('
+        'id,item_id,version,name,status,reason,changed_by,changed_at)'
+        ' VALUES(?,?,?,?,?,?,?,?)',
+        '字典定义没有真实变化，不允许新增空版本',
+        ('unit_bad_duplicate','unit',3,'组','active','空版本','u',
+         '2026-11-07T00:05:00.000Z'))
+    blocked_reason('work object historical version cannot predate root',
+        'INSERT INTO work_object_versions('
+        'id,work_object_id,version_no,name,work_target_type,status,reason,'
+        'changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        '作业对象正式版本不得倒签或早于根身份',
+        ('obj_early','obj',2,'新绝缘子','line','active','倒签','u',
+         '2026-11-06T23:59:59.000Z'))
+    blocked_reason('same work object definition cannot create an empty version',
+        'INSERT INTO work_object_versions('
+        'id,work_object_id,version_no,name,work_target_type,status,reason,'
+        'changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        '作业对象定义无变化，不得新增空历史',
+        ('obj_repeat','obj',2,'绝缘子','line','active','只改备注','u',
+         '2026-11-07T00:01:00.000Z'))
+    blocked_reason('operation version must change actual operation definition',
+        'INSERT INTO operation_versions('
+        'id,operation_id,version,name,status,work_target_type,work_object_id,'
+        'default_unit_id,default_unit_version,allow_tower,allow_span,'
+        'default_location_kind,reason,changed_by,changed_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        '操作类型正式版本没有真实定义变化，不允许空改版',
+        ('op_duplicate','op',2,'更换','active','line','obj','unit',1,
+         1,0,'tower','无实质定义变化','u','2026-11-07T23:10:00.000Z'))
+    blocked_reason('operation definition cannot predate original template',
+        'INSERT INTO operation_versions('
+        'id,operation_id,version,name,status,work_target_type,work_object_id,'
+        'default_unit_id,default_unit_version,allow_tower,allow_span,'
+        'default_location_kind,reason,changed_by,changed_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        '操作类型完整定义不得早于根身份或上一正式版本',
+        ('op_early','op',2,'拆除','active','line','obj','unit',1,
+         1,0,'tower','倒签','u','2026-11-06T23:59:59.000Z'))
+    add('reference_price_catalog',id='price_history_audit',
+        code='AUDIT-PRICE',created_by='u',
+        created_at='2026-11-07T23:10:00.000Z')
+    blocked_reason('reference price history cannot predate catalog root',
+        'INSERT INTO reference_price_versions('
+        'id,catalog_id,version_no,title,operation_id,operation_version,'
+        'unit_id,unit_version,status,unit_price_fen,price_source,price_date,'
+        'tax_mode,effective_on,basis,reason,created_by,created_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        '参考价正式版本不能早于根目录或上一价格历史',
+        ('price_bad_past','price_history_audit',1,'安装单价','op',1,
+         'unit',1,'active',300,'标准参考','2026-11-07','inclusive',
+         '2026-11-07','历史价格依据','非法倒签','u',
+         '2026-11-07T23:09:59.000Z'))
+    add('reference_price_versions',id='price_v1',catalog_id='price_history_audit',
+        version_no=1,title='单价依据',operation_id='op',operation_version=1,
+        unit_id='unit',unit_version=1,status='active',unit_price_fen=300,
+        price_source='标准参考',price_date='2026-11-07',tax_mode='inclusive',
+        effective_on='2026-11-07',basis='标准价格明细',reason='首次',
+        created_by='u',created_at='2026-11-07T23:10:00.000Z')
+    blocked_reason('reference price history needs real changed price or parameters',
+        'INSERT INTO reference_price_versions('
+        'id,catalog_id,version_no,title,operation_id,operation_version,'
+        'unit_id,unit_version,status,unit_price_fen,price_source,price_date,'
+        'tax_mode,effective_on,basis,reason,created_by,created_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        '参考价正式版本没有真实价格或分类依据变化，不允许空改版',
+        ('price_repeat','price_history_audit',2,'单价依据','op',1,
+         'unit',1,'active',300,'标准参考','2026-11-07','inclusive',
+         '2026-11-07','标准价格明细','只改原因','u',
+         '2026-11-07T23:10:01.000Z'))
+    blocked_reason('revised reference price cannot be backdated',
+        'INSERT INTO reference_price_versions('
+        'id,catalog_id,version_no,title,operation_id,operation_version,'
+        'unit_id,unit_version,status,unit_price_fen,price_source,price_date,'
+        'tax_mode,effective_on,basis,reason,created_by,created_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        '参考价正式版本不能早于根目录或上一价格历史',
+        ('price_v2_bad','price_history_audit',2,'新单价','op',1,
+         'unit',1,'active',450,'标准参考','2026-11-07','inclusive',
+         '2026-11-07','标准价格明细','倒签','u',
+         '2026-11-07T23:09:59.000Z'))
+finally:
+    db.execute('ROLLBACK TO full_catalog_history_audit')
+    db.execute('RELEASE full_catalog_history_audit')
+
+# Complete append-only-history sweep: a formally published operation
+# definition or voltage identity must remain even if no downstream record
+# currently cites it.
+db.execute('SAVEPOINT published_reference_delete_audit')
+try:
+    add('operations',id='op_delete_guard',code='OP-DELETE-CHECK',
+        created_at='2026-11-07T23:10:00.000Z')
+    add('operation_versions',id='op_delete_guard_v1',
+        operation_id='op_delete_guard',version=1,
+        name='独立正式操作定义',status='active',work_target_type='line',
+        work_object_id='obj',default_unit_id='unit',default_unit_version=1,
+        allow_tower=1,allow_span=0,default_location_kind='tower',
+        reason='正式发布',changed_by='u',
+        changed_at='2026-11-07T23:10:00.000Z')
+    blocked_reason('unreferenced published operation version remains immutable',
+        'DELETE FROM operation_versions WHERE id=?',
+        '操作类型正式历史不可删除',('op_delete_guard_v1',))
+    add('voltage_levels',id='vol_delete_guard',code='AUDIT-35',
+        name='35kV')
+    blocked_reason('unreferenced voltage identity remains stable master data',
+        'DELETE FROM voltage_levels WHERE id=?',
+        '电压等级稳定身份不可删除',('vol_delete_guard',))
+finally:
+    db.execute('ROLLBACK TO published_reference_delete_audit')
+    db.execute('RELEASE published_reference_delete_audit')
 
 ok("current SQLite integrity",row("PRAGMA integrity_check")[0]=="ok")
 ok("current SQLite FK integrity",not db.execute("PRAGMA foreign_key_check").fetchall())

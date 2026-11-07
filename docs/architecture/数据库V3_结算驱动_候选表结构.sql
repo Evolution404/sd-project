@@ -3,9 +3,11 @@
 -- Stable settlement business identity, whole-document snapshots, versioned
 -- details, audit events and current/as-of history views.
 -- No frontend/backend changes are authorized.
--- Main stable chain: annual framework -> project -> approved project scope ->
--- independent material movement and real cost facts; settlement documents are separate
--- full versioned documents linked to the project, NEVER prerequisites to actuals.
+-- Main stable chain: annual framework -> project -> approved project scope
+-- and full immutable management/profile history -> independent real cost facts
+-- -> separately approved installment settlements -> audited reconciliations.
+-- No independent material issue/return, work-completion, or parallel
+-- cost-allocation ledger. Cost facts may exist before any settlement document.
 -- Money is integer fen, quantity integer scaled by 10000.
 -- Maintenance plan and plan budget entity layers deliberately absent.
 -- Each span stores ONLY transmission-center custody length; NULL means unknown.
@@ -595,36 +597,64 @@ CREATE TABLE agreement_versions (
 
 
 
+-- Stable project identity only. Name/category belong to the complete
+-- immutable project management/profile version; do not duplicate mutable
+-- descriptions on the project root without an actual revision.
 CREATE TABLE projects (
- id TEXT NOT NULL PRIMARY KEY, code TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
+ id TEXT NOT NULL PRIMARY KEY, code TEXT NOT NULL UNIQUE,
  framework_id TEXT NOT NULL REFERENCES frameworks(id) ON DELETE RESTRICT,
- category_id TEXT REFERENCES dictionary_items(id) ON DELETE RESTRICT,
  status TEXT NOT NULL DEFAULT 'reserve' CHECK(status IN ('reserve','stocked','approved','closed')),
  version INTEGER NOT NULL DEFAULT 1,
  created_by TEXT NOT NULL REFERENCES users(id),
- created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
- updated_at TEXT NOT NULL CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0)))
+ created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)))
 ) STRICT;
 
 
 -- Agreement association is optional, but every change is a typed immutable
 -- version; projects store their permanent framework identity only.
+-- Organization unit has stable code; later name, hierarchy or activation
+-- changes are complete typed immutable versions, never silent root UPDATEs.
 CREATE TABLE organizational_units (
  id TEXT NOT NULL PRIMARY KEY,
- code TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(code))>0),
- name TEXT NOT NULL CHECK(length(trim(name))>0),
- parent_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
- status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','inactive')),
- CHECK(parent_id IS NULL OR parent_id<>id)
+ code TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK(length(trim(code))>0)
 ) STRICT;
+
+CREATE TABLE organizational_unit_versions (
+ id TEXT NOT NULL PRIMARY KEY,
+ unit_id TEXT NOT NULL REFERENCES organizational_units(id) ON DELETE RESTRICT,
+ version_no INTEGER NOT NULL CHECK(version_no>0),
+ name TEXT NOT NULL CHECK(length(trim(name))>0),
+ parent_unit_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
+ status TEXT NOT NULL CHECK(status IN ('active','inactive')),
+ reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
+  COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
+ UNIQUE(unit_id,version_no),
+ UNIQUE(id,unit_id),
+ CHECK(parent_unit_id IS NULL OR parent_unit_id<>unit_id)
+) STRICT;
+
+CREATE VIEW v_organizational_unit_current AS
+SELECT u.id,u.code,v.id AS unit_version_id,v.version_no,
+ v.name,v.parent_unit_id,v.status,v.recorded_at
+FROM organizational_units u
+JOIN organizational_unit_versions v ON v.unit_id=u.id
+WHERE v.version_no=(SELECT MAX(x.version_no)
+ FROM organizational_unit_versions x WHERE x.unit_id=u.id);
 
 CREATE TABLE project_management_versions (
  id TEXT NOT NULL PRIMARY KEY,
  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  version_no INTEGER NOT NULL CHECK(version_no>0),
+ -- Complete immutable project profile: no second mutable name/category root.
+ name TEXT NOT NULL CHECK(length(trim(name))>0),
+ category_id TEXT REFERENCES dictionary_items(id) ON DELETE RESTRICT,
+ category_version INTEGER,
  owner_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
  manager_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
  responsible_unit_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
+ responsible_unit_version_id TEXT,
  planned_start_on TEXT CHECK(planned_start_on IS NULL OR
   (length(planned_start_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(planned_start_on))=planned_start_on,0))),
  planned_end_on TEXT CHECK(planned_end_on IS NULL OR
@@ -636,6 +666,12 @@ CREATE TABLE project_management_versions (
  recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
  UNIQUE(project_id,version_no),
+ FOREIGN KEY(category_id,category_version)
+  REFERENCES dictionary_item_versions(item_id,version) ON DELETE RESTRICT,
+ FOREIGN KEY(responsible_unit_version_id,responsible_unit_id)
+  REFERENCES organizational_unit_versions(id,unit_id) ON DELETE RESTRICT,
+ CHECK((category_id IS NULL)=(category_version IS NULL)),
+ CHECK((responsible_unit_id IS NULL)=(responsible_unit_version_id IS NULL)),
  CHECK(planned_start_on IS NULL OR planned_end_on IS NULL OR planned_end_on>=planned_start_on)
 ) STRICT;
 
@@ -760,8 +796,15 @@ CREATE TABLE line_span_history (
 ) STRICT;
 
 
+-- Transactional API idempotency record, not a second finance/event ledger.
+-- Once a request has a result, it must not be overwritten or impersonated.
 CREATE TABLE ledger_requests (
- request_key TEXT PRIMARY KEY,actor_id TEXT NOT NULL,request_hash TEXT NOT NULL,result_json TEXT NOT NULL,created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)))
+ request_key TEXT PRIMARY KEY CHECK(length(trim(request_key))>0),
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ request_hash TEXT NOT NULL CHECK(length(request_hash)=64 AND
+   request_hash NOT GLOB '*[^0-9a-f]*'),
+ result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+ created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)))
 ) STRICT;
 
 
@@ -1125,7 +1168,6 @@ CREATE TABLE cost_versions (
  UNIQUE(entry_id,version_no)
 ) STRICT;
 
--- Stable allocation identity; corrected allocations are append-only revisions.
 
 
 
@@ -1324,8 +1366,11 @@ BEGIN
  SELECT CASE WHEN NEW.status IN ('approved','closed')
  THEN RAISE(ABORT,'正式立项需要已有的项目批准版本，先创建储备项目') END;
 END;
-CREATE TRIGGER project_home_update BEFORE UPDATE OF framework_id ON projects
-BEGIN SELECT RAISE(ABORT,'项目所属年度框架是稳定身份，不允许直接改挂'); END;
+CREATE TRIGGER project_home_update
+ BEFORE UPDATE OF id,code,framework_id,created_by,created_at ON projects
+BEGIN SELECT RAISE(ABORT,'子项目根身份、编码和框架归属不允许直接改写；名称与类别须创建正式档案版本'); END;
+CREATE TRIGGER project_root_immutable_delete BEFORE DELETE ON projects
+BEGIN SELECT RAISE(ABORT,'已建档子项目不能删除；使用业务阶段和正式历史保留审计'); END;
 CREATE TRIGGER project_approved_status_guard
  BEFORE UPDATE OF status ON projects
  WHEN NEW.status IN ('approved','closed')
@@ -1345,6 +1390,14 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM project_funding_versions v WHERE v.project_id=NEW.project_id)
  THEN RAISE(ABORT,'项目资金关联版本号必须连续') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT p.created_at FROM projects p WHERE p.id=NEW.project_id)
+ THEN RAISE(ABORT,'资金关联历史不能早于所属子项目创建') END;
+ SELECT CASE WHEN NEW.version_no>1 AND
+ NEW.agreement_id IS (SELECT prior.agreement_id
+  FROM project_funding_versions prior WHERE prior.project_id=NEW.project_id
+  AND prior.version_no=NEW.version_no-1)
+ THEN RAISE(ABORT,'资金归属协议未发生变化，不得产生无效历史版本') END;
  SELECT CASE WHEN NEW.agreement_id IS NOT NULL AND NOT EXISTS(
  SELECT 1 FROM projects p JOIN agreements a ON a.framework_id=p.framework_id
  WHERE p.id=NEW.project_id AND a.id=NEW.agreement_id)
@@ -1362,6 +1415,12 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM project_approval_versions v WHERE v.project_id=NEW.project_id)
  THEN RAISE(ABORT,'项目批准版本号必须连续') END;
+ SELECT CASE WHEN NEW.created_at<
+ (SELECT p.created_at FROM projects p WHERE p.id=NEW.project_id)
+ OR NEW.created_at<
+ (SELECT MAX(a.created_at) FROM project_approval_versions a
+  WHERE a.project_id=NEW.project_id)
+ THEN RAISE(ABORT,'项目批准草稿版本不能早于子项目创建或历史批准版本') END;
  SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
  SELECT 1 FROM project_approval_versions prev WHERE prev.project_id=NEW.project_id
  AND prev.version_no=NEW.version_no-1 AND prev.status<>'approved')
@@ -1522,7 +1581,8 @@ END;
 -- Retained original asset, demand, category or audit rule.
 CREATE TRIGGER immutable_operation_version_update BEFORE UPDATE ON operation_versions
 BEGIN SELECT RAISE(ABORT,'操作类型历史版本不可修改'); END;
--- The archive is captured in audit_events before deleting a completely unused operation.
+CREATE TRIGGER immutable_operation_version_delete BEFORE DELETE ON operation_versions
+BEGIN SELECT RAISE(ABORT,'操作类型正式历史不可删除'); END;
 
 
 -- The first span of a branch must connect its confirmed junction tower on
@@ -1592,8 +1652,6 @@ BEGIN
  THEN RAISE(ABORT,'需求档距版本已变化') END;
 END;
 
--- A plan item can only reserve the scope approved for its own project.
-
 
 -- Retained original asset, demand, category or audit rule.
 CREATE TRIGGER change_order_project_insert BEFORE INSERT ON project_change_orders
@@ -1625,19 +1683,14 @@ BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM dictionary_items
 
 
 -- Retained original asset, demand, category or audit rule.
-CREATE TRIGGER project_category_insert BEFORE INSERT ON projects
+CREATE TRIGGER project_management_category_insert
+ BEFORE INSERT ON project_management_versions
 WHEN NEW.category_id IS NOT NULL
-BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM dictionary_items
- WHERE id=NEW.category_id AND type_id='project_category')
- THEN RAISE(ABORT,'项目类别必须引用项目类别字典') END; END;
-
-
--- Retained original asset, demand, category or audit rule.
-CREATE TRIGGER project_category_update BEFORE UPDATE OF category_id ON projects
-WHEN NEW.category_id IS NOT NULL
-BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM dictionary_items
- WHERE id=NEW.category_id AND type_id='project_category')
- THEN RAISE(ABORT,'项目类别必须引用项目类别字典') END; END;
+BEGIN SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM dictionary_items item
+ JOIN dictionary_item_versions v ON v.item_id=item.id AND v.version=NEW.category_version
+ WHERE item.id=NEW.category_id AND item.type_id='project_category')
+ THEN RAISE(ABORT,'子项目正式档案的类别必须引用对应项目类别字典的准确版本') END; END;
 
 
 -- Retained original asset, demand, category or audit rule.
@@ -1646,9 +1699,22 @@ BEGIN SELECT RAISE(ABORT,'基础字典项的编码与类型属于稳定身份');
 CREATE TRIGGER dictionary_item_root_immutable_delete BEFORE DELETE ON dictionary_items
 BEGIN SELECT RAISE(ABORT,'已建档的字典身份不可删除'); END;
 CREATE TRIGGER dictionary_item_version_sequence BEFORE INSERT ON dictionary_item_versions
-BEGIN SELECT CASE WHEN NEW.version<>(SELECT COALESCE(MAX(v.version),0)+1
+BEGIN
+ SELECT CASE WHEN NEW.version<>(SELECT COALESCE(MAX(v.version),0)+1
  FROM dictionary_item_versions v WHERE v.item_id=NEW.item_id)
- THEN RAISE(ABORT,'字典版本必须从1连续递增') END; END;
+ THEN RAISE(ABORT,'字典版本必须从1连续递增') END;
+ SELECT CASE WHEN NEW.changed_at<
+ (SELECT i.created_at FROM dictionary_items i WHERE i.id=NEW.item_id)
+ OR NEW.changed_at<
+ (SELECT MAX(v.changed_at) FROM dictionary_item_versions v WHERE v.item_id=NEW.item_id)
+ THEN RAISE(ABORT,'字典正式定义不得早于根身份或上一历史版本') END;
+ SELECT CASE WHEN NEW.version>1 AND EXISTS(
+ SELECT 1 FROM dictionary_item_versions previous
+ WHERE previous.item_id=NEW.item_id AND previous.version=NEW.version-1
+ AND previous.name=NEW.name AND previous.status=NEW.status
+ AND previous.sort_order=NEW.sort_order AND previous.fields_json=NEW.fields_json)
+ THEN RAISE(ABORT,'字典定义没有真实变化，不允许新增空版本') END;
+END;
 CREATE TRIGGER dictionary_item_version_immutable_update BEFORE UPDATE ON dictionary_item_versions
 BEGIN SELECT RAISE(ABORT,'字典版本历史不可覆盖'); END;
 CREATE TRIGGER dictionary_item_version_immutable_delete BEFORE DELETE ON dictionary_item_versions
@@ -1880,6 +1946,12 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM settlement_versions v WHERE v.settlement_id=NEW.settlement_id)
  THEN RAISE(ABORT,'结算版本号必须连续增加') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT settle.created_at FROM settlements settle WHERE settle.id=NEW.settlement_id)
+ OR NEW.recorded_at<
+ (SELECT MAX(v.recorded_at) FROM settlement_versions v
+  WHERE v.settlement_id=NEW.settlement_id)
+ THEN RAISE(ABORT,'结算正式版本不得早于单据身份创建或上一版本登记') END;
  SELECT CASE WHEN NEW.version_no>1 AND
  (SELECT x.id FROM settlement_versions x WHERE x.settlement_id=NEW.settlement_id
  ORDER BY x.version_no DESC LIMIT 1) IS NOT NEW.previous_version_id
@@ -1970,6 +2042,12 @@ BEGIN
  SELECT CASE WHEN NEW.event_seq<>(SELECT COALESCE(MAX(e.event_seq),0)+1
  FROM settlement_review_events e WHERE e.settlement_version_id=NEW.settlement_version_id)
  THEN RAISE(ABORT,'结算审核事件序号必须连续增加') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT sv.recorded_at FROM settlement_versions sv WHERE sv.id=NEW.settlement_version_id)
+ OR NEW.recorded_at<
+ (SELECT MAX(e.recorded_at) FROM settlement_review_events e
+  WHERE e.settlement_version_id=NEW.settlement_version_id)
+ THEN RAISE(ABORT,'结算审核记录不得早于正式单据版本或上一审核事件') END;
  SELECT CASE WHEN NEW.action='submit' AND
  COALESCE((SELECT e.action FROM settlement_review_events e
  WHERE e.settlement_version_id=NEW.settlement_version_id
@@ -2237,17 +2315,61 @@ BEGIN SELECT RAISE(ABORT,'执行协议历史身份不可删除'); END;
 CREATE TRIGGER work_object_root_immutable_delete BEFORE DELETE ON work_objects
 BEGIN SELECT RAISE(ABORT,'标准作业对象历史身份不可删除'); END;
 CREATE TRIGGER framework_version_sequential_insert BEFORE INSERT ON framework_versions
-BEGIN SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
+BEGIN
+ SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM framework_versions v WHERE v.framework_id=NEW.framework_id)
- THEN RAISE(ABORT,'年度框架版本必须连续') END; END;
+ THEN RAISE(ABORT,'年度框架版本必须连续') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT f.created_at FROM frameworks f WHERE f.id=NEW.framework_id)
+ OR NEW.recorded_at<
+ (SELECT MAX(v.recorded_at) FROM framework_versions v WHERE v.framework_id=NEW.framework_id)
+ THEN RAISE(ABORT,'年度框架正式版本不能早于其根身份或上一版本') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+ SELECT 1 FROM framework_versions previous WHERE previous.framework_id=NEW.framework_id
+ AND previous.version_no=NEW.version_no-1
+ AND previous.name=NEW.name AND previous.limit_fen=NEW.limit_fen
+ AND previous.status=NEW.status)
+ THEN RAISE(ABORT,'年度框架正式版本必须改变额度、名称或启停状态') END;
+END;
 CREATE TRIGGER agreement_version_sequential_insert BEFORE INSERT ON agreement_versions
-BEGIN SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
+BEGIN
+ SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM agreement_versions v WHERE v.agreement_id=NEW.agreement_id)
- THEN RAISE(ABORT,'执行协议版本必须连续') END; END;
+ THEN RAISE(ABORT,'执行协议版本必须连续') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT a.created_at FROM agreements a WHERE a.id=NEW.agreement_id)
+ OR NEW.recorded_at<
+ (SELECT MAX(v.recorded_at) FROM agreement_versions v WHERE v.agreement_id=NEW.agreement_id)
+ THEN RAISE(ABORT,'执行协议正式版本不能早于其根身份或上一版本') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+ SELECT 1 FROM agreement_versions previous WHERE previous.agreement_id=NEW.agreement_id
+ AND previous.version_no=NEW.version_no-1
+ AND previous.name=NEW.name AND previous.limit_fen=NEW.limit_fen
+ AND previous.contract_number IS NEW.contract_number
+ AND previous.counterparty_name IS NEW.counterparty_name
+ AND previous.signed_on IS NEW.signed_on
+ AND previous.effective_from IS NEW.effective_from
+ AND previous.effective_to IS NEW.effective_to
+ AND previous.status=NEW.status)
+ THEN RAISE(ABORT,'执行协议正式版本必须改变真实合同条款、额度或状态') END;
+END;
 CREATE TRIGGER work_object_version_sequential_insert BEFORE INSERT ON work_object_versions
-BEGIN SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
+BEGIN
+ SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM work_object_versions v WHERE v.work_object_id=NEW.work_object_id)
- THEN RAISE(ABORT,'标准作业对象版本必须连续') END; END;
+ THEN RAISE(ABORT,'标准作业对象版本必须连续') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT o.created_at FROM work_objects o WHERE o.id=NEW.work_object_id)
+ OR NEW.recorded_at<
+ (SELECT MAX(v.recorded_at) FROM work_object_versions v WHERE v.work_object_id=NEW.work_object_id)
+ THEN RAISE(ABORT,'作业对象正式版本不得倒签或早于根身份') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+ SELECT 1 FROM work_object_versions prev
+ WHERE prev.work_object_id=NEW.work_object_id AND prev.version_no=NEW.version_no-1
+ AND prev.name=NEW.name AND prev.work_target_type=NEW.work_target_type
+ AND prev.status=NEW.status AND prev.sort_order=NEW.sort_order)
+ THEN RAISE(ABORT,'作业对象定义无变化，不得新增空历史') END;
+END;
 CREATE TRIGGER operation_root_immutable_update BEFORE UPDATE ON operations
 BEGIN SELECT RAISE(ABORT,'操作类型编码与业务身份不可覆盖；应创建新操作版本'); END;
 CREATE TRIGGER operation_root_immutable_delete BEFORE DELETE ON operations
@@ -2257,6 +2379,27 @@ BEGIN
  SELECT CASE WHEN NEW.version<>(SELECT COALESCE(MAX(v.version),0)+1
  FROM operation_versions v WHERE v.operation_id=NEW.operation_id)
  THEN RAISE(ABORT,'操作类型版本必须连续') END;
+ SELECT CASE WHEN NEW.changed_at<
+ (SELECT o.created_at FROM operations o WHERE o.id=NEW.operation_id)
+ OR NEW.changed_at<
+ (SELECT MAX(v.changed_at) FROM operation_versions v WHERE v.operation_id=NEW.operation_id)
+ THEN RAISE(ABORT,'操作类型完整定义不得早于根身份或上一正式版本') END;
+ SELECT CASE WHEN NEW.version>1 AND EXISTS(
+ SELECT 1 FROM operation_versions prev
+ WHERE prev.operation_id=NEW.operation_id AND prev.version=NEW.version-1
+ AND prev.name=NEW.name AND prev.status=NEW.status
+ AND prev.sort_order=NEW.sort_order AND prev.work_target_type=NEW.work_target_type
+ AND prev.work_object_id=NEW.work_object_id
+ AND prev.default_unit_id=NEW.default_unit_id
+ AND prev.default_unit_version=NEW.default_unit_version
+ AND prev.default_quantity_scaled IS NEW.default_quantity_scaled
+ AND prev.completion_standard IS NEW.completion_standard
+ AND prev.fields_json=NEW.fields_json
+ AND prev.allow_tower=NEW.allow_tower AND prev.allow_span=NEW.allow_span
+ AND prev.default_location_kind=NEW.default_location_kind
+ AND prev.default_target_object=NEW.default_target_object
+ AND prev.entry_hint=NEW.entry_hint)
+ THEN RAISE(ABORT,'操作类型正式版本没有真实定义变化，不允许空改版') END;
 END;
 CREATE TRIGGER reference_price_root_immutable_update BEFORE UPDATE ON reference_price_catalog
 BEGIN SELECT RAISE(ABORT,'参考价目录业务身份不可覆盖；应创建新价格版本'); END;
@@ -2267,6 +2410,25 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM reference_price_versions v WHERE v.catalog_id=NEW.catalog_id)
  THEN RAISE(ABORT,'参考价版本必须连续') END;
+ SELECT CASE WHEN NEW.created_at<
+ (SELECT c.created_at FROM reference_price_catalog c WHERE c.id=NEW.catalog_id)
+ OR NEW.created_at<
+ (SELECT MAX(v.created_at) FROM reference_price_versions v WHERE v.catalog_id=NEW.catalog_id)
+ THEN RAISE(ABORT,'参考价正式版本不能早于根目录或上一价格历史') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+ SELECT 1 FROM reference_price_versions prev
+ WHERE prev.catalog_id=NEW.catalog_id AND prev.version_no=NEW.version_no-1
+ AND prev.title=NEW.title
+ AND prev.operation_id=NEW.operation_id
+ AND prev.operation_version=NEW.operation_version
+ AND prev.unit_id=NEW.unit_id AND prev.unit_version=NEW.unit_version
+ AND prev.voltage_level_id IS NEW.voltage_level_id
+ AND prev.work_mode=NEW.work_mode AND prev.specification=NEW.specification
+ AND prev.status=NEW.status AND prev.unit_price_fen=NEW.unit_price_fen
+ AND prev.price_source=NEW.price_source AND prev.price_date=NEW.price_date
+ AND prev.tax_mode=NEW.tax_mode AND prev.effective_on=NEW.effective_on
+ AND prev.basis=NEW.basis)
+ THEN RAISE(ABORT,'参考价正式版本没有真实价格或分类依据变化，不允许空改版') END;
 END;
 -- Keep a history row automatically with each new/changed span topology.
 CREATE TRIGGER span_first_version_guard BEFORE INSERT ON line_spans
@@ -2378,6 +2540,11 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM cost_versions v WHERE v.entry_id=NEW.entry_id)
  THEN RAISE(ABORT,'同一笔费用确认版本必须从1连续增加') END;
+ SELECT CASE WHEN NEW.confirmed_at<
+ (SELECT e.created_at FROM cost_entries e WHERE e.id=NEW.entry_id)
+ OR NEW.confirmed_at<
+ (SELECT MAX(v.confirmed_at) FROM cost_versions v WHERE v.entry_id=NEW.entry_id)
+ THEN RAISE(ABORT,'真实费用确认历史不能早于其原始费用身份或前一正式版本') END;
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM cost_entries e JOIN project_cost_node_versions nv
    ON nv.node_id=e.cost_node_id
@@ -2834,6 +3001,16 @@ BEGIN
  SELECT CASE WHEN NEW.project_version<>(SELECT version+1 FROM projects WHERE id=NEW.project_id)
  THEN RAISE(ABORT,'项目阶段版本必须严格连续') END;
  SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM project_management_versions profile
+ WHERE profile.project_id=NEW.project_id AND profile.version_no=1)
+ THEN RAISE(ABORT,'子项目必须具有完整的首版名称与类别档案才能流转正式阶段') END;
+ SELECT CASE WHEN NEW.created_at<
+ (SELECT p.created_at FROM projects p WHERE p.id=NEW.project_id)
+ OR NEW.created_at<
+ (SELECT MAX(e.created_at) FROM project_stage_events e
+  WHERE e.project_id=NEW.project_id)
+ THEN RAISE(ABORT,'子项目阶段事件不能早于项目建档或上一阶段事件') END;
+ SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM projects p WHERE p.id=NEW.project_id AND (
  (p.status='reserve' AND NEW.stage='stocked')
  OR (p.status='stocked' AND NEW.stage='approved')
@@ -2843,8 +3020,8 @@ BEGIN
 END;
 CREATE TRIGGER project_stage_event_apply AFTER INSERT ON project_stage_events
 BEGIN
- UPDATE projects SET status=NEW.stage,version=NEW.project_version,
- updated_at=NEW.created_at WHERE id=NEW.project_id;
+ UPDATE projects SET status=NEW.stage,version=NEW.project_version
+ WHERE id=NEW.project_id;
 END;
 
 CREATE TRIGGER line_history_initial AFTER INSERT ON transmission_lines
@@ -2959,6 +3136,38 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(version_no),0)+1
  FROM project_management_versions WHERE project_id=NEW.project_id)
  THEN RAISE(ABORT,'项目责任、计划和初步估算需保留连续版本') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT p.created_at FROM projects p WHERE p.id=NEW.project_id)
+ OR NEW.recorded_at<
+ (SELECT MAX(v.recorded_at) FROM project_management_versions v
+  WHERE v.project_id=NEW.project_id)
+ THEN RAISE(ABORT,'项目责任和初步估算版本不能倒序或早于子项目身份') END;
+ SELECT CASE WHEN NEW.category_id IS NOT NULL AND NOT EXISTS(
+ SELECT 1 FROM dictionary_item_versions cat
+ WHERE cat.item_id=NEW.category_id AND cat.version=NEW.category_version
+ AND cat.changed_at<=NEW.recorded_at)
+ THEN RAISE(ABORT,'项目正式类别不能引用该版本登记之后才发布的字典名称') END;
+ SELECT CASE WHEN NEW.responsible_unit_id IS NOT NULL AND NOT EXISTS(
+ SELECT 1 FROM organizational_unit_versions org
+ WHERE org.id=NEW.responsible_unit_version_id
+ AND org.unit_id=NEW.responsible_unit_id
+ AND org.recorded_at<=NEW.recorded_at)
+ THEN RAISE(ABORT,'项目责任历史不能引用未来才登记的组织单位版本') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+ SELECT 1 FROM project_management_versions old
+ WHERE old.project_id=NEW.project_id AND old.version_no=NEW.version_no-1
+ AND old.name=NEW.name
+ AND old.category_id IS NEW.category_id
+ AND old.category_version IS NEW.category_version
+ AND old.owner_id IS NEW.owner_id
+ AND old.manager_id IS NEW.manager_id
+ AND old.responsible_unit_id IS NEW.responsible_unit_id
+ AND old.responsible_unit_version_id IS NEW.responsible_unit_version_id
+ AND old.planned_start_on IS NEW.planned_start_on
+ AND old.planned_end_on IS NEW.planned_end_on
+ AND old.preliminary_estimate_fen IS NEW.preliminary_estimate_fen
+ AND old.preliminary_estimate_basis IS NEW.preliminary_estimate_basis)
+ THEN RAISE(ABORT,'项目档案、责任和初步估算内容均未变化，无需新增无效版本') END;
  SELECT CASE WHEN (SELECT status FROM projects WHERE id=NEW.project_id)='closed'
  THEN RAISE(ABORT,'已关闭项目的管理计划不可私自改动') END;
 END;
@@ -3075,20 +3284,40 @@ CREATE TRIGGER demand_adopted_cancel_guard
  WHERE sc.demand_id=NEW.demand_id)
 BEGIN SELECT RAISE(ABORT,'已由正式子项目承接的专业需求不能直接取消，须办理项目范围正式变更'); END;
 
-CREATE TRIGGER org_unit_cycle_guard BEFORE UPDATE OF parent_id ON organizational_units
-WHEN NEW.parent_id IS NOT NULL
+CREATE TRIGGER org_unit_root_immutable_update BEFORE UPDATE ON organizational_units
+BEGIN SELECT RAISE(ABORT,'组织单位稳定编码不可覆盖；正式更名、上级或停用需要新版定义'); END;
+CREATE TRIGGER org_unit_root_immutable_delete BEFORE DELETE ON organizational_units
+BEGIN SELECT RAISE(ABORT,'组织单位稳定身份不可删除'); END;
+CREATE TRIGGER org_unit_version_immutable_update BEFORE UPDATE ON organizational_unit_versions
+BEGIN SELECT RAISE(ABORT,'组织机构定义的正式历史不可覆盖'); END;
+CREATE TRIGGER org_unit_version_immutable_delete BEFORE DELETE ON organizational_unit_versions
+BEGIN SELECT RAISE(ABORT,'组织机构定义的正式历史不可删除'); END;
+CREATE TRIGGER org_unit_version_insert_guard BEFORE INSERT ON organizational_unit_versions
 BEGIN
- SELECT CASE WHEN NEW.parent_id=NEW.id OR EXISTS(
+ SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
+ FROM organizational_unit_versions v WHERE v.unit_id=NEW.unit_id)
+ THEN RAISE(ABORT,'组织单位版本号必须连续') END;
+ SELECT CASE WHEN NEW.recorded_at<
+ (SELECT MAX(v.recorded_at) FROM organizational_unit_versions v WHERE v.unit_id=NEW.unit_id)
+ THEN RAISE(ABORT,'组织单位定义版本登记时间不能倒序') END;
+ SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
+ SELECT 1 FROM organizational_unit_versions old WHERE old.unit_id=NEW.unit_id
+ AND old.version_no=NEW.version_no-1 AND old.name=NEW.name
+ AND old.parent_unit_id IS NEW.parent_unit_id AND old.status=NEW.status)
+ THEN RAISE(ABORT,'组织单位名称、上级和状态均未变动，无需新增空版本') END;
+ SELECT CASE WHEN NEW.parent_unit_id IS NOT NULL AND
+ NOT EXISTS(SELECT 1 FROM v_organizational_unit_current
+ WHERE id=NEW.parent_unit_id)
+ THEN RAISE(ABORT,'组织单位的上级必须已有正式定义版本') END;
+ SELECT CASE WHEN NEW.parent_unit_id IS NOT NULL AND EXISTS(
  WITH RECURSIVE ancestors(id) AS (
-  SELECT NEW.parent_id
+  SELECT NEW.parent_unit_id
   UNION
-  SELECT u.parent_id FROM organizational_units u JOIN ancestors a ON a.id=u.id
-  WHERE u.parent_id IS NOT NULL)
- SELECT 1 FROM ancestors WHERE id=NEW.id)
- THEN RAISE(ABORT,'组织单位层级不能形成循环') END;
+  SELECT parent.parent_unit_id FROM v_organizational_unit_current parent
+  JOIN ancestors a ON a.id=parent.id WHERE parent.parent_unit_id IS NOT NULL)
+ SELECT 1 FROM ancestors WHERE id=NEW.unit_id)
+ THEN RAISE(ABORT,'组织单位层级历史不能建立当前父子循环') END;
 END;
-
-
 
 
 -- Source lineage: no redundant batch/demand/source triple. Once a raw source
@@ -3225,3 +3454,23 @@ CREATE INDEX idx_evidence_material_catalog_version
 CREATE INDEX idx_material_version_pms_code
  ON material_versions(pms_material_code COLLATE NOCASE)
  WHERE pms_material_code IS NOT NULL;
+
+-- Immutable decision and request facts must not be retroactively changed.
+-- Reassessment of a duplicate demand creates a NEW reviewed decision event;
+-- the application selects the latest valid decision where appropriate.
+CREATE TRIGGER duplicate_review_immutable_update BEFORE UPDATE ON demand_duplicate_reviews
+BEGIN SELECT RAISE(ABORT,'疑似重复需求的人工审查决定不能覆盖；应新增有责任人和理由的复核记录'); END;
+CREATE TRIGGER duplicate_review_immutable_delete BEFORE DELETE ON demand_duplicate_reviews
+BEGIN SELECT RAISE(ABORT,'疑似重复需求的历史审查决定不可删除'); END;
+CREATE TRIGGER ledger_request_immutable_update BEFORE UPDATE ON ledger_requests
+BEGIN SELECT RAISE(ABORT,'幂等请求的原参数和返回结果不可在确认后覆盖'); END;
+CREATE TRIGGER ledger_request_immutable_delete BEFORE DELETE ON ledger_requests
+BEGIN SELECT RAISE(ABORT,'已有确认的请求幂等身份不可删除'); END;
+
+-- Voltage classification codes and official descriptions are stable PMS
+-- identity data; status/order can be managed without relabeling history.
+CREATE TRIGGER voltage_identity_immutable_update
+ BEFORE UPDATE OF id,code,name ON voltage_levels
+BEGIN SELECT RAISE(ABORT,'电压等级编码和名称属于稳定台账分类，不得无痕改写'); END;
+CREATE TRIGGER voltage_identity_immutable_delete BEFORE DELETE ON voltage_levels
+BEGIN SELECT RAISE(ABORT,'电压等级稳定身份不可删除'); END;

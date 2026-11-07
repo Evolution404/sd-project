@@ -1,4 +1,4 @@
-# Schema 113｜69 张表业务对象完整性矩阵
+# Schema 113｜70 张表业务对象完整性矩阵
 
 **治理顺序：功能完备 → 业务关系 → 历史一致性 → 字段精简。** 本矩阵由当前候选 SQL 生成，覆盖全部实际表。
 
@@ -10,7 +10,8 @@
 | 输电设备及组织台账 | `line_spans` | 12 | 5 | 档距身份和当前关联 |
 | 输电设备及组织台账 | `logical_tower_history` | 14 | 4 | 逻辑杆塔及物理关联历史 |
 | 输电设备及组织台账 | `logical_towers` | 17 | 4 | 线路回路逻辑杆塔身份 |
-| 输电设备及组织台账 | `organizational_units` | 5 | 1 | 部门班组组织层级 |
+| 输电设备及组织台账 | `organizational_units` | 2 | 0 | 组织单位稳定身份和编码，名称、父级及启停历史独立版本化 |
+| 输电设备及组织台账 | `organizational_unit_versions` | 9 | 3 | 正式组织单位名称、上级与启停的完整不可变历史版本 |
 | 输电设备及组织台账 | `physical_tower_history` | 14 | 2 | 物理杆塔属性历史 |
 | 输电设备及组织台账 | `physical_towers` | 17 | 2 | 物理杆塔身份及当前属性 |
 | 输电设备及组织台账 | `transmission_lines` | 16 | 5 | 线路身份与当前台账 |
@@ -18,10 +19,10 @@
 | 操作类型、字典和标准价格 | `dictionary_item_versions` | 10 | 2 | 字典项定义版本 |
 | 操作类型、字典和标准价格 | `dictionary_items` | 4 | 1 | 字典项稳定身份 |
 | 操作类型、字典和标准价格 | `dictionary_types` | 2 | 0 | 字典类别身份 |
-| 操作类型、字典和标准价格 | `operation_versions` | 21 | 5 | 操作定义、作业对象/位置/单位关系 |
+| 操作类型、字典和标准价格 | `operation_versions` | 21 | 6 | 操作定义、作业对象/位置/单位关系 |
 | 操作类型、字典和标准价格 | `operations` | 3 | 0 | 操作类型身份 |
 | 操作类型、字典和标准价格 | `reference_price_catalog` | 4 | 1 | 参考单价身份 |
-| 操作类型、字典和标准价格 | `reference_price_versions` | 21 | 7 | 参考单价正式历史 |
+| 操作类型、字典和标准价格 | `reference_price_versions` | 21 | 9 | 参考单价正式历史 |
 | 操作类型、字典和标准价格 | `work_object_versions` | 10 | 2 | 作业对象定义版本 |
 | 操作类型、字典和标准价格 | `work_objects` | 3 | 0 | 作业对象身份 |
 | 来源、需求和物资 | `batch_demand_sources` | 3 | 3 | 批次与需求、来源的不可变导入断言 |
@@ -29,27 +30,27 @@
 | 来源、需求和物资 | `demand_duplicate_reviews` | 8 | 4 | 疑似重复需求处理决策 |
 | 来源、需求和物资 | `demand_lifecycle_events` | 8 | 2 | 需求确认退回撤销事件 |
 | 来源、需求和物资 | `demand_material_items` | 8 | 2 | 需求首版编制材料 |
-| 来源、需求和物资 | `demand_material_version_items` | 9 | 4 | 各需求版本材料清单 |
+| 来源、需求和物资 | `demand_material_version_items` | 9 | 5 | 各需求版本材料清单 |
 | 来源、需求和物资 | `demand_related_logical_towers` | 2 | 2 | 需求多逻辑杆塔关联 |
 | 来源、需求和物资 | `demand_revisions` | 7 | 2 | 正式需求修改补丁 |
 | 来源、需求和物资 | `demand_sources` | 2 | 2 | 需求来源关联 |
-| 来源、需求和物资 | `demand_versions` | 23 | 13 | 正式需求完整定义版本 |
-| 来源、需求和物资 | `demands` | 34 | 14 | 需求首次登记身份和原始事实 |
+| 来源、需求和物资 | `demand_versions` | 23 | 16 | 正式需求完整定义版本 |
+| 来源、需求和物资 | `demands` | 34 | 17 | 需求首次登记身份和原始事实 |
 | 来源、需求和物资 | `source_records` | 14 | 3 | PMS/Excel 原始证据 |
 | 框架、协议、项目与批准 | `agreement_versions` | 14 | 2 | 协议合同及额度版本 |
 | 框架、协议、项目与批准 | `agreements` | 4 | 1 | 执行协议身份 |
 | 框架、协议、项目与批准 | `framework_versions` | 9 | 2 | 框架批准额度与历史 |
 | 框架、协议、项目与批准 | `frameworks` | 4 | 0 | 年度框架身份 |
-| 框架、协议、项目与批准 | `project_approval_material_items` | 13 | 6 | 批准物资规格和数量快照 |
-| 框架、协议、项目与批准 | `project_approval_scope_versions` | 10 | 4 | 批准需求范围与数量快照 |
+| 框架、协议、项目与批准 | `project_approval_material_items` | 13 | 8 | 批准物资规格和数量快照 |
+| 框架、协议、项目与批准 | `project_approval_scope_versions` | 10 | 5 | 批准需求范围与数量快照 |
 | 框架、协议、项目与批准 | `project_approval_versions` | 10 | 3 | 正式批准总预算和版本 |
 | 框架、协议、项目与批准 | `project_change_orders` | 12 | 4 | 正式范围与预算变更依据 |
-| 框架、协议、项目与批准 | `project_demand_scopes` | 16 | 4 | 项目承接需求及候选范围 |
+| 框架、协议、项目与批准 | `project_demand_scopes` | 16 | 5 | 项目承接需求及候选范围 |
 | 框架、协议、项目与批准 | `project_funding_versions` | 7 | 3 | 项目资金协议关联历史 |
-| 框架、协议、项目与批准 | `project_management_versions` | 13 | 5 | 责任人、单位、计划期间与估算历史 |
+| 框架、协议、项目与批准 | `project_management_versions` | 17 | 10 | 完整项目档案（名称、项目类别正式版本）、责任人、责任单位精确版本、计划期间与初估历史 |
 | 框架、协议、项目与批准 | `project_scope_materials` | 5 | 2 | 项目需求范围物资稳定身份 |
 | 框架、协议、项目与批准 | `project_stage_events` | 7 | 2 | 项目储备入库立项关闭事件 |
-| 框架、协议、项目与批准 | `projects` | 10 | 3 | 子项目稳定身份与阶段 |
+| 框架、协议、项目与批准 | `projects` | 7 | 2 | 子项目稳定身份、所属框架与阶段事件同步投影，无重复当前名称/类别/时间 |
 | 结算文件与审核 | `settlement_drafts` | 6 | 3 | 未提交结算草稿 |
 | 结算文件与审核 | `settlement_item_versions` | 13 | 4 | 版本化结算数量金额明细 |
 | 结算文件与审核 | `settlement_items` | 5 | 3 | 结算项目范围明细身份 |
@@ -58,17 +59,17 @@
 | 结算文件与审核 | `settlements` | 5 | 2 | 结算单稳定身份 |
 | 来源、需求和物资主数据 | `materials` | 5 | 2 | 统一物资稳定身份：编码、单位不可无痕改写 |
 | 来源、需求和物资主数据 | `material_versions` | 13 | 3 | 物资正式定义历史及可修订的PMS外部编码（当前唯一映射） |
-| 实际费用与正式核对 | `project_cost_nodes` | 5 | 3 | 子项目费用树的稳定节点、父子层级及所属项目，末级可发生费用 |
+| 实际费用与正式核对 | `project_cost_nodes` | 5 | 4 | 子项目费用树的稳定节点、父子层级及所属项目，末级可发生费用 |
 | 实际费用与正式核对 | `project_cost_node_versions` | 8 | 2 | 费用节点名称和启停状态的不可变版本历史 |
-| 实际费用与正式核对 | `cost_entries` | 5 | 3 | 独立于结算的项目实际费用身份 |
-| 实际费用与正式核对 | `cost_reconciliation_versions` | 14 | 4 | 费用与结算核对历史 |
+| 实际费用与正式核对 | `cost_entries` | 5 | 4 | 独立于结算的项目实际费用身份 |
+| 实际费用与正式核对 | `cost_reconciliation_versions` | 14 | 5 | 费用与结算核对历史 |
 | 实际费用与正式核对 | `cost_versions` | 17 | 4 | 实际费用金额、税务及确认历史；采用费用树历史版本为唯一分类，不重复存类别 |
 | 费用最终结清 | `project_closures` | 7 | 3 | 正式结项审批与关闭依据 |
 | 账户、证据与运行基础 | `allowed_ips` | 5 | 1 | IP 许可配置 |
 | 账户、证据与运行基础 | `audit_events` | 9 | 1 | 审计事件 |
 | 账户、证据与运行基础 | `evidence_files` | 8 | 1 | 文件哈希与存储元信息 |
-| 账户、证据与运行基础 | `evidence_links` | 30 | 24 | 证据文件与正式业务身份关联 |
-| 账户、证据与运行基础 | `ledger_requests` | 5 | 0 | 接口幂等写入记录 |
+| 账户、证据与运行基础 | `evidence_links` | 27 | 24 | 证据文件与正式业务身份关联 |
+| 账户、证据与运行基础 | `ledger_requests` | 5 | 1 | 有真实操作者、参数哈希与不可变响应的接口幂等凭证 |
 | 账户、证据与运行基础 | `permission_definitions` | 2 | 0 | 应用层权限项定义 |
 | 账户、证据与运行基础 | `role_permissions` | 2 | 1 | 应用层角色权限矩阵 |
 | 账户、证据与运行基础 | `sessions` | 4 | 1 | 登录会话身份 |

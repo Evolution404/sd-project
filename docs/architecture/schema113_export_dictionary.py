@@ -36,6 +36,7 @@ before_json|操作前的结构化审计事实
 bytes|证据文件字节数
 catalog_id|标准参考价格的目录稳定身份
 category_id|业务类别字典项
+category_version|项目类别采用的正式字典版本号，不随字典更名重算
 change_order_id|引起正式批准版本变化的变更单
 change_reason|台账设备属性变化原因
 change_type|本次正式版本属于新增、修订还是作废
@@ -152,6 +153,7 @@ operation_snapshot|历史需求关联的操作类型文字
 operation_version|操作类型正式版本号
 owner_id|子项目责任人
 parent_id|组织单位或业务对象的父级身份
+parent_unit_id|组织单位当次正式定义采用的上级单位稳定身份
 parent_line_id|所属上级线路
 password_hash|账户密码的单向散列（不存明文）
 payload_sha256|来源/请求原始内容SHA-256摘要
@@ -199,6 +201,7 @@ remaining_quantity_scaled|正式结项时未完成数量
 request_hash|幂等请求的原始内容摘要
 request_key|重复请求去重的稳定幂等标识
 responsible_unit_id|负责实施的部门或班组
+responsible_unit_version_id|项目责任历史当次明确采用的组织单位完整定义版本
 result_json|幂等请求已完成的结果快照
 role|应用层角色名称
 row_number|Excel/PMS来源所在数据行号
