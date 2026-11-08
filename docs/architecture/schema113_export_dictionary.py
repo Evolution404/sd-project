@@ -11,7 +11,7 @@ for line in (root/'Schema113_业务对象完整性矩阵.md').read_text().splitl
  if len(cells)<5 or not cells[1].startswith(q):continue
  name=cells[1].strip(q);tbl[name]=(cells[0],cells[4])
 notes_text='''
-action|当前业务记录操作类型
+action|正式事件动作：项目需求归属记录使用linked关联/released解绑；其他事件保留各自合法动作类型
 actor_id|执行业务事件的用户
 actual_quantity_scaled|按统一缩放因子保存的实际数量
 addition_reason|超出预计清单时可选的补充说明；管理员无需填写，不影响批准历史
@@ -98,7 +98,7 @@ entity_id|审计事件对应实体的稳定身份字符串
 entry_hint|操作类型的录入指引文字
 entry_id|实际费用稳定身份
 erection_type|线路/杆塔架设类型
-event_seq|同一业务对象状态事件的连续序号
+event_seq|同一业务对象生命周期或项目需求关联/解绑事件的严格连续序号
 evidence|现场实际或成本确认的书面依据
 expected_on|专业需求期望办理日期
 expires_at|登录会话或授权到期UTC时间
@@ -128,8 +128,8 @@ line_kind|主线、支线或其他线路类型
 location_kind|根据档距关联自动推导的虚拟位置类型，不单独存储
 line_name_snapshot|需求首次登记时看到的线路名称
 line_span_history_id|档距历史版本的证据关联
-linked_at|证据与业务对象建立关联的UTC时间
-linked_by|提交证据关联的用户
+linked_at|证据或项目需求归属关系当前正式建立的UTC时间
+linked_by|提交证据关联的用户或当前项目需求归属事件的实际操作人
 logical_code|逻辑杆塔稳定编码
 logical_tower_id|逻辑杆塔身份
 longitude|设备地理经度
@@ -178,21 +178,20 @@ project_approval_material_id|具体已批准物资快照的证据归属
 project_approval_version_id|项目正式批准版本的证据归属
 project_closure_id|正式关闭审批身份
 project_funding_version_id|子项目资金归属版本
-project_id|子项目稳定身份
+project_id|子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目
 project_management_version_id|子项目责任与计划版本
 project_material_id|子项目范围内的统一物资稳定身份
-project_scope_id|子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份
+project_scope_id|子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份
 project_stage_event_id|子项目储备入库立项结项事件
 project_version|项目阶段变更的连续序号
 proposal_json|项目范围和预算变更提案内容
-proposal_status|未正式批准前的项目拟承接状态
 proposed_amount_fen|项目拟承接金额（尚非正式批准值）
 proposed_by|线索提出人员
 proposed_quantity_scaled|项目拟承接工作量缩放整数
 proposed_unit_price_fen|拟承接单价，人民币分
 purpose|设备用途或访问授权用途
 quantity_scaled|需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量
-reason|业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史
+reason|业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史
 reconciled_cost_fen|该核对记录确认的真实成本金额
 resolved_quantity_scaled|结算单版本对应某专业需求本次新增解决数量，缩放10000倍；0表示仅补结此前工作而不虚增完成量，实际量可超过批准量
 reconciled_settlement_fen|该核对记录确认的正式结算金额

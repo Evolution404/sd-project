@@ -142,6 +142,35 @@ assert "settlement_scope_result_insert_guard" in triggers
 assert "settlement_scope_result_immutable_update" in triggers
 assert "settlement_scope_result_immutable_delete" in triggers
 assert "idx_settlement_scope_results_scope" in indexes
+# A demand's lifecycle (4 independent states) is orthogonal to its single
+# current project-assignment, derived ONLY from immutable link/release events.
+assert "project_demand_link_events" in tables
+assert "v_project_demand_binding_current" in views
+assert "project_demand_scope_current_owner_insert" in triggers
+assert "project_demand_scope_seed_link" in triggers
+assert "project_demand_scope_root_immutable_update" in triggers
+assert "project_demand_scope_root_immutable_delete" in triggers
+assert "project_demand_link_event_guard" in triggers
+assert "project_demand_link_event_immutable_update" in triggers
+assert "project_demand_link_event_immutable_delete" in triggers
+assert "approval_scope_link_guard" in triggers
+assert "project_demand_exclusive_approval" in triggers
+scope_columns={r["name"] for r in db.execute(
+    "PRAGMA table_info(project_demand_scopes)")}
+assert "created_by" in scope_columns and "proposal_status" not in scope_columns
+assert "idx_scope_project_status" not in indexes
+binding_columns={r["name"] for r in db.execute(
+    "PRAGMA table_info(project_demand_link_events)")}
+assert {"project_scope_id","event_seq","action","actor_id",
+        "recorded_at","reason"}<=binding_columns
+approval_guard_sql=triggers["project_demand_exclusive_approval"]["sql"]
+assert "v_project_demand_binding_current" in approval_guard_sql
+assert "other_approval.status='approved'" not in approval_guard_sql
+cancel_guard_sql=triggers["demand_adopted_cancel_guard"]["sql"]
+assert "v_project_demand_binding_current" in cancel_guard_sql
+lifecycle_sql=tables["demand_lifecycle_events"]["sql"]
+assert all("'"+state+"'" in lifecycle_sql for state in
+           ("pending","active","returned","cancelled"))
 evidence_cols={r["name"] for r in db.execute('PRAGMA table_info(evidence_links)')}
 assert "settlement_scope_result_id" in evidence_cols
 assert any(x["table"]=="settlement_scope_results" for x in

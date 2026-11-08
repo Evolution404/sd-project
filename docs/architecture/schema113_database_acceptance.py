@@ -90,6 +90,10 @@ def add(t, **data):
         data["material_version_id"]=db.execute(
             "SELECT material_version_id FROM v_material_current WHERE id=?",
             (material_id,)).fetchone()[0]
+    if t=='project_demand_scopes':
+        # Test-only: the project scope's true linker is required by SQL.
+        # All fixtures created by the "u" admin explicitly remain that actor.
+        data.setdefault('created_by','u')
     if t in ('cost_entries', 'settlement_items') and 'cost_node_id' not in data:
         # Only the legacy *test fixtures* use an implicit default terminal node.
         # The actual DDL requires callers to explicitly select the expense node.
@@ -510,16 +514,28 @@ ok("approved project budget uses newest full version",
         "WHERE project_id='p'")["approved_budget_fen"]==20000)
 add("projects",id="p_other",code="P_OTHER",name="另一个子项目",
     framework_id="f",created_by="u",created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
+blocked_reason("another project cannot even reserve an already linked demand",
+    "INSERT INTO project_demand_scopes(id,project_id,demand_id,demand_version,"
+    "proposed_quantity_scaled,created_by,created_at,updated_at)"
+    " VALUES(?,?,?,?,?,?,?,?)",
+    "需求已关联其他子项目，须先由原子项目显式解绑",
+    ("invalid_other_scope","p_other","d",1,10000,"u",
+     "2026-11-07T00:00:00.000Z","2026-11-07T00:00:00.000Z"))
+demand("d_other")
+activate_demand("d_other")
 add("project_demand_scopes",id="other_scope",project_id="p_other",
-    demand_id="d",demand_version=1,proposed_quantity_scaled=10000,
-    proposed_amount_fen=500,created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
+    demand_id="d_other",demand_version=1,proposed_quantity_scaled=10000,
+    proposed_amount_fen=500,created_at="2026-11-07T00:00:00.000Z",
+    updated_at="2026-11-07T00:00:00.000Z")
 add("project_approval_versions",id="other_av",project_id="p_other",
-    version_no=1,approved_budget_fen=500,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
+    version_no=1,approved_budget_fen=500,snapshot_json="{}",
+    created_at="2026-11-07T00:00:00.000Z")
 add("project_approval_scope_versions",id="other_ap_scope",
     approval_version_id="other_av",project_scope_id="other_scope",
-    demand_id="d",demand_version=1,quantity_scaled=10000,approved_amount_fen=500,
-    snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
-blocked("another project cannot formally adopt an already approved demand",
+    demand_id="d_other",demand_version=1,quantity_scaled=10000,
+    approved_amount_fen=500,snapshot_json="{}",
+    created_at="2026-11-07T00:00:00.000Z")
+blocked("un-stocked other project cannot approve its independently linked demand",
     "UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T00:00:00.000Z' WHERE id='other_av'")
 # Material root is a stable identity; all descriptive material definitions
@@ -1170,8 +1186,13 @@ ok("unknown approved scope amount stays NULL, independent of proposed amount",
         "WHERE project_scope_id='snull'")["approved_amount_fen"] is None
     and row("SELECT proposed_amount_fen FROM project_demand_scopes "
         "WHERE id='snull'")["proposed_amount_fen"]==5000)
-blocked("approved scope cannot silently retire outside a real approval change",
-    "UPDATE project_demand_scopes SET proposal_status='retired' WHERE id='snull'")
+blocked_reason("approved demand cannot be unlinked before formal project scope change",
+    "INSERT INTO project_demand_link_events("
+    "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+    " VALUES(?,?,?,?,?,?)",
+    "已正式批准的在办项目须先通过最新版范围变更移出需求",
+    ("illegal_approved_release","snull",2,"released","u",
+     "2026-11-07T18:20:00.000Z"))
 add("project_closures",id="close_null",project_id="pnull",
     approval_version_id="avnull",reason="结项前审核",
     close_snapshot_json="{}",closed_by="u",
@@ -1241,7 +1262,8 @@ blocked("audit evidence cannot use malformed JSON",
 scope_columns={x["name"] for x in db.execute("PRAGMA table_info(project_demand_scopes)")}
 ok("project proposal baseline has explicit different identity from approved scope",
    {"proposed_quantity_scaled","proposed_amount_fen",
-    "proposed_unit_price_fen","proposal_status"}<=scope_columns
+    "proposed_unit_price_fen","created_by"}<=scope_columns
+   and "proposal_status" not in scope_columns
    and "approved_amount_fen" not in scope_columns)
 ok("voltage type no fake version without version history",
    "version" not in {x["name"] for x in db.execute("PRAGMA table_info(voltage_levels)")})
@@ -1683,8 +1705,8 @@ ok("no independent preapproval allocation table, projection or evidence FK",
     and not any(x["table"]=="cost_allocation_versions"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==24
-    and {'v_effective_demand_resolutions',
+    len(present)==25
+    and {'v_project_demand_binding_current','v_effective_demand_resolutions',
          'v_organizational_unit_current','v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
@@ -4216,6 +4238,277 @@ try:
 finally:
     db.execute("ROLLBACK TO user_round14_price_and_completion")
     db.execute("RELEASE user_round14_price_and_completion")
+
+# Round 15: a professional demand is reserved EXCLUSIVELY at project
+# association time, not at a later formal approval. Release is explicit,
+# audited and followed by a new valid link (old histories never rewritten).
+db.execute("SAVEPOINT r15_demand_link_exclusivity")
+try:
+    demand("r15_d")
+    activate_demand("r15_d")
+    for suffix in ("a","b","c"):
+        add("projects",id="r15_p_"+suffix,code="R15-P-"+suffix,
+            name="需求互斥关联项目"+suffix,framework_id="f",
+            created_by="u",created_at="2026-11-08T04:00:00.000Z")
+    add("project_demand_scopes",id="r15_scope_a",project_id="r15_p_a",
+        demand_id="r15_d",demand_version=1,
+        proposed_quantity_scaled=10000,
+        created_at="2026-11-08T04:00:01.000Z",
+        updated_at="2026-11-08T04:00:01.000Z")
+    ok("first project immediately and exclusively holds a professional demand",
+        row("SELECT project_id FROM v_project_demand_binding_current "
+            "WHERE demand_id='r15_d'")["project_id"]=="r15_p_a"
+        and row("SELECT action,actor_id,event_seq FROM project_demand_link_events "
+            "WHERE project_scope_id='r15_scope_a'")["action"]=="linked"
+        and row("SELECT actor_id FROM project_demand_link_events "
+            "WHERE project_scope_id='r15_scope_a'")["actor_id"]=="u")
+    blocked_reason("second reserved project cannot link demand before approval",
+        "INSERT INTO project_demand_scopes("
+        "id,project_id,demand_id,demand_version,proposed_quantity_scaled,"
+        "created_by,created_at,updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        "需求已关联其他子项目，须先由原子项目显式解绑",
+        ("r15_illegal_b","r15_p_b","r15_d",1,20000,"u",
+         "2026-11-08T04:00:02.000Z","2026-11-08T04:00:02.000Z"))
+    blocked_reason("linked demand cannot be cancelled even before project approval",
+        "INSERT INTO demand_lifecycle_events("
+        "id,demand_id,event_seq,from_status,to_status,actor_id,recorded_at)"
+        " VALUES(?,?,?,?,?,?,?)",
+        "需求尚关联子项目，须先完成明确解绑",
+        ("r15_cancel_held","r15_d",3,"active","cancelled","u",
+         "2026-11-08T04:00:02.000Z"))
+    blocked_reason("project identity cannot be reassigned by editing a linked scope",
+        "UPDATE project_demand_scopes SET project_id=? WHERE id=?",
+        "需求关联的稳定项目/需求身份与创建人不可直接改写",
+        ("r15_p_b","r15_scope_a"))
+    blocked_reason("wrong link action cannot skip an event sequence",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES(?,?,?,?,?,?)",
+        "项目需求关联事件版本必须连续",
+        ("r15_bad_sequence","r15_scope_a",3,"released","u",
+         "2026-11-08T04:00:03.000Z"))
+    blocked_reason("same project cannot link an already linked scope twice",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES(?,?,?,?,?,?)",
+        "需求关联与解绑必须按当前状态交替",
+        ("r15_double_link","r15_scope_a",2,"linked","u",
+         "2026-11-08T04:00:03.000Z"))
+    blocked_reason("backdated link-release history is rejected",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES(?,?,?,?,?,?)",
+        "需求关联解绑操作不能早于建档或上一事件",
+        ("r15_backdated_release","r15_scope_a",2,"released","u",
+         "2026-11-07T04:00:03.000Z"))
+    blocked("unknown releasing actor has no authenticated user FK",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_unknown','r15_scope_a',2,'released','ghost',"
+        "'2026-11-08T04:00:03.000Z')")
+    add("project_demand_link_events",id="r15_release_a",
+        project_scope_id="r15_scope_a",event_seq=2,
+        action="released",actor_id="u",
+        recorded_at="2026-11-08T04:00:04.000Z")
+    ok("explicit unlink releases the demand with exact immutable history",
+        row("SELECT COUNT(*) n FROM v_project_demand_binding_current "
+            "WHERE demand_id='r15_d'")["n"]==0
+        and row("SELECT GROUP_CONCAT(action,',') a "
+            "FROM project_demand_link_events "
+            "WHERE project_scope_id='r15_scope_a' ORDER BY event_seq")["a"]
+            =="linked,released")
+    blocked_reason("duplicate release must not create a false history event",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_double_release','r15_scope_a',3,'released','u',"
+        "'2026-11-08T04:00:05.000Z')",
+        "需求关联与解绑必须按当前状态交替")
+    add("project_demand_scopes",id="r15_scope_b",
+        project_id="r15_p_b",demand_id="r15_d",
+        demand_version=1,proposed_quantity_scaled=20000,
+        created_at="2026-11-08T04:00:06.000Z",
+        updated_at="2026-11-08T04:00:06.000Z")
+    ok("second project successfully binds after first project's explicit release",
+        row("SELECT project_id FROM v_project_demand_binding_current "
+            "WHERE demand_id='r15_d'")["project_id"]=="r15_p_b"
+        and row("SELECT COUNT(*) n FROM project_demand_scopes "
+            "WHERE demand_id='r15_d'")["n"]==2)
+    blocked_reason("former project cannot regrab demand while new project holds it",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_regrab','r15_scope_a',3,'linked','u',"
+        "'2026-11-08T04:00:07.000Z')",
+        "需求仍由另一子项目关联，必须先显式解绑")
+    blocked_reason("third project also cannot grab the same currently linked demand",
+        "INSERT INTO project_demand_scopes("
+        "id,project_id,demand_id,demand_version,proposed_quantity_scaled,"
+        "created_by,created_at,updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        "需求已关联其他子项目，须先由原子项目显式解绑",
+        ("r15_illegal_c","r15_p_c","r15_d",1,10000,"u",
+         "2026-11-08T04:00:07.000Z","2026-11-08T04:00:07.000Z"))
+    blocked_reason("historical linked/released events can never be rewritten",
+        "UPDATE project_demand_link_events SET action='linked' "
+        "WHERE id='r15_release_a'",
+        "已记录需求关联/解绑历史不得修改")
+    blocked_reason("linked/released audit history cannot be deleted",
+        "DELETE FROM project_demand_link_events WHERE id='r15_release_a'",
+        "已记录需求关联/解绑历史不得删除")
+    blocked_reason("project-demand root with history cannot be deleted",
+        "DELETE FROM project_demand_scopes WHERE id='r15_scope_a'",
+        "已建立的需求关联及解绑历史不可删除")
+    add("project_demand_link_events",id="r15_release_b",
+        project_scope_id="r15_scope_b",event_seq=2,
+        action="released",actor_id="u",
+        recorded_at="2026-11-08T04:00:08.000Z")
+    add("project_demand_link_events",id="r15_relink_a",
+        project_scope_id="r15_scope_a",event_seq=3,
+        action="linked",actor_id="u",
+        recorded_at="2026-11-08T04:00:09.000Z")
+    ok("same first project can explicitly relink its stable historical scope",
+        row("SELECT project_id FROM v_project_demand_binding_current "
+            "WHERE demand_id='r15_d'")["project_id"]=="r15_p_a"
+        and row("SELECT MAX(event_seq) n FROM project_demand_link_events "
+            "WHERE project_scope_id='r15_scope_a'")["n"]==3)
+    demand("r15_cancelled")
+    add("demand_lifecycle_events",id="r15_cancelled_event",
+        demand_id="r15_cancelled",event_seq=2,from_status="pending",
+        to_status="cancelled",actor_id="u",
+        recorded_at="2026-11-08T04:01:00.000Z")
+    blocked_reason("cancelled professional demand cannot be newly linked",
+        "INSERT INTO project_demand_scopes("
+        "id,project_id,demand_id,demand_version,proposed_quantity_scaled,"
+        "created_by,created_at,updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        "已取消需求不能再关联子项目",
+        ("r15_cancelled_scope","r15_p_c","r15_cancelled",1,10000,
+         "u","2026-11-08T04:02:00.000Z",
+         "2026-11-08T04:02:00.000Z"))
+    demand("r15_release_then_cancel")
+    add("project_demand_scopes",id="r15_cancel_scope",
+        project_id="r15_p_c",demand_id="r15_release_then_cancel",
+        demand_version=1,proposed_quantity_scaled=10000,
+        created_at="2026-11-08T04:02:00.000Z",
+        updated_at="2026-11-08T04:02:00.000Z")
+    add("project_demand_link_events",id="r15_free_cancel_scope",
+        project_scope_id="r15_cancel_scope",event_seq=2,action="released",
+        actor_id="u",recorded_at="2026-11-08T04:02:01.000Z")
+    add("demand_lifecycle_events",id="r15_cancel_lifecycle",
+        demand_id="r15_release_then_cancel",event_seq=2,
+        from_status="pending",to_status="cancelled",actor_id="u",
+        recorded_at="2026-11-08T04:02:02.000Z")
+    blocked_reason("historically linked scope cannot rebind cancelled demand",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_illegal_cancel_rebind','r15_cancel_scope',3,"
+        "'linked','u','2026-11-08T04:02:03.000Z')",
+        "已取消需求不得再次建立关联")
+    demand("r15_draft_reference")
+    add("project_demand_scopes",id="r15_draft_scope",
+        project_id="r15_p_c",demand_id="r15_draft_reference",
+        demand_version=1,proposed_quantity_scaled=10000,
+        created_at="2026-11-08T04:03:00.000Z",
+        updated_at="2026-11-08T04:03:00.000Z")
+    add("project_approval_versions",id="r15_draft_ap",
+        project_id="r15_p_c",version_no=1,snapshot_json="{}",
+        approved_budget_fen=1000,
+        created_at="2026-11-08T04:03:00.000Z")
+    add("project_approval_scope_versions",id="r15_draft_aps",
+        approval_version_id="r15_draft_ap",
+        project_scope_id="r15_draft_scope",
+        demand_id="r15_draft_reference",demand_version=1,
+        quantity_scaled=10000,snapshot_json="{}",
+        created_at="2026-11-08T04:03:00.000Z")
+    blocked_reason("demand cannot be unlinked while still in an unfinished approval draft",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_bad_draft_release','r15_draft_scope',2,"
+        "'released','u','2026-11-08T04:03:01.000Z')",
+        "仍有立项或变更草稿引用需求")
+    db.execute("DELETE FROM project_approval_scope_versions "
+        "WHERE id='r15_draft_aps'")
+    add("project_demand_link_events",id="r15_valid_draft_release",
+        project_scope_id="r15_draft_scope",event_seq=2,
+        action="released",actor_id="u",
+        recorded_at="2026-11-08T04:03:02.000Z")
+    ok("removing unapproved scope draft permits explicit release without deleting history",
+        row("SELECT COUNT(*) n FROM v_project_demand_binding_current "
+            "WHERE demand_id='r15_draft_reference'")["n"]==0
+        and row("SELECT action FROM project_demand_link_events "
+            "WHERE id='r15_valid_draft_release'")["action"]=="released")
+finally:
+    db.execute("ROLLBACK TO r15_demand_link_exclusivity")
+    db.execute("RELEASE r15_demand_link_exclusivity")
+
+# A project with an approved scope still owns its demand; it must first
+# formally remove that scope from the current approved version, or it may
+# explicitly release after the project has closed. Historic approvals remain.
+db.execute("SAVEPOINT r15_formal_reassignment")
+try:
+    blocked_reason("latest approved active scope cannot be unlinked mid-project",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_not_yet_released','scope2',2,'released','u',"
+        "'2026-11-08T04:03:00.000Z')",
+        "已正式批准的在办项目须先通过最新版范围变更移出需求")
+    # p's latest approval av3 excludes the ORIGINAL scope d, though old
+    # approval and cost/settlement histories still refer to it.
+    add("project_demand_link_events",id="r15_release_after_change",
+        project_scope_id="scope",event_seq=2,action="released",
+        actor_id="u",recorded_at="2026-11-08T04:04:00.000Z")
+    add("projects",id="r15_successor",code="R15-SUCCESSOR",
+        name="项目正式变更后的承接者",framework_id="f",
+        created_by="u",created_at="2026-11-08T04:04:00.000Z")
+    add("project_demand_scopes",id="r15_successor_scope",
+        project_id="r15_successor",demand_id="d",demand_version=1,
+        proposed_quantity_scaled=10000,
+        created_at="2026-11-08T04:05:00.000Z",
+        updated_at="2026-11-08T04:05:00.000Z")
+    add("project_stage_events",id="r15_successor_stock",
+        project_id="r15_successor",stage="stocked",project_version=2,
+        actor_id="u",created_at="2026-11-08T04:05:10.000Z")
+    add("project_approval_versions",id="r15_successor_ap",
+        project_id="r15_successor",version_no=1,approved_budget_fen=6000,
+        snapshot_json="{}",created_at="2026-11-08T04:05:11.000Z")
+    add("project_approval_scope_versions",id="r15_successor_aps",
+        approval_version_id="r15_successor_ap",
+        project_scope_id="r15_successor_scope",
+        demand_id="d",demand_version=1,quantity_scaled=10000,
+        snapshot_json="{}",created_at="2026-11-08T04:05:12.000Z")
+    db.execute("UPDATE project_approval_versions SET status='approved',"
+        "approved_by='u',approved_at='2026-11-08T04:06:00.000Z'"
+        " WHERE id='r15_successor_ap'")
+    ok("released demand may be officially approved in new project while preserving original historical approval",
+        row("SELECT COUNT(*) n FROM project_approval_scope_versions aps "
+            "JOIN project_approval_versions av ON av.id=aps.approval_version_id "
+            "WHERE aps.demand_id='d' AND av.status='approved'")["n"]>=2
+        and row("SELECT project_id FROM v_project_demand_binding_current "
+            "WHERE demand_id='d'")["project_id"]=="r15_successor")
+    # A CLOSED old project may explicitly release an approved demand with
+    # remaining work for a successor. Closing is not silent auto-release.
+    ok("closed project retains bound demand until explicit action",
+        row("SELECT project_id FROM v_project_demand_binding_current "
+            "WHERE demand_id='dnull'")["project_id"]=="pnull")
+    add("project_demand_link_events",id="r15_closed_release",
+        project_scope_id="snull",event_seq=2,action="released",
+        actor_id="u",recorded_at="2026-11-08T04:07:00.000Z")
+    add("projects",id="r15_closed_successor",code="R15-CLOSED-SUCCESSOR",
+        name="已结项项目未完需求的明确接续",framework_id="f",
+        created_by="u",created_at="2026-11-08T04:07:01.000Z")
+    add("project_demand_scopes",id="r15_closed_successor_scope",
+        project_id="r15_closed_successor",demand_id="dnull",demand_version=1,
+        proposed_quantity_scaled=10000,
+        created_at="2026-11-08T04:07:02.000Z",
+        updated_at="2026-11-08T04:07:02.000Z")
+    ok("post-close explicit release allows another project to reserve remainder",
+        row("SELECT project_id FROM v_project_demand_binding_current "
+            "WHERE demand_id='dnull'")["project_id"]=="r15_closed_successor"
+        and row("SELECT COUNT(*) n FROM project_approval_scope_versions "
+            "WHERE project_scope_id='snull'")["n"]==1)
+finally:
+    db.execute("ROLLBACK TO r15_formal_reassignment")
+    db.execute("RELEASE r15_formal_reassignment")
 
 ok("current SQLite integrity",row("PRAGMA integrity_check")[0]=="ok")
 ok("current SQLite FK integrity",not db.execute("PRAGMA foreign_key_check").fetchall())

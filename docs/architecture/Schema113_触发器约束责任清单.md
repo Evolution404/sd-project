@@ -1,20 +1,20 @@
 # Schema 113｜触发器与约束责任全量审计
 
-本清单从最新候选 SQL 重建。触发器负责不可变正式历史、真实身份引用、版本顺序、价格分档及每次结算真实需求结果；管理员说明理由、报表与价格计算是应用层问题。
+本清单从最新候选 SQL 重建。触发器负责正式不可变历史、项目—需求唯一归属、显式解绑序列、真实身份引用、状态版本顺序、参考价格分档及结算实际需求结果；应用角色授权、报表和价格计算不由 SQLite 执行。
 
 ## 分类数量
 
 | 责任类别 | 当前数量 |
 | --- | ---: |
-| 不可变历史或身份 | 115 |
-| 历史快照原子同步 | 16 |
+| 不可变历史或身份 | 119 |
+| 历史快照原子同步 | 17 |
 | 正式历史版本约束 | 28 |
 | 正式批准/结项一致性 | 5 |
 | 物资业务身份及关联 | 9 |
-| 状态事件合法性 | 2 |
+| 状态事件合法性 | 3 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 2 |
-| 跨表关联和身份完整性 | 28 |
+| 跨表关联和身份完整性 | 29 |
 
 ## 完整触发器清单
 
@@ -143,6 +143,7 @@
 | `project_approval_material_items` | `approved_material_scope_insert` | BEFORE/INSERT | 物资业务身份及关联 |
 | `project_approval_material_items` | `draft_approval_material_valid_update` | BEFORE/UPDATE | 物资业务身份及关联 |
 | `project_approval_material_items` | `project_approval_material_frozen_after_approval` | BEFORE/INSERT | 不可变历史或身份 |
+| `project_approval_scope_versions` | `approval_scope_link_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `project_approval_scope_versions` | `approved_scope_demand_version_relation` | BEFORE/INSERT | 正式历史版本约束 |
 | `project_approval_scope_versions` | `approved_scope_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_approval_scope_versions` | `approved_scope_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
@@ -167,8 +168,14 @@
 | `project_cost_nodes` | `project_cost_node_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_cost_nodes` | `project_cost_node_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_cost_nodes` | `project_cost_node_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_demand_link_events` | `project_demand_link_event_guard` | BEFORE/INSERT | 状态事件合法性 |
+| `project_demand_link_events` | `project_demand_link_event_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_demand_link_events` | `project_demand_link_event_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_demand_scopes` | `frozen_approved_project_scope` | BEFORE/UPDATE | 不可变历史或身份 |
-| `project_demand_scopes` | `settled_project_scope_identity_delete` | BEFORE/DELETE | 跨表关联和身份完整性 |
+| `project_demand_scopes` | `project_demand_scope_current_owner_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_demand_scopes` | `project_demand_scope_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_demand_scopes` | `project_demand_scope_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `project_demand_scopes` | `project_demand_scope_seed_link` | AFTER/INSERT | 历史快照原子同步 |
 | `project_funding_versions` | `project_funding_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_funding_versions` | `project_funding_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_funding_versions` | `project_funding_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |

@@ -749,6 +749,7 @@ CREATE TABLE reference_price_versions (
 
 CREATE TABLE project_demand_scopes (
  id TEXT NOT NULL PRIMARY KEY,
+ created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  demand_id TEXT NOT NULL REFERENCES demands(id) ON DELETE RESTRICT,
  demand_version INTEGER NOT NULL CHECK(demand_version>0),
@@ -761,11 +762,26 @@ CREATE TABLE project_demand_scopes (
  note TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))), updated_at TEXT NOT NULL CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))), demand_snapshot_json TEXT,
  reference_price_version_id TEXT REFERENCES reference_price_versions(id) ON DELETE RESTRICT,
- proposal_status TEXT NOT NULL DEFAULT 'active' CHECK(proposal_status IN ('active','retired')),
  FOREIGN KEY(demand_id,demand_version) REFERENCES demand_versions(demand_id,version) ON DELETE RESTRICT,
  UNIQUE(project_id,demand_id)
 ) STRICT;
 
+-- A project-demand scope is a stable historical identity, NOT a globally
+-- mutable assignment cell. The latest immutable link/release event determines
+-- current ownership. Its initial link is created automatically when the
+-- project_demand_scopes root is inserted with its true creator identity.
+-- Releasing does not delete old approval/settlement work or demand history.
+CREATE TABLE project_demand_link_events (
+ id TEXT NOT NULL PRIMARY KEY,
+ project_scope_id TEXT NOT NULL REFERENCES project_demand_scopes(id) ON DELETE RESTRICT,
+ event_seq INTEGER NOT NULL CHECK(event_seq>=1),
+ action TEXT NOT NULL CHECK(action IN ('linked','released')),
+ actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
+  COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
+ reason TEXT NOT NULL DEFAULT '',
+ UNIQUE(project_scope_id,event_seq)
+) STRICT;
 
 CREATE TABLE project_stage_events (
  id TEXT NOT NULL PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
@@ -1321,6 +1337,19 @@ FROM settlement_review_events e
 JOIN settlement_versions v ON v.id=e.settlement_version_id
 JOIN settlements s ON s.id=v.settlement_id
 WHERE e.action='approve';
+
+-- Exactly one current project for each linked professional demand.
+-- No persisted status is stored in demands or project_demand_scopes.
+CREATE VIEW v_project_demand_binding_current AS
+SELECT sc.id AS project_scope_id,sc.project_id,sc.demand_id,
+       evt.id AS link_event_id,evt.actor_id AS linked_by,
+       evt.recorded_at AS linked_at
+FROM project_demand_scopes sc
+JOIN project_demand_link_events evt ON evt.project_scope_id=sc.id
+ AND evt.event_seq=(
+   SELECT MAX(last.event_seq) FROM project_demand_link_events last
+   WHERE last.project_scope_id=sc.id)
+WHERE evt.action='linked';
 
 CREATE VIEW v_approval_scope_current AS
 SELECT a.* FROM project_approval_scope_versions a
@@ -1882,6 +1911,8 @@ CREATE INDEX idx_projects_framework ON projects(framework_id,status);
 CREATE INDEX idx_reference_price_versions_operation ON reference_price_versions(operation_id,unit_id,status);
 CREATE INDEX idx_reference_scope_version ON project_demand_scopes(reference_price_version_id);
 CREATE INDEX idx_project_scope_demand ON project_demand_scopes(demand_id);
+CREATE INDEX idx_project_demand_link_event_history
+ ON project_demand_link_events(actor_id,recorded_at);
 CREATE INDEX idx_line_parent ON transmission_lines(parent_line_id);
 CREATE UNIQUE INDEX uq_current_span_pair ON line_spans(line_id,min(start_tower_id,end_tower_id),max(start_tower_id,end_tower_id)) WHERE status<>'retired';
 CREATE INDEX idx_span_end ON line_spans(end_tower_id);
@@ -1897,7 +1928,6 @@ CREATE INDEX idx_source_record_type ON source_records(type_id);
 CREATE INDEX idx_demand_sources_reverse ON demand_sources(source_id,demand_id);
 CREATE INDEX idx_change_order_approval ON project_change_orders(base_approval_version_id);
 CREATE INDEX idx_spans_line_status ON line_spans(line_id,status);
-CREATE INDEX idx_scope_project_status ON project_demand_scopes(project_id,proposal_status);
 
 
 -- A demand inherits the operation's standard object automatically; the
@@ -2251,6 +2281,17 @@ CREATE TRIGGER settlement_review_event_immutable_delete
  BEFORE DELETE ON settlement_review_events
 BEGIN SELECT RAISE(ABORT,'结算审核历史不可删除'); END;
 
+CREATE TRIGGER approval_scope_link_guard
+ BEFORE INSERT ON project_approval_scope_versions
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM v_project_demand_binding_current held
+ JOIN project_approval_versions a ON a.project_id=held.project_id
+ WHERE a.id=NEW.approval_version_id
+ AND held.project_scope_id=NEW.project_scope_id)
+ THEN RAISE(ABORT,'批准草稿不能新增已解绑或被其他项目占用的需求范围') END;
+END;
+
 CREATE TRIGGER approved_scope_project_guard
  BEFORE INSERT ON project_approval_scope_versions
 BEGIN SELECT CASE WHEN NOT EXISTS(
@@ -2320,20 +2361,108 @@ BEGIN SELECT CASE WHEN NOT EXISTS(
 -- A scope's stable demand/project identity and approved numeric baseline
 -- must never be silently rewritten after a formal approval snapshot exists.
 -- Future approved changes are new project_approval_scope_versions rows.
+-- The association starts on link, NOT when an eventual project is approved.
+-- This rejects simultaneous pending project grabs as well as approved grabs.
+-- The stable record remains when released; only an event can relinquish it.
+CREATE TRIGGER project_demand_scope_current_owner_insert
+ BEFORE INSERT ON project_demand_scopes
+BEGIN
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM v_demand_current d
+  WHERE d.id=NEW.demand_id AND d.status='cancelled')
+ THEN RAISE(ABORT,'已取消需求不能再关联子项目') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM v_project_demand_binding_current held
+  WHERE held.demand_id=NEW.demand_id)
+ THEN RAISE(ABORT,'需求已关联其他子项目，须先由原子项目显式解绑') END;
+END;
+CREATE TRIGGER project_demand_scope_seed_link
+ AFTER INSERT ON project_demand_scopes
+BEGIN
+ INSERT INTO project_demand_link_events(
+  id,project_scope_id,event_seq,action,actor_id,recorded_at)
+ VALUES(lower(hex(randomblob(16))),NEW.id,1,'linked',
+        NEW.created_by,NEW.created_at);
+END;
+CREATE TRIGGER project_demand_scope_root_immutable_update
+ BEFORE UPDATE OF id,project_id,demand_id,created_by,created_at
+ ON project_demand_scopes
+BEGIN SELECT RAISE(ABORT,'需求关联的稳定项目/需求身份与创建人不可直接改写，须显式解绑'); END;
+CREATE TRIGGER project_demand_scope_root_immutable_delete
+ BEFORE DELETE ON project_demand_scopes
+BEGIN SELECT RAISE(ABORT,'已建立的需求关联及解绑历史不可删除'); END;
+
+-- The link/release is an immutable, consecutive, auditable user action.
+-- No bare status flip, false release, backwards timestamp or cross-project
+-- duplicate acquisition is permitted. Release of an approved active scope
+-- requires a prior formal approved project scope change that excludes it,
+-- or explicit release AFTER the original project was formally closed.
+CREATE TRIGGER project_demand_link_event_guard
+ BEFORE INSERT ON project_demand_link_events
+BEGIN
+ SELECT CASE WHEN NEW.event_seq<>(
+  SELECT COALESCE(MAX(evt.event_seq),0)+1 FROM project_demand_link_events evt
+  WHERE evt.project_scope_id=NEW.project_scope_id)
+ THEN RAISE(ABORT,'项目需求关联事件版本必须连续') END;
+ SELECT CASE WHEN (
+  (NEW.event_seq=1 AND NEW.action<>'linked')
+  OR (NEW.event_seq>1 AND NEW.action IS (
+    SELECT prev.action FROM project_demand_link_events prev
+    WHERE prev.project_scope_id=NEW.project_scope_id
+    ORDER BY prev.event_seq DESC LIMIT 1)))
+ THEN RAISE(ABORT,'需求关联与解绑必须按当前状态交替，不能重复挂接或重复解绑') END;
+ SELECT CASE WHEN NEW.recorded_at<
+  (SELECT sc.created_at FROM project_demand_scopes sc
+  WHERE sc.id=NEW.project_scope_id)
+ OR NEW.recorded_at<
+  (SELECT MAX(prev.recorded_at) FROM project_demand_link_events prev
+   WHERE prev.project_scope_id=NEW.project_scope_id)
+ THEN RAISE(ABORT,'需求关联解绑操作不能早于建档或上一事件') END;
+ SELECT CASE WHEN NEW.action='linked' AND EXISTS(
+  SELECT 1 FROM project_demand_scopes sc JOIN v_demand_current d
+   ON d.id=sc.demand_id
+  WHERE sc.id=NEW.project_scope_id AND d.status='cancelled')
+ THEN RAISE(ABORT,'已取消需求不得再次建立关联') END;
+ SELECT CASE WHEN NEW.action='linked' AND EXISTS(
+  SELECT 1 FROM v_project_demand_binding_current other
+  JOIN project_demand_scopes self ON self.id=NEW.project_scope_id
+  WHERE other.demand_id=self.demand_id
+    AND other.project_scope_id<>self.id)
+ THEN RAISE(ABORT,'需求仍由另一子项目关联，必须先显式解绑') END;
+ SELECT CASE WHEN NEW.action='linked' AND EXISTS(
+  SELECT 1 FROM projects p JOIN project_demand_scopes sc
+   ON sc.project_id=p.id
+  WHERE sc.id=NEW.project_scope_id AND p.status='closed')
+ THEN RAISE(ABORT,'已结项子项目不能重新关联需求') END;
+ SELECT CASE WHEN NEW.action='released' AND EXISTS(
+  SELECT 1 FROM project_demand_scopes sc
+  JOIN project_approval_scope_versions aps
+   ON aps.project_scope_id=sc.id
+  JOIN project_approval_versions ap ON ap.id=aps.approval_version_id
+  WHERE sc.id=NEW.project_scope_id AND ap.status='draft')
+ THEN RAISE(ABORT,'仍有立项或变更草稿引用需求，须先移出草稿再解绑') END;
+ SELECT CASE WHEN NEW.action='released' AND EXISTS(
+  SELECT 1 FROM project_demand_scopes sc JOIN projects p ON p.id=sc.project_id
+  JOIN v_approval_scope_current a ON a.project_scope_id=sc.id
+  WHERE sc.id=NEW.project_scope_id AND p.status<>'closed')
+ THEN RAISE(ABORT,'已正式批准的在办项目须先通过最新版范围变更移出需求，才能解绑') END;
+END;
+CREATE TRIGGER project_demand_link_event_immutable_update
+ BEFORE UPDATE ON project_demand_link_events
+BEGIN SELECT RAISE(ABORT,'已记录需求关联/解绑历史不得修改'); END;
+CREATE TRIGGER project_demand_link_event_immutable_delete
+ BEFORE DELETE ON project_demand_link_events
+BEGIN SELECT RAISE(ABORT,'已记录需求关联/解绑历史不得删除'); END;
+
 CREATE TRIGGER frozen_approved_project_scope
  BEFORE UPDATE OF project_id,demand_id,demand_version,
  proposed_quantity_scaled,proposed_unit_price_fen,proposed_amount_fen,reference_price_version_id,
- price_source,price_date,tax_mode,note,demand_snapshot_json,proposal_status
+ price_source,price_date,tax_mode,note,demand_snapshot_json
  ON project_demand_scopes
 WHEN EXISTS(SELECT 1 FROM project_approval_scope_versions v
  JOIN project_approval_versions a ON a.id=v.approval_version_id
  WHERE v.project_scope_id=OLD.id AND a.status='approved')
 BEGIN SELECT RAISE(ABORT,'已批准项目需求范围不得原地修改；应形成新的批准版本'); END;
-CREATE TRIGGER settled_project_scope_identity_delete
- BEFORE DELETE ON project_demand_scopes
-WHEN EXISTS(SELECT 1 FROM project_approval_scope_versions v WHERE v.project_scope_id=OLD.id)
-BEGIN SELECT RAISE(ABORT,'已有批准历史的项目需求范围不可删除'); END;
-
 CREATE TRIGGER project_closure_immutable_update BEFORE UPDATE ON project_closures
 BEGIN SELECT RAISE(ABORT,'子项目关闭审核历史不可覆盖'); END;
 CREATE TRIGGER project_closure_immutable_delete BEFORE DELETE ON project_closures
@@ -2941,30 +3070,22 @@ CREATE TRIGGER demand_revision_immutable_delete BEFORE DELETE ON demand_revision
 BEGIN SELECT RAISE(ABORT,'专业需求历史版本不可删除'); END;
 
 
--- A professional demand has exactly one historical formal project adopter.
--- Multiple settlement items may consume it inside that SAME project.
--- Cross-project transfer is deliberately not invented without an explicit
--- approved release/transfer business process.
+-- Historical approved scopes remain immutable after a release and a
+-- later transfer. Approval checks the CURRENT link, not whether an old
+-- project ever approved this demand at any time in history.
 CREATE TRIGGER project_demand_exclusive_approval
  BEFORE UPDATE OF status ON project_approval_versions
  WHEN OLD.status='draft' AND NEW.status='approved'
 BEGIN
  SELECT CASE WHEN EXISTS(
- SELECT 1
- FROM project_approval_scope_versions this_scope
- JOIN project_demand_scopes this_work ON this_work.id=this_scope.project_scope_id
- JOIN project_demand_scopes other_work
-   ON other_work.demand_id=this_work.demand_id
-   AND other_work.project_id<>this_work.project_id
- JOIN project_approval_scope_versions other_scope
-   ON other_scope.project_scope_id=other_work.id
- JOIN project_approval_versions other_approval
-   ON other_approval.id=other_scope.approval_version_id
- WHERE this_scope.approval_version_id=NEW.id
-   AND other_approval.status='approved')
- THEN RAISE(ABORT,'专业需求已被其他子项目正式承接，不允许无依据的重复批准') END;
+ SELECT 1 FROM project_approval_scope_versions aps
+ JOIN project_demand_scopes sc ON sc.id=aps.project_scope_id
+ LEFT JOIN v_project_demand_binding_current held
+  ON held.project_scope_id=sc.id AND held.project_id=NEW.project_id
+ WHERE aps.approval_version_id=NEW.id
+ AND held.project_scope_id IS NULL)
+ THEN RAISE(ABORT,'项目正式批准时其全部需求必须仍由该子项目独占关联') END;
 END;
-
 
 CREATE INDEX idx_demand_material_master ON demand_material_items(material_id,demand_id);
 CREATE INDEX idx_project_scope_material_master ON project_scope_materials(material_id,project_scope_id);
@@ -3481,10 +3602,10 @@ BEGIN SELECT RAISE(ABORT,'仍有在运逻辑杆塔关联，物理杆塔不可停
 CREATE TRIGGER demand_adopted_cancel_guard
  BEFORE INSERT ON demand_lifecycle_events
  WHEN NEW.event_seq>1 AND NEW.to_status='cancelled'
- AND EXISTS(SELECT 1 FROM v_approval_scope_current a
- JOIN project_demand_scopes sc ON sc.id=a.project_scope_id
- WHERE sc.demand_id=NEW.demand_id)
-BEGIN SELECT RAISE(ABORT,'已由正式子项目承接的专业需求不能直接取消，须办理项目范围正式变更'); END;
+ AND EXISTS(
+  SELECT 1 FROM v_project_demand_binding_current held
+  WHERE held.demand_id=NEW.demand_id)
+BEGIN SELECT RAISE(ABORT,'需求尚关联子项目，须先完成明确解绑才能取消该需求'); END;
 
 CREATE TRIGGER org_unit_root_immutable_update BEFORE UPDATE ON organizational_units
 BEGIN SELECT RAISE(ABORT,'组织单位稳定编码不可覆盖；正式更名、上级或停用需要新版定义'); END;

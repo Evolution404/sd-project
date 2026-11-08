@@ -24,7 +24,7 @@
 | `effective_from` | TEXT | 否 | — | 见原生CHECK | 合同或版本生效起始业务日期 | 保留：历史/审核事实 |
 | `effective_to` | TEXT | 否 | — | 见原生CHECK | 合同或版本生效结束日期 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -61,10 +61,10 @@
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `entity` | TEXT | 是 | — | 见原生CHECK | 审计事件对应的业务实体类型 | 保留：历史/审核事实 |
 | `entity_id` | TEXT | 是 | — | 见原生CHECK | 审计事件对应实体的稳定身份字符串 | 保留：历史/审核事实 |
-| `action` | TEXT | 是 | — | 见原生CHECK | 当前业务记录操作类型 | 保留：历史/审核事实 |
+| `action` | TEXT | 是 | — | 见原生CHECK | 正式事件动作：项目需求归属记录使用linked关联/released解绑；其他事件保留各自合法动作类型 | 保留：历史/审核事实 |
 | `before_json` | TEXT | 否 | — | 见原生CHECK | 操作前的结构化审计事实 | 保留：不可追溯重算的历史快照 |
 | `after_json` | TEXT | 否 | — | 见原生CHECK | 操作后的结构化审计事实 | 保留：不可追溯重算的历史快照 |
-| `reason` | TEXT | 否 | — | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 否 | — | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
 
 ## `batch_demand_sources` — 批次与需求、来源的不可变导入断言
@@ -84,7 +84,7 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 外键→project_cost_nodes.project_id（组0）<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份 | 保留：独立属性或真实关联 |
+| `project_id` | TEXT | 是 | — | 外键→project_cost_nodes.project_id（组0）<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
 | `cost_node_id` | TEXT | 是 | — | 外键→project_cost_nodes.id（组0） | 子项目费用树的稳定节点；只有末级能登记实际费用或结算 | 保留：独立属性或真实关联 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组1） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
@@ -129,7 +129,7 @@
 | `tax_rate_basis_points` | INTEGER | 否 | — | 见原生CHECK | 税率，万分比整数 | 保留：历史/审核事实 |
 | `invoice_number` | TEXT | 否 | — | 见原生CHECK | 实际费用关联的发票单号（不是完整发票台账） | 保留：历史/审核事实 |
 | `evidence` | TEXT | 是 | — | 见原生CHECK | 现场实际或成本确认的书面依据 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `confirmed_by` | TEXT | 是 | — | 外键→users.id（组0） | 实际费用确认人员 | 保留：历史/审核事实 |
 | `confirmed_at` | TEXT | 是 | — | 见原生CHECK | 实际费用或现场事实的确认UTC时间 | 保留：历史/审核事实 |
 | `request_key` | TEXT | 是 | — | 唯一 | 重复请求去重的稳定幂等标识 | 保留：稳定身份或唯一编码 |
@@ -162,7 +162,7 @@
 | `matched_demand_id` | TEXT | 是 | — | 外键→demands.id（组2） | 去重审查中已存在的需求 | 保留：独立属性或真实关联 |
 | `new_demand_id` | TEXT | 否 | — | 外键→demands.id（组1） | 去重审查关联的新建需求 | 保留：独立属性或真实关联 |
 | `decision` | TEXT | 是 | — | 见原生CHECK | 重复需求审查结果 | 保留：独立属性或真实关联 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：独立属性或真实关联 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：独立属性或真实关联 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
@@ -174,10 +174,10 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `demand_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：历史/审核事实 |
-| `event_seq` | INTEGER | 是 | — | 组合唯一 | 同一业务对象状态事件的连续序号 | 保留：历史/审核事实 |
+| `event_seq` | INTEGER | 是 | — | 组合唯一 | 同一业务对象生命周期或项目需求关联/解绑事件的严格连续序号 | 保留：历史/审核事实 |
 | `from_status` | TEXT | 否 | — | 见原生CHECK | 状态事件的原状态 | 保留：历史/审核事实 |
 | `to_status` | TEXT | 是 | — | 见原生CHECK | 状态事件的目标状态 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -231,7 +231,7 @@
 | `demand_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：历史/审核事实 |
 | `version` | INTEGER | 是 | — | 组合唯一 | 正式定义或设备当前连续版本 | 保留：历史/审核事实 |
 | `snapshot_json` | TEXT | 是 | — | 见原生CHECK | 正式业务版本整体快照 | 保留：不可追溯重算的历史快照 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `changed_at` | TEXT | 是 | — | 见原生CHECK | 业务定义变更登记UTC时间 | 保留：历史/审核事实 |
 
@@ -328,7 +328,7 @@
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `sort_order` | INTEGER | 是 | 100 | 见原生CHECK | 数据字典或操作定义展示顺序 | 保留：历史/审核事实 |
 | `fields_json` | TEXT | 是 | '[]' | 见原生CHECK | 标准业务字典/操作类型扩展字段 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `changed_at` | TEXT | 是 | — | 见原生CHECK | 业务定义变更登记UTC时间 | 保留：历史/审核事实 |
 
@@ -399,8 +399,8 @@
 | `reconciliation_version_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→cost_reconciliation_versions.id（组4） | 费用与结算历史核对版本 | 保留：独立属性或真实关联 |
 | `project_closure_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_closures.id（组3） | 正式关闭审批身份 | 保留：独立属性或真实关联 |
 | `note` | TEXT | 是 | '' | 见原生CHECK | 与业务对象关联的备注 | 保留：独立属性或真实关联 |
-| `linked_by` | TEXT | 是 | — | 外键→users.id（组2） | 提交证据关联的用户 | 保留：独立属性或真实关联 |
-| `linked_at` | TEXT | 是 | — | 见原生CHECK | 证据与业务对象建立关联的UTC时间 | 保留：独立属性或真实关联 |
+| `linked_by` | TEXT | 是 | — | 外键→users.id（组2） | 提交证据关联的用户或当前项目需求归属事件的实际操作人 | 保留：独立属性或真实关联 |
+| `linked_at` | TEXT | 是 | — | 见原生CHECK | 证据或项目需求归属关系当前正式建立的UTC时间 | 保留：独立属性或真实关联 |
 
 ## `framework_versions` — 框架批准额度与历史
 
@@ -414,7 +414,7 @@
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
 | `limit_fen` | INTEGER | 是 | — | 见原生CHECK | 框架或协议当前正式额度，人民币分 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -458,7 +458,7 @@
 | `setup_status` | TEXT | 是 | — | 见原生CHECK | 设备建档状态 | 保留：历史/审核事实 |
 | `erection_type` | TEXT | 是 | — | 见原生CHECK | 线路/杆塔架设类型 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
 ## `line_span_history` — 档距及管辖长度历史
@@ -475,7 +475,7 @@
 | `end_tower_id` | TEXT | 是 | — | 外键→logical_towers.id（组1） | 档距终止逻辑杆塔 | 保留：历史/审核事实 |
 | `transmission_center_length_mm` | INTEGER | 否 | — | 见原生CHECK | 输电中心管辖的该档距长度，毫米整数，NULL表示尚未核定，0表示明确无管辖长度 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 否 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -516,7 +516,7 @@
 | `operations_team` | TEXT | 是 | — | 见原生CHECK | 对应逻辑杆塔所属线路的运维班组，独立于子项目归口单位 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
 ## `logical_towers` — 每回线路逻辑杆塔；运维班组及在运、停用、独立退役
@@ -558,7 +558,7 @@
 | `category_id` | TEXT | 否 | — | 外键→dictionary_items.id（组1） | 业务类别字典项 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `note` | TEXT | 是 | '' | 见原生CHECK | 与业务对象关联的备注 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -598,7 +598,7 @@
 | `default_location_kind` | TEXT | 是 | — | 见原生CHECK | 操作类型默认选用位置种类 | 保留：历史/审核事实 |
 | `default_target_object` | TEXT | 是 | '' | 见原生CHECK | 操作类型默认作业对象位置说明 | 保留：历史/审核事实 |
 | `entry_hint` | TEXT | 是 | '' | 见原生CHECK | 操作类型的录入指引文字 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组1） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `changed_at` | TEXT | 是 | — | 见原生CHECK | 业务定义变更登记UTC时间 | 保留：历史/审核事实 |
 
@@ -624,7 +624,7 @@
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
 | `parent_unit_id` | TEXT | 否 | — | 外键→organizational_units.id（组1） | 组织单位当次正式定义采用的上级单位稳定身份 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -664,7 +664,7 @@
 | `purpose` | TEXT | 否 | — | 见原生CHECK | 设备用途或访问授权用途 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
 ## `physical_towers` — 实体杆塔独立状态（在运、停用、退役），不得在仍有在运逻辑回路时停用
@@ -699,7 +699,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `approval_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_approval_scope_versions.approval_version_id（组1）<escape>|</escape>外键→project_approval_versions.id（组5） | 项目正式批准版本身份 | 保留：独立属性或真实关联 |
-| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_scope_materials.project_scope_id（组0）<escape>|</escape>外键→project_approval_scope_versions.project_scope_id（组1）<escape>|</escape>外键→project_demand_scopes.id（组4） | 子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_scope_materials.project_scope_id（组0）<escape>|</escape>外键→project_approval_scope_versions.project_scope_id（组1）<escape>|</escape>外键→project_demand_scopes.id（组4） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
 | `project_material_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_scope_materials.id（组0） | 子项目范围内的统一物资稳定身份 | 保留：独立属性或真实关联 |
 | `material_version_id` | TEXT | 是 | — | 外键→material_versions.id（组3） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
 | `item_no` | INTEGER | 是 | — | 组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
@@ -711,7 +711,7 @@
 | `unit_id` | TEXT | 是 | — | 外键→dictionary_items.id（组2） | 计量单位字典项 | 保留：独立属性或真实关联 |
 | `unit_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式批准或发生时的单位名称快照 | 保留：不可追溯重算的历史快照 |
 
-## `project_approval_scope_versions` — 批准需求范围与数量快照
+## `project_approval_scope_versions` — 准确关联需求及其当时正式批准范围版本；真实解绑以后仍保留原项目完整历史
 
 业务领域：框架、协议、项目与批准。字段数：10；外键分量：5。
 
@@ -719,7 +719,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `approval_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_approval_versions.id（组3） | 项目正式批准版本身份 | 保留：历史/审核事实 |
-| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_demand_scopes.id（组2） | 子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份 | 保留：历史/审核事实 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_demand_scopes.id（组2） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：历史/审核事实 |
 | `demand_id` | TEXT | 是 | — | 外键→demand_versions.demand_id（组0）<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：历史/审核事实 |
 | `demand_version` | INTEGER | 是 | — | 外键→demand_versions.version（组0） | 项目所引用的专业需求正式版本号 | 保留：历史/审核事实 |
 | `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：历史/审核事实 |
@@ -728,14 +728,14 @@
 | `snapshot_json` | TEXT | 是 | — | 见原生CHECK | 正式业务版本整体快照 | 保留：不可追溯重算的历史快照 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
 
-## `project_approval_versions` — 子项目必须至少关联一项已确认的有效专业需求范围才能正式立项；预算为软基准
+## `project_approval_versions` — 项目正式批准要求至少一项有效且当前由本项目独占关联的需求；旧批准范围历史保留，已释放旧承接不阻止新项目承接
 
 业务领域：框架、协议、项目与批准。字段数：10；外键分量：3。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份 | 保留：历史/审核事实 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：历史/审核事实 |
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
 | `change_order_id` | TEXT | 否 | — | 唯一<escape>|</escape>外键→project_change_orders.id（组1） | 引起正式批准版本变化的变更单 | 保留：历史/审核事实 |
 | `snapshot_json` | TEXT | 是 | — | 见原生CHECK | 正式业务版本整体快照 | 保留：不可追溯重算的历史快照 |
@@ -752,11 +752,11 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 外键→projects.id（组3） | 子项目稳定身份 | 保留：独立属性或真实关联 |
+| `project_id` | TEXT | 是 | — | 外键→projects.id（组3） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
 | `code` | TEXT | 是 | — | 唯一 | 唯一业务编码 | 保留：稳定身份或唯一编码 |
 | `base_approval_version_id` | TEXT | 是 | — | 外键→project_approval_versions.id（组2） | 变更单所依据的前一项目正式批准版本 | 保留：独立属性或真实关联 |
 | `proposal_json` | TEXT | 是 | — | 见原生CHECK | 项目范围和预算变更提案内容 | 保留：独立属性或真实关联 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：独立属性或真实关联 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：独立属性或真实关联 |
 | `status` | TEXT | 是 | 'draft' | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：独立属性或真实关联 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组1） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
@@ -771,9 +771,9 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份 | 保留：历史/审核事实 |
+| `project_id` | TEXT | 是 | — | 唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：历史/审核事实 |
 | `approval_version_id` | TEXT | 是 | — | 外键→project_approval_versions.id（组1） | 项目正式批准版本身份 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `close_snapshot_json` | TEXT | 是 | — | 见原生CHECK | 正式项目结项时冻结需求实际解决、未完成/超量及费用未结/超预算的审核依据快照；并非所有数量必须归零 | 保留：不可追溯重算的历史快照 |
 | `closed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式关闭的审核人员 | 保留：历史/审核事实 |
 | `closed_at` | TEXT | 是 | — | 见原生CHECK | 正式关闭批准UTC时间 | 保留：历史/审核事实 |
@@ -789,7 +789,7 @@
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -800,19 +800,34 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_cost_nodes.project_id（组0）<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份 | 保留：独立属性或真实关联 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_cost_nodes.project_id（组0）<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
 | `parent_id` | TEXT | 否 | — | 外键→project_cost_nodes.id（组0） | 组织单位或业务对象的父级身份 | 保留：独立属性或真实关联 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组1） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `project_demand_scopes` — 项目承接需求及候选范围
+## `project_demand_link_events` — 专业需求与子项目关联、显式解绑的连续不可变历史；当前仅允许一个有效归口子项目
 
-业务领域：框架、协议、项目与批准。字段数：16；外键分量：5。
+业务领域：框架、协议、项目与批准。字段数：7；外键分量：2。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组3） | 子项目稳定身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：历史/审核事实 |
+| `event_seq` | INTEGER | 是 | — | 组合唯一 | 同一业务对象生命周期或项目需求关联/解绑事件的严格连续序号 | 保留：历史/审核事实 |
+| `action` | TEXT | 是 | — | 见原生CHECK | 正式事件动作：项目需求归属记录使用linked关联/released解绑；其他事件保留各自合法动作类型 | 保留：历史/审核事实 |
+| `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
+| `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+
+## `project_demand_scopes` — 子项目与需求的稳定关联身份及拟承接数量；创建即锁定需求，绑定/解绑状态完全取不可变事件，不重复存储可变状态
+
+业务领域：框架、协议、项目与批准。字段数：16；外键分量：6。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
+| `created_by` | TEXT | 是 | — | 外键→users.id（组4） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组3） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
 | `demand_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→demand_versions.demand_id（组0）<escape>|</escape>外键→demands.id（组2） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
 | `demand_version` | INTEGER | 是 | — | 外键→demand_versions.version（组0） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
 | `proposed_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 项目拟承接工作量缩放整数 | 保留：尚未批准的独立预计事实 |
@@ -826,7 +841,6 @@
 | `updated_at` | TEXT | 是 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
 | `demand_snapshot_json` | TEXT | 否 | — | 见原生CHECK | 承接时冻结的专业需求定义 | 保留：不可追溯重算的历史快照 |
 | `reference_price_version_id` | TEXT | 否 | — | 外键→reference_price_versions.id（组1） | 本次采用的参考单价正式版本 | 保留：独立属性或真实关联 |
-| `proposal_status` | TEXT | 是 | 'active' | 见原生CHECK | 未正式批准前的项目拟承接状态 | 保留：独立属性或真实关联 |
 
 ## `project_funding_versions` — 项目资金协议关联历史
 
@@ -835,10 +849,10 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份 | 保留：历史/审核事实 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：历史/审核事实 |
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
 | `agreement_id` | TEXT | 否 | — | 外键→agreements.id（组1） | 业务归属执行协议 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -849,7 +863,7 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组7） | 子项目稳定身份 | 保留：历史/审核事实 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组7） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：历史/审核事实 |
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
 | `category_id` | TEXT | 否 | — | 外键→dictionary_item_versions.item_id（组1）<escape>|</escape>外键→dictionary_items.id（组6） | 业务类别字典项 | 保留：历史/审核事实 |
@@ -862,7 +876,7 @@
 | `planned_end_on` | TEXT | 否 | — | 见原生CHECK | 子项目预计结束业务日期 | 保留：历史/审核事实 |
 | `preliminary_estimate_fen` | INTEGER | 否 | — | 见原生CHECK | 子项目初步估算金额（非正式批准） | 保留：尚未批准的独立预计事实 |
 | `preliminary_estimate_basis` | TEXT | 否 | — | 见原生CHECK | 子项目初步估算金额的依据 | 保留：尚未批准的独立预计事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组2） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -873,7 +887,7 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
 | `material_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→materials.id（组0） | 统一物资主数据身份 | 保留：独立属性或真实关联 |
 | `addition_reason` | TEXT | 是 | '' | 见原生CHECK | 超出预计清单时可选的补充说明；管理员无需填写，不影响批准历史 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
@@ -885,10 +899,10 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→projects.id（组1） | 子项目稳定身份 | 保留：历史/审核事实 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→projects.id（组1） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：历史/审核事实 |
 | `stage` | TEXT | 是 | — | 组合唯一 | 项目储备入库立项结项阶段 | 保留：历史/审核事实 |
 | `project_version` | INTEGER | 是 | — | 组合唯一<escape>|</escape>组合唯一 | 项目阶段变更的连续序号 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
 
@@ -946,7 +960,7 @@
 | `tax_mode` | TEXT | 是 | — | 见原生CHECK | 含税、不含税或无税业务口径 | 保留：历史/审核事实 |
 | `effective_on` | TEXT | 是 | — | 见原生CHECK | 正式业务批准的生效日期 | 保留：历史/审核事实 |
 | `basis` | TEXT | 是 | — | 见原生CHECK | 价格、结算或估算的依据说明 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组2） | 登记业务对象的用户 | 保留：历史/审核事实 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
 
@@ -1011,7 +1025,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `settlement_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→settlements.id（组2） | 结算单稳定身份（对实际工作可空） | 保留：独立属性或真实关联 |
-| `project_scope_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
 | `cost_node_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_cost_nodes.id（组0） | 子项目费用树的稳定节点；只有末级能登记实际费用或结算 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
@@ -1023,9 +1037,9 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `settlement_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组1） | 正式结算版本身份 | 保留：历史/审核事实 |
-| `event_seq` | INTEGER | 是 | — | 组合唯一 | 同一业务对象状态事件的连续序号 | 保留：历史/审核事实 |
-| `action` | TEXT | 是 | — | 见原生CHECK | 当前业务记录操作类型 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `event_seq` | INTEGER | 是 | — | 组合唯一 | 同一业务对象生命周期或项目需求关联/解绑事件的严格连续序号 | 保留：历史/审核事实 |
+| `action` | TEXT | 是 | — | 见原生CHECK | 正式事件动作：项目需求归属记录使用linked关联/released解绑；其他事件保留各自合法动作类型 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 | `effective_on` | TEXT | 否 | — | 见原生CHECK | 正式业务批准的生效日期 | 保留：历史/审核事实 |
@@ -1038,7 +1052,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `settlement_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组2） | 正式结算版本身份 | 保留：独立属性或真实关联 |
-| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
 | `approval_scope_version_id` | TEXT | 是 | — | 外键→project_approval_scope_versions.id（组0） | 本条结算明细对应的正式批准范围版本 | 保留：独立属性或真实关联 |
 | `resolved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 结算单版本对应某专业需求本次新增解决数量，缩放10000倍；0表示仅补结此前工作而不虚增完成量，实际量可超过批准量 | 保留：独立属性或真实关联 |
 | `evidence` | TEXT | 是 | '' | 见原生CHECK | 现场实际或成本确认的书面依据 | 保留：独立属性或真实关联 |
@@ -1056,7 +1070,7 @@
 | `approval_version_id` | TEXT | 是 | — | 外键→project_approval_versions.id（组2） | 项目正式批准版本身份 | 保留：历史/审核事实 |
 | `funding_version_id` | TEXT | 否 | — | 外键→project_funding_versions.id（组1） | 真实费用或结算确认时所采用的资金归属版本 | 保留：历史/审核事实 |
 | `change_type` | TEXT | 是 | — | 见原生CHECK | 本次正式版本属于新增、修订还是作废 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `basis` | TEXT | 是 | '' | 见原生CHECK | 价格、结算或估算的依据说明 | 保留：历史/审核事实 |
 | `settlement_on` | TEXT | 否 | — | 见原生CHECK | 结算业务确认日期 | 保留：历史/审核事实 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：历史/审核事实 |
@@ -1069,7 +1083,7 @@
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组1） | 子项目稳定身份 | 保留：独立属性或真实关联 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组1） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
 | `number` | TEXT | 是 | — | 组合唯一 | 项目内结算单编号 | 保留：稳定身份或唯一编码 |
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
@@ -1157,7 +1171,7 @@
 | `work_target_type` | TEXT | 是 | — | 见原生CHECK | 作业对象定位方式，线路逻辑对象或物理设备 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `sort_order` | INTEGER | 是 | 100 | 见原生CHECK | 数据字典或操作定义展示顺序 | 保留：历史/审核事实 |
-| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
+| `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `changed_by` | TEXT | 是 | — | 外键→users.id（组0） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
@@ -1173,6 +1187,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：70；字段总数（含生成列）：674；需要人工补写独立描述的字段名：0。
+基础数据表数：71；字段总数（含生成列）：681；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。
