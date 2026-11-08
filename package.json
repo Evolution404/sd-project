@@ -4,19 +4,20 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 & node --watch server/main.mjs",
+    "dev": "node --watch server/main.mjs",
     "dev:api": "node --watch server/main.mjs",
     "build": "vue-tsc --noEmit && vite build",
     "start": "node server/main.mjs",
     "init-admin": "node scripts/init-admin.mjs",
-    "test": "node --test",
+    "test": "node --test tests/api/*.test.mjs tests/domain/*.test.mjs tests/excel/*.test.mjs",
     "check": "npm run check:ui:strict && npm run build && npm test && npm run check:database-boundary",
     "check:ui": "node scripts/check-native-ui.mjs",
     "check:ui:strict": "node scripts/check-native-ui.mjs --strict",
     "backup": "node scripts/backup.mjs",
-    "test:browser": "npm run build && node tests/browser/browser.mjs && node tests/browser/browser-audit.mjs && node tests/browser/browser-lan-smoke.mjs && node tests/browser/browser-validation.mjs && node tests/browser/browser-ledger.mjs && node tests/browser/browser-shared-detach.mjs && node tests/browser/browser-topology.mjs && node tests/browser/browser-topology-labels.mjs && node tests/browser/browser-ui-audit.mjs && node tests/browser/browser-ui-dialog-audit.mjs && node tests/browser/browser-dictionary.mjs && node tests/browser/browser-funding-audit.mjs && node tests/browser/browser-plan-finance.mjs && node tests/browser/browser-plan-budgets.mjs && node tests/browser/browser-completion.mjs && node tests/browser/browser-costs.mjs && node tests/browser/browser-demand-import.mjs",
+    "test:browser": "npm run build && node tests/e2e/browser.mjs",
     "package:win": "npm run build && node scripts/release/package-win10.mjs",
-    "check:database-boundary": "node scripts/check-database-boundary.mjs"
+    "check:database-boundary": "node scripts/check-database-boundary.mjs",
+    "check:schema": "python3 -B docs/architecture/schema113_database_acceptance.py && python3 -B docs/architecture/schema113_export_dictionary.py && python3 -B docs/architecture/schema113_structure_audit.py"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
