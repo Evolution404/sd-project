@@ -1,108 +1,760 @@
-import { authorize,id,now } from './auth.mjs';
-import { requireValue,expectedVersion,text,integer } from '../domain/errors.mjs';
-import { safeAmount } from '../domain/pricing.mjs';
-export function createFinance(repo,catalog,projects) {
-  function node(actor,projectId,input,key){authorize(actor,'write');return repo.transaction(()=>{
-    projects.get(projectId);const previous=key?repo.find('v_project_cost_node_current','id',key):null;
-    if(previous){requireValue(previous.project_id===projectId,'科目不属于本项目');expectedVersion(previous.version_no,input.expected_version);}
-    const nodeId=key||id();if(!previous)repo.insert('project_cost_nodes',{id:nodeId,project_id:projectId,parent_id:input.parent_id||null,created_by:actor.id,created_at:now()});
-    repo.insert('project_cost_node_versions',{id:id(),node_id:nodeId,version_no:(previous?.version_no||0)+1,name:text(input.name,'费用科目名称'),status:input.status||'active',actor_id:actor.id,recorded_at:now(),reason:input.reason||''});return repo.find('v_project_cost_node_current','id',nodeId);
-  });}
-  function cost(actor,projectId,input,key){authorize(actor,'cost.confirm');return repo.transaction(()=>{
-    const project=projects.get(projectId),previous=key?repo.latest('cost_versions','entry_id',key):null;
-    if(previous){expectedVersion(previous.version_no,input.expected_version);requireValue(repo.find('cost_entries','id',key).project_id===projectId,'费用不属于本项目');}
-    const nodeRow=repo.find('v_project_cost_node_current','id',input.cost_node_id||repo.find('cost_entries','id',key)?.cost_node_id);
-    requireValue(nodeRow&&nodeRow.project_id===projectId,'请选择本项目费用科目');
-    const entryId=key||id();if(!previous)repo.insert('cost_entries',{id:entryId,project_id:projectId,cost_node_id:nodeRow.id,created_by:actor.id,created_at:now()});
-    const value={id:id(),entry_id:entryId,version_no:(previous?.version_no||0)+1,cost_node_version_id:nodeRow.current_version_id,funding_version_id:project.funding?.id||null,status:input.status||'active',title:text(input.title,'费用事项'),occurred_on:input.occurred_on,amount_fen:integer(input.amount_fen,'实际金额',1),invoice_number:input.invoice_number||null,evidence:text(input.evidence,'费用凭据'),confirmed_by:actor.id,confirmed_at:now(),request_key:input.request_key||id(),reason:input.reason||''};repo.insert('cost_versions',value);return value;
-  });}
-  function settlement(key){
-    const root=repo.find('settlements','id',key);requireValue(root,'结算单不存在',404);
-    const version=repo.latest('settlement_versions','settlement_id',key),draft=repo.find('settlement_drafts','settlement_id',key);
-    const items=version?repo.where('settlement_item_versions',{settlement_version_id:version.id}).map(x=>({...repo.find('settlement_items','id',x.settlement_item_id),...x})):[];
-    const resolutions=version?repo.where('settlement_scope_results',{settlement_version_id:version.id}):[];
-    return {...root,version:version||null,items,resolutions,draft:draft?{...draft,document:JSON.parse(draft.draft_json)}:null,review:version?repo.latest('settlement_review_events','settlement_version_id',version.id,'event_seq')||null:null};
-  }
-  function validateDraft(projectId,input){
-    const project=projects.get(projectId),approval=project.approvals.find(ap=>ap.id===input.approval_version_id);
-    requireValue(project.status==='approved'&&approval?.status==='approved','结算须采用本项目正式批准版本');
-    if(input.change_type==='void')return {...input,items:[],resolutions:[]};
-    requireValue(Array.isArray(input.items)&&input.items.length>0,'至少一条费用明细');
-    requireValue(Array.isArray(input.resolutions)&&input.resolutions.length>0,'至少一条独立需求解决明细');
-    const scopes=new Set(approval.scopes.map(x=>x.project_scope_id));
-    const results=new Set();for(const r of input.resolutions){requireValue(scopes.has(r.project_scope_id),'解决需求不属于本批准范围');requireValue(!results.has(r.project_scope_id),'同一需求不能重复累计解决数量');results.add(r.project_scope_id);integer(r.resolved_quantity_scaled,'本次新增解决数量');}
-    const identities=new Set();for(const item of input.items){
-      const n=project.cost_nodes.find(x=>x.id===item.cost_node_id);requireValue(n&&n.status==='active'&&!project.cost_nodes.some(child=>child.parent_id===n.id),'请选择启用的末级费用科目');
-      requireValue(!item.project_scope_id||scopes.has(item.project_scope_id),'费用需求不属于本批准范围');
-      requireValue(!item.project_scope_id||results.has(item.project_scope_id),'费用对应需求缺少独立解决明细');
-      const identity=`${item.cost_node_id}/${item.project_scope_id||''}`;requireValue(!identities.has(identity),'同一科目及需求的费用行重复');identities.add(identity);
-      integer(item.quantity_scaled||0,'费用计价数量');integer(item.amount_fen,'本次结算金额');requireValue(item.amount_fen>0||item.quantity_scaled>0,'费用明细金额和数量不能同时为0');requireValue(item.project_scope_id||!item.quantity_scaled,'无需求归属的共同费用计价数量须为0');text(item.evidence,'结算依据');
+import { authorize, documentCode, id, now, today } from "./auth.mjs";
+import {
+  requireValue,
+  expectedVersion,
+  text,
+  integer,
+} from "../domain/errors.mjs";
+import { safeAmount } from "../domain/pricing.mjs";
+export function createFinance(repo, catalog, projects) {
+  function activeLeaf(project, nodeId) {
+    const node = project.cost_nodes.find((item) => item.id === nodeId);
+    requireValue(
+      node && !project.cost_nodes.some((child) => child.parent_id === nodeId),
+      "请选择本项目末级费用科目",
+    );
+    let current = node;
+    while (current) {
+      requireValue(
+        current.status === "active" &&
+          !repo.deleted("cost_nodes").has(current.id),
+        "费用科目及全部上级必须启用且未删除",
+      );
+      current = current.parent_id
+        ? project.cost_nodes.find((parent) => parent.id === current.parent_id)
+        : null;
     }
-    return {...input,approval_version_id:approval.id,funding_version_id:input.funding_version_id||project.funding?.id||null};
+    return node;
   }
-  function saveDraft(actor,projectId,input,key){authorize(actor,'write');return repo.transaction(()=>{
-    const previous=key?settlement(key):null;if(key)requireValue(!repo.deleted('settlements').has(key),'结算单已删除');if(previous){requireValue(previous.project_id===projectId,'结算单不属于本项目');expectedVersion(previous.version?.version_no||0,input.expected_version);expectedVersion(previous.draft?.edit_version||0,input.expected_edit_version);}
-    const normalized=validateDraft(projectId,input),settlementId=key||id(),timestamp=now();
-    if(!previous)repo.insert('settlements',{id:settlementId,project_id:projectId,number:text(input.number,'结算编号'),created_by:actor.id,created_at:timestamp});
-    const row={based_on_version_id:previous?.version?.id||null,draft_json:JSON.stringify(normalized),edit_version:(previous?.draft?.edit_version||0)+1,updated_by:actor.id,updated_at:timestamp};
-    if(previous?.draft)repo.update('settlement_drafts','settlement_id',settlementId,row);else repo.insert('settlement_drafts',{settlement_id:settlementId,...row});return settlement(settlementId);
-  });}
-  function submit(actor,key,input){authorize(actor,'write');return repo.transaction(()=>{
-    const current=settlement(key);expectedVersion(current.version?.version_no||0,input.expected_version);requireValue(current.draft,'没有待提交草稿');expectedVersion(current.draft.edit_version,input.expected_edit_version);
-    const draft=validateDraft(current.project_id,current.draft.document),versionId=id(),timestamp=now(),approval=repo.find('project_approval_versions','id',draft.approval_version_id);
-    const version={id:versionId,settlement_id:key,version_no:(current.version?.version_no||0)+1,previous_version_id:current.version?.id||null,approval_version_id:approval.id,funding_version_id:draft.funding_version_id||null,change_type:current.version?(draft.change_type==='void'?'void':'revision'):'initial',reason:draft.reason||'',basis:draft.basis||'',settlement_on:draft.settlement_on||null,created_by:actor.id,recorded_at:timestamp};repo.insert('settlement_versions',version);
-    if(version.change_type!=='void'){
-      for(const item of draft.items){
-        let identity=repo.where('settlement_items',{settlement_id:key,cost_node_id:item.cost_node_id,project_scope_id:item.project_scope_id||null})[0];
-        if(!identity){identity={id:id(),settlement_id:key,cost_node_id:item.cost_node_id,project_scope_id:item.project_scope_id||null,created_at:timestamp};repo.insert('settlement_items',identity);}
-        const scope=item.project_scope_id?repo.where('project_approval_scope_versions',{approval_version_id:approval.id,project_scope_id:item.project_scope_id})[0]:null;
-        const nodeRow=repo.find('v_project_cost_node_current','id',item.cost_node_id);
-        repo.insert('settlement_item_versions',{id:id(),settlement_version_id:versionId,settlement_item_id:identity.id,cost_node_version_id:nodeRow.current_version_id,approval_scope_version_id:scope?.id||null,quantity_scaled:item.quantity_scaled||0,amount_fen:item.amount_fen,unit_price_fen:item.unit_price_fen??null,work_mode:item.work_mode||null,evidence:item.evidence,scope_snapshot_json:JSON.stringify(scope||{})});
+  function node(actor, projectId, input, key) {
+    authorize(actor, "write");
+    return repo.transaction(() => {
+      projects.get(projectId);
+      const previous = key
+        ? repo.find("v_project_cost_node_current", "id", key)
+        : null;
+      if (previous) {
+        requireValue(!repo.deleted("cost_nodes").has(key), "费用科目已删除");
+        requireValue(previous.project_id === projectId, "科目不属于本项目");
+        expectedVersion(previous.version_no, input.expected_version);
       }
-      for(const r of draft.resolutions){const scope=repo.where('project_approval_scope_versions',{approval_version_id:approval.id,project_scope_id:r.project_scope_id})[0];repo.insert('settlement_scope_results',{id:id(),settlement_version_id:versionId,project_scope_id:r.project_scope_id,approval_scope_version_id:scope.id,resolved_quantity_scaled:r.resolved_quantity_scaled,evidence:r.evidence||''});}
+      const nodeId = key || id();
+      if (!previous)
+        repo.insert("project_cost_nodes", {
+          id: nodeId,
+          project_id: projectId,
+          parent_id: input.parent_id || null,
+          created_by: actor.id,
+          created_at: now(),
+        });
+      repo.insert("project_cost_node_versions", {
+        id: id(),
+        node_id: nodeId,
+        version_no: (previous?.version_no || 0) + 1,
+        name: text(input.name, "费用科目名称"),
+        status: input.status || "active",
+        actor_id: actor.id,
+        recorded_at: now(),
+        reason: input.reason || "",
+      });
+      return repo.find("v_project_cost_node_current", "id", nodeId);
+    });
+  }
+  function cost(actor, projectId, input, key) {
+    authorize(actor, "cost.confirm");
+    return repo.transaction(() => {
+      const project = projects.get(projectId),
+        previous = key ? repo.latest("cost_versions", "entry_id", key) : null;
+      if (previous) {
+        requireValue(!repo.deleted("costs").has(key), "费用已删除", 409);
+        expectedVersion(previous.version_no, input.expected_version);
+        requireValue(
+          repo.find("cost_entries", "id", key).project_id === projectId,
+          "费用不属于本项目",
+        );
+      }
+      const nodeRow = repo.find(
+        "v_project_cost_node_current",
+        "id",
+        input.cost_node_id ||
+          repo.find("cost_entries", "id", key)?.cost_node_id,
+      );
+      requireValue(
+        nodeRow && nodeRow.project_id === projectId,
+        "请选择本项目费用科目",
+      );
+      if ((input.status || "active") === "active")
+        activeLeaf(project, nodeRow.id);
+      const entryId = key || id();
+      if (!previous)
+        repo.insert("cost_entries", {
+          id: entryId,
+          project_id: projectId,
+          cost_node_id: nodeRow.id,
+          created_by: actor.id,
+          created_at: now(),
+        });
+      const value = {
+        id: id(),
+        entry_id: entryId,
+        version_no: (previous?.version_no || 0) + 1,
+        cost_node_version_id: nodeRow.current_version_id,
+        funding_version_id: project.funding?.id || null,
+        status: input.status || "active",
+        title: text(input.title, "费用事项"),
+        occurred_on: input.occurred_on,
+        amount_fen: integer(input.amount_fen, "实际金额", 1),
+        invoice_number: input.invoice_number || null,
+        evidence: text(input.evidence, "费用凭据"),
+        confirmed_by: actor.id,
+        confirmed_at: now(),
+        request_key: input.request_key || id(),
+        reason: input.reason || "",
+      };
+      repo.insert("cost_versions", value);
+      return value;
+    });
+  }
+  function settlement(key) {
+    const root = repo.find("settlements", "id", key);
+    requireValue(root, "结算单不存在", 404);
+    const version = repo.latest("settlement_versions", "settlement_id", key),
+      draft = repo.find("settlement_drafts", "settlement_id", key);
+    const items = version
+      ? repo
+          .where("settlement_item_versions", {
+            settlement_version_id: version.id,
+          })
+          .map((x) => ({
+            ...repo.find("settlement_items", "id", x.settlement_item_id),
+            ...x,
+          }))
+      : [];
+    const resolutions = version
+      ? repo.where("settlement_scope_results", {
+          settlement_version_id: version.id,
+        })
+      : [];
+    return {
+      ...root,
+      version: version || null,
+      items,
+      resolutions,
+      draft: draft
+        ? { ...draft, document: JSON.parse(draft.draft_json) }
+        : null,
+      review: version
+        ? repo.latest(
+            "settlement_review_events",
+            "settlement_version_id",
+            version.id,
+            "event_seq",
+          ) || null
+        : null,
+    };
+  }
+  function validateDraft(projectId, input) {
+    const project = projects.get(projectId),
+      approval = project.approvals.find(
+        (ap) => ap.id === input.approval_version_id,
+      );
+    requireValue(
+      project.status === "approved" && approval?.status === "approved",
+      "结算须采用本项目正式批准版本",
+    );
+    if (input.change_type === "void")
+      return { ...input, items: [], resolutions: [] };
+    requireValue(
+      Array.isArray(input.items) && input.items.length > 0,
+      "至少一条费用明细",
+    );
+    requireValue(
+      Array.isArray(input.resolutions) && input.resolutions.length > 0,
+      "至少一条独立需求解决明细",
+    );
+    const scopes = new Set(approval.scopes.map((x) => x.project_scope_id));
+    const results = new Set();
+    for (const r of input.resolutions) {
+      requireValue(scopes.has(r.project_scope_id), "解决需求不属于本批准范围");
+      requireValue(
+        !results.has(r.project_scope_id),
+        "同一需求不能重复累计解决数量",
+      );
+      results.add(r.project_scope_id);
+      integer(r.resolved_quantity_scaled, "本次新增解决数量");
     }
-    repo.insert('settlement_review_events',{id:id(),settlement_version_id:versionId,event_seq:1,action:'submit',actor_id:actor.id,recorded_at:timestamp});repo.remove('settlement_drafts','settlement_id',key);return settlement(key);
-  });}
-  function summary(projectId){
-    const project=projects.get(projectId),costs=repo.where('v_cost_current',{project_id:projectId}).filter(x=>x.status==='active');
-    const settlementIds=new Set(repo.where('settlements',{project_id:projectId}).map(x=>x.id));
-    const versions=repo.list('v_settlement_effective_versions').filter(x=>settlementIds.has(x.settlement_id)&&x.change_type!=='void');
-    const versionIds=new Set(versions.map(x=>x.id));
-    const items=repo.list('settlement_item_versions').filter(x=>versionIds.has(x.settlement_version_id));
-    const resolutions=repo.list('settlement_scope_results').filter(x=>versionIds.has(x.settlement_version_id));
-    const reconciliations=repo.list('v_effective_cost_reconciliations').filter(x=>costs.some(cost=>cost.entry_id===x.entry_id));
-    const sum=(rows,key)=>safeAmount(rows.reduce((s,x)=>s+BigInt(x[key]),0n));
-    const actual=sum(costs,'amount_fen'),settled=sum(items,'amount_fen'),reconciled=sum(reconciliations,'reconciled_cost_fen');
-    return {approved_budget_fen:project.approval?.approved_budget_fen??null,actual_cost_fen:actual,settlement_fen:settled,reconciled_cost_fen:reconciled,unreconciled_cost_fen:actual-reconciled,budget_difference_fen:project.approval?actual-project.approval.approved_budget_fen:null,demands:(project.approval?repo.where('project_approval_scope_versions',{approval_version_id:project.approval.id}):[]).map(scope=>{const solved=sum(resolutions.filter(x=>x.project_scope_id===scope.project_scope_id),'resolved_quantity_scaled');return {project_scope_id:scope.project_scope_id,demand_id:scope.demand_id,approved_quantity_scaled:scope.quantity_scaled,resolved_quantity_scaled:solved,remaining_quantity_scaled:Math.max(0,scope.quantity_scaled-solved),excess_quantity_scaled:Math.max(0,solved-scope.quantity_scaled)};})};
+    const identities = new Set();
+    for (const item of input.items) {
+      activeLeaf(project, item.cost_node_id);
+      requireValue(
+        !item.project_scope_id || scopes.has(item.project_scope_id),
+        "费用需求不属于本批准范围",
+      );
+      requireValue(
+        !item.project_scope_id || results.has(item.project_scope_id),
+        "费用对应需求缺少独立解决明细",
+      );
+      const identity = `${item.cost_node_id}/${item.project_scope_id || ""}`;
+      requireValue(!identities.has(identity), "同一科目及需求的费用行重复");
+      identities.add(identity);
+      integer(item.quantity_scaled || 0, "费用计价数量");
+      integer(item.amount_fen, "本次结算金额");
+      requireValue(
+        item.amount_fen > 0 || item.quantity_scaled > 0,
+        "费用明细金额和数量不能同时为0",
+      );
+      requireValue(
+        item.project_scope_id || !item.quantity_scaled,
+        "无需求归属的共同费用计价数量须为0",
+      );
+      text(item.evidence, "结算依据");
+    }
+    return {
+      ...input,
+      approval_version_id: approval.id,
+      funding_version_id:
+        input.funding_version_id || project.funding?.id || null,
+    };
   }
-  return {node,cost,settlement,saveDraft,submit,validateDraft,summary,
-    costs:projectId=>repo.where('v_cost_current',{project_id:projectId}),
-    settlements:projectId=>repo.where('settlements',{project_id:projectId}).filter(x=>!repo.deleted('settlements').has(x.id)).map(x=>settlement(x.id)),
-    allSettlements:(includeDeleted=false)=>repo.list('settlements').filter(x=>includeDeleted||!repo.deleted('settlements').has(x.id)).map(x=>({...settlement(x.id),deleted:repo.deleted('settlements').has(x.id)})),
-    review(actor,key,input){authorize(actor,'settlement.approve');return repo.transaction(()=>{const current=settlement(key);requireValue(current.version,'无正式版本');expectedVersion(current.version.version_no,input.expected_version);expectedVersion(current.review?.event_seq||0,input.expected_event_seq);requireValue(['approve','return','reject'].includes(input.action),'审核动作无效');repo.insert('settlement_review_events',{id:id(),settlement_version_id:current.version.id,event_seq:(current.review?.event_seq||0)+1,action:input.action,actor_id:actor.id,recorded_at:now(),effective_on:input.action==='approve'?(input.effective_on||now().slice(0,10)):null,reason:input.reason||''});return settlement(key);});},
-    discardDraft(actor,key,input){authorize(actor,'write');return repo.transaction(()=>{const current=settlement(key);expectedVersion(current.draft?.edit_version||0,input.expected_edit_version);repo.remove('settlement_drafts','settlement_id',key);return settlement(key);});},
-    reconciliation(actor,input){authorize(actor,'cost.confirm');return repo.transaction(()=>{const previous=input.record_id?repo.latest('cost_reconciliation_versions','record_id',input.record_id):null;expectedVersion(previous?.version_no||0,input.expected_version);const source=input.status==='voided'?previous:input;requireValue(source,'核对记录不存在');const item=repo.find('settlement_item_versions','id',source.settlement_item_version_id);requireValue(item,'结算费用明细不存在');const row={id:id(),record_id:previous?.record_id||id(),version_no:(previous?.version_no||0)+1,status:input.status||'active',cost_version_id:source.cost_version_id,settlement_item_id:item.settlement_item_id,settlement_item_version_id:item.id,reconciled_cost_fen:source.reconciled_cost_fen,reconciled_settlement_fen:source.reconciled_settlement_fen,is_final:input.status==='voided'?0:input.is_final?1:0,evidence:input.evidence||'',actor_id:actor.id,created_at:now(),request_key:input.request_key||id()};repo.insert('cost_reconciliation_versions',row);return row;});},
-    close(actor,key,input){authorize(actor,'project.close');return repo.transaction(()=>{const project=projects.get(key);expectedVersion(project.version,input.expected_version);requireValue(project.approval,'缺少批准版本');repo.insert('project_closures',{id:id(),project_id:key,approval_version_id:project.approval.id,reason:input.reason||'',close_snapshot_json:JSON.stringify(summary(key)),closed_by:actor.id,closed_at:now()});repo.insert('project_stage_events',{id:id(),project_id:key,stage:'closed',project_version:project.version+1,actor_id:actor.id,created_at:now(),reason:input.reason||''});return projects.get(key);});},
-    costHistory(key){requireValue(repo.find('cost_entries','id',key),'费用不存在',404);return repo.where('cost_versions',{entry_id:key});},
-    removeSettlement(actor,key,input){authorize(actor,'admin');return repo.transaction(()=>{
-      let current=settlement(key);expectedVersion(current.version?.version_no||0,input.expected_version);
-      expectedVersion(current.draft?.edit_version||0,input.expected_edit_version);
-      const approved=repo.where('v_settlement_effective_versions',{settlement_id:key})[0];
-      if(approved&&approved.change_type!=='void'){
-        current=saveDraft(actor,current.project_id,{number:current.number,approval_version_id:approved.approval_version_id,funding_version_id:approved.funding_version_id,change_type:'void',expected_version:current.version.version_no,expected_edit_version:current.draft?.edit_version||0},key);
-        current=submit(actor,key,{expected_version:current.version.version_no,expected_edit_version:current.draft.edit_version});
-        repo.insert('settlement_review_events',{id:id(),settlement_version_id:current.version.id,event_seq:2,action:'approve',actor_id:actor.id,recorded_at:now(),effective_on:now().slice(0,10)});
-      }else if(!current.version){
-        current=submit(actor,key,{expected_version:0,expected_edit_version:current.draft.edit_version});
-        repo.insert('settlement_review_events',{id:id(),settlement_version_id:current.version.id,event_seq:2,action:'reject',actor_id:actor.id,recorded_at:now()});
-      }else if(['submit','return'].includes(current.review?.action)){
-        let sequence=current.review.event_seq;
-        if(current.review.action==='return')repo.insert('settlement_review_events',{id:id(),settlement_version_id:current.version.id,event_seq:++sequence,action:'submit',actor_id:actor.id,recorded_at:now()});
-        repo.insert('settlement_review_events',{id:id(),settlement_version_id:current.version.id,event_seq:sequence+1,action:'reject',actor_id:actor.id,recorded_at:now()});
+  function saveDraft(actor, projectId, input, key) {
+    authorize(actor, "write");
+    return repo.transaction(() => {
+      const previous = key ? settlement(key) : null;
+      if (key)
+        requireValue(!repo.deleted("settlements").has(key), "结算单已删除");
+      if (previous) {
+        requireValue(previous.project_id === projectId, "结算单不属于本项目");
+        expectedVersion(
+          previous.version?.version_no || 0,
+          input.expected_version,
+        );
+        expectedVersion(
+          previous.draft?.edit_version || 0,
+          input.expected_edit_version,
+        );
       }
-      repo.remove('settlement_drafts','settlement_id',key);
-      catalog.audit(actor,'settlements',key,'delete',current,{logical:true});return {deleted:true};
-    });},
-    history(key){settlement(key);const versions=repo.where('settlement_versions',{settlement_id:key});return versions.map(version=>({...version,items:repo.where('settlement_item_versions',{settlement_version_id:version.id}),resolutions:repo.where('settlement_scope_results',{settlement_version_id:version.id}),events:repo.where('settlement_review_events',{settlement_version_id:version.id})}));}
+      const normalized = validateDraft(projectId, input),
+        settlementId = key || id(),
+        timestamp = now();
+      if (!previous)
+        repo.insert("settlements", {
+          id: settlementId,
+          project_id: projectId,
+          number: text(input.number || documentCode("JS"), "结算编号"),
+          created_by: actor.id,
+          created_at: timestamp,
+        });
+      const row = {
+        based_on_version_id: previous?.version?.id || null,
+        draft_json: JSON.stringify(normalized),
+        edit_version: (previous?.draft?.edit_version || 0) + 1,
+        updated_by: actor.id,
+        updated_at: timestamp,
+      };
+      if (previous?.draft)
+        repo.update("settlement_drafts", "settlement_id", settlementId, row);
+      else
+        repo.insert("settlement_drafts", {
+          settlement_id: settlementId,
+          ...row,
+        });
+      return settlement(settlementId);
+    });
+  }
+  function submit(actor, key, input) {
+    authorize(actor, "write");
+    return repo.transaction(() => {
+      const current = settlement(key);
+      expectedVersion(current.version?.version_no || 0, input.expected_version);
+      requireValue(current.draft, "没有待提交草稿");
+      expectedVersion(current.draft.edit_version, input.expected_edit_version);
+      const draft = validateDraft(current.project_id, current.draft.document),
+        versionId = id(),
+        timestamp = now(),
+        approval = repo.find(
+          "project_approval_versions",
+          "id",
+          draft.approval_version_id,
+        );
+      const version = {
+        id: versionId,
+        settlement_id: key,
+        version_no: (current.version?.version_no || 0) + 1,
+        previous_version_id: current.version?.id || null,
+        approval_version_id: approval.id,
+        funding_version_id: draft.funding_version_id || null,
+        change_type: current.version
+          ? draft.change_type === "void"
+            ? "void"
+            : "revision"
+          : "initial",
+        reason: draft.reason || "",
+        basis: draft.basis || "",
+        settlement_on: draft.settlement_on || null,
+        created_by: actor.id,
+        recorded_at: timestamp,
+      };
+      repo.insert("settlement_versions", version);
+      if (version.change_type !== "void") {
+        for (const item of draft.items) {
+          let identity = repo.where("settlement_items", {
+            settlement_id: key,
+            cost_node_id: item.cost_node_id,
+            project_scope_id: item.project_scope_id || null,
+          })[0];
+          if (!identity) {
+            identity = {
+              id: id(),
+              settlement_id: key,
+              cost_node_id: item.cost_node_id,
+              project_scope_id: item.project_scope_id || null,
+              created_at: timestamp,
+            };
+            repo.insert("settlement_items", identity);
+          }
+          const scope = item.project_scope_id
+            ? repo.where("project_approval_scope_versions", {
+                approval_version_id: approval.id,
+                project_scope_id: item.project_scope_id,
+              })[0]
+            : null;
+          const nodeRow = repo.find(
+            "v_project_cost_node_current",
+            "id",
+            item.cost_node_id,
+          );
+          repo.insert("settlement_item_versions", {
+            id: id(),
+            settlement_version_id: versionId,
+            settlement_item_id: identity.id,
+            cost_node_version_id: nodeRow.current_version_id,
+            approval_scope_version_id: scope?.id || null,
+            quantity_scaled: item.quantity_scaled || 0,
+            amount_fen: item.amount_fen,
+            unit_price_fen: item.unit_price_fen ?? null,
+            work_mode: item.work_mode || null,
+            evidence: item.evidence,
+            scope_snapshot_json: JSON.stringify(scope || {}),
+          });
+        }
+        for (const r of draft.resolutions) {
+          const scope = repo.where("project_approval_scope_versions", {
+            approval_version_id: approval.id,
+            project_scope_id: r.project_scope_id,
+          })[0];
+          repo.insert("settlement_scope_results", {
+            id: id(),
+            settlement_version_id: versionId,
+            project_scope_id: r.project_scope_id,
+            approval_scope_version_id: scope.id,
+            resolved_quantity_scaled: r.resolved_quantity_scaled,
+            evidence: r.evidence || "",
+          });
+        }
+      }
+      repo.insert("settlement_review_events", {
+        id: id(),
+        settlement_version_id: versionId,
+        event_seq: 1,
+        action: "submit",
+        actor_id: actor.id,
+        recorded_at: timestamp,
+      });
+      repo.remove("settlement_drafts", "settlement_id", key);
+      return settlement(key);
+    });
+  }
+  function summary(projectId) {
+    const project = projects.get(projectId),
+      costs = repo
+        .where("v_cost_current", { project_id: projectId })
+        .filter((x) => x.status === "active");
+    const settlementIds = new Set(
+      repo.where("settlements", { project_id: projectId }).map((x) => x.id),
+    );
+    const versions = repo
+      .list("v_settlement_effective_versions")
+      .filter(
+        (x) => settlementIds.has(x.settlement_id) && x.change_type !== "void",
+      );
+    const versionIds = new Set(versions.map((x) => x.id));
+    const items = repo
+      .list("settlement_item_versions")
+      .filter((x) => versionIds.has(x.settlement_version_id));
+    const resolutions = repo
+      .list("settlement_scope_results")
+      .filter((x) => versionIds.has(x.settlement_version_id));
+    const reconciliations = repo
+      .list("v_effective_cost_reconciliations")
+      .filter((x) => costs.some((cost) => cost.entry_id === x.entry_id));
+    const sum = (rows, key) =>
+      safeAmount(rows.reduce((s, x) => s + BigInt(x[key]), 0n));
+    const actual = sum(costs, "amount_fen"),
+      settled = sum(items, "amount_fen"),
+      reconciled = sum(reconciliations, "reconciled_cost_fen");
+    return {
+      approved_budget_fen: project.approval?.approved_budget_fen ?? null,
+      actual_cost_fen: actual,
+      settlement_fen: settled,
+      reconciled_cost_fen: reconciled,
+      unreconciled_cost_fen: actual - reconciled,
+      budget_difference_fen: project.approval
+        ? actual - project.approval.approved_budget_fen
+        : null,
+      demands: (project.approval
+        ? repo.where("project_approval_scope_versions", {
+            approval_version_id: project.approval.id,
+          })
+        : []
+      ).map((scope) => {
+        const solved = sum(
+          resolutions.filter(
+            (x) => x.project_scope_id === scope.project_scope_id,
+          ),
+          "resolved_quantity_scaled",
+        );
+        return {
+          project_scope_id: scope.project_scope_id,
+          demand_id: scope.demand_id,
+          approved_quantity_scaled: scope.quantity_scaled,
+          resolved_quantity_scaled: solved,
+          remaining_quantity_scaled: Math.max(
+            0,
+            scope.quantity_scaled - solved,
+          ),
+          excess_quantity_scaled: Math.max(0, solved - scope.quantity_scaled),
+        };
+      }),
+    };
+  }
+  return {
+    node,
+    cost,
+    settlement,
+    saveDraft,
+    submit,
+    validateDraft,
+    summary,
+    costs: (projectId, includeDeleted = false) =>
+      repo
+        .where("v_cost_current", { project_id: projectId })
+        .filter(
+          (cost) => includeDeleted || !repo.deleted("costs").has(cost.entry_id),
+        ),
+    settlements: (projectId) =>
+      repo
+        .where("settlements", { project_id: projectId })
+        .filter((x) => !repo.deleted("settlements").has(x.id))
+        .map((x) => settlement(x.id)),
+    allSettlements: (includeDeleted = false) =>
+      repo
+        .list("settlements")
+        .filter((x) => includeDeleted || !repo.deleted("settlements").has(x.id))
+        .map((x) => ({
+          ...settlement(x.id),
+          deleted: repo.deleted("settlements").has(x.id),
+        })),
+    review(actor, key, input) {
+      authorize(actor, "settlement.approve");
+      return repo.transaction(() => {
+        const current = settlement(key);
+        requireValue(current.version, "无正式版本");
+        expectedVersion(current.version.version_no, input.expected_version);
+        expectedVersion(
+          current.review?.event_seq || 0,
+          input.expected_event_seq,
+        );
+        requireValue(
+          ["approve", "return", "reject"].includes(input.action),
+          "审核动作无效",
+        );
+        repo.insert("settlement_review_events", {
+          id: id(),
+          settlement_version_id: current.version.id,
+          event_seq: (current.review?.event_seq || 0) + 1,
+          action: input.action,
+          actor_id: actor.id,
+          recorded_at: now(),
+          effective_on:
+            input.action === "approve" ? input.effective_on || today() : null,
+          reason: input.reason || "",
+        });
+        return settlement(key);
+      });
+    },
+    discardDraft(actor, key, input) {
+      authorize(actor, "write");
+      return repo.transaction(() => {
+        const current = settlement(key);
+        expectedVersion(
+          current.draft?.edit_version || 0,
+          input.expected_edit_version,
+        );
+        repo.remove("settlement_drafts", "settlement_id", key);
+        return settlement(key);
+      });
+    },
+    reconciliation(actor, input) {
+      authorize(actor, "cost.confirm");
+      return repo.transaction(() => {
+        requireValue(
+          !input.record_id ||
+            !repo.deleted("reconciliations").has(input.record_id),
+          "核对记录已删除",
+          409,
+        );
+        const previous = input.record_id
+          ? repo.latest(
+              "cost_reconciliation_versions",
+              "record_id",
+              input.record_id,
+            )
+          : null;
+        expectedVersion(previous?.version_no || 0, input.expected_version);
+        const source = input.status === "voided" ? previous : input;
+        requireValue(source, "核对记录不存在");
+        const item = repo.find(
+          "settlement_item_versions",
+          "id",
+          source.settlement_item_version_id,
+        );
+        requireValue(item, "结算费用明细不存在");
+        const row = {
+          id: id(),
+          record_id: previous?.record_id || id(),
+          version_no: (previous?.version_no || 0) + 1,
+          status: input.status || "active",
+          cost_version_id: source.cost_version_id,
+          settlement_item_id: item.settlement_item_id,
+          settlement_item_version_id: item.id,
+          reconciled_cost_fen: source.reconciled_cost_fen,
+          reconciled_settlement_fen: source.reconciled_settlement_fen,
+          is_final: input.status === "voided" ? 0 : input.is_final ? 1 : 0,
+          evidence: input.evidence || "",
+          actor_id: actor.id,
+          created_at: now(),
+          request_key: input.request_key || id(),
+        };
+        repo.insert("cost_reconciliation_versions", row);
+        return row;
+      });
+    },
+    close(actor, key, input) {
+      authorize(actor, "project.close");
+      return repo.transaction(() => {
+        const project = projects.get(key);
+        expectedVersion(project.version, input.expected_version);
+        requireValue(project.approval, "缺少批准版本");
+        repo.insert("project_closures", {
+          id: id(),
+          project_id: key,
+          approval_version_id: project.approval.id,
+          reason: input.reason || "",
+          close_snapshot_json: JSON.stringify(summary(key)),
+          closed_by: actor.id,
+          closed_at: now(),
+        });
+        repo.insert("project_stage_events", {
+          id: id(),
+          project_id: key,
+          stage: "closed",
+          project_version: project.version + 1,
+          actor_id: actor.id,
+          created_at: now(),
+          reason: input.reason || "",
+        });
+        return projects.get(key);
+      });
+    },
+    reconciliations(projectId, includeDeleted = false) {
+      return repo.list("v_cost_reconciliation_current").filter((record) => {
+        const cost = repo.find("cost_versions", "id", record.cost_version_id),
+          entry = repo.find("cost_entries", "id", cost.entry_id);
+        return (
+          (!projectId || entry.project_id === projectId) &&
+          (includeDeleted ||
+            !repo.deleted("reconciliations").has(record.record_id))
+        );
+      });
+    },
+    removeReconciliation(actor, key, input) {
+      authorize(actor, "cost.confirm");
+      return repo.transaction(() => {
+        const current = repo.latest(
+          "cost_reconciliation_versions",
+          "record_id",
+          key,
+        );
+        requireValue(current, "核对记录不存在", 404);
+        expectedVersion(current.version_no, input.expected_version);
+        if (current.status === "active")
+          this.reconciliation(actor, {
+            record_id: key,
+            expected_version: current.version_no,
+            status: "voided",
+            evidence: input.evidence || "",
+          });
+        catalog.audit(actor, "reconciliations", key, "delete", current, {
+          logical: true,
+        });
+        return { deleted: true };
+      });
+    },
+    reconciliationHistory: (key) =>
+      repo.where("cost_reconciliation_versions", { record_id: key }),
+    removeNode(actor, projectId, key, input) {
+      authorize(actor, "admin");
+      return repo.transaction(() => {
+        const current = repo.find("v_project_cost_node_current", "id", key);
+        requireValue(
+          current && current.project_id === projectId,
+          "费用科目不存在",
+          404,
+        );
+        expectedVersion(current.version_no, input.expected_version);
+        if (current.status === "active")
+          node(
+            actor,
+            projectId,
+            {
+              ...current,
+              status: "inactive",
+              expected_version: current.version_no,
+            },
+            key,
+          );
+        catalog.audit(actor, "cost_nodes", key, "delete", current, {
+          logical: true,
+        });
+        return { deleted: true };
+      });
+    },
+    removeCost(actor, projectId, key, input) {
+      authorize(actor, "admin");
+      return repo.transaction(() => {
+        const current = repo.latest("cost_versions", "entry_id", key);
+        requireValue(current, "费用不存在", 404);
+        expectedVersion(current.version_no, input.expected_version);
+        if (current.status === "active")
+          cost(
+            actor,
+            projectId,
+            {
+              ...current,
+              status: "voided",
+              expected_version: current.version_no,
+            },
+            key,
+          );
+        catalog.audit(actor, "costs", key, "delete", current, {
+          logical: true,
+        });
+        return { deleted: true };
+      });
+    },
+    costHistory(key) {
+      requireValue(repo.find("cost_entries", "id", key), "费用不存在", 404);
+      return repo.where("cost_versions", { entry_id: key });
+    },
+    removeSettlement(actor, key, input) {
+      authorize(actor, "admin");
+      return repo.transaction(() => {
+        let current = settlement(key);
+        expectedVersion(
+          current.version?.version_no || 0,
+          input.expected_version,
+        );
+        expectedVersion(
+          current.draft?.edit_version || 0,
+          input.expected_edit_version,
+        );
+        const approved = repo.where("v_settlement_effective_versions", {
+          settlement_id: key,
+        })[0];
+        if (approved && approved.change_type !== "void") {
+          current = saveDraft(
+            actor,
+            current.project_id,
+            {
+              number: current.number,
+              approval_version_id: approved.approval_version_id,
+              funding_version_id: approved.funding_version_id,
+              change_type: "void",
+              expected_version: current.version.version_no,
+              expected_edit_version: current.draft?.edit_version || 0,
+            },
+            key,
+          );
+          current = submit(actor, key, {
+            expected_version: current.version.version_no,
+            expected_edit_version: current.draft.edit_version,
+          });
+          repo.insert("settlement_review_events", {
+            id: id(),
+            settlement_version_id: current.version.id,
+            event_seq: 2,
+            action: "approve",
+            actor_id: actor.id,
+            recorded_at: now(),
+            effective_on: today(),
+          });
+        } else if (!current.version) {
+          current = submit(actor, key, {
+            expected_version: 0,
+            expected_edit_version: current.draft.edit_version,
+          });
+          repo.insert("settlement_review_events", {
+            id: id(),
+            settlement_version_id: current.version.id,
+            event_seq: 2,
+            action: "reject",
+            actor_id: actor.id,
+            recorded_at: now(),
+          });
+        } else if (["submit", "return"].includes(current.review?.action)) {
+          let sequence = current.review.event_seq;
+          if (current.review.action === "return")
+            repo.insert("settlement_review_events", {
+              id: id(),
+              settlement_version_id: current.version.id,
+              event_seq: ++sequence,
+              action: "submit",
+              actor_id: actor.id,
+              recorded_at: now(),
+            });
+          repo.insert("settlement_review_events", {
+            id: id(),
+            settlement_version_id: current.version.id,
+            event_seq: sequence + 1,
+            action: "reject",
+            actor_id: actor.id,
+            recorded_at: now(),
+          });
+        }
+        repo.remove("settlement_drafts", "settlement_id", key);
+        catalog.audit(actor, "settlements", key, "delete", current, {
+          logical: true,
+        });
+        return { deleted: true };
+      });
+    },
+    history(key) {
+      settlement(key);
+      const versions = repo.where("settlement_versions", {
+        settlement_id: key,
+      });
+      return versions.map((version) => ({
+        ...version,
+        items: repo.where("settlement_item_versions", {
+          settlement_version_id: version.id,
+        }),
+        resolutions: repo.where("settlement_scope_results", {
+          settlement_version_id: version.id,
+        }),
+        events: repo.where("settlement_review_events", {
+          settlement_version_id: version.id,
+        }),
+      }));
+    },
   };
 }

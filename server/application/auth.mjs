@@ -1,75 +1,165 @@
-import { randomBytes, randomUUID, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
-import { isIP } from 'node:net';
-import { requireValue, text } from '../domain/errors.mjs';
-export const digest = value => createHash('sha256').update(value).digest('hex');
+import {
+  randomBytes,
+  randomUUID,
+  scryptSync,
+  timingSafeEqual,
+  createHash,
+} from "node:crypto";
+import { isIP } from "node:net";
+import { requireValue, text } from "../domain/errors.mjs";
+export const digest = (value) =>
+  createHash("sha256").update(value).digest("hex");
 export const now = () => new Date().toISOString();
+export const today = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 export const id = () => randomUUID();
+export const documentCode = (prefix) =>
+  `${prefix}-${today().replaceAll("-", "")}-${randomUUID().slice(0, 8).toUpperCase()}`;
 export function passwordHash(password) {
-  text(password, '密码');
-  requireValue(password.length >= 12 && password.length <= 256, '密码长度须为12至256位');
-  const salt = randomBytes(16).toString('hex');
-  return `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
+  text(password, "密码");
+  requireValue(
+    password.length >= 12 && password.length <= 256,
+    "密码长度须为12至256位",
+  );
+  const salt = randomBytes(16).toString("hex");
+  return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
 }
 function verify(password, encoded) {
-  const [salt, hash] = encoded.split(':');
+  const [salt, hash] = encoded.split(":");
   const actual = scryptSync(password, salt, 64);
-  const expected = Buffer.from(hash || '', 'hex');
+  const expected = Buffer.from(hash || "", "hex");
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 export function createAuth(repository, store) {
   function actor(token) {
-    const session = repository.session(digest(token || ''));
-    const user = session && session.expires_at > now() && repository.user(session.user_id);
-    requireValue(user && user.status === 'active', '请登录', 401);
-    return { id: user.id, username: user.username, role: user.role, permissions: repository.permissions(user.role) };
+    const session = repository.session(digest(token || ""));
+    const user =
+      session && session.expires_at > now() && repository.user(session.user_id);
+    requireValue(user && user.status === "active", "请登录", 401);
+    return {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      permissions: [
+        "read",
+        ...(["admin", "editor"].includes(user.role) ? ["write"] : []),
+        ...(user.role === "admin" ? ["admin"] : []),
+        ...repository.permissions(user.role),
+      ],
+    };
   }
   return {
     actor,
     permittedIp(address) {
-      const ip = address?.replace(/^::ffff:/, '');
-      return ip === '127.0.0.1' || ip === '::1' || repository.allowed(ip);
+      const ip = address?.replace(/^::ffff:/, "");
+      return ip === "127.0.0.1" || ip === "::1" || repository.allowed(ip);
     },
     login(username, password) {
-      requireValue(typeof password === 'string' && password.length <= 256, '账号或密码错误', 401);
+      requireValue(
+        typeof username === "string" &&
+          username.length > 0 &&
+          username.length <= 128,
+        "账号或密码错误",
+        401,
+      );
+      requireValue(
+        typeof password === "string" && password.length <= 256,
+        "账号或密码错误",
+        401,
+      );
       const user = repository.userByName(username);
       // Always perform password derivation, including for unknown accounts.
-      const valid = verify(password, user?.password_hash || '00000000000000000000000000000000:' + '00'.repeat(64));
-      requireValue(valid && user?.status === 'active', '账号或密码错误', 401);
-      const token = randomBytes(32).toString('hex');
-      repository.addSession({ token_hash: digest(token), user_id: user.id, created_at: now(), expires_at: new Date(Date.now() + 8 * 3600000).toISOString() });
+      const valid = verify(
+        password,
+        user?.password_hash ||
+          "00000000000000000000000000000000:" + "00".repeat(64),
+      );
+      requireValue(valid && user?.status === "active", "账号或密码错误", 401);
+      const token = randomBytes(32).toString("hex");
+      repository.addSession({
+        token_hash: digest(token),
+        user_id: user.id,
+        created_at: now(),
+        expires_at: new Date(Date.now() + 8 * 3600000).toISOString(),
+      });
       return { token, user: actor(token) };
     },
-    logout(token) { repository.removeSession(digest(token || '')); },
+    logout(token) {
+      repository.removeSession(digest(token || ""));
+    },
     initialize(username, password) {
       return store.transaction(() => {
-        requireValue(repository.users().length === 0, '管理员已初始化', 409);
-        return repository.addUser({ id: id(), username: text(username, '账号'), password_hash: passwordHash(password), role: 'admin', status: 'active', created_at: now() });
+        requireValue(repository.users().length === 0, "管理员已初始化", 409);
+        return repository.addUser({
+          id: id(),
+          username: text(username, "账号"),
+          password_hash: passwordHash(password),
+          role: "admin",
+          status: "active",
+          created_at: now(),
+        });
       });
     },
     saveUser(user, input, userId) {
-      requireValue(user.role === 'admin', '需要管理员权限', 403);
-      requireValue(['admin','editor','verifier','viewer'].includes(input.role), '无效角色');
+      requireValue(user.role === "admin", "需要管理员权限", 403);
+      requireValue(
+        ["admin", "editor", "verifier", "viewer"].includes(input.role),
+        "无效角色",
+      );
       return store.transaction(() => {
-        const values = { username: text(input.username, '账号'), role: input.role, status: input.status || 'active' };
+        const values = {
+          username: text(input.username, "账号"),
+          role: input.role,
+          status: input.status || "active",
+        };
         if (input.password) values.password_hash = passwordHash(input.password);
-        if (!userId) {const {password_hash,...publicUser}=repository.addUser({ id: id(), ...values, password_hash: passwordHash(input.password), created_at: now() });return publicUser;}
+        if (!userId) {
+          const { password_hash, ...publicUser } = repository.addUser({
+            id: id(),
+            ...values,
+            password_hash: passwordHash(input.password),
+            created_at: now(),
+          });
+          return publicUser;
+        }
         const old = repository.user(userId);
-        requireValue(old, '用户不存在', 404);
-        if (old.role === 'admin' && old.status === 'active' && (values.role !== 'admin' || values.status !== 'active')) {
-          requireValue(repository.users().filter(x => x.role === 'admin' && x.status === 'active').length > 1, '必须保留一个有效管理员');
+        requireValue(old, "用户不存在", 404);
+        if (
+          old.role === "admin" &&
+          old.status === "active" &&
+          (values.role !== "admin" || values.status !== "active")
+        ) {
+          requireValue(
+            repository
+              .users()
+              .filter((x) => x.role === "admin" && x.status === "active")
+              .length > 1,
+            "必须保留一个有效管理员",
+          );
         }
         repository.updateUser(userId, values);
         repository.revoke(userId);
-        return { id: userId };
+        return repository.users().find((user) => user.id === userId);
       });
     },
-    validateIp(value) { requireValue(isIP(value) !== 0, '请输入完整IPv4或IPv6地址'); return value; }
+    validateIp(value) {
+      requireValue(isIP(value) !== 0, "请输入完整IPv4或IPv6地址");
+      return value;
+    },
   };
 }
-export function authorize(actor, permission = 'write') {
-  requireValue(actor, '请登录', 401);
-  if (permission === 'read') return;
-  if (permission === 'write') requireValue(['admin','editor'].includes(actor.role), '需要编辑权限', 403);
-  else if (permission === 'admin') requireValue(actor.role === 'admin', '需要管理员权限', 403);
-  else requireValue(actor.permissions.includes(permission), '无此操作权限', 403);
+export function authorize(actor, permission = "write") {
+  requireValue(actor, "请登录", 401);
+  if (permission === "read") return;
+  if (permission === "write")
+    requireValue(["admin", "editor"].includes(actor.role), "需要编辑权限", 403);
+  else if (permission === "admin")
+    requireValue(actor.role === "admin", "需要管理员权限", 403);
+  else
+    requireValue(actor.permissions.includes(permission), "无此操作权限", 403);
 }

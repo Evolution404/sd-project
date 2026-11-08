@@ -892,17 +892,19 @@ CREATE TABLE project_approval_versions (
  change_order_id TEXT REFERENCES project_change_orders(id) ON DELETE RESTRICT,
  snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),
  approved_budget_fen INTEGER NOT NULL CHECK(approved_budget_fen>=0),
- status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved')),
+ status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','approved','withdrawn')),
  approved_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
  approved_at TEXT CHECK(approved_at IS NULL OR (length(approved_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(approved_at))=approved_at,0))),
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
- UNIQUE(project_id,version_no), UNIQUE(change_order_id),
+ UNIQUE(change_order_id),
  CHECK((version_no=1 AND change_order_id IS NULL)
     OR (version_no>1 AND change_order_id IS NOT NULL)),
- CHECK((status='draft' AND approved_by IS NULL AND approved_at IS NULL)
+ CHECK((status IN ('draft','withdrawn') AND approved_by IS NULL AND approved_at IS NULL)
  OR (status='approved' AND approved_by IS NOT NULL AND approved_at IS NOT NULL))
 ) STRICT;
 
+
+CREATE UNIQUE INDEX uq_project_approval_live_version ON project_approval_versions(project_id,version_no) WHERE status<>'withdrawn';
 
 CREATE TABLE project_change_orders (
  id TEXT NOT NULL PRIMARY KEY,project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
@@ -1419,7 +1421,7 @@ BEGIN SELECT CASE WHEN NOT EXISTS(
 CREATE TRIGGER approved_material_immutable_update
 BEFORE UPDATE ON project_approval_material_items
 WHEN EXISTS(SELECT 1 FROM project_approval_versions a
- WHERE a.id=OLD.approval_version_id AND a.status='approved')
+ WHERE a.id=OLD.approval_version_id AND a.status IN ('approved','withdrawn'))
  OR NEW.id IS NOT OLD.id OR NEW.approval_version_id IS NOT OLD.approval_version_id
  OR NEW.project_scope_id IS NOT OLD.project_scope_id
  OR NEW.project_material_id IS NOT OLD.project_material_id
@@ -1428,7 +1430,7 @@ BEGIN SELECT RAISE(ABORT,'已批准物资不可覆盖；草稿只允许编辑非
 CREATE TRIGGER approved_material_immutable_delete
 BEFORE DELETE ON project_approval_material_items
 WHEN EXISTS(SELECT 1 FROM project_approval_versions a
- WHERE a.id=OLD.approval_version_id AND a.status='approved')
+ WHERE a.id=OLD.approval_version_id AND a.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'已批准物资版本不可删除'); END;
 
 CREATE TRIGGER approved_material_scope_insert
@@ -1507,7 +1509,7 @@ BEGIN
  SELECT CASE WHEN NEW.status<>'draft'
  THEN RAISE(ABORT,'必须先建立草稿及其完整需求范围，再正式批准') END;
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
- FROM project_approval_versions v WHERE v.project_id=NEW.project_id)
+ FROM project_approval_versions v WHERE v.project_id=NEW.project_id AND v.status<>'withdrawn')
  THEN RAISE(ABORT,'项目批准版本号必须连续') END;
  SELECT CASE WHEN NEW.created_at<
  (SELECT p.created_at FROM projects p WHERE p.id=NEW.project_id)
@@ -1517,7 +1519,7 @@ BEGIN
  THEN RAISE(ABORT,'项目批准草稿版本不能早于子项目创建或历史批准版本') END;
  SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
  SELECT 1 FROM project_approval_versions prev WHERE prev.project_id=NEW.project_id
- AND prev.version_no=NEW.version_no-1 AND prev.status<>'approved')
+ AND prev.version_no=NEW.version_no-1 AND prev.status NOT IN ('approved','withdrawn'))
  THEN RAISE(ABORT,'前一项目批准版本尚未正式生效') END;
  SELECT CASE WHEN (SELECT status FROM projects WHERE id=NEW.project_id)='closed'
  THEN RAISE(ABORT,'关闭后不能默默改写项目批准版本，应按正式再批准程序处理') END;
@@ -1526,9 +1528,9 @@ BEGIN
  JOIN project_approval_versions old
  ON old.id=ch.base_approval_version_id
  WHERE ch.id=NEW.change_order_id
- AND ch.project_id=NEW.project_id AND ch.status='approved'
- AND old.version_no=NEW.version_no-1 AND old.project_id=NEW.project_id)
- THEN RAISE(ABORT,'新版项目批准必须对应同项目已批准的正式变更单及上一批准版本') END;
+ AND ch.project_id=NEW.project_id AND ch.status IN ('draft','submitted','approved')
+ AND old.status='approved' AND old.version_no=NEW.version_no-1 AND old.project_id=NEW.project_id)
+ THEN RAISE(ABORT,'新版批准草稿必须对应同项目真实变更单及上一已批准版本') END;
 END;
 
 CREATE TRIGGER closure_project_version_guard BEFORE INSERT ON project_closures
@@ -1615,7 +1617,7 @@ CREATE TRIGGER valid_branch_update BEFORE UPDATE ON transmission_lines BEGIN
 END;
 CREATE TRIGGER immutable_approval_version_update
 BEFORE UPDATE ON project_approval_versions
-WHEN OLD.status='approved'
+WHEN OLD.status IN ('approved','withdrawn')
  OR NEW.id IS NOT OLD.id OR NEW.project_id IS NOT OLD.project_id
  OR NEW.version_no IS NOT OLD.version_no OR NEW.change_order_id IS NOT OLD.change_order_id
  OR NEW.created_at IS NOT OLD.created_at
@@ -1628,7 +1630,7 @@ END;
 
 CREATE TRIGGER immutable_approval_version_delete
 BEFORE DELETE ON project_approval_versions
-WHEN OLD.status='approved'
+WHEN OLD.status IN ('approved','withdrawn')
 BEGIN SELECT RAISE(ABORT,'已批准的项目历史版本不可删除'); END;
 
 
@@ -2308,7 +2310,7 @@ BEGIN SELECT CASE WHEN NOT EXISTS(
 CREATE TRIGGER approved_scope_immutable_update
 BEFORE UPDATE ON project_approval_scope_versions
 WHEN EXISTS(SELECT 1 FROM project_approval_versions a
- WHERE a.id=OLD.approval_version_id AND a.status='approved')
+ WHERE a.id=OLD.approval_version_id AND a.status IN ('approved','withdrawn'))
  OR NEW.id IS NOT OLD.id OR NEW.approval_version_id IS NOT OLD.approval_version_id
  OR NEW.project_scope_id IS NOT OLD.project_scope_id
  OR NEW.demand_id IS NOT OLD.demand_id
@@ -2317,7 +2319,7 @@ BEGIN SELECT RAISE(ABORT,'已批准需求范围不可覆盖；草稿可编辑数
 CREATE TRIGGER approved_scope_immutable_delete
 BEFORE DELETE ON project_approval_scope_versions
 WHEN EXISTS(SELECT 1 FROM project_approval_versions a
- WHERE a.id=OLD.approval_version_id AND a.status='approved')
+ WHERE a.id=OLD.approval_version_id AND a.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'已批准项目需求范围历史不可删除'); END;
 
 
@@ -2555,6 +2557,7 @@ CREATE TRIGGER project_approval_finalize_guard
  BEFORE UPDATE OF status ON project_approval_versions
  WHEN NEW.status='approved' AND OLD.status='draft'
 BEGIN
+ SELECT CASE WHEN NEW.version_no>1 AND NOT EXISTS(SELECT 1 FROM project_change_orders ch WHERE ch.id=NEW.change_order_id AND ch.status='approved') THEN RAISE(ABORT,'正式项目范围变更必须已有真实批准的变更决定') END;
  SELECT CASE WHEN (SELECT status FROM projects WHERE id=NEW.project_id)<>'stocked'
  AND NEW.version_no=1
  THEN RAISE(ABORT,'正式立项批准前必须完成储备项目入库登记') END;
@@ -2584,12 +2587,12 @@ END;
 CREATE TRIGGER project_approval_scope_frozen_after_approval
  BEFORE INSERT ON project_approval_scope_versions
  WHEN EXISTS(SELECT 1 FROM project_approval_versions a
- WHERE a.id=NEW.approval_version_id AND a.status='approved')
+ WHERE a.id=NEW.approval_version_id AND a.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'正式批准后不能追加批准需求，必须创建新变更版本'); END;
 CREATE TRIGGER project_approval_material_frozen_after_approval
  BEFORE INSERT ON project_approval_material_items
  WHEN EXISTS(SELECT 1 FROM project_approval_versions a
- WHERE a.id=NEW.approval_version_id AND a.status='approved')
+ WHERE a.id=NEW.approval_version_id AND a.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'正式批准后不能追加已批准物资快照'); END;
 CREATE INDEX idx_project_approval_versions_effective
  ON project_approval_versions(project_id,status,version_no);
@@ -3821,7 +3824,20 @@ BEGIN SELECT RAISE(ABORT,'已有确认的请求幂等身份不可删除'); END;
 -- identity data; status/order can be managed without relabeling history.
 CREATE TRIGGER voltage_identity_immutable_update
  BEFORE UPDATE OF id,code,name ON voltage_levels
-BEGIN SELECT RAISE(ABORT,'电压等级编码和名称属于稳定台账分类，不得无痕改写'); END;
+BEGIN
+ SELECT CASE WHEN NEW.id IS NOT OLD.id OR NEW.code IS NOT OLD.code
+ THEN RAISE(ABORT,'电压等级编码和身份不可改挂') END;
+ SELECT CASE WHEN NEW.name IS NOT OLD.name AND NOT EXISTS(
+  SELECT 1 FROM audit_events event
+  WHERE event.entity='voltages' AND event.entity_id=OLD.id
+    AND event.action='revise' AND event.created_at=NEW.updated_at
+    AND json_extract(event.before_json,'$.name')=OLD.name
+    AND json_extract(event.before_json,'$.code')=OLD.code
+    AND json_extract(event.after_json,'$.name')=NEW.name
+    AND json_extract(event.after_json,'$.code')=OLD.code
+    AND json_extract(event.after_json,'$.id')=OLD.id)
+ THEN RAISE(ABORT,'电压等级名称更正必须先形成真实操作者和完整前后定义的不可变审计') END;
+END;
 CREATE TRIGGER voltage_identity_immutable_delete BEFORE DELETE ON voltage_levels
 BEGIN SELECT RAISE(ABORT,'电压等级稳定身份不可删除'); END;
 
@@ -4002,7 +4018,7 @@ CREATE TRIGGER project_approval_location_guard_delete
  OR EXISTS(
   SELECT 1 FROM project_approval_scope_versions sc
   JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
-  WHERE sc.id=OLD.approval_scope_version_id AND ap.status='approved')
+  WHERE sc.id=OLD.approval_scope_version_id AND ap.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'已批准或已完成正式计价的作业位置和工作量不可删除'); END;
 CREATE TRIGGER project_approval_locations_finalize
  BEFORE UPDATE OF status ON project_approval_versions
@@ -4388,7 +4404,7 @@ CREATE TRIGGER project_approval_scope_price_guard_delete
  WHEN EXISTS(
  SELECT 1 FROM project_approval_scope_versions sc
  JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
- WHERE sc.id=OLD.approval_scope_version_id AND ap.status='approved')
+ WHERE sc.id=OLD.approval_scope_version_id AND ap.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'已批准项目的正式参考价依据不可删除'); END;
 
 -- A FINAL quote is immutable, but the surrounding approval draft may have
@@ -4462,7 +4478,7 @@ BEGIN SELECT RAISE(ABORT,'项目独立参考费用计算事实不可覆盖'); EN
 CREATE TRIGGER project_reference_price_charge_guard_delete
  BEFORE DELETE ON project_reference_price_charges
  WHEN EXISTS(SELECT 1 FROM project_approval_versions ap
-  WHERE ap.id=OLD.approval_version_id AND ap.status='approved')
+  WHERE ap.id=OLD.approval_version_id AND ap.status IN ('approved','withdrawn'))
 BEGIN SELECT RAISE(ABORT,'已批准项目独立参考费用不得删除'); END;
 
 -- Non-aggregated fact projections only. Application MUST compute the total,
@@ -4514,3 +4530,20 @@ CREATE INDEX idx_demand_location_logical_lookup
 CREATE INDEX idx_demand_location_span_lookup
  ON demand_version_work_locations(span_id,demand_id,demand_version)
  WHERE span_id IS NOT NULL;
+
+-- A draft may be withdrawn without destroying confirmed quote history.
+-- This is not a demand lifecycle or a new project business stage.
+CREATE TRIGGER project_approval_withdraw_guard
+ BEFORE UPDATE OF status ON project_approval_versions
+ WHEN NEW.status='withdrawn'
+BEGIN
+ SELECT CASE WHEN OLD.status<>'draft'
+  OR NEW.snapshot_json IS NOT OLD.snapshot_json
+  OR NEW.approved_budget_fen IS NOT OLD.approved_budget_fen
+  OR NEW.approved_by IS NOT NULL OR NEW.approved_at IS NOT NULL
+  OR NOT EXISTS(SELECT 1 FROM audit_events event
+   WHERE event.entity='approval_drafts' AND event.entity_id=OLD.id
+    AND event.action='delete' AND event.created_at>=OLD.created_at
+    AND json_extract(event.after_json,'$.status')='withdrawn')
+ THEN RAISE(ABORT,'草稿撤回必须有真实操作人和不可变撤回决定，不能改写正文或批准事实') END;
+END;

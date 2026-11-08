@@ -1,4 +1,4 @@
-import {readFileSync,readdirSync} from 'node:fs';
+import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 
 const root=resolve(import.meta.dirname,'..');
@@ -7,6 +7,7 @@ const protectedDirectories=[
 ];
 function filesUnder(dir){
  const result=[];
+ if(!existsSync(join(root,dir)))return result;
  for(const entry of readdirSync(join(root,dir),{withFileTypes:true})){
   const path=join(dir,entry.name);
   if(entry.isDirectory())result.push(...filesUnder(path));
