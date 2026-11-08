@@ -11,7 +11,7 @@ import sqlite3
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent
-ddl=(ROOT/"数据库V3_结算驱动_候选表结构.sql").read_text()
+ddl=(ROOT.parent.parent/"server/database/schema/schema113.sql").read_text()
 db=sqlite3.connect(":memory:")
 db.row_factory=sqlite3.Row
 db.execute("PRAGMA foreign_keys=ON")
@@ -292,3 +292,6 @@ print("SCHEMA113_FULL_STRUCTURE_AUDIT_OK",len(tables),"STRICT tables,",
       len(views),"views,",len(triggers),"triggers,",len(indexes),"indexes,",
       columns,"columns,",matrix_count,"matrix tables,",
       trigger_count,"listed triggers; all FK, views, indexes and history boundaries pass")
+
+for table in ("reference_price_versions","project_demand_scopes","cost_versions","settlement_item_versions"):
+    assert not {"tax_mode","tax_rate_basis_points"} & {r["name"] for r in db.execute("PRAGMA table_xinfo("+table+")")}

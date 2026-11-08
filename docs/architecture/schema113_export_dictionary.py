@@ -2,7 +2,7 @@ from pathlib import Path
 import sqlite3,collections,re,shutil
 root=Path('docs/architecture')
 db=sqlite3.connect(':memory:')
-db.executescript((root/'数据库V3_结算驱动_候选表结构.sql').read_text())
+db.executescript((root.parent.parent/'server/database/schema/schema113.sql').read_text())
 q=chr(96)
 tbl={}
 for line in (root/'Schema113_业务对象完整性矩阵.md').read_text().splitlines():
@@ -256,8 +256,6 @@ start_tower_id|档距起始逻辑杆塔
 status|当前状态或历史版本审核状态
 storage_key|附件内容寻址存储路径
 target_object|本次具体作业对象或位置
-tax_mode|含税、不含税或无税业务口径
-tax_rate_basis_points|税率，万分比整数
 title|字典、费用或操作定义标题
 to_status|状态事件的目标状态
 token_hash|登录会话令牌单向哈希
@@ -309,7 +307,7 @@ def retention(table,col,hidden):
   return '保留：统一主数据'
  return '保留：独立属性或真实关联'
 out=['# Schema 113｜逐表逐字段正式数据字典','',
-'依据：§数据库V3_结算驱动_候选表结构.sql§。本文件列出当前全部基础表、含虚拟生成列的字段、主外键、必填性、默认值和保留理由；准确定义的全部 CHECK/触发器以源 SQL 为准。','',
+'依据：§server/database/schema/schema113.sql§。本文件列出当前全部基础表、含虚拟生成列的字段、主外键、必填性、默认值和保留理由；准确定义的全部 CHECK/触发器以源 SQL 为准。','',
 '金额采用人民币分的 INTEGER；数量采用统一缩放整数；日期采用 YYYY-MM-DD，UTC登记时间采用毫秒 ISO8601；全表 STRICT，不允许混合文本和数值。','',
 '**本字典描述数据库业务数据，不包含应用层统计、权限判定或预警功能。**','']
 actual_tables={r[0] for r in db.execute(

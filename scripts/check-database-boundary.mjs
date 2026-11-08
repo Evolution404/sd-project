@@ -3,7 +3,7 @@ import {join,resolve} from 'node:path';
 
 const root=resolve(import.meta.dirname,'..');
 const protectedDirectories=[
- 'server/http','server/domain','server/infrastructure','server/application'
+ 'server/http','server/domain','server/infrastructure','server/application','server/exchange'
 ];
 function filesUnder(dir){
  const result=[];
@@ -14,7 +14,7 @@ function filesUnder(dir){
  }
  return result;
 }
-const protectedScripts=['scripts/init-admin.mjs','scripts/dev-start.mjs'];
+const protectedScripts=['scripts/init-admin.mjs','scripts/backup.mjs'];
 const sources=[...protectedDirectories.flatMap(filesUnder),...protectedScripts,'server/main.mjs'];
 const violations=[];
 for(const source of sources){

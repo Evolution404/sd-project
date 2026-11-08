@@ -9,7 +9,7 @@ import sqlite3
 import tempfile
 from pathlib import Path
 
-schema = Path(__file__).with_name("数据库V3_结算驱动_候选表结构.sql")
+schema = Path(__file__).resolve().parents[2]/"server/database/schema/schema113.sql"
 db = sqlite3.connect(":memory:")
 db.row_factory = sqlite3.Row
 db.execute("PRAGMA foreign_keys=ON")
@@ -1318,13 +1318,7 @@ blocked("material version category must be actual material dictionary",
     "status,reason,changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)",
     ("wrong_material_cat","master3",2,"物资","expense","active",
      "非法分类","u","2026-11-08T00:00:00.000Z"))
-blocked("invalid VAT calculation metadata rejected",
-    "INSERT INTO cost_versions(id,entry_id,version_no,"
-    "funding_version_id,status,title,"
-    "occurred_on,amount_fen,tax_mode,tax_rate_basis_points,evidence,reason,"
-    "confirmed_by,confirmed_at,request_key) VALUES('bad_tax','audit_ce',3,"
-    "'fund2','active','不合法税率','2026-11-07',1000,"
-    "'none',1100,'票据','税率错误','u','2026-11-07T20:00:00.000Z','bad_tax')")
+ok("tax metadata is absent from the Schema113 business model", all(not {"tax_mode","tax_rate_basis_points"} & {r["name"] for r in db.execute("PRAGMA table_xinfo("+t+")")} for t in ("cost_versions","settlement_item_versions","reference_price_versions","project_demand_scopes")))
 
 add("agreement_versions",id="agv3",agreement_id="ag",version_no=2,
     name="协议合同正式资料",limit_fen=1600,
@@ -2578,7 +2572,7 @@ try:
         work_mode="outage",additional_conditions_json=
         '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"}}',
         status="active",unit_price_fen=250000,price_source="内部定额",
-        price_date="2026-11-08",tax_mode="inclusive",
+        price_date="2026-11-08",
         effective_on="2026-11-08",basis="电压塔型和山区条件",
         reason="首次价格规则",created_by="u",
         created_at="2026-11-08T03:01:00.000Z")
@@ -2592,7 +2586,7 @@ try:
         work_mode="outage",additional_conditions_json=
         '{"terrain":{"factor_version":1,"op":"eq","value":"plain"}}',
         status="active",unit_price_fen=160000,price_source="内部定额",
-        price_date="2026-11-08",tax_mode="inclusive",
+        price_date="2026-11-08",
         effective_on="2026-11-08",basis="电压塔型和平原条件",
         reason="首次价格规则",created_by="u",
         created_at="2026-11-08T03:01:00.000Z")
@@ -2610,63 +2604,38 @@ try:
             "WHERE id='price_angle_v1'")['additional_conditions_json']
             =='{"terrain":{"factor_version":1,"op":"eq","value":"mountain"}}')
     blocked("reference price factors must be a valid JSON object",
-        "INSERT INTO reference_price_versions("
-        "id,catalog_id,version_no,title,operation_id,operation_version,"
-        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
-        "tax_mode,effective_on,basis,reason,created_by,created_at,"
-        "additional_conditions_json) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         ("invalid_price_factor","price_angle",2,"条件非法","op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
-         "inclusive","2026-11-08","非法数组","无效规则",
+         "2026-11-08","非法数组","无效规则",
          "u","2026-11-08T03:02:00.000Z",'[]'))
     blocked("reference price tower type cannot contain padding",
-        "INSERT INTO reference_price_versions("
-        "id,catalog_id,version_no,title,operation_id,operation_version,"
-        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
-        "tax_mode,effective_on,basis,reason,created_by,created_at,"
-        "tower_type) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,tower_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         ("invalid_price_tower","price_angle",2,"塔型非法","op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
-         "inclusive","2026-11-08","非法塔型","无效规则",
+         "2026-11-08","非法塔型","无效规则",
          "u","2026-11-08T03:02:00.000Z",' angle '))
     blocked_reason("price factor code must exist in the active versioned dictionary",
-        "INSERT INTO reference_price_versions("
-        "id,catalog_id,version_no,title,operation_id,operation_version,"
-        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
-        "tax_mode,effective_on,basis,reason,created_by,created_at,"
-        "additional_conditions_json) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
         ("invalid_unknown_factor","price_angle",2,"无效因素","op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
-         "inclusive","2026-11-08","不存在的因素","无效规则",
+         "2026-11-08","不存在的因素","无效规则",
          "u","2026-11-08T03:02:00.000Z",
          '{"does_not_exist":{"factor_version":1,"op":"eq","value":"x"}}'))
     blocked_reason("enum price factor cannot be used as a numeric range",
-        "INSERT INTO reference_price_versions("
-        "id,catalog_id,version_no,title,operation_id,operation_version,"
-        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
-        "tax_mode,effective_on,basis,reason,created_by,created_at,"
-        "additional_conditions_json) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
         ("invalid_factor_type","price_angle",2,"错误因素值类型","op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
-         "inclusive","2026-11-08","因素类型不符","无效规则",
+         "2026-11-08","因素类型不符","无效规则",
          "u","2026-11-08T03:02:00.000Z",
          '{"terrain":{"factor_version":1,"op":"range","min":1,"max":2}}'))
     invalid_factor_sql=(
-        "INSERT INTO reference_price_versions("
-        "id,catalog_id,version_no,title,operation_id,operation_version,"
-        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
-        "tax_mode,effective_on,basis,reason,created_by,created_at,"
-        "additional_conditions_json)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     def invalid_factor_args(label, value):
         return (label,"price_angle",2,"无效因素","op",1,"unit",1,"active",
-                250000,"内部定额","2026-11-08","inclusive","2026-11-08",
+                250000,"内部定额","2026-11-08","2026-11-08",
                 "测试无效因素","无效规则","u","2026-11-08T03:03:00.000Z",value)
     blocked_reason("factor definition version must exist and be pinned",
         invalid_factor_sql,
@@ -2692,7 +2661,7 @@ try:
         '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
         '"height_mm":{"factor_version":1,"op":"range","min":30000,"max":50000}}',
         status="active",unit_price_fen=250000,price_source="内部定额",
-        price_date="2026-11-08",tax_mode="inclusive",
+        price_date="2026-11-08",
         effective_on="2026-11-08",basis="电压塔型和山区条件",
         reason="增加高度适用条件",created_by="u",
         created_at="2026-11-08T03:04:00.000Z")
@@ -2702,18 +2671,13 @@ try:
             !=row("SELECT additional_conditions_json FROM reference_price_versions "
             "WHERE id='price_angle_v1'")['additional_conditions_json'])
     blocked_reason("unchanged price conditions cannot create another version",
-        "INSERT INTO reference_price_versions("
-        "id,catalog_id,version_no,title,operation_id,operation_version,"
-        "unit_id,unit_version,voltage_level_id,tower_type,work_mode,"
-        "additional_conditions_json,status,unit_price_fen,price_source,"
-        "price_date,tax_mode,effective_on,basis,reason,created_by,created_at)"
-        " VALUES("+",".join("?" for _ in range(22))+")",
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,voltage_level_id,tower_type,work_mode,additional_conditions_json,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES('+",".join("?" for _ in range(21))+")",
         "参考价正式版本没有真实价格或分类依据变化，不允许空改版",
         ("unchanged_price_conditions","price_angle",3,"耐张塔山区参考价",
          "op",1,"unit",1,"vol","angle","outage",
          '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
          '"height_mm":{"factor_version":1,"op":"range","min":30000,"max":50000}}',
-         "active",250000,"内部定额","2026-11-08","inclusive",
+         "active",250000,"内部定额","2026-11-08",
          "2026-11-08","电压塔型和山区条件","只改备注","u",
          "2026-11-08T03:05:00.000Z"))
 finally:
@@ -3739,42 +3703,30 @@ try:
         code='AUDIT-PRICE',created_by='u',
         created_at='2026-11-07T23:10:00.000Z')
     blocked_reason('reference price history cannot predate catalog root',
-        'INSERT INTO reference_price_versions('
-        'id,catalog_id,version_no,title,operation_id,operation_version,'
-        'unit_id,unit_version,status,unit_price_fen,price_source,price_date,'
-        'tax_mode,effective_on,basis,reason,created_by,created_at)'
-        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         '参考价正式版本不能早于根目录或上一价格历史',
         ('price_bad_past','price_history_audit',1,'安装单价','op',1,
-         'unit',1,'active',300,'标准参考','2026-11-07','inclusive',
+         'unit',1,'active',300,'标准参考','2026-11-07',
          '2026-11-07','历史价格依据','非法倒签','u',
          '2026-11-07T23:09:59.000Z'))
     add('reference_price_versions',id='price_v1',catalog_id='price_history_audit',
         version_no=1,title='单价依据',operation_id='op',operation_version=1,
         unit_id='unit',unit_version=1,status='active',unit_price_fen=300,
-        price_source='标准参考',price_date='2026-11-07',tax_mode='inclusive',
+        price_source='标准参考',price_date='2026-11-07',
         effective_on='2026-11-07',basis='标准价格明细',reason='首次',
         created_by='u',created_at='2026-11-07T23:10:00.000Z')
     blocked_reason('reference price history needs real changed price or parameters',
-        'INSERT INTO reference_price_versions('
-        'id,catalog_id,version_no,title,operation_id,operation_version,'
-        'unit_id,unit_version,status,unit_price_fen,price_source,price_date,'
-        'tax_mode,effective_on,basis,reason,created_by,created_at)'
-        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         '参考价正式版本没有真实价格或分类依据变化，不允许空改版',
         ('price_repeat','price_history_audit',2,'单价依据','op',1,
-         'unit',1,'active',300,'标准参考','2026-11-07','inclusive',
+         'unit',1,'active',300,'标准参考','2026-11-07',
          '2026-11-07','标准价格明细','只改原因','u',
          '2026-11-07T23:10:01.000Z'))
     blocked_reason('revised reference price cannot be backdated',
-        'INSERT INTO reference_price_versions('
-        'id,catalog_id,version_no,title,operation_id,operation_version,'
-        'unit_id,unit_version,status,unit_price_fen,price_source,price_date,'
-        'tax_mode,effective_on,basis,reason,created_by,created_at)'
-        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         '参考价正式版本不能早于根目录或上一价格历史',
         ('price_v2_bad','price_history_audit',2,'新单价','op',1,
-         'unit',1,'active',450,'标准参考','2026-11-07','inclusive',
+         'unit',1,'active',450,'标准参考','2026-11-07',
          '2026-11-07','标准价格明细','倒签','u',
          '2026-11-07T23:09:59.000Z'))
 finally:
@@ -3849,7 +3801,7 @@ try:
             pricing_mode=mode,base_fee_fen=base,
             unit_price_fen=unit,quantity_brackets_json=json.dumps(brackets),
             status="active",price_source="仅测试示例",price_date="2026-11-08",
-            tax_mode="inclusive",effective_on="2026-11-08",
+            effective_on="2026-11-08",
             basis="一基物理杆塔上本次安装数量",
             created_by="u",created_at="2026-11-08T03:01:00.000Z")
     def bird_rule_calc(rule_id, count):
@@ -3875,16 +3827,11 @@ try:
         ==[700,900,1050,1300])
     def invalid_bird_bands(label, bands, expected):
         blocked_reason(label,
-            "INSERT INTO reference_price_versions("
-            "id,catalog_id,version_no,title,operation_id,operation_version,"
-            "unit_id,unit_version,pricing_mode,base_fee_fen,unit_price_fen,"
-            "quantity_brackets_json,status,price_source,price_date,tax_mode,"
-            "effective_on,basis,created_by,created_at)"
-            " VALUES("+",".join("?" for _ in range(20))+")",
+            'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,pricing_mode,base_fee_fen,unit_price_fen,quantity_brackets_json,status,price_source,price_date,effective_on,basis,created_by,created_at) VALUES('+",".join("?" for _ in range(19))+")",
             expected,
             ("invalid_bird_"+label,"bird_catalog_bands",2,"错误分档",
              "bird_op",1,"unit",1,"quantity_bracket",0,0,
-             json.dumps(bands),"active","测试","2026-11-08","inclusive",
+             json.dumps(bands),"active","测试","2026-11-08",
              "2026-11-08","测试","u","2026-11-08T03:02:00.000Z"))
     invalid_bird_bands(
         "overlap",[
@@ -4540,7 +4487,7 @@ try:
             quantity_brackets_json=json.dumps(brackets or [],ensure_ascii=False),
             base_fee_fen=base,unit_price_fen=unit,
             status="active",price_source="仅用于隔离契约测试的假设价格",
-            price_date="2026-11-08",tax_mode="inclusive",
+            price_date="2026-11-08",
             effective_on="2026-11-08",basis="计价规则测试",
             created_by="u",created_at=created_at)
         return "r16_price_"+name
@@ -4703,17 +4650,12 @@ try:
             "WHERE id LIKE 'r16_price_%'")["n"]==8)
     def bad_rule(label,mode,params,components,reason):
         blocked_reason(label,
-            "INSERT INTO reference_price_versions("
-            "id,catalog_id,version_no,title,operation_id,operation_version,"
-            "unit_id,unit_version,status,pricing_mode,base_fee_fen,"
-            "unit_price_fen,calculation_params_json,fee_components_json,"
-            "price_source,price_date,tax_mode,effective_on,basis,created_by,created_at)"
-            " VALUES("+",".join("?" for _ in range(21))+")",
+            'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,pricing_mode,base_fee_fen,unit_price_fen,calculation_params_json,fee_components_json,price_source,price_date,effective_on,basis,created_by,created_at) VALUES('+",".join("?" for _ in range(20))+")",
             reason,
             ("r16_bad_rule_"+label,"r16_cat_base",2,"无效正式价格规则",
              "r16_op",1,"unit",1,"active",mode,0,0,
              json.dumps(params),json.dumps(components),"测试","2026-11-08",
-             "inclusive","2026-11-08","测试","u","2026-11-08T04:43:00.000Z"))
+             "2026-11-08","测试","u","2026-11-08T04:43:00.000Z"))
     bad_rule("group_zero_size","group",{
         "group_size_scaled":0,"group_fee_fen":100},[],
         "成组计价需要有效的每组数量及收费金额")

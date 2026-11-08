@@ -1,8 +1,8 @@
--- PROPOSED DATABASE DESIGN ONLY, not the running Schema 112.
+-- Authoritative Schema 113. Initialized only in an independent new database.
 -- Target: Schema 113 (full immutable settlement history candidate).
 -- Stable settlement business identity, whole-document snapshots, versioned
 -- details, audit events and current/as-of history views.
--- No frontend/backend changes are authorized.
+-- Application rewrite authorized by user on 2026-11-08.
 -- Main stable chain: annual framework -> project -> approved project scope
 -- and full immutable management/profile history -> independent real cost facts
 -- -> separately approved installment settlements -> audited reconciliations.
@@ -752,7 +752,6 @@ CREATE TABLE reference_price_versions (
    AND json_type(quantity_brackets_json)='array'),
  price_source TEXT NOT NULL,
  price_date TEXT NOT NULL CHECK(price_date IS NULL OR (length(price_date)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(price_date))=price_date,0))),
- tax_mode TEXT NOT NULL CHECK(tax_mode IN ('inclusive','exclusive','none')),
  effective_on TEXT NOT NULL CHECK(effective_on IS NULL OR (length(effective_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(effective_on))=effective_on,0))),
  basis TEXT NOT NULL,
  reason TEXT NOT NULL DEFAULT '',
@@ -777,7 +776,6 @@ CREATE TABLE project_demand_scopes (
  proposed_amount_fen INTEGER CHECK(proposed_amount_fen IS NULL OR proposed_amount_fen>=0),
  price_source TEXT,
  price_date TEXT CHECK(price_date IS NULL OR (length(price_date)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(price_date))=price_date,0))),
- tax_mode TEXT CHECK(tax_mode IN ('inclusive','exclusive','none')),
  note TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))), updated_at TEXT NOT NULL CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))), demand_snapshot_json TEXT,
  FOREIGN KEY(demand_id,demand_version) REFERENCES demand_versions(demand_id,version) ON DELETE RESTRICT,
@@ -1166,11 +1164,6 @@ CREATE TABLE settlement_item_versions (
  amount_fen INTEGER NOT NULL CHECK(amount_fen>=0),
  unit_price_fen INTEGER CHECK(unit_price_fen IS NULL OR unit_price_fen>=0),
  work_mode TEXT CHECK(work_mode IN ('outage','non_outage')),
- tax_mode TEXT CHECK(tax_mode IN ('inclusive','exclusive','none')),
- tax_rate_basis_points INTEGER CHECK(tax_rate_basis_points IS NULL OR
-  (tax_rate_basis_points BETWEEN 0 AND 10000
-   AND tax_mode IS NOT NULL AND
-   (tax_mode<>'none' OR tax_rate_basis_points=0))),
  evidence TEXT NOT NULL,
  scope_snapshot_json TEXT NOT NULL CHECK(json_valid(scope_snapshot_json)),
  UNIQUE(settlement_version_id,settlement_item_id),
@@ -1225,11 +1218,6 @@ CREATE TABLE cost_versions (
  title TEXT NOT NULL CHECK(length(trim(title))>0),
  occurred_on TEXT NOT NULL CHECK(occurred_on IS NULL OR (length(occurred_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(occurred_on))=occurred_on,0))),
  amount_fen INTEGER NOT NULL CHECK(amount_fen>0),
- tax_mode TEXT CHECK(tax_mode IN ('inclusive','exclusive','none')),
- tax_rate_basis_points INTEGER CHECK(tax_rate_basis_points IS NULL OR
-  (tax_rate_basis_points BETWEEN 0 AND 10000
-   AND tax_mode IS NOT NULL AND
-   (tax_mode<>'none' OR tax_rate_basis_points=0))),
  invoice_number TEXT,
  evidence TEXT NOT NULL CHECK(length(trim(evidence))>0),
  reason TEXT NOT NULL DEFAULT '',
@@ -1998,7 +1986,7 @@ SELECT c.id,c.code,c.created_by,c.created_at,
  v.work_mode,v.specification,v.additional_conditions_json,
  v.status,v.pricing_mode,v.pricing_scope,v.calculation_params_json,
  v.fee_components_json,v.base_fee_fen,v.unit_price_fen,
- v.quantity_brackets_json,v.tax_mode,v.effective_on
+ v.quantity_brackets_json,v.effective_on
 FROM reference_price_catalog c
 JOIN reference_price_versions v ON v.catalog_id=c.id
 WHERE v.version_no=(SELECT MAX(x.version_no)
@@ -2475,7 +2463,7 @@ BEGIN SELECT RAISE(ABORT,'已记录需求关联/解绑历史不得删除'); END;
 CREATE TRIGGER frozen_approved_project_scope
  BEFORE UPDATE OF project_id,demand_id,demand_version,
  proposed_quantity_scaled,proposed_unit_price_fen,proposed_amount_fen,
- price_source,price_date,tax_mode,note,demand_snapshot_json
+ price_source,price_date,note,demand_snapshot_json
  ON project_demand_scopes
 WHEN EXISTS(SELECT 1 FROM project_approval_scope_versions v
  JOIN project_approval_versions a ON a.id=v.approval_version_id
@@ -2742,7 +2730,7 @@ BEGIN
  AND prev.quantity_brackets_json=NEW.quantity_brackets_json
  AND prev.status=NEW.status AND prev.unit_price_fen=NEW.unit_price_fen
  AND prev.price_source=NEW.price_source AND prev.price_date=NEW.price_date
- AND prev.tax_mode=NEW.tax_mode AND prev.effective_on=NEW.effective_on
+ AND prev.effective_on=NEW.effective_on
  AND prev.basis=NEW.basis)
  THEN RAISE(ABORT,'参考价正式版本没有真实价格或分类依据变化，不允许空改版') END;
 END;
@@ -4514,4 +4502,15 @@ CREATE UNIQUE INDEX uq_demand_location_logical
  WHERE logical_tower_id IS NOT NULL;
 CREATE UNIQUE INDEX uq_demand_location_span
  ON demand_version_work_locations(demand_id,demand_version,span_id)
+ WHERE span_id IS NOT NULL;
+
+-- Reverse location lookup for batch duplicate preflight across demand versions.
+CREATE INDEX idx_demand_location_physical_lookup
+ ON demand_version_work_locations(physical_tower_id,demand_id,demand_version)
+ WHERE physical_tower_id IS NOT NULL;
+CREATE INDEX idx_demand_location_logical_lookup
+ ON demand_version_work_locations(logical_tower_id,demand_id,demand_version)
+ WHERE logical_tower_id IS NOT NULL;
+CREATE INDEX idx_demand_location_span_lookup
+ ON demand_version_work_locations(span_id,demand_id,demand_version)
  WHERE span_id IS NOT NULL;
