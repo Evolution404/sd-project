@@ -1,20 +1,20 @@
 # Schema 113｜触发器与约束责任全量审计
 
-本清单从最新候选 SQL 重建，数据库触发器职责限于真实外键之外的数据一致性、历史不可变、版本顺序和正式事实边界。应用操作权限、报表、预警不由 SQLite 触发器执行。
+本清单从最新候选 SQL 重建。触发器负责不可变正式历史、真实身份引用、版本顺序、价格分档及每次结算真实需求结果；管理员说明理由、报表与价格计算是应用层问题。
 
 ## 分类数量
 
 | 责任类别 | 当前数量 |
 | --- | ---: |
-| 不可变历史或身份 | 113 |
+| 不可变历史或身份 | 115 |
 | 历史快照原子同步 | 16 |
-| 正式历史版本约束 | 27 |
+| 正式历史版本约束 | 28 |
 | 正式批准/结项一致性 | 5 |
 | 物资业务身份及关联 | 9 |
 | 状态事件合法性 | 2 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 2 |
-| 跨表关联和身份完整性 | 27 |
+| 跨表关联和身份完整性 | 28 |
 
 ## 完整触发器清单
 
@@ -195,6 +195,7 @@
 | `reference_price_versions` | `immutable_reference_price_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `reference_price_versions` | `immutable_reference_price_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `reference_price_versions` | `reference_price_factor_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `reference_price_versions` | `reference_price_quantity_bracket_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `reference_price_versions` | `reference_price_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `reference_price_versions` | `reference_price_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
 | `settlement_drafts` | `settlement_draft_project_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
@@ -208,6 +209,9 @@
 | `settlement_review_events` | `settlement_review_event_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `settlement_review_events` | `settlement_review_event_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `settlement_review_events` | `settlement_review_event_insert_guard` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `settlement_scope_results` | `settlement_scope_result_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `settlement_scope_results` | `settlement_scope_result_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `settlement_scope_results` | `settlement_scope_result_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `settlement_versions` | `settlement_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `settlement_versions` | `settlement_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `settlement_versions` | `settlement_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
@@ -218,12 +222,12 @@
 | `source_records` | `source_category_update` | BEFORE/UPDATE | 历史快照原子同步 |
 | `source_records` | `source_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `source_records` | `source_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `transmission_lines` | `line_retirement_logical_guard` | BEFORE/UPDATE | 跨表关联和身份完整性 |
 | `transmission_lines` | `active_span_line_guard` | BEFORE/UPDATE | 历史快照原子同步 |
 | `transmission_lines` | `line_history_append` | AFTER/UPDATE | 设备历史一致性 |
 | `transmission_lines` | `line_history_initial` | AFTER/INSERT | 设备历史一致性 |
 | `transmission_lines` | `line_history_version_guard` | BEFORE/UPDATE | 正式历史版本约束 |
 | `transmission_lines` | `line_identity_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
+| `transmission_lines` | `line_retirement_logical_guard` | BEFORE/UPDATE | 跨表关联和身份完整性 |
 | `transmission_lines` | `valid_branch_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `transmission_lines` | `valid_branch_update` | BEFORE/UPDATE | 历史快照原子同步 |
 | `voltage_levels` | `voltage_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |

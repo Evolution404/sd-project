@@ -106,6 +106,50 @@ def add(t, **data):
                 status='active',reason='测试定义',actor_id='u',
                 recorded_at='2026-11-07T00:00:00.000Z')
         data['cost_node_id']=node_id
+    if t=="settlement_review_events" and data.get("action")=="submit":
+        # TEST FIXTURE ONLY: existing full-accounting fixtures predating
+        # settlement_scope_results already had approved project demand scopes,
+        # but recorded only billed fee items, not independent actual resolved
+        # work. Seed exact scope results before formal submit for legacy fixture
+        # setups. Production MUST receive actual resolved quantities from the
+        # user, not infer them from price rows or approval quantities.
+        ver=data["settlement_version_id"]
+        is_void=db.execute(
+            "SELECT change_type FROM settlement_versions WHERE id=?",
+            (ver,)).fetchone()
+        if is_void and is_void[0]!="void":
+            scopes=db.execute(
+                "SELECT DISTINCT i.project_scope_id AS scope_id, "
+                "a.id AS approval_scope_id "
+                "FROM settlement_item_versions iv "
+                "JOIN settlement_items i ON i.id=iv.settlement_item_id "
+                "JOIN settlement_versions v ON v.id=iv.settlement_version_id "
+                "JOIN project_approval_scope_versions a ON "
+                "a.project_scope_id=i.project_scope_id AND "
+                "a.approval_version_id=v.approval_version_id "
+                "WHERE v.id=? AND i.project_scope_id IS NOT NULL "
+                "ORDER BY i.project_scope_id",(ver,)).fetchall()
+            if not scopes:
+                scopes=db.execute(
+                    "SELECT a.project_scope_id AS scope_id, "
+                    "a.id AS approval_scope_id "
+                    "FROM project_approval_scope_versions a "
+                    "JOIN settlement_versions v ON "
+                    "v.approval_version_id=a.approval_version_id "
+                    "WHERE v.id=? ORDER BY a.project_scope_id LIMIT 1",
+                    (ver,)).fetchall()
+            for i,scope in enumerate(scopes):
+                if not db.execute(
+                    "SELECT 1 FROM settlement_scope_results "
+                    "WHERE settlement_version_id=? AND project_scope_id=?",
+                    (ver,scope["scope_id"])).fetchone():
+                    insert_raw("settlement_scope_results",
+                        id=f"fixture_scope_result_{ver}_{i}",
+                        settlement_version_id=ver,
+                        project_scope_id=scope["scope_id"],
+                        approval_scope_version_id=scope["approval_scope_id"],
+                        resolved_quantity_scaled=10000,
+                        evidence="仅测试样本的需求解决事实")
     if t in ('cost_versions','settlement_item_versions') and 'cost_node_version_id' not in data:
         if t=='cost_versions':
             cost_node_id=db.execute('SELECT cost_node_id FROM cost_entries WHERE id=?',
@@ -509,10 +553,15 @@ ok("additional project material has shared master identity, not a fake approval"
         "WHERE pm.id='unplanned_mat'")["code"]=="MAT-002"
     and row("SELECT COUNT(*) n FROM project_approval_material_items "
         "WHERE project_material_id='unplanned_mat'")["n"]==0)
-blocked("newly included project material requires a reason",
-    "INSERT INTO project_scope_materials(id,project_scope_id,material_id,"
-    "addition_reason,created_at) VALUES('unexplained_material','scope',"
-    "'master2','','2026-11-07T00:00:00.000Z')")
+add("materials",id="no_reason_master",code="MAT-OPTIONAL",
+    name="现场新增材料不写说明",unit_id="unit",
+    created_at="2026-11-07T00:00:00.000Z")
+add("project_scope_materials",id="unexplained_material",
+    project_scope_id="scope",material_id="no_reason_master",
+    created_at="2026-11-07T00:00:00.000Z")
+ok("admin may add a real unplanned material with no explanatory reason",
+    row("SELECT addition_reason FROM project_scope_materials "
+        "WHERE id='unexplained_material'")["addition_reason"]=="")
 # Material names/models become immutable version records; approved snapshots
 # keep their own time-of-approval facts.
 revise_material("master1",name="复合绝缘子",model="A-改",
@@ -1634,8 +1683,9 @@ ok("no independent preapproval allocation table, projection or evidence FK",
     and not any(x["table"]=="cost_allocation_versions"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==23
-    and {'v_organizational_unit_current','v_approval_scope_current',
+    len(present)==24
+    and {'v_effective_demand_resolutions',
+         'v_organizational_unit_current','v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
          'v_effective_cost_reconciliations',
@@ -1647,9 +1697,9 @@ ok("database trigger bodies have no embedded application role-authorization rule
     row("SELECT COUNT(*) n FROM sqlite_master WHERE type='trigger' "
         "AND sql LIKE '%role_permissions%'")["n"]==0
     and row("SELECT COUNT(*) n FROM role_permissions")["n"]>0)
-ok("project closeout checks effective financial facts without construction views",
-    'v_effective_cost_reconciliations' in closure_ddl
-    and 'v_effective_settlement_items' in closure_ddl
+ok("project closeout does not force 100-percent costs or demands",
+    'v_effective_cost_reconciliations' not in closure_ddl
+    and 'v_effective_settlement_items' not in closure_ddl
     and 'v_completion_current' not in closure_ddl
     and 'v_scope_progress' not in closure_ddl
     and 'v_settlement_workflow' not in closure_ddl)
@@ -1909,26 +1959,25 @@ add("project_closures",id="end_to_end_close",
     project_id="end_to_end_p",approval_version_id="end_to_end_ap",
     reason="本子项目全部费用已最终核对",close_snapshot_json="{}",
     closed_by="u",closed_at="2026-11-07T20:45:00.000Z")
-# Closure must reject an older approved reconciliation as evidence for a
-# newer changed statement snapshot, even though its history still exists.
-def e2e_close_rejection(label, message):
+# An authorized closing decision can ACCEPT a residual after an approved
+# revised settlement. The old matched cash entries are still preserved, but
+# a 100-percent amount match must NOT be required as a project-closure gate.
+def e2e_close_with_variance(label):
     version=row("SELECT version FROM projects WHERE id='end_to_end_p'")["version"]+1
-    db.execute("SAVEPOINT invalid_e2e_close")
+    db.execute("SAVEPOINT allowed_e2e_close")
     try:
-        add("project_stage_events",id="invalid_e2e_close",
+        add("project_stage_events",id="test_e2e_close",
             project_id="end_to_end_p",stage="closed",
-            project_version=version,reason="拟核对结项",
-            actor_id="u",created_at="2026-11-07T20:44:19.000Z")
-    except sqlite3.IntegrityError as error:
-        ok(label,message in str(error))
-    else:
-        raise AssertionError("Unreconciled project was permitted to close: "+label)
+            project_version=version,
+            actor_id="u",created_at="2026-11-07T20:45:01.000Z")
+        ok(label,row("SELECT status FROM projects "
+            "WHERE id='end_to_end_p'")["status"]=="closed")
     finally:
-        db.execute("ROLLBACK TO invalid_e2e_close")
-        db.execute("RELEASE invalid_e2e_close")
+        db.execute("ROLLBACK TO allowed_e2e_close")
+        db.execute("RELEASE allowed_e2e_close")
 
-e2e_close_rejection("revised statement cannot close using former approved cost reconciliation",
-                    "实际费用与各期有效最终核对金额不一致")
+e2e_close_with_variance(
+    "explicit approval may close with un-reconciled revision and remaining expense")
 add("cost_reconciliation_versions",id="end_to_end_reconcile_revision",
     record_id="end_to_end_reconcile_revision",version_no=1,status="active",
     cost_version_id="end_to_end_cv_v2",
@@ -1978,10 +2027,10 @@ add("cost_reconciliation_versions",id="end_to_end_reconcile3",
 ok("newly revised three-installment settlement reconciles complete true cost",
     row("SELECT sum(reconciled_cost_fen) n FROM "
         "v_effective_cost_reconciliations WHERE entry_id='end_to_end_cost'")["n"]==3500)
-# Although every cent is provisionally mapped, is_final=0 means a real
-# review is still outstanding. The closeout cannot infer finality from sums.
-e2e_close_rejection("amount matching alone cannot mark a provisional reconciliation final",
-                    "实际费用与各期有效最终核对金额不一致")
+# A provisional reconciliation remains provisional; an explicit project
+# close decision may still accept this known financial variance.
+e2e_close_with_variance(
+    "explicit approved closure accepts provisional cost reconciliation as unresolved")
 add("cost_reconciliation_versions",id="end_to_end_reconcile3_final",
     record_id="end_to_end_reconcile3",version_no=2,status="active",
     cost_version_id="end_to_end_cv_v2",
@@ -2006,8 +2055,8 @@ ok("audited deduction does not create false outstanding actual-cost balance",
         "AND is_final=1")["n"]==3450
     and row("SELECT sum(net_amount_fen) n FROM "
         "v_effective_settlement_items WHERE project_id='end_to_end_p'")["n"]==3450)
-# Additional approved statement with no associated actual expense MUST NOT
-# be treated as settlement merely because all other actual costs are covered.
+# Additional approved statement without a current expense reconciliation
+# is a REAL unresolved settlement, never silently counted as matched.
 add("settlements",id="end_to_end_st_extra",project_id="end_to_end_p",
     number="E2E-EXTRA",created_by="u",
     created_at="2026-11-07T20:44:27.000Z")
@@ -2033,8 +2082,8 @@ add("settlement_review_events",id="end_to_end_extra_approve",
     settlement_version_id="end_to_end_extra_v1",event_seq=2,
     action="approve",actor_id="u",
     recorded_at="2026-11-07T20:44:31.000Z",effective_on="2026-11-07")
-e2e_close_rejection("approved unmatched settlement amount cannot be hidden by fully paid costs",
-                    "未完成实际费用核对的有效结算明细")
+e2e_close_with_variance(
+    "approved unmatched settlement is retained but does not prohibit acknowledged close")
 # Explicit approved void supersedes only that extra statement. Nothing is
 # silently erased from the audit history or earlier approved snapshots.
 add("settlement_versions",id="end_to_end_extra_void",
@@ -3733,6 +3782,440 @@ try:
 finally:
     db.execute('ROLLBACK TO published_reference_delete_audit')
     db.execute('RELEASE published_reference_delete_audit')
+
+# Round 14 / user decisions: multi-device pricing per physical tower,
+# exact per-settlement resolved-demand facts, actual scope over/under-runs,
+# acknowledged closure with nonzero residuals, and zero-required-reason admin.
+db.execute("SAVEPOINT user_round14_price_and_completion")
+try:
+    import json
+    # Setup: fitting N anti-bird devices to ONE physical tower is an operation
+    # on that tower, with unit "套". There is no extra tower multiplier.
+    add("work_objects",id="bird_object",code="BIRD-DEVICE",
+        created_at="2026-11-08T03:00:00.000Z")
+    add("work_object_versions",id="bird_object_v1",
+        work_object_id="bird_object",version_no=1,name="防鸟装置",
+        work_target_type="physical",status="active",changed_by="u",
+        recorded_at="2026-11-08T03:00:00.000Z")
+    add("operations",id="bird_op",code="INSTALL-BIRD",
+        created_at="2026-11-08T03:00:00.000Z")
+    add("operation_versions",id="bird_op_v1",operation_id="bird_op",
+        version=1,name="安装防鸟装置",status="active",
+        work_target_type="physical",work_object_id="bird_object",
+        default_unit_id="unit",default_unit_version=1,
+        allow_tower=1,allow_span=0,default_location_kind="tower",
+        changed_by="u",changed_at="2026-11-08T03:00:00.000Z")
+    for kind,mode,base,unit,brackets in (
+        ("unit","per_unit",0,200,[]),
+        ("base","base_plus_unit",500,120,[]),
+        ("bands","quantity_bracket",0,0,[
+            {"min_quantity_scaled":10000,"max_quantity_scaled":10000,
+             "base_fee_fen":500,"unit_price_fen":200},
+            {"min_quantity_scaled":20000,"max_quantity_scaled":30000,
+             "base_fee_fen":600,"unit_price_fen":150},
+            {"min_quantity_scaled":40000,"max_quantity_scaled":None,
+             "base_fee_fen":700,"unit_price_fen":120}])):
+        add("reference_price_catalog",id="bird_catalog_"+kind,
+            code="BIRD-"+kind.upper(),created_by="u",
+            created_at="2026-11-08T03:00:00.000Z")
+        add("reference_price_versions",id="bird_price_"+kind,
+            catalog_id="bird_catalog_"+kind,version_no=1,
+            title="防鸟装置试算"+kind,operation_id="bird_op",
+            operation_version=1,unit_id="unit",unit_version=1,
+            pricing_mode=mode,base_fee_fen=base,
+            unit_price_fen=unit,quantity_brackets_json=json.dumps(brackets),
+            status="active",price_source="仅测试示例",price_date="2026-11-08",
+            tax_mode="inclusive",effective_on="2026-11-08",
+            basis="一基物理杆塔上本次安装数量",
+            created_by="u",created_at="2026-11-08T03:01:00.000Z")
+    def bird_rule_calc(rule_id, count):
+        price=row("SELECT * FROM reference_price_versions WHERE id=?",rule_id)
+        mode=price["pricing_mode"]
+        if mode!="quantity_bracket":
+            return price["base_fee_fen"]+count*price["unit_price_fen"]
+        scaled=count*10000
+        bands=json.loads(price["quantity_brackets_json"])
+        match=[x for x in bands if scaled>=x["min_quantity_scaled"]
+               and (x["max_quantity_scaled"] is None
+                    or scaled<=x["max_quantity_scaled"])]
+        assert len(match)==1,(count,bands)
+        return match[0]["base_fee_fen"]+count*match[0]["unit_price_fen"]
+    ok("one physical tower / 1,2,3,5 bird devices has linear per-unit prices",
+        [bird_rule_calc("bird_price_unit",n) for n in (1,2,3,5)]
+        ==[200,400,600,1000])
+    ok("one physical tower base fee applies once, not once per device",
+        [bird_rule_calc("bird_price_base",n) for n in (1,2,3,5)]
+        ==[620,740,860,1100])
+    ok("versioned quantity bands support 1,2,3 or arbitrarily many devices",
+        [bird_rule_calc("bird_price_bands",n) for n in (1,2,3,5)]
+        ==[700,900,1050,1300])
+    def invalid_bird_bands(label, bands, expected):
+        blocked_reason(label,
+            "INSERT INTO reference_price_versions("
+            "id,catalog_id,version_no,title,operation_id,operation_version,"
+            "unit_id,unit_version,pricing_mode,base_fee_fen,unit_price_fen,"
+            "quantity_brackets_json,status,price_source,price_date,tax_mode,"
+            "effective_on,basis,created_by,created_at)"
+            " VALUES("+",".join("?" for _ in range(20))+")",
+            expected,
+            ("invalid_bird_"+label,"bird_catalog_bands",2,"错误分档",
+             "bird_op",1,"unit",1,"quantity_bracket",0,0,
+             json.dumps(bands),"active","测试","2026-11-08","inclusive",
+             "2026-11-08","测试","u","2026-11-08T03:02:00.000Z"))
+    invalid_bird_bands(
+        "overlap",[
+            {"min_quantity_scaled":10000,"max_quantity_scaled":30000,
+             "base_fee_fen":0,"unit_price_fen":100},
+            {"min_quantity_scaled":20000,"max_quantity_scaled":None,
+             "base_fee_fen":0,"unit_price_fen":100}],
+        "计价分档范围必须按数量递增且互不重叠")
+    invalid_bird_bands(
+        "bad_interval",[
+            {"min_quantity_scaled":30000,"max_quantity_scaled":20000,
+             "base_fee_fen":0,"unit_price_fen":100}],
+        "计价分档须包含有效数量上下限及非负的基位费/件单价")
+    invalid_bird_bands(
+        "negative_fee",[
+            {"min_quantity_scaled":10000,"max_quantity_scaled":None,
+             "base_fee_fen":-10,"unit_price_fen":100}],
+        "计价分档须包含有效数量上下限及非负的基位费/件单价")
+    invalid_bird_bands(
+        "missing_upper",[
+            {"min_quantity_scaled":10000,"base_fee_fen":0,
+             "unit_price_fen":100}],
+        "计价分档须包含有效数量上下限及非负的基位费/件单价")
+
+    # Two real professional demands to resolve; approved scopes are soft.
+    demand("r14_demand_a")
+    demand("r14_demand_b")
+    activate_demand("r14_demand_a")
+    activate_demand("r14_demand_b")
+    add("projects",id="r14_project",code="R14-P",name="需求量与费用可有差异",
+        framework_id="f",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z")
+    add("project_stage_events",id="r14_stock",project_id="r14_project",
+        stage="stocked",project_version=2,actor_id="u",
+        created_at="2026-11-08T03:01:00.000Z")
+    for suffix,did,qty in (
+        ("a","r14_demand_a",10000),("b","r14_demand_b",30000)):
+        add("project_demand_scopes",id="r14_scope_"+suffix,
+            project_id="r14_project",demand_id=did,demand_version=1,
+            proposed_quantity_scaled=qty,proposed_amount_fen=1500,
+            created_at="2026-11-08T03:01:00.000Z",
+            updated_at="2026-11-08T03:01:00.000Z")
+    add("project_approval_versions",id="r14_approval",
+        project_id="r14_project",version_no=1,
+        approved_budget_fen=200,snapshot_json="{}",
+        created_at="2026-11-08T03:02:00.000Z")
+    for suffix,did,qty in (
+        ("a","r14_demand_a",10000),("b","r14_demand_b",30000)):
+        add("project_approval_scope_versions",id="r14_aps_"+suffix,
+            approval_version_id="r14_approval",project_scope_id="r14_scope_"+suffix,
+            demand_id=did,demand_version=1,quantity_scaled=qty,
+            approved_amount_fen=1500,snapshot_json="{}",
+            created_at="2026-11-08T03:02:00.000Z")
+    db.execute("UPDATE project_approval_versions SET status='approved',"
+        "approved_by='u',approved_at='2026-11-08T03:03:00.000Z'"
+        " WHERE id='r14_approval'")
+    add("project_stage_events",id="r14_approved",project_id="r14_project",
+        stage="approved",project_version=3,actor_id="u",
+        created_at="2026-11-08T03:04:00.000Z")
+    ok("formal project approval must own explicit demand scopes",
+        row("SELECT COUNT(*) n FROM project_approval_scope_versions "
+            "WHERE approval_version_id='r14_approval'")["n"]==2)
+
+    for kind,name in (("labor","人工"),("material","材料")):
+        add("project_cost_nodes",id="r14_fee_"+kind,
+            project_id="r14_project",created_by="u",
+            created_at="2026-11-08T03:05:00.000Z")
+        add("project_cost_node_versions",id="r14_fee_"+kind+"_v1",
+            node_id="r14_fee_"+kind,version_no=1,name=name,
+            status="active",actor_id="u",recorded_at="2026-11-08T03:05:00.000Z")
+    add("settlements",id="r14_st",project_id="r14_project",number="R14-ST",
+        created_by="u",created_at="2026-11-08T03:06:00.000Z")
+    add("settlement_items",id="r14_item_a_labor",settlement_id="r14_st",
+        project_scope_id="r14_scope_a",cost_node_id="r14_fee_labor",
+        created_at="2026-11-08T03:06:00.000Z")
+    add("settlement_items",id="r14_item_a_material",settlement_id="r14_st",
+        project_scope_id="r14_scope_a",cost_node_id="r14_fee_material",
+        created_at="2026-11-08T03:06:00.000Z")
+    add("settlement_items",id="r14_item_b_labor",settlement_id="r14_st",
+        project_scope_id="r14_scope_b",cost_node_id="r14_fee_labor",
+        created_at="2026-11-08T03:06:00.000Z")
+    def r14_version(vid,number,action,at,qty_a,qty_b):
+        add("settlement_versions",id=vid,settlement_id="r14_st",
+            version_no=number,
+            previous_version_id=None if number==1 else "r14_sv1",
+            approval_version_id="r14_approval",change_type=action,
+            created_by="u",recorded_at=at)
+        for i,(item,scope,amount) in enumerate((
+            ("r14_item_a_labor","a",100),
+            ("r14_item_a_material","a",150),
+            ("r14_item_b_labor","b",200))):
+            add("settlement_item_versions",id=vid+"_item_"+str(i),
+                settlement_item_id=item,settlement_version_id=vid,
+                approval_scope_version_id="r14_aps_"+scope,
+                quantity_scaled=10000,amount_fen=amount,
+                evidence="财务账证",scope_snapshot_json="{}")
+        return vid
+    r14_version("r14_sv1",1,"initial","2026-11-08T03:07:00.000Z",30000,5000)
+    # Missing demand result is a genuine SQL submission error; test bypasses
+    # fixture convenience which would otherwise synthesize old test outcomes.
+    blocked_reason("formal settlement submission without any resolved demand is rejected",
+        "INSERT INTO settlement_review_events("
+        "id,settlement_version_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES(?,?,?,?,?,?)",
+        "每张正式结算单必须明确记录本次解决的至少一项需求及实际数量",
+        ("r14_missing_result","r14_sv1",1,"submit","u",
+         "2026-11-08T03:08:00.000Z"))
+    blocked_reason("cross-project or unmatched approval scope cannot be a demand result",
+        "INSERT INTO settlement_scope_results("
+        "id,settlement_version_id,project_scope_id,approval_scope_version_id,"
+        "resolved_quantity_scaled)"
+        " VALUES(?,?,?,?,?)",
+        "本次结算需求解决结果须关联同项目当次批准的需求范围",
+        ("r14_bad_scope","r14_sv1","scope","scopev1",10000))
+    add("settlement_scope_results",id="r14_resolved_a1",
+        settlement_version_id="r14_sv1",project_scope_id="r14_scope_a",
+        approval_scope_version_id="r14_aps_a",
+        resolved_quantity_scaled=30000)
+    blocked_reason("scoped financial row requires matching demand resolution",
+        "INSERT INTO settlement_review_events("
+        "id,settlement_version_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES(?,?,?,?,?,?)",
+        "有明确需求归属的结算费用明细必须对应本次需求解决结果",
+        ("r14_missing_b","r14_sv1",1,"submit","u",
+         "2026-11-08T03:08:00.000Z"))
+    add("settlement_scope_results",id="r14_resolved_b1",
+        settlement_version_id="r14_sv1",project_scope_id="r14_scope_b",
+        approval_scope_version_id="r14_aps_b",
+        resolved_quantity_scaled=5000)
+    add("settlement_review_events",id="r14_submit1",
+        settlement_version_id="r14_sv1",event_seq=1,action="submit",
+        actor_id="u",recorded_at="2026-11-08T03:08:00.000Z")
+    add("settlement_review_events",id="r14_approve1",
+        settlement_version_id="r14_sv1",event_seq=2,action="approve",
+        actor_id="u",recorded_at="2026-11-08T03:09:00.000Z",
+        effective_on="2026-11-08")
+    ok("one demand result per scope is counted once across labor and materials",
+        row("SELECT COUNT(*) n FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==1
+        and row("SELECT resolved_quantity_scaled n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==30000
+        and row("SELECT COUNT(*) n FROM v_effective_settlement_items "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==2)
+    ok("one installment supports over-completed and under-completed approved demands",
+        row("SELECT SUM(resolved_quantity_scaled) n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==30000
+        and row("SELECT SUM(resolved_quantity_scaled) n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_b'")["n"]==5000)
+    blocked_reason("published demand result history cannot be changed",
+        "UPDATE settlement_scope_results SET resolved_quantity_scaled=1 "
+        "WHERE id='r14_resolved_a1'",
+        "需求解决结果不可原地修改")
+    blocked_reason("demand-result record cannot be inserted after submission",
+        "INSERT INTO settlement_scope_results("
+        "id,settlement_version_id,project_scope_id,approval_scope_version_id,"
+        "resolved_quantity_scaled)"
+        " VALUES(?,?,?,?,?)",
+        "本次结算需求解决结果须关联同项目当次批准的需求范围",
+        ("r14_late_result","r14_sv1","r14_scope_a","r14_aps_a",10000))
+    blocked_reason("published demand resolution cannot be deleted",
+        "DELETE FROM settlement_scope_results WHERE id='r14_resolved_b1'",
+        "需求解决结果历史不可删除")
+    # The revised statement is a NEW COMPLETE version of both money and
+    # the work actually resolved. Current progress replaces the old snapshot.
+    r14_version("r14_sv2",2,"revision","2026-11-08T03:10:00.000Z",40000,5000)
+    add("settlement_scope_results",id="r14_resolved_a2",
+        settlement_version_id="r14_sv2",project_scope_id="r14_scope_a",
+        approval_scope_version_id="r14_aps_a",resolved_quantity_scaled=40000)
+    add("settlement_scope_results",id="r14_resolved_b2",
+        settlement_version_id="r14_sv2",project_scope_id="r14_scope_b",
+        approval_scope_version_id="r14_aps_b",resolved_quantity_scaled=5000)
+    add("settlement_review_events",id="r14_submit2",
+        settlement_version_id="r14_sv2",event_seq=1,action="submit",
+        actor_id="u",recorded_at="2026-11-08T03:11:00.000Z")
+    add("settlement_review_events",id="r14_approve2",
+        settlement_version_id="r14_sv2",event_seq=2,action="approve",
+        actor_id="u",recorded_at="2026-11-08T03:12:00.000Z",
+        effective_on="2026-11-08")
+    ok("revised settlement replaces rather than doubles prior resolved demand work",
+        row("SELECT COUNT(*) n FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==1
+        and row("SELECT SUM(resolved_quantity_scaled) n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==40000
+        and row("SELECT COUNT(*) n FROM settlement_scope_results "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==2)
+    # A second INDEPENDENT settlement resolves another 1.0 unit of demand B.
+    # Only its own accepted result is added; old settlement V1/V2 are not
+    # double-counted.
+    add("settlements",id="r14_st_second",project_id="r14_project",
+        number="R14-ST-SECOND",created_by="u",
+        created_at="2026-11-08T03:12:10.000Z")
+    add("settlement_items",id="r14_second_item",
+        settlement_id="r14_st_second",project_scope_id="r14_scope_b",
+        cost_node_id="r14_fee_material",
+        created_at="2026-11-08T03:12:11.000Z")
+    add("settlement_versions",id="r14_sv_second",
+        settlement_id="r14_st_second",version_no=1,
+        approval_version_id="r14_approval",change_type="initial",
+        created_by="u",recorded_at="2026-11-08T03:12:12.000Z")
+    add("settlement_item_versions",id="r14_second_itemv",
+        settlement_item_id="r14_second_item",
+        settlement_version_id="r14_sv_second",
+        approval_scope_version_id="r14_aps_b",
+        quantity_scaled=10000,amount_fen=250,
+        evidence="第二次需求解决结算",scope_snapshot_json="{}")
+    add("settlement_scope_results",id="r14_resolved_b_second",
+        settlement_version_id="r14_sv_second",
+        project_scope_id="r14_scope_b",
+        approval_scope_version_id="r14_aps_b",
+        resolved_quantity_scaled=10000)
+    add("settlement_review_events",id="r14_submit_second",
+        settlement_version_id="r14_sv_second",
+        event_seq=1,action="submit",actor_id="u",
+        recorded_at="2026-11-08T03:12:13.000Z")
+    add("settlement_review_events",id="r14_approve_second",
+        settlement_version_id="r14_sv_second",
+        event_seq=2,action="approve",actor_id="u",
+        recorded_at="2026-11-08T03:12:14.000Z",
+        effective_on="2026-11-08")
+    ok("two independently approved settlements sum actual resolved demand quantities",
+        row("SELECT COUNT(*) n FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_b'")["n"]==2
+        and row("SELECT SUM(resolved_quantity_scaled) n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_b'")["n"]==15000
+        and row("SELECT SUM(quantity_scaled) n "
+            "FROM v_approval_scope_current "
+            "WHERE project_scope_id='r14_scope_b'")["n"]==30000)
+    # A privileged human can approve a legitimate change without a comment,
+    # while the actor/time and formal decisions remain undeniable records.
+    db.execute("SAVEPOINT r14_admin_optional_change_reason")
+    try:
+        add("project_change_orders",id="r14_no_reason_change",
+            project_id="r14_project",code="R14-NO-REASON",
+            base_approval_version_id="r14_approval",
+            proposal_json="{}",created_by="u",
+            created_at="2026-11-08T03:12:30.000Z")
+        db.execute("UPDATE project_change_orders SET status='approved',"
+            "decided_by='u',decided_at='2026-11-08T03:12:31.000Z'"
+            " WHERE id='r14_no_reason_change'")
+        ok("admin change approval needs true approver/time but no written reason",
+            row("SELECT status,decision_reason FROM project_change_orders "
+                "WHERE id='r14_no_reason_change'")["status"]=="approved"
+            and row("SELECT decision_reason FROM project_change_orders "
+                "WHERE id='r14_no_reason_change'")["decision_reason"] is None)
+    finally:
+        db.execute("ROLLBACK TO r14_admin_optional_change_reason")
+        db.execute("RELEASE r14_admin_optional_change_reason")
+    add("project_management_versions",id="r14_profile_change",
+        project_id="r14_project",version_no=2,
+        name="需求及费用允许结余和超额的子项目",
+        actor_id="u",recorded_at="2026-11-08T03:12:31.000Z")
+    ok("admin project profile change is versioned with blank reason",
+        row("SELECT reason FROM project_management_versions "
+            "WHERE id='r14_profile_change'")["reason"]==""
+        and row("SELECT name FROM v_project_management_current "
+            "WHERE project_id='r14_project'")["name"]
+            =="需求及费用允许结余和超额的子项目")
+    # A later installment may reconcile earlier resolved work without
+    # recording any NEW completed quantity. The exact related demand is still
+    # mandatory; zero is an explicit fact, not NULL or fake extra work.
+    add("settlements",id="r14_prior_work_settle",project_id="r14_project",
+        number="R14-PRIOR-WORK-COST",
+        created_by="u",created_at="2026-11-08T03:12:15.000Z")
+    add("settlement_items",id="r14_prior_work_item",
+        settlement_id="r14_prior_work_settle",
+        project_scope_id="r14_scope_a",cost_node_id="r14_fee_labor",
+        created_at="2026-11-08T03:12:16.000Z")
+    add("settlement_versions",id="r14_prior_work_sv",
+        settlement_id="r14_prior_work_settle",version_no=1,
+        approval_version_id="r14_approval",change_type="initial",
+        created_by="u",recorded_at="2026-11-08T03:12:17.000Z")
+    add("settlement_item_versions",id="r14_prior_work_itemv",
+        settlement_item_id="r14_prior_work_item",
+        settlement_version_id="r14_prior_work_sv",
+        approval_scope_version_id="r14_aps_a",
+        quantity_scaled=0,amount_fen=80,
+        evidence="此前已解决需求的费用补结",scope_snapshot_json="{}")
+    add("settlement_scope_results",id="r14_prior_work_scope",
+        settlement_version_id="r14_prior_work_sv",
+        project_scope_id="r14_scope_a",
+        approval_scope_version_id="r14_aps_a",
+        resolved_quantity_scaled=0,
+        evidence="本次不新增解决数量，只结算此前工作")
+    add("settlement_review_events",id="r14_prior_work_submit",
+        settlement_version_id="r14_prior_work_sv",
+        event_seq=1,action="submit",actor_id="u",
+        recorded_at="2026-11-08T03:12:18.000Z")
+    add("settlement_review_events",id="r14_prior_work_approve",
+        settlement_version_id="r14_prior_work_sv",
+        event_seq=2,action="approve",actor_id="u",
+        recorded_at="2026-11-08T03:12:19.000Z",effective_on="2026-11-08")
+    ok("financial-only installment associates its demand without inventing additional work",
+        row("SELECT SUM(resolved_quantity_scaled) n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==40000
+        and row("SELECT COUNT(*) n FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==2
+        and row("SELECT SUM(amount_fen) n "
+            "FROM v_effective_settlement_items "
+            "WHERE project_scope_id='r14_scope_a'")["n"]==330)
+    # A new actual expense above the tiny project budget remains truthful,
+    # and incomplete demand B plus unmatched costs are no close-out barrier.
+    add("cost_entries",id="r14_real_cost",project_id="r14_project",
+        cost_node_id="r14_fee_labor",created_by="u",
+        created_at="2026-11-08T03:13:00.000Z")
+    add("cost_versions",id="r14_real_cost_v1",entry_id="r14_real_cost",
+        cost_node_version_id="r14_fee_labor_v1",version_no=1,
+        status="active",title="实际费用超过批准预算",
+        occurred_on="2026-11-08",amount_fen=2000,
+        evidence="真实发生账证",confirmed_by="u",
+        confirmed_at="2026-11-08T03:14:00.000Z",
+        request_key="r14_cost")
+    ok("real costs may exceed budget with no mandatory reason",
+        row("SELECT amount_fen FROM v_cost_current "
+            "WHERE entry_id='r14_real_cost'")["amount_fen"]==2000
+        and row("SELECT reason FROM cost_versions "
+            "WHERE id='r14_real_cost_v1'")["reason"]=="")
+    add("physical_towers",id="r14_admin_physical",tower_code="R14-PT",
+        created_by="u",created_at="2026-11-08T03:13:00.000Z",
+        updated_at="2026-11-08T03:13:00.000Z")
+    db.execute("UPDATE physical_towers SET model='运维塔型测试',"
+        "version=2,updated_by='u',"
+        "updated_at='2026-11-08T03:14:00.000Z' "
+        "WHERE id='r14_admin_physical'")
+    ok("administrator may update equipment without entering a reason",
+        row("SELECT change_reason FROM physical_towers "
+            "WHERE id='r14_admin_physical'")["change_reason"]==""
+        and row("SELECT reason FROM physical_tower_history "
+            "WHERE physical_tower_id='r14_admin_physical' AND version=2")
+            ["reason"]=="")
+    add("project_closures",id="r14_close",
+        project_id="r14_project",approval_version_id="r14_approval",
+        close_snapshot_json='{"demand_reviewed":true,"finance_reviewed":true}',
+        closed_by="u",closed_at="2026-11-08T03:15:00.000Z")
+    add("project_stage_events",id="r14_close_stage",
+        project_id="r14_project",stage="closed",project_version=4,
+        actor_id="u",created_at="2026-11-08T03:16:00.000Z")
+    ok("explicit closure accepts demand surplus, shortage and unsettled excess cost",
+        row("SELECT status FROM projects WHERE id='r14_project'")["status"]
+        =="closed"
+        and row("SELECT reason FROM project_closures "
+            "WHERE id='r14_close'")["reason"]==""
+        and row("SELECT amount_fen FROM v_cost_current "
+            "WHERE entry_id='r14_real_cost'")["amount_fen"]==2000
+        and row("SELECT SUM(resolved_quantity_scaled) n "
+            "FROM v_effective_demand_resolutions "
+            "WHERE project_scope_id='r14_scope_b'")["n"]==15000)
+finally:
+    db.execute("ROLLBACK TO user_round14_price_and_completion")
+    db.execute("RELEASE user_round14_price_and_completion")
 
 ok("current SQLite integrity",row("PRAGMA integrity_check")[0]=="ok")
 ok("current SQLite FK integrity",not db.execute("PRAGMA foreign_key_check").fetchall())

@@ -14,12 +14,13 @@ notes_text='''
 action|当前业务记录操作类型
 actor_id|执行业务事件的用户
 actual_quantity_scaled|按统一缩放因子保存的实际数量
-addition_reason|超出需求原材料清单的新增理由
+addition_reason|超出预计清单时可选的补充说明；管理员无需填写，不影响批准历史
 after_json|操作后的结构化审计事实
 agreement_id|业务归属执行协议
 allow_span|操作类型是否允许选择档距
 allow_tower|操作类型是否允许选择杆塔
 additional_conditions_json|参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行
+base_fee_fen|参考价格每个作业位置收取一次的固定基础费，人民币分，不随同位置设备数量重复收取
 amount_fen|本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额
 approval_scope_version_id|本条结算明细对应的正式批准范围版本
 approval_version_id|项目正式批准版本身份
@@ -39,12 +40,12 @@ catalog_id|标准参考价格的目录稳定身份
 category_id|业务类别字典项
 category_version|项目类别采用的正式字典版本号，不随字典更名重算
 change_order_id|引起正式批准版本变化的变更单
-change_reason|台账设备属性变化原因
+change_reason|设备台账可选变更说明，管理员可留空，真实变更版本/人/时间仍必须记录
 change_type|本次正式版本属于新增、修订还是作废
 changed_at|业务定义变更登记UTC时间
 changed_by|执行正式变更的用户
 circuit_position|同塔多回时的回路物理/逻辑位置
-close_snapshot_json|正式结项时冻结的完整依据
+close_snapshot_json|正式项目结项时冻结需求实际解决、未完成/超量及费用未结/超预算的审核依据快照；并非所有数量必须归零
 closed_at|正式关闭批准UTC时间
 closed_by|执行正式关闭的审核人员
 code|唯一业务编码
@@ -65,7 +66,7 @@ custom_fields_json|分类扩展业务字段的结构化数据
 decided_at|正式业务决定UTC时间
 decided_by|作出批准或拒绝决定的人
 decision|重复需求审查结果
-decision_reason|批准或拒绝的书面理由
+decision_reason|审核决定的可选说明；管理员可留空，审核人和时间必须真实
 default_location_kind|操作类型默认选用位置种类
 default_quantity_scaled|新增需求时建议的数量缩放整数
 default_target_object|操作类型默认作业对象位置说明
@@ -168,6 +169,8 @@ preliminary_estimate_fen|子项目初步估算金额（非正式批准）
 previous_version_id|当前结算版本的上一历史版本
 price_date|参考单价所依据的业务日期
 price_source|单价引用的原始来源
+pricing_mode|参考价格计价模式：per_unit按件、base_plus_unit位置基础费加逐件价、quantity_bracket按数量区间计价
+quantity_brackets_json|按数量缩放整数区间顺序定义的完整分档价格（各档可含基础费与逐件价格），末档上限可为NULL表示不限数量
 priority_id|优先级字典项
 priority_snapshot|需求确认时的优先级名称
 problem_description|需处理的隐患或工作问题
@@ -178,7 +181,7 @@ project_funding_version_id|子项目资金归属版本
 project_id|子项目稳定身份
 project_management_version_id|子项目责任与计划版本
 project_material_id|子项目范围内的统一物资稳定身份
-project_scope_id|子项目承接的需求范围身份
+project_scope_id|子项目承接的专业需求范围稳定身份；结算实际解决结果直接关联此身份
 project_stage_event_id|子项目储备入库立项结项事件
 project_version|项目阶段变更的连续序号
 proposal_json|项目范围和预算变更提案内容
@@ -188,9 +191,10 @@ proposed_by|线索提出人员
 proposed_quantity_scaled|项目拟承接工作量缩放整数
 proposed_unit_price_fen|拟承接单价，人民币分
 purpose|设备用途或访问授权用途
-quantity_scaled|工程、需求或真实执行数量的缩放整数
-reason|登记、修订、审批或撤销的正式理由
+quantity_scaled|需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量
+reason|业务操作的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史
 reconciled_cost_fen|该核对记录确认的真实成本金额
+resolved_quantity_scaled|结算单版本对应某专业需求本次新增解决数量，缩放10000倍；0表示仅补结此前工作而不虚增完成量，实际量可超过批准量
 reconciled_settlement_fen|该核对记录确认的正式结算金额
 reconciliation_version_id|费用与结算历史核对版本
 record_id|历史修订归属的原始业务事实
@@ -204,13 +208,14 @@ managing_unit_id|本子项目归口管理的组织单位身份，不表示实际
 managing_unit_version_id|子项目归口单位当次采用的组织定义正式版本，历史归口关系不随组织更名变化
 result_json|幂等请求已完成的结果快照
 role|应用层角色名称
-row_number|Excel/PMS来源所在数据行号
+row_number|一次性导入来源表格的原始数据行号
 scope_snapshot_json|结算或审批时冻结的业务范围快照
 settlement_id|结算单稳定身份（对实际工作可空）
 settlement_item_id|结算明细身份（实际实施登记时可空）
 settlement_item_version_id|正式结算明细的完整历史版本
 settlement_on|结算业务确认日期
 settlement_review_event_id|具体结算审核事件
+settlement_scope_result_id|附件精确指向某张结算单版本中解决某项专业需求的正式结果
 settlement_version_id|正式结算版本身份
 setup_status|设备建档状态
 sha256|证据附件文件内容SHA-256摘要
@@ -223,7 +228,7 @@ source_id|来源记录稳定身份
 source_kind|来源渠道类别
 source_name|来源系统的对外名称
 source_payload_sha256|原始来源记录SHA-256内容摘要
-source_system|外部业务系统或Excel来源名称
+source_system|人工录入、一次性Excel导入或其他独立来源渠道
 span_id|线路档距稳定身份
 span_snapshot_json|需求关联档距时的冻结历史信息
 span_version|需求关联档距的正式版本号
@@ -289,6 +294,12 @@ out=['# Schema 113｜逐表逐字段正式数据字典','',
 '依据：§数据库V3_结算驱动_候选表结构.sql§。本文件列出当前全部基础表、含虚拟生成列的字段、主外键、必填性、默认值和保留理由；准确定义的全部 CHECK/触发器以源 SQL 为准。','',
 '金额采用人民币分的 INTEGER；数量采用统一缩放整数；日期采用 YYYY-MM-DD，UTC登记时间采用毫秒 ISO8601；全表 STRICT，不允许混合文本和数值。','',
 '**本字典描述数据库业务数据，不包含应用层统计、权限判定或预警功能。**','']
+actual_tables={r[0] for r in db.execute(
+    "SELECT name FROM sqlite_master WHERE type='table' "
+    "AND name NOT LIKE 'sqlite_%'")}
+assert set(tbl)==actual_tables, (
+    "matrix missing "+repr(sorted(actual_tables-set(tbl)))+
+    " or extra "+repr(sorted(set(tbl)-actual_tables)))
 unmapped=collections.defaultdict(list)
 total=0
 for name in sorted(tbl):
@@ -334,6 +345,9 @@ for name in sorted(tbl):
   out.append('| §'+colname+'§ | '+(typ or '计算列')+' | '+('是' if notnull or pk else '否')+' | '+
              (str(default).replace('|','/') if default is not None else '—')+' | '+
              con+' | '+meaning+' | '+retention(name,colname,hidden)+' |')
+assert total==sum(len(list(db.execute(
+    'PRAGMA table_xinfo("'+name+'")'))) for name in actual_tables), (
+        "dictionary count does not cover every actual SQL column")
 out=[''.join(line).replace('§',q) for line in out]
 out.extend(['','## 数据字典核验摘要','',
 '基础数据表数：'+str(len(tbl))+'；字段总数（含生成列）：'+str(total)+'；需要人工补写独立描述的字段名：'+str(len(unmapped))+'。',

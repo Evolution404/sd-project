@@ -36,7 +36,7 @@ CREATE TABLE transmission_lines (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))),
     created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
-    change_reason TEXT NOT NULL DEFAULT '首次建档'
+    change_reason TEXT NOT NULL DEFAULT ''
 , line_kind TEXT NOT NULL DEFAULT 'main' CHECK(line_kind IN ('main','branch')), parent_line_id TEXT REFERENCES transmission_lines(id) ON DELETE RESTRICT, junction_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT, setup_status TEXT NOT NULL DEFAULT 'ready' CHECK(setup_status IN ('draft','ready')), erection_type TEXT NOT NULL DEFAULT '') STRICT;
 
 
@@ -55,7 +55,7 @@ CREATE TABLE physical_towers (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))),
     created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
-    change_reason TEXT NOT NULL DEFAULT '首次建档',
+    change_reason TEXT NOT NULL DEFAULT '',
     model TEXT NOT NULL DEFAULT '', height_scaled INTEGER CHECK(height_scaled IS NULL OR height_scaled>0), purpose TEXT NOT NULL DEFAULT '',
     CHECK (
         (longitude IS NULL AND latitude IS NULL)
@@ -84,7 +84,7 @@ CREATE TABLE logical_towers (
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))),
     created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
-    change_reason TEXT NOT NULL DEFAULT '首次建档',
+    change_reason TEXT NOT NULL DEFAULT '',
     CHECK (status <> 'active' OR physical_tower_id IS NOT NULL)
 ) STRICT;
 
@@ -103,7 +103,7 @@ CREATE TABLE line_history (
  setup_status TEXT NOT NULL,
  erection_type TEXT NOT NULL,
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  recorded_at TEXT NOT NULL,
  PRIMARY KEY(line_id,version)
 ) STRICT;
@@ -115,7 +115,7 @@ CREATE TABLE physical_tower_history (
  commissioned_on TEXT,model TEXT,height_scaled INTEGER,purpose TEXT,
  status TEXT NOT NULL,
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  recorded_at TEXT NOT NULL,
  PRIMARY KEY(physical_tower_id,version)
 ) STRICT;
@@ -129,7 +129,7 @@ CREATE TABLE logical_tower_history (
  circuit_position TEXT,management_department TEXT NOT NULL,
  operations_team TEXT NOT NULL,status TEXT NOT NULL,
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  recorded_at TEXT NOT NULL,
  PRIMARY KEY(logical_tower_id,version)
 ) STRICT;
@@ -200,7 +200,7 @@ CREATE TABLE dictionary_item_versions (
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
  sort_order INTEGER NOT NULL DEFAULT 100,
  fields_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(fields_json)),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  changed_at TEXT NOT NULL CHECK(changed_at IS NULL OR (length(changed_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(changed_at))=changed_at,0))),
  UNIQUE(item_id,version)
@@ -237,7 +237,7 @@ CREATE TABLE operation_versions (
  default_location_kind TEXT NOT NULL CHECK(default_location_kind IN ('tower','span')),
  default_target_object TEXT NOT NULL DEFAULT '',
  entry_hint TEXT NOT NULL DEFAULT '',
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  changed_at TEXT NOT NULL CHECK(changed_at IS NULL OR (length(changed_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(changed_at))=changed_at,0))),
  UNIQUE(operation_id,version),
@@ -422,7 +422,7 @@ CREATE TABLE demand_lifecycle_events (
  event_seq INTEGER NOT NULL CHECK(event_seq>0),
  from_status TEXT CHECK(from_status IN ('pending','active','returned','cancelled')),
  to_status TEXT NOT NULL CHECK(to_status IN ('pending','active','returned','cancelled')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24
  AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
@@ -444,7 +444,7 @@ CREATE TABLE demand_revisions (
  id TEXT NOT NULL PRIMARY KEY, demand_id TEXT NOT NULL REFERENCES demands(id),
  version INTEGER NOT NULL CHECK(version>=2),
  snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id), changed_at TEXT NOT NULL CHECK(changed_at IS NULL OR (length(changed_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(changed_at))=changed_at,0))),
  UNIQUE(demand_id,version)) STRICT;
 
@@ -491,6 +491,7 @@ CREATE TABLE evidence_links (
  project_approval_version_id TEXT REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
  settlement_version_id TEXT REFERENCES settlement_versions(id) ON DELETE RESTRICT,
  settlement_review_event_id TEXT REFERENCES settlement_review_events(id) ON DELETE RESTRICT,
+ settlement_scope_result_id TEXT REFERENCES settlement_scope_results(id) ON DELETE RESTRICT,
  cost_version_id TEXT REFERENCES cost_versions(id) ON DELETE RESTRICT,
  reconciliation_version_id TEXT REFERENCES cost_reconciliation_versions(id) ON DELETE RESTRICT,
  project_closure_id TEXT REFERENCES project_closures(id) ON DELETE RESTRICT,
@@ -530,6 +531,7 @@ CREATE TABLE evidence_links (
  UNIQUE(file_id,change_order_id),
  UNIQUE(file_id,project_approval_version_id),UNIQUE(file_id,settlement_version_id),
  UNIQUE(file_id,settlement_review_event_id),
+ UNIQUE(file_id,settlement_scope_result_id),
  UNIQUE(file_id,cost_version_id),
  UNIQUE(file_id,reconciliation_version_id),UNIQUE(file_id,project_closure_id)
 ) STRICT;
@@ -562,7 +564,7 @@ CREATE TABLE framework_versions (
  name TEXT NOT NULL CHECK(length(trim(name))>0),
  limit_fen INTEGER NOT NULL CHECK(limit_fen>=0),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
  UNIQUE(framework_id,version_no)
@@ -583,7 +585,7 @@ CREATE TABLE agreement_versions (
  effective_to TEXT CHECK(effective_to IS NULL OR (length(effective_to)=10 AND
   COALESCE(strftime('%Y-%m-%d',julianday(effective_to))=effective_to,0))),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
  CHECK(effective_from IS NULL OR effective_to IS NULL OR effective_to>=effective_from),
@@ -621,7 +623,7 @@ CREATE TABLE organizational_unit_versions (
  name TEXT NOT NULL CHECK(length(trim(name))>0),
  parent_unit_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
@@ -659,7 +661,7 @@ CREATE TABLE project_management_versions (
   (length(planned_end_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(planned_end_on))=planned_end_on,0))),
  preliminary_estimate_fen INTEGER CHECK(preliminary_estimate_fen IS NULL OR preliminary_estimate_fen>=0),
  preliminary_estimate_basis TEXT,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
@@ -678,7 +680,7 @@ CREATE TABLE project_funding_versions (
  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  version_no INTEGER NOT NULL CHECK(version_no>0),
  agreement_id TEXT REFERENCES agreements(id) ON DELETE RESTRICT,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
  UNIQUE(project_id,version_no)
@@ -718,13 +720,23 @@ CREATE TABLE reference_price_versions (
   CHECK(json_valid(additional_conditions_json)
     AND json_type(additional_conditions_json)='object'),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
+ -- Per work LOCATION (e.g. one physical tower) and its device count:
+ -- per_unit: n * unit_price; base_plus_unit: one base + n * unit_price;
+ -- quantity_bracket: choose one explicit quantity band and use its
+ -- per-location base + n * per-unit price. Application computes/quotes.
+ pricing_mode TEXT NOT NULL DEFAULT 'per_unit'
+  CHECK(pricing_mode IN ('per_unit','base_plus_unit','quantity_bracket')),
+ base_fee_fen INTEGER NOT NULL DEFAULT 0 CHECK(base_fee_fen>=0),
  unit_price_fen INTEGER NOT NULL CHECK(unit_price_fen>=0),
+ quantity_brackets_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(quantity_brackets_json)
+   AND json_type(quantity_brackets_json)='array'),
  price_source TEXT NOT NULL,
  price_date TEXT NOT NULL CHECK(price_date IS NULL OR (length(price_date)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(price_date))=price_date,0))),
  tax_mode TEXT NOT NULL CHECK(tax_mode IN ('inclusive','exclusive','none')),
  effective_on TEXT NOT NULL CHECK(effective_on IS NULL OR (length(effective_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(effective_on))=effective_on,0))),
  basis TEXT NOT NULL,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
  UNIQUE(catalog_id,version_no),
@@ -759,7 +771,7 @@ CREATE TABLE project_stage_events (
  id TEXT NOT NULL PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
  stage TEXT NOT NULL CHECK(stage IN ('stocked','approved','closed')),
  project_version INTEGER NOT NULL CHECK(project_version>=2),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id),
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
  UNIQUE(project_id,project_version),
@@ -779,7 +791,7 @@ CREATE TABLE line_spans (
  version INTEGER NOT NULL DEFAULT 1 CHECK(version>=1),
  created_by TEXT NOT NULL REFERENCES users(id),
  updated_by TEXT REFERENCES users(id),
- change_reason TEXT NOT NULL DEFAULT '首次建档',
+ change_reason TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),updated_at TEXT NOT NULL CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))),
  CHECK(start_tower_id<>end_tower_id)
 ) STRICT;
@@ -798,7 +810,7 @@ CREATE TABLE line_span_history (
  transmission_center_length_mm INTEGER CHECK(
   transmission_center_length_mm IS NULL OR transmission_center_length_mm>=0),
  status TEXT NOT NULL CHECK(status IN ('draft','active','retired')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
  UNIQUE(span_id,version_no)
@@ -823,7 +835,7 @@ CREATE TABLE demand_duplicate_reviews (
  matched_demand_id TEXT NOT NULL REFERENCES demands(id) ON DELETE RESTRICT,
  new_demand_id TEXT REFERENCES demands(id) ON DELETE RESTRICT,
  decision TEXT NOT NULL CHECK(decision IN ('separate','link')),
- reason TEXT NOT NULL,
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)))
 ) STRICT;
@@ -865,7 +877,7 @@ CREATE TABLE project_change_orders (
  code TEXT NOT NULL UNIQUE,
  base_approval_version_id TEXT NOT NULL REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
  proposal_json TEXT NOT NULL,
- reason TEXT NOT NULL,
+ reason TEXT NOT NULL DEFAULT '',
  status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','submitted','approved','rejected')),
  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
@@ -887,7 +899,7 @@ CREATE TABLE work_object_versions (
  work_target_type TEXT NOT NULL CHECK(work_target_type IN ('line','physical','both')),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
  sort_order INTEGER NOT NULL DEFAULT 100,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
  UNIQUE(work_object_id,version_no)
@@ -918,7 +930,7 @@ CREATE TABLE material_versions (
  category_id TEXT REFERENCES dictionary_items(id) ON DELETE RESTRICT,
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
  note TEXT NOT NULL DEFAULT '',
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  changed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
@@ -1023,7 +1035,7 @@ CREATE TABLE project_cost_node_versions (
  version_no INTEGER NOT NULL CHECK(version_no>0),
  name TEXT NOT NULL CHECK(length(trim(name))>0),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(length(recorded_at)=24 AND
   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0)),
@@ -1056,7 +1068,7 @@ CREATE TABLE settlement_versions (
  -- actual project cost. Do not store cumulative totals or a false "final"
  -- status. The application derives how much remains unsettled.
  change_type TEXT NOT NULL CHECK(change_type IN ('initial','revision','void')),
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
+ reason TEXT NOT NULL DEFAULT '',
  basis TEXT NOT NULL DEFAULT '',
  settlement_on TEXT CHECK(settlement_on IS NULL OR (length(settlement_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(settlement_on))=settlement_on,0))),
  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
@@ -1134,6 +1146,29 @@ CREATE TABLE settlement_item_versions (
 
 
 
+-- The actual demand results RESOLVED BY ONE installment's complete version.
+-- This is neither a separate construction/completion phase nor an amount
+-- allocation. One scope is counted ONCE even if labor, materials and other
+-- cost-tree lines all refer to it in the same settlement.
+-- Actual work may be BELOW or ABOVE the approved scope; do not hard-cap it.
+CREATE TABLE settlement_scope_results (
+ id TEXT NOT NULL PRIMARY KEY,
+ settlement_version_id TEXT NOT NULL
+  REFERENCES settlement_versions(id) ON DELETE RESTRICT,
+ project_scope_id TEXT NOT NULL
+  REFERENCES project_demand_scopes(id) ON DELETE RESTRICT,
+ approval_scope_version_id TEXT NOT NULL
+  REFERENCES project_approval_scope_versions(id) ON DELETE RESTRICT,
+ -- Zero = the installment settles/corrects earlier work on this demand,
+ -- without claiming NEW completed quantity. Never invent work for a
+ -- financial-only installment. Negative quantity is not valid here; formal
+ -- corrections to a prior installment replace that document's full version.
+ resolved_quantity_scaled INTEGER NOT NULL CHECK(resolved_quantity_scaled>=0),
+ evidence TEXT NOT NULL DEFAULT '',
+ UNIQUE(settlement_version_id,project_scope_id)
+) STRICT;
+
+
 -- Actual expenses exist independently of a settlement document; reconciliation may occur later.
 -- An expense belongs to exactly one project. Never create a fictional settlement solely to record costs.
 CREATE TABLE cost_entries (
@@ -1163,7 +1198,7 @@ CREATE TABLE cost_versions (
    (tax_mode<>'none' OR tax_rate_basis_points=0))),
  invoice_number TEXT,
  evidence TEXT NOT NULL CHECK(length(trim(evidence))>0),
- reason TEXT NOT NULL,
+ reason TEXT NOT NULL DEFAULT '',
  confirmed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  confirmed_at TEXT NOT NULL CHECK(confirmed_at IS NULL OR (length(confirmed_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(confirmed_at))=confirmed_at,0))),
  request_key TEXT NOT NULL UNIQUE,
@@ -1199,14 +1234,20 @@ CREATE TABLE cost_reconciliation_versions (
 
 
 
--- A financial close-out is an explicit audited fact after all effective
--- project costs and installment statements have been finally reconciled.
+-- An explicit project CLOSE decision recognizes the actual delivered demand
+-- quantities and all actual/settled/unsettled financial facts. It is not an
+-- assertion that every budget/requirement/expense reached 100 percent.
+-- The immutable snapshot can record what was unfinished, reduced or exceeded.
 CREATE TABLE project_closures (
  id TEXT NOT NULL PRIMARY KEY,
  project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE RESTRICT,
  approval_version_id TEXT NOT NULL REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
- reason TEXT NOT NULL CHECK(length(trim(reason))>0),
- close_snapshot_json TEXT NOT NULL CHECK(json_valid(close_snapshot_json)),
+ reason TEXT NOT NULL DEFAULT '',
+ -- Application creates an automatic final-review snapshot of resolved
+ -- demand quantities, remaining work and financial variance; no free-text
+ -- explanation is mandatory for an administrator.
+ close_snapshot_json TEXT NOT NULL CHECK(json_valid(close_snapshot_json)
+  AND json_type(close_snapshot_json)='object'),
  closed_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  closed_at TEXT NOT NULL CHECK(closed_at IS NULL OR (length(closed_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(closed_at))=closed_at,0)))
 ) STRICT;
@@ -1227,6 +1268,10 @@ CREATE INDEX idx_settlement_items_cost_node ON settlement_items(cost_node_id);
 CREATE UNIQUE INDEX ux_settlement_items_unscoped_cost_node
  ON settlement_items(settlement_id,cost_node_id) WHERE project_scope_id IS NULL;
 CREATE INDEX idx_cost_reconciliation_item ON cost_reconciliation_versions(settlement_item_id);
+-- Efficient per-demand total progress lookup; the version-leading UNIQUE
+-- already supports each settlement's own full resolved-scope snapshot.
+CREATE INDEX idx_settlement_scope_results_scope
+ ON settlement_scope_results(project_scope_id,settlement_version_id);
 CREATE VIEW v_project_cost_node_current AS
 SELECT n.id,n.project_id,n.parent_id,v.id AS current_version_id,
  v.version_no,v.name,v.status
@@ -1298,6 +1343,18 @@ WHERE v.change_type<>'void';
 -- An old approved settlement snapshot remains historic, but its prior
 -- reconciliation must not count as today's applied amount once superseded.
 -- This is a current-business-fact projection, NOT an amount/statistics report.
+-- Current effective demand fulfilment is derived strictly from each
+-- independent settlement's CURRENT APPROVED VERSION. Never sum a
+-- settlement's superseded historical results or its billing lines.
+CREATE VIEW v_effective_demand_resolutions AS
+SELECT r.id,r.settlement_version_id,v.settlement_id,v.project_id,
+ r.project_scope_id,sc.demand_id,r.approval_scope_version_id,
+ r.resolved_quantity_scaled,r.evidence
+FROM settlement_scope_results r
+JOIN v_settlement_effective_versions v ON v.id=r.settlement_version_id
+ AND v.change_type<>'void'
+JOIN project_demand_scopes sc ON sc.id=r.project_scope_id;
+
 CREATE VIEW v_effective_cost_reconciliations AS
 SELECT r.*,historic.entry_id,c.project_id,c.cost_node_id
 FROM v_cost_reconciliation_current r
@@ -1486,32 +1543,14 @@ BEGIN
  AND NOT EXISTS(SELECT 1 FROM project_approval_versions ap
  WHERE ap.change_order_id=ch.id AND ap.status='approved'))
  THEN RAISE(ABORT,'存在已审核但未落实到正式批准范围的项目变更，不能关闭项目') END;
- -- Close-out is based on the SAME effective financial facts as the
- -- application balance: stable cost identity across historical versions and
- -- only the latest approved snapshot of each independent settlement.
- -- The explicit is_final approval remains significant: a provisional
- -- reconciliation may already allocate money, but cannot finalize a project.
- -- Only final-approved cost portions count toward full close-out; the
- -- final settlement share may legitimately differ due to audited deductions.
- SELECT CASE WHEN EXISTS(
- SELECT 1 FROM v_cost_current c
- WHERE c.project_id=NEW.id AND c.status='active'
- AND COALESCE((SELECT SUM(r.reconciled_cost_fen)
-  FROM v_effective_cost_reconciliations r
-  WHERE r.entry_id=c.entry_id AND r.is_final=1),0)<>c.amount_fen)
- THEN RAISE(ABORT,'实际费用与各期有效最终核对金额不一致，不能关闭项目') END;
- -- An approved statement is itself a formal liability assertion. Even if
- -- every recorded actual cost is matched, unmatched/obsolete statement lines
- -- cannot be silently considered settled at project closure.
- SELECT CASE WHEN EXISTS(
- SELECT 1 FROM v_effective_settlement_items i
- WHERE i.project_id=NEW.id
- AND COALESCE((SELECT SUM(r.reconciled_settlement_fen)
-  FROM v_effective_cost_reconciliations r
-  WHERE r.settlement_item_version_id=i.settlement_item_version_id
-   AND r.is_final=1),0)
-  <>i.amount_fen)
- THEN RAISE(ABORT,'存在未完成实际费用核对的有效结算明细，不能关闭项目') END;
+ -- The closure decision records the administrator/verifier's acceptance
+ -- of remaining, over-completed or reduced requirements and remaining
+ -- actual/unsettled costs in close_snapshot_json. The project status does
+ -- not claim everything was completed, paid or reconciled.
+ -- Per-cost and per-statement over-application rules are independently
+ -- enforced when reconciliation is written; close-out MUST NOT add a
+ -- fictitious 100-percent requirement or budget ceiling.
+
 END;
 
 
@@ -1737,6 +1776,48 @@ BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM operation_versions o
 -- Every rule atomically embeds its full typed predicates in its immutable
 -- reference_price_versions row; an older rule pins the exact factor version.
 -- Category-match/pricing search itself remains an application function.
+-- A single location-specific rule can price 1/2/3/... devices; price
+-- quantity is NOT the number of towers. Brackets are immutable and validated
+-- for non-overlap and well-defined per-band pricing.
+CREATE TRIGGER reference_price_quantity_bracket_guard
+ BEFORE INSERT ON reference_price_versions
+BEGIN
+ SELECT CASE WHEN NEW.pricing_mode<>'quantity_bracket'
+   AND (NEW.quantity_brackets_json<>'[]'
+    OR (NEW.pricing_mode='per_unit' AND NEW.base_fee_fen<>0))
+ THEN RAISE(ABORT,'非分档价格不能保存分档明细，按件计价不得有基位固定费') END;
+ SELECT CASE WHEN NEW.pricing_mode='quantity_bracket'
+   AND (json_array_length(NEW.quantity_brackets_json)=0
+   OR NEW.base_fee_fen<>0 OR NEW.unit_price_fen<>0)
+ THEN RAISE(ABORT,'分档计价须有分档完整定义，不重复存储固定/单位单价') END;
+ SELECT CASE WHEN NEW.pricing_mode='quantity_bracket'
+ AND EXISTS(
+  SELECT 1 FROM json_each(NEW.quantity_brackets_json) band
+  WHERE json_type(band.value)<>'object'
+     OR json_type(band.value,'$.min_quantity_scaled')<>'integer'
+     OR json_extract(band.value,'$.min_quantity_scaled')<=0
+     OR json_type(band.value,'$.max_quantity_scaled') IS NULL
+     OR json_type(band.value,'$.max_quantity_scaled') NOT IN ('null','integer')
+     OR (json_type(band.value,'$.max_quantity_scaled')='integer'
+         AND json_extract(band.value,'$.max_quantity_scaled')<
+             json_extract(band.value,'$.min_quantity_scaled'))
+     OR json_type(band.value,'$.base_fee_fen')<>'integer'
+     OR json_extract(band.value,'$.base_fee_fen')<0
+     OR json_type(band.value,'$.unit_price_fen')<>'integer'
+     OR json_extract(band.value,'$.unit_price_fen')<0
+ ) THEN RAISE(ABORT,'计价分档须包含有效数量上下限及非负的基位费/件单价') END;
+ SELECT CASE WHEN NEW.pricing_mode='quantity_bracket'
+ AND EXISTS(
+  SELECT 1 FROM json_each(NEW.quantity_brackets_json) first
+  JOIN json_each(NEW.quantity_brackets_json) second
+   ON CAST(first.key AS INTEGER)<CAST(second.key AS INTEGER)
+  WHERE (json_extract(first.value,'$.max_quantity_scaled') IS NULL
+     OR json_extract(first.value,'$.max_quantity_scaled')>=
+        json_extract(second.value,'$.min_quantity_scaled'))
+     OR json_extract(first.value,'$.min_quantity_scaled')>=
+        json_extract(second.value,'$.min_quantity_scaled')
+ ) THEN RAISE(ABORT,'计价分档范围必须按数量递增且互不重叠') END;
+END;
 CREATE TRIGGER reference_price_factor_definition_guard
  BEFORE INSERT ON reference_price_versions
 BEGIN
@@ -1868,7 +1949,8 @@ SELECT c.id,c.code,c.created_by,c.created_at,
  v.id AS current_version_id,v.version_no,v.title,v.operation_id,
  v.operation_version,v.unit_id,v.unit_version,v.voltage_level_id,v.tower_type,
  v.work_mode,v.specification,v.additional_conditions_json,
- v.status,v.unit_price_fen,v.tax_mode,v.effective_on
+ v.status,v.pricing_mode,v.base_fee_fen,v.unit_price_fen,
+ v.quantity_brackets_json,v.tax_mode,v.effective_on
 FROM reference_price_catalog c
 JOIN reference_price_versions v ON v.catalog_id=c.id
 WHERE v.version_no=(SELECT MAX(x.version_no)
@@ -2070,6 +2152,30 @@ BEGIN
  WHERE v.id=NEW.settlement_version_id AND v.change_type='void')
  THEN RAISE(ABORT,'注销结算版本不应再包含有效明细') END;
 END;
+CREATE TRIGGER settlement_scope_result_insert_guard
+ BEFORE INSERT ON settlement_scope_results
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM settlement_versions sv
+ JOIN settlements s ON s.id=sv.settlement_id
+ JOIN project_demand_scopes sc ON sc.project_id=s.project_id
+ JOIN project_approval_scope_versions aps
+  ON aps.id=NEW.approval_scope_version_id
+  AND aps.project_scope_id=sc.id
+  AND aps.approval_version_id=sv.approval_version_id
+ WHERE sv.id=NEW.settlement_version_id
+   AND sc.id=NEW.project_scope_id AND sv.change_type<>'void'
+   AND NOT EXISTS(SELECT 1 FROM settlement_review_events e
+    WHERE e.settlement_version_id=sv.id))
+ THEN RAISE(ABORT,'本次结算需求解决结果须关联同项目当次批准的需求范围，且须在提交前完整写入') END;
+END;
+CREATE TRIGGER settlement_scope_result_immutable_update
+ BEFORE UPDATE ON settlement_scope_results
+BEGIN SELECT RAISE(ABORT,'已发布结算的需求解决结果不可原地修改，须发布新版完整结算'); END;
+CREATE TRIGGER settlement_scope_result_immutable_delete
+ BEFORE DELETE ON settlement_scope_results
+BEGIN SELECT RAISE(ABORT,'结算需求解决结果历史不可删除'); END;
+
 CREATE TRIGGER settlement_item_version_immutable_update
  BEFORE UPDATE ON settlement_item_versions
 BEGIN SELECT RAISE(ABORT,'结算明细完整版本不可覆盖'); END;
@@ -2107,6 +2213,23 @@ BEGIN
  AND NOT EXISTS(SELECT 1 FROM settlement_item_versions i
  WHERE i.settlement_version_id=NEW.settlement_version_id)
  THEN RAISE(ABORT,'完整结算版本至少包含一条正式明细') END;
+
+ SELECT CASE WHEN NEW.action IN ('submit','approve')
+ AND (SELECT change_type FROM settlement_versions
+      WHERE id=NEW.settlement_version_id)<>'void'
+ AND NOT EXISTS(SELECT 1 FROM settlement_scope_results r
+   WHERE r.settlement_version_id=NEW.settlement_version_id)
+ THEN RAISE(ABORT,'每张正式结算单必须明确记录本次解决的至少一项需求及实际数量') END;
+ SELECT CASE WHEN NEW.action IN ('submit','approve')
+ AND EXISTS(
+  SELECT 1 FROM settlement_item_versions iv
+  JOIN settlement_items item ON item.id=iv.settlement_item_id
+  WHERE iv.settlement_version_id=NEW.settlement_version_id
+    AND item.project_scope_id IS NOT NULL
+    AND NOT EXISTS(SELECT 1 FROM settlement_scope_results r
+     WHERE r.settlement_version_id=NEW.settlement_version_id
+       AND r.project_scope_id=item.project_scope_id))
+ THEN RAISE(ABORT,'有明确需求归属的结算费用明细必须对应本次需求解决结果') END;
 
  SELECT CASE WHEN NEW.action='approve' AND
  (SELECT v.version_no FROM settlement_versions v WHERE v.id=NEW.settlement_version_id)
@@ -2222,15 +2345,9 @@ BEGIN
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM v_material_current cur WHERE cur.id=NEW.material_id)
  THEN RAISE(ABORT,'项目范围物资必须已有正式主数据版本') END;
- -- If a material did not appear in any confirmed demand version, it must
- -- still be recordable, but must be explained as a project-added material.
- SELECT CASE WHEN NOT EXISTS(
- SELECT 1 FROM project_demand_scopes sc
- JOIN demand_material_version_items dm ON dm.demand_id=sc.demand_id
- WHERE sc.id=NEW.project_scope_id
- AND dm.demand_version=sc.demand_version AND dm.material_id=NEW.material_id)
- AND length(trim(NEW.addition_reason))=0
- THEN RAISE(ABORT,'需求未预计的新项目物资必须记录新增原因') END;
+ -- Additional site materials need not have been forecast in the demand
+ -- BOM. Optional explanatory reason is not a database access barrier;
+ -- stable material identity and later formal approval remain mandatory.
 END;
 CREATE TRIGGER project_material_identity_immutable_update BEFORE UPDATE ON project_scope_materials
 BEGIN SELECT RAISE(ABORT,'项目物资身份不可改挂，只能创建新的物资身份及批准版本'); END;
@@ -2287,8 +2404,7 @@ CREATE TRIGGER change_order_approval_metadata_guard
  WHEN NEW.status='approved' AND OLD.status<>'approved'
 BEGIN
  SELECT CASE WHEN NEW.decided_by IS NULL OR NEW.decided_at IS NULL
- OR length(trim(COALESCE(NEW.decision_reason,'')))=0
- THEN RAISE(ABORT,'正式变更批准需要审核人、时间及理由') END;
+ THEN RAISE(ABORT,'正式变更批准需要真实审核人和时间') END;
 
 END;
 
@@ -2470,6 +2586,9 @@ BEGIN
  AND prev.tower_type IS NEW.tower_type AND prev.work_mode=NEW.work_mode
  AND prev.specification=NEW.specification
  AND prev.additional_conditions_json=NEW.additional_conditions_json
+ AND prev.pricing_mode=NEW.pricing_mode
+ AND prev.base_fee_fen=NEW.base_fee_fen
+ AND prev.quantity_brackets_json=NEW.quantity_brackets_json
  AND prev.status=NEW.status AND prev.unit_price_fen=NEW.unit_price_fen
  AND prev.price_source=NEW.price_source AND prev.price_date=NEW.price_date
  AND prev.tax_mode=NEW.tax_mode AND prev.effective_on=NEW.effective_on
@@ -2498,8 +2617,8 @@ BEGIN
  NEW.end_tower_id IS OLD.end_tower_id
  AND NEW.transmission_center_length_mm IS OLD.transmission_center_length_mm
  AND NEW.status IS OLD.status)
- OR NEW.updated_by IS NULL OR length(trim(NEW.change_reason))=0
- THEN RAISE(ABORT,'档距拓扑或状态变化必须明确操作者、原因并递增版本') END;
+ OR NEW.updated_by IS NULL
+ THEN RAISE(ABORT,'档距拓扑或状态变化必须明确操作者并递增历史版本') END;
 END;
 CREATE TRIGGER span_history_update AFTER UPDATE OF
  line_id,start_tower_id,end_tower_id,transmission_center_length_mm,status,version ON line_spans
@@ -3078,9 +3197,9 @@ WHEN (NEW.name IS NOT OLD.name OR NEW.voltage_level_id IS NOT OLD.voltage_level_
 BEGIN
  SELECT CASE WHEN NEW.version<>OLD.version+1
  OR (NEW.name IS OLD.name AND NEW.voltage_level_id IS OLD.voltage_level_id AND NEW.status IS OLD.status AND NEW.line_kind IS OLD.line_kind AND NEW.parent_line_id IS OLD.parent_line_id AND NEW.junction_tower_id IS OLD.junction_tower_id AND NEW.setup_status IS OLD.setup_status AND NEW.erection_type IS OLD.erection_type)
- OR NEW.updated_by IS NULL OR length(trim(NEW.change_reason))=0
+ OR NEW.updated_by IS NULL
  OR NEW.updated_at<=OLD.updated_at
- THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人、原因和连续新版本') END;
+ THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人和连续新版本') END;
 END;
 CREATE TRIGGER line_history_append AFTER UPDATE ON transmission_lines
 WHEN (NEW.name IS NOT OLD.name OR NEW.voltage_level_id IS NOT OLD.voltage_level_id OR NEW.status IS NOT OLD.status OR NEW.line_kind IS NOT OLD.line_kind OR NEW.parent_line_id IS NOT OLD.parent_line_id OR NEW.junction_tower_id IS NOT OLD.junction_tower_id OR NEW.setup_status IS NOT OLD.setup_status OR NEW.erection_type IS NOT OLD.erection_type)
@@ -3110,9 +3229,9 @@ WHEN (NEW.asset_no IS NOT OLD.asset_no OR NEW.tower_type IS NOT OLD.tower_type O
 BEGIN
  SELECT CASE WHEN NEW.version<>OLD.version+1
  OR (NEW.asset_no IS OLD.asset_no AND NEW.tower_type IS OLD.tower_type AND NEW.longitude IS OLD.longitude AND NEW.latitude IS OLD.latitude AND NEW.commissioned_on IS OLD.commissioned_on AND NEW.model IS OLD.model AND NEW.height_scaled IS OLD.height_scaled AND NEW.purpose IS OLD.purpose AND NEW.status IS OLD.status)
- OR NEW.updated_by IS NULL OR length(trim(NEW.change_reason))=0
+ OR NEW.updated_by IS NULL
  OR NEW.updated_at<=OLD.updated_at
- THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人、原因和连续新版本') END;
+ THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人和连续新版本') END;
 END;
 CREATE TRIGGER physical_tower_history_append AFTER UPDATE ON physical_towers
 WHEN (NEW.asset_no IS NOT OLD.asset_no OR NEW.tower_type IS NOT OLD.tower_type OR NEW.longitude IS NOT OLD.longitude OR NEW.latitude IS NOT OLD.latitude OR NEW.commissioned_on IS NOT OLD.commissioned_on OR NEW.model IS NOT OLD.model OR NEW.height_scaled IS NOT OLD.height_scaled OR NEW.purpose IS NOT OLD.purpose OR NEW.status IS NOT OLD.status)
@@ -3142,9 +3261,9 @@ WHEN (NEW.line_id IS NOT OLD.line_id OR NEW.physical_tower_id IS NOT OLD.physica
 BEGIN
  SELECT CASE WHEN NEW.version<>OLD.version+1
  OR (NEW.line_id IS OLD.line_id AND NEW.physical_tower_id IS OLD.physical_tower_id AND NEW.tower_no IS OLD.tower_no AND NEW.display_name IS OLD.display_name AND NEW.sort_rank IS OLD.sort_rank AND NEW.circuit_position IS OLD.circuit_position AND NEW.management_department IS OLD.management_department AND NEW.operations_team IS OLD.operations_team AND NEW.status IS OLD.status)
- OR NEW.updated_by IS NULL OR length(trim(NEW.change_reason))=0
+ OR NEW.updated_by IS NULL
  OR NEW.updated_at<=OLD.updated_at
- THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人、原因和连续新版本') END;
+ THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人和连续新版本') END;
 END;
 CREATE TRIGGER logical_tower_history_append AFTER UPDATE ON logical_towers
 WHEN (NEW.line_id IS NOT OLD.line_id OR NEW.physical_tower_id IS NOT OLD.physical_tower_id OR NEW.tower_no IS NOT OLD.tower_no OR NEW.display_name IS NOT OLD.display_name OR NEW.sort_rank IS NOT OLD.sort_rank OR NEW.circuit_position IS NOT OLD.circuit_position OR NEW.management_department IS NOT OLD.management_department OR NEW.operations_team IS NOT OLD.operations_team OR NEW.status IS NOT OLD.status)

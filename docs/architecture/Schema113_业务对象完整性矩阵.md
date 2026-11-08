@@ -1,4 +1,4 @@
-# Schema 113｜69 张表业务对象完整性矩阵
+# Schema 113｜70 张表业务对象完整性矩阵
 
 **治理顺序：功能完备 → 业务关系 → 历史一致性 → 字段精简。** 本矩阵由当前候选 SQL 生成，覆盖全部实际表。
 
@@ -21,7 +21,7 @@
 | 操作类型、字典和标准价格 | `operation_versions` | 21 | 6 | 操作定义、作业对象/位置/单位关系 |
 | 操作类型、字典和标准价格 | `operations` | 3 | 0 | 操作类型身份 |
 | 操作类型、字典和标准价格 | `reference_price_catalog` | 4 | 1 | 参考单价身份 |
-| 操作类型、字典和标准价格 | `reference_price_versions` | 23 | 9 | 操作定义及单位历史版本关联；电压等级、塔型、作业方式及可扩展正式价格因素 |
+| 操作类型、字典和标准价格 | `reference_price_versions` | 26 | 9 | 参考价精确对应操作版本，支持每件价、每位置基础费+件价、数量区间多档计价，电压塔型及动态因素共同适用 |
 | 操作类型、字典和标准价格 | `work_object_versions` | 10 | 2 | 作业对象定义版本 |
 | 操作类型、字典和标准价格 | `work_objects` | 3 | 0 | 作业对象身份 |
 | 来源、需求和物资 | `batch_demand_sources` | 3 | 3 | 批次与需求、来源的不可变导入断言 |
@@ -42,19 +42,20 @@
 | 框架、协议、项目与批准 | `frameworks` | 4 | 0 | 年度框架身份 |
 | 框架、协议、项目与批准 | `project_approval_material_items` | 13 | 8 | 批准物资规格和数量快照 |
 | 框架、协议、项目与批准 | `project_approval_scope_versions` | 10 | 5 | 批准需求范围与数量快照 |
-| 框架、协议、项目与批准 | `project_approval_versions` | 10 | 3 | 正式批准总预算和版本 |
-| 框架、协议、项目与批准 | `project_change_orders` | 12 | 4 | 正式范围与预算变更依据 |
+| 框架、协议、项目与批准 | `project_approval_versions` | 10 | 3 | 子项目必须至少关联一项已确认的有效专业需求范围才能正式立项；预算为软基准 |
+| 框架、协议、项目与批准 | `project_change_orders` | 12 | 4 | 项目正式变更审批依据，管理员可不填写理由，审核人/时间保留 |
 | 框架、协议、项目与批准 | `project_demand_scopes` | 16 | 5 | 项目承接需求及候选范围 |
 | 框架、协议、项目与批准 | `project_funding_versions` | 7 | 3 | 项目资金协议关联历史 |
 | 框架、协议、项目与批准 | `project_management_versions` | 17 | 10 | 完整项目档案（名称、项目类别正式版本）、责任人、子项目归口单位精确组织版本、计划期间与初估历史（非施工或结算单位） |
 | 框架、协议、项目与批准 | `project_scope_materials` | 5 | 2 | 项目需求范围物资稳定身份 |
 | 框架、协议、项目与批准 | `project_stage_events` | 7 | 2 | 项目储备入库立项关闭事件 |
 | 框架、协议、项目与批准 | `projects` | 7 | 2 | 子项目稳定身份、所属框架与阶段事件同步投影，无重复当前名称/类别/时间 |
+| 结算文件与审核 | `settlement_scope_results` | 6 | 3 | 每张正式结算单版本关联具体批准需求及本次新增解决数量（允许零表示只补结费用；修订版本全量替代） |
 | 结算文件与审核 | `settlement_drafts` | 6 | 3 | 未提交结算草稿 |
-| 结算文件与审核 | `settlement_item_versions` | 13 | 4 | 版本化结算数量金额明细 |
+| 结算文件与审核 | `settlement_item_versions` | 13 | 4 | 结算正式版本中每个费用科目的本期收费数量和金额；不复用为需求实际解决数量 |
 | 结算文件与审核 | `settlement_items` | 5 | 3 | 结算项目范围明细身份 |
 | 结算文件与审核 | `settlement_review_events` | 8 | 2 | 提交退回批准历史 |
-| 结算文件与审核 | `settlement_versions` | 12 | 5 | 结算单完整历史版本；每个版本的明细金额仅表示本次部分结算 |
+| 结算文件与审核 | `settlement_versions` | 12 | 5 | 一张结算单各次完整正式版本；对应当次实际解决需求结果及本期收费明细 |
 | 结算文件与审核 | `settlements` | 5 | 2 | 结算单稳定身份 |
 | 来源、需求和物资主数据 | `materials` | 5 | 2 | 统一物资稳定身份：编码、单位不可无痕改写 |
 | 来源、需求和物资主数据 | `material_versions` | 12 | 3 | 统一内部物资定义历史（名称、型号、规格、类别、状态），不保留PMS外部物资映射 |
@@ -62,12 +63,12 @@
 | 实际费用与正式核对 | `project_cost_node_versions` | 8 | 2 | 费用节点名称和启停状态的不可变版本历史 |
 | 实际费用与正式核对 | `cost_entries` | 5 | 4 | 独立于结算的项目实际费用身份 |
 | 实际费用与正式核对 | `cost_reconciliation_versions` | 14 | 5 | 费用与结算核对历史 |
-| 实际费用与正式核对 | `cost_versions` | 17 | 4 | 实际费用金额、税务及确认历史；采用费用树历史版本为唯一分类，不重复存类别 |
-| 费用最终结清 | `project_closures` | 7 | 3 | 正式结项审批与关闭依据 |
+| 实际费用与正式核对 | `cost_versions` | 17 | 4 | 真实发生费用与历史，允许超出项目预算；管理员说明可留空 |
+| 费用最终结清 | `project_closures` | 7 | 3 | 正式结项时记录实际需求及费用差异审核事实，不强制需求或费用均100%完成 |
 | 账户、证据与运行基础 | `allowed_ips` | 5 | 1 | IP 许可配置 |
 | 账户、证据与运行基础 | `audit_events` | 9 | 1 | 审计事件 |
 | 账户、证据与运行基础 | `evidence_files` | 8 | 1 | 文件哈希与存储元信息 |
-| 账户、证据与运行基础 | `evidence_links` | 27 | 24 | 证据文件与正式业务身份关联 |
+| 账户、证据与运行基础 | `evidence_links` | 28 | 25 | 证据附件强类型关联需求、结算中实际解决的需求结果、费用及关闭等具体正式事实 |
 | 账户、证据与运行基础 | `ledger_requests` | 5 | 1 | 有真实操作者、参数哈希与不可变响应的接口幂等凭证 |
 | 账户、证据与运行基础 | `permission_definitions` | 2 | 0 | 应用层权限项定义 |
 | 账户、证据与运行基础 | `role_permissions` | 2 | 1 | 应用层角色权限矩阵 |
@@ -78,7 +79,7 @@
 
 | 场景 | 已建模的数据对象 | 验收边界 |
 | --- | --- | --- |
-| 一次性清洗导入与需求重复识别 | source_records、demand_batches、demand_duplicate_reviews、demand_sources | 已建模；真实台账仍需导入验证 |
+| 一次性清洗导入与需求重复识别 | source_records、demand_batches、demand_duplicate_reviews、demand_sources | 已建模；清洗后正式数据仍需导入验证 |
 | 线路、物理杆塔、逻辑杆塔、同塔多回、档距管辖 | transmission_lines、physical_towers、logical_towers、line_spans 及各历史 | 已建模；真实设备台账待实施验收 |
 | 操作类型、作业对象、位置、计量单位 | operation_versions、work_object_versions、dictionary_item_versions | 正式版本关系可验证 |
 | 需求版本与版本物资清单 | demand_versions、demand_material_version_items | 已建模；物资主数据无外部系统编码映射；业务物资批准快照独立保存 |

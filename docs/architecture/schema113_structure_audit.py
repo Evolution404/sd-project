@@ -124,6 +124,43 @@ assert {"operation_id","operation_version","unit_id","unit_version",
         "voltage_level_id","tower_type","work_mode",
         "additional_conditions_json","effective_on"}<=price_fields
 assert "reference_price_factor_definition_guard" in triggers
+# One physical location may have several installed devices, using an
+# immutable per-item, per-location-base, or quantity-bracket reference rule.
+assert {"pricing_mode","base_fee_fen","unit_price_fen",
+        "quantity_brackets_json"}<=price_fields
+assert "reference_price_quantity_bracket_guard" in triggers
+# A formally approved project must have actual approved demand scopes; each
+# formal settlement VERSION records actual demand work once independent of
+# the number of invoiced labor/material cost-tree rows.
+assert "settlement_scope_results" in tables
+assert "v_effective_demand_resolutions" in views
+result_cols={r["name"] for r in db.execute(
+    "PRAGMA table_info(settlement_scope_results)")}
+assert {"settlement_version_id","project_scope_id",
+        "approval_scope_version_id","resolved_quantity_scaled"}<=result_cols
+assert "settlement_scope_result_insert_guard" in triggers
+assert "settlement_scope_result_immutable_update" in triggers
+assert "settlement_scope_result_immutable_delete" in triggers
+assert "idx_settlement_scope_results_scope" in indexes
+evidence_cols={r["name"] for r in db.execute('PRAGMA table_info(evidence_links)')}
+assert "settlement_scope_result_id" in evidence_cols
+assert any(x["table"]=="settlement_scope_results" for x in
+    db.execute('PRAGMA foreign_key_list(evidence_links)'))
+close_sql=triggers["project_close_guard"]["sql"]
+assert "v_effective_cost_reconciliations" not in close_sql
+assert "v_effective_settlement_items" not in close_sql
+assert "project_closures" in close_sql
+# Reason text is optional in ALL database record classes; roles are checked
+# by the authenticated application, never by spoofable client SQL input.
+for t in ("project_stage_events","project_management_versions",
+          "project_closures","cost_versions","settlement_versions",
+          "operation_versions","reference_price_versions",
+          "demand_revisions","project_cost_node_versions"):
+    reason=[r for r in db.execute('PRAGMA table_info("'+t+'")')
+            if r["name"]=="reason"]
+    assert len(reason)==1 and reason[0]["dflt_value"]=="''",t
+assert "length(trim(NEW.change_reason))" not in ddl
+assert "length(trim(COALESCE(NEW.decision_reason,'')))" not in ddl
 version_fields={r["name"] for r in db.execute(
     "PRAGMA table_xinfo(project_management_versions)")}
 assert {"name","category_version","managing_unit_id",
