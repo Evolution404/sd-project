@@ -1,45 +1,625 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import FieldControl from '../components/FieldControl.vue'
-import FinancePanel from '../components/FinancePanel.vue'
-import { api, type Row, money, quantity, statusText } from '../services/api'
-const props = defineProps<{ financeOnly?: boolean }>()
-const rows=ref<Row[]>([]),total=ref(0),page=ref(1),query=ref(''),detail=ref<Row|null>(null),dialog=ref(''),form=ref<Row>({}),editing=ref<Row|null>(null),busy=ref(false),demands=ref<Row[]>([]),history=ref<Row|null>(null),tab=ref('scope'),approvalRows=ref<Row[]>([])
-async function load(){const value=await api(`/projects?page=${page.value}&q=${encodeURIComponent(query.value)}`);rows.value=value.items;total.value=value.total;if(detail.value)detail.value=await api('/projects/'+detail.value.id)}
-async function open(row:Row){detail.value=await api('/projects/'+row.id);tab.value=props.financeOnly?'finance':'scope'}
-function editProject(row?:Row){editing.value=row||null;form.value=row?{...row,expected_version:row.profile_version}:{code:'',name:'',framework_id:''};dialog.value='project'}
-async function openDialog(type:string){dialog.value=type;form.value={};if(type==='link')demands.value=(await api('/demands?page_size=200')).items;if(type==='funding')form.value={agreement_id:detail.value?.funding?.agreement_id,expected_version:detail.value?.funding?.version_no||0};if(type==='approval'){
- approvalRows.value=[];
- for(const scope of detail.value!.scopes.filter((x:Row)=>x.binding)){const demand=await api('/demands/'+scope.demand_id);approvalRows.value.push({project_scope_id:scope.id,demand_version:demand.current_version,demand_no:demand.demand_no,selected:true,locations:demand.work_locations.map((loc:Row,index:number)=>({location_item_no:index+1,approved_quantity_scaled:loc.quantity_scaled,selected:true,label:loc.location_snapshot_json.physical_code||loc.location_snapshot_json.tower_no||loc.span_id})),materials:[]})}
- form.value={approved_budget_fen:detail.value?.approval?.approved_budget_fen||0,basis:'',expected_version:detail.value?.version};
-}}
-async function save(){busy.value=true;try{
- if(dialog.value==='project')await api('/projects'+(editing.value?'/'+editing.value.id:''),'POST',form.value);
- if(dialog.value==='link'){const demand=demands.value.find(x=>x.id===form.value.demand_id);await api(`/projects/${detail.value!.id}/link`,'POST',{...form.value,expected_version:demand?.current_version})}
- if(dialog.value==='funding')await api(`/projects/${detail.value!.id}/funding`,'POST',form.value);
- if(dialog.value==='approval')await api(`/projects/${detail.value!.id}/approvals`,'POST',{...form.value,scopes:approvalRows.value.filter(x=>x.selected).map(x=>({...x,locations:x.locations.filter((loc:Row)=>loc.selected)}))});
- if(dialog.value==='charge')await api('/charges','POST',{...form.value,approval_version_id:detail.value!.approvals.find((x:Row)=>x.status==='draft')?.id});
- dialog.value='';await load();ElMessage.success('已保存');
- }catch(e){ElMessage.error((e as Error).message)}finally{busy.value=false}}
-async function action(name:string,approval?:Row){try{await ElMessageBox.confirm(name==='close'?'确认接受当前需求解决和费用差异，正式结项？':'确认执行此次正式操作？','正式确认');if(name==='stock'||name==='close')await api(`/projects/${detail.value!.id}/${name}`,'POST',{expected_version:detail.value!.version});if(name==='approve')await api(`/projects/${detail.value!.id}/approvals/${approval!.id}/approve`,'POST',{expected_version:detail.value!.version});if(name==='discard')await api(`/projects/${detail.value!.id}/approvals/${approval!.id}`,'DELETE',{});await load()}catch(e){if(e instanceof Error)ElMessage.error(e.message)}}
-async function release(scope:Row){try{await ElMessageBox.confirm('明确解绑后，该需求可由其他项目承接。当前批准范围仍含此需求时，先正式变更移出或结项。','显式解绑');const history=await api('/demands/'+scope.demand_id+'/history'),binding=history.bindings.find((x:Row)=>x.id===scope.id);await api(`/projects/${detail.value!.id}/release/${scope.id}`,'POST',{expected_event_seq:binding.events.at(-1).event_seq});await load()}catch(e){if(e instanceof Error)ElMessage.error(e.message)}}
-async function priceScope(scope:Row){try{const result=await api(`/demands/${scope.demand_id}/quote`,'POST',{expected_version:scope.demand_version,approval_scope_version_id:scope.id});if(!result.complete){ElMessage.warning('未完整计价，请维护规则或现场特征');return}await ElMessageBox.confirm('本批准范围参考价 ¥'+money(result.total_fen)+'，确认正式引用？','范围参考价格');await api(`/demands/${scope.demand_id}/quote`,'POST',{expected_version:scope.demand_version,approval_scope_version_id:scope.id,confirm:true});await load()}catch(e){if(e instanceof Error)ElMessage.error(e.message)}}
-async function showHistory(){history.value=await api(`/projects/${detail.value!.id}/history`)}
-onMounted(load)
+import { useAccess } from "../services/access";
+const can = useAccess();
+import { ref, onMounted } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import FieldControl from "../components/FieldControl.vue";
+import PricingQuoteDialog from "../components/PricingQuoteDialog.vue";
+import FinancePanel from "../components/FinancePanel.vue";
+import { api, type Row, money, quantity, statusText } from "../services/api";
+const formRef = ref(),
+  actors = ref<Row[]>([]);
+const props = defineProps<{ financeOnly?: boolean }>();
+const rows = ref<Row[]>([]),
+  total = ref(0),
+  page = ref(1),
+  query = ref(""),
+  detail = ref<Row | null>(null),
+  dialog = ref(""),
+  form = ref<Row>({}),
+  editing = ref<Row | null>(null),
+  busy = ref(false),
+  demands = ref<Row[]>([]),
+  history = ref<Row | null>(null),
+  tab = ref("scope"),
+  approvalRows = ref<Row[]>([]),
+  priceScopeContext = ref<Row | null>(null),
+  quoteOpen = ref(false);
+async function load() {
+  const value = await api(
+    `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}`,
+  );
+  rows.value = value.items;
+  total.value = value.total;
+  if (detail.value) detail.value = await api("/projects/" + detail.value.id);
+}
+async function open(row: Row) {
+  detail.value = await api("/projects/" + row.id);
+  tab.value = props.financeOnly ? "finance" : "scope";
+}
+function editProject(row?: Row) {
+  editing.value = row || null;
+  form.value = row
+    ? { ...row, expected_version: row.profile_version }
+    : { code: "", name: "", framework_id: "" };
+  dialog.value = "project";
+}
+async function openDialog(type: string) {
+  dialog.value = type;
+  form.value = {};
+  if (type === "link")
+    demands.value = (await api("/demands?page_size=200")).items;
+  if (type === "funding")
+    form.value = {
+      agreement_id: detail.value?.funding?.agreement_id,
+      expected_version: detail.value?.funding?.version_no || 0,
+    };
+  if (type === "approval") {
+    approvalRows.value = [];
+    for (const scope of detail.value!.scopes.filter((x: Row) => x.binding)) {
+      const demand = await api("/demands/" + scope.demand_id);
+      approvalRows.value.push({
+        project_scope_id: scope.id,
+        demand_version: demand.current_version,
+        demand_no: demand.demand_no,
+        selected: true,
+        locations: demand.work_locations.map((loc: Row, index: number) => ({
+          location_item_no: index + 1,
+          approved_quantity_scaled: loc.quantity_scaled,
+          selected: true,
+          label:
+            loc.location_snapshot_json.physical_code ||
+            loc.location_snapshot_json.tower_no ||
+            loc.span_id,
+        })),
+        materials: [],
+      });
+    }
+    form.value = {
+      approved_budget_fen: detail.value?.approval?.approved_budget_fen || 0,
+      basis: "",
+      expected_version: detail.value?.version,
+      expected_approval_version_id: detail.value?.approval?.id || null,
+    };
+  }
+}
+async function save() {
+  if (!(await formRef.value?.validate().catch(() => false))) return;
+  busy.value = true;
+  try {
+    if (dialog.value === "project")
+      await api(
+        "/projects" + (editing.value ? "/" + editing.value.id : ""),
+        "POST",
+        form.value,
+      );
+    if (dialog.value === "link") {
+      const demand = demands.value.find((x) => x.id === form.value.demand_id);
+      await api(`/projects/${detail.value!.id}/link`, "POST", {
+        ...form.value,
+        expected_version: demand?.current_version,
+      });
+    }
+    if (dialog.value === "funding")
+      await api(`/projects/${detail.value!.id}/funding`, "POST", form.value);
+    if (dialog.value === "approval")
+      await api(`/projects/${detail.value!.id}/approvals`, "POST", {
+        ...form.value,
+        scopes: approvalRows.value
+          .filter((x) => x.selected)
+          .map((x) => ({
+            ...x,
+            locations: x.locations.filter((loc: Row) => loc.selected),
+          })),
+      });
+    if (dialog.value === "charge")
+      await api("/charges", "POST", {
+        ...form.value,
+        approval_version_id: detail.value!.approvals.find(
+          (x: Row) => x.status === "draft",
+        )?.id,
+      });
+    dialog.value = "";
+    await load();
+    ElMessage.success("已保存");
+  } catch (e) {
+    ElMessage.error((e as Error).message);
+  } finally {
+    busy.value = false;
+  }
+}
+async function action(name: string, approval?: Row) {
+  try {
+    await ElMessageBox.confirm(
+      name === "close"
+        ? "确认接受当前需求解决和费用差异，正式结项？"
+        : "确认执行此次正式操作？",
+      "正式确认",
+    );
+    if (name === "stock" || name === "close")
+      await api(`/projects/${detail.value!.id}/${name}`, "POST", {
+        expected_version: detail.value!.version,
+      });
+    if (name === "approve")
+      await api(
+        `/projects/${detail.value!.id}/approvals/${approval!.id}/approve`,
+        "POST",
+        { expected_version: detail.value!.version },
+      );
+    if (name === "discard")
+      await api(
+        `/projects/${detail.value!.id}/approvals/${approval!.id}`,
+        "DELETE",
+        {},
+      );
+    await load();
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+async function release(scope: Row) {
+  try {
+    await ElMessageBox.confirm(
+      "明确解绑后，该需求可由其他项目承接。当前批准范围仍含此需求时，先正式变更移出或结项。",
+      "显式解绑",
+    );
+    const history = await api("/demands/" + scope.demand_id + "/history"),
+      binding = history.bindings.find((x: Row) => x.id === scope.id);
+    await api(`/projects/${detail.value!.id}/release/${scope.id}`, "POST", {
+      expected_event_seq: binding.events.at(-1).event_seq,
+    });
+    await load();
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+function priceScope(scope: Row) {
+  priceScopeContext.value = scope;
+  quoteOpen.value = true;
+}
+async function showHistory() {
+  history.value = await api(`/projects/${detail.value!.id}/history`);
+}
+onMounted(async () => {
+  actors.value = await api("/actors");
+  await load();
+});
 </script>
 <template>
- <template v-if="!detail"><div class="page-heading"><div><div class="section-caption">{{ financeOnly?'Costs & settlements':'Project portfolio' }}</div><h1>{{ financeOnly?'实际费用与结算':'年度框架与子项目' }}</h1><p>{{ financeOnly?'进入子项目办理真实费用、独立结算与正式核对。':'以完整需求范围立项，保留批准预算与资金归属历史。' }}</p></div><ElButton v-if="!financeOnly" type="primary" @click="editProject()">新增子项目</ElButton></div><div class="panel"><div class="toolbar"><ElInput v-model="query" clearable placeholder="搜索项目编码或名称" @change="load" /><ElButton @click="load">刷新</ElButton></div><ElTable :data="rows"><ElTableColumn prop="code" label="项目编码" width="140" sortable /><ElTableColumn prop="name" label="项目名称" min-width="220" /><ElTableColumn label="阶段" width="110"><template #default="{row}"><ElTag>{{ statusText[row.status] }}</ElTag></template></ElTableColumn><ElTableColumn label="批准预算"><template #default="{row}">¥{{ money(row.approval?.approved_budget_fen) }}</template></ElTableColumn><ElTableColumn label="需求" width="80"><template #default="{row}">{{ row.scopes.filter((x:Row)=>x.binding).length }}</template></ElTableColumn><ElTableColumn label="操作" width="110"><template #default="{row}"><ElButton @click="open(row)">进入项目</ElButton></template></ElTableColumn></ElTable><ElPagination v-model:current-page="page" :total="total" :page-size="30" layout="prev,pager,next,total" @current-change="load" /></div></template>
- <template v-else><div class="detail-header"><ElButton @click="detail=null">返回项目列表</ElButton><h1>{{ detail.name }}</h1><ElTag>{{ statusText[detail.status] }}</ElTag><span class="muted">{{ detail.code }}</span></div><div class="toolbar"><ElButton @click="editProject(detail)">修订档案</ElButton><ElButton @click="openDialog('funding')">资金归属</ElButton><ElButton @click="showHistory">档案与阶段历史</ElButton><ElButton v-if="detail.status==='reserve'" type="primary" @click="action('stock')">确认入库</ElButton><ElButton v-if="detail.status==='approved'" type="primary" @click="action('close')">审核结项</ElButton></div><ElTabs v-model="tab"><ElTabPane name="scope" label="需求与批准范围" /><ElTabPane name="finance" label="费用与结算" /></ElTabs>
- <template v-if="tab==='scope'"><div class="panel"><div class="toolbar"><h2>当前关联需求</h2><ElButton :disabled="detail.status==='closed'" @click="openDialog('link')">关联需求</ElButton></div><ElTable :data="detail.scopes"><ElTableColumn prop="demand_no" label="需求编号" min-width="220" /><ElTableColumn label="状态"><template #default="{row}"><ElTag :type="row.binding?'success':'info'">{{ row.binding?'当前关联':'已解绑' }}</ElTag></template></ElTableColumn><ElTableColumn label="操作"><template #default="{row}"><ElButton :disabled="!row.binding" @click="release(row)">显式解绑</ElButton></template></ElTableColumn></ElTable></div><div class="toolbar"><ElButton type="primary" :disabled="!['stocked','approved'].includes(detail.status)" @click="openDialog('approval')">{{ detail.approval?'编制正式变更':'编制立项范围' }}</ElButton><ElButton @click="openDialog('charge')">增加批次 / 项目参考费用</ElButton></div><div v-for="approval in detail.approvals" :key="approval.id" class="panel"><div class="toolbar"><h2>批准 V{{ approval.version_no }}</h2><ElTag>{{ statusText[approval.status] }}</ElTag><ElButton v-if="approval.status==='draft'" type="primary" @click="action('approve',approval)">正式批准</ElButton><ElButton v-if="approval.status==='draft'" type="danger" @click="action('discard',approval)">删除草稿</ElButton></div><ElDescriptions :column="2" border><ElDescriptionsItem label="批准预算">¥{{ money(approval.approved_budget_fen) }}</ElDescriptionsItem><ElDescriptionsItem label="参考价格">{{ approval.reference.complete?'完整参考价 ¥'+money(approval.reference.total_fen):'未完整计价，已计价小计 ¥'+money(approval.reference.subtotal_fen) }}</ElDescriptionsItem></ElDescriptions><ElTable :data="approval.scopes"><ElTableColumn prop="demand_id" label="需求" min-width="180" /><ElTableColumn label="承接数量"><template #default="{row}">{{ quantity(row.quantity_scaled) }}</template></ElTableColumn><ElTableColumn label="位置数"><template #default="{row}">{{ row.locations.length }}</template></ElTableColumn><ElTableColumn v-if="approval.status==='draft'" label="操作"><template #default="{row}"><ElButton @click="priceScope(row)">按承接范围核价</ElButton></template></ElTableColumn></ElTable></div></template>
- <FinancePanel v-if="tab==='finance'" :project="detail" @changed="load" />
- </template>
- <ElDialog :model-value="!!dialog" :title="{project:editing?'修订项目档案':'新增子项目',link:'关联专业需求',funding:'变更资金归属',approval:'编制完整批准范围',charge:'批次 / 项目独立参考费用'}[dialog]" width="950px" :close-on-click-modal="false" @close="dialog=''"><ElForm :model="form" label-position="top" novalidate><div class="form-grid">
- <template v-if="dialog==='project'"><ElFormItem label="项目编码" required><ElInput v-model="form.code" :disabled="!!editing" /></ElFormItem><ElFormItem label="项目名称" required><ElInput v-model="form.name" /></ElFormItem><ElFormItem label="年度框架" required><FieldControl v-model="form.framework_id" :field="{type:'ref',reference:'frameworks'}" :disabled="!!editing" /></ElFormItem><ElFormItem label="项目类别"><FieldControl v-model="form.category_id" :field="{type:'ref',reference:'categories'}" /></ElFormItem><ElFormItem label="归口单位"><FieldControl v-model="form.managing_unit_id" :field="{type:'ref',reference:'organizations'}" /></ElFormItem><ElFormItem label="初步估算（元）"><FieldControl v-model="form.preliminary_estimate_fen" :field="{type:'money'}" /></ElFormItem><ElFormItem label="计划开始"><ElDatePicker v-model="form.planned_start_on" value-format="YYYY-MM-DD" /></ElFormItem><ElFormItem label="计划结束"><ElDatePicker v-model="form.planned_end_on" value-format="YYYY-MM-DD" /></ElFormItem></template>
- <template v-if="dialog==='link'"><ElFormItem label="专业需求" required class="full-width"><ElSelect v-model="form.demand_id" filterable><ElOption v-for="d in demands.filter(x=>!x.binding&&x.status!=='cancelled')" :key="d.id" :value="d.id" :label="d.demand_no+' · '+d.problem_description" /></ElSelect></ElFormItem></template>
- <template v-if="dialog==='funding'"><ElFormItem label="执行协议（允许暂未指定）" class="full-width"><FieldControl v-model="form.agreement_id" :field="{type:'ref',reference:'agreements'}" /></ElFormItem></template>
- <template v-if="dialog==='approval'"><ElFormItem label="批准预算（元）" required><FieldControl v-model="form.approved_budget_fen" :field="{type:'money'}" /></ElFormItem><ElFormItem label="批准依据"><ElInput v-model="form.basis" /></ElFormItem></template>
- <template v-if="dialog==='charge'"><ElFormItem label="正式价格规则" required><FieldControl v-model="form.reference_price_catalog_id" :field="{type:'ref',reference:'prices'}" /></ElFormItem><ElFormItem label="唯一批次 / 项目费用键" required><ElInput v-model="form.charge_scope_key" /></ElFormItem><ElFormItem label="计价数量" required><FieldControl v-model="form.quantity_scaled" :field="{type:'quantity'}" /></ElFormItem></template>
- </div><template v-if="dialog==='approval'"><div v-for="scope in approvalRows" :key="scope.project_scope_id" class="panel"><ElCheckbox v-model="scope.selected">{{ scope.demand_no }}</ElCheckbox><ElTable :data="scope.locations"><ElTableColumn label="纳入批准" width="110"><template #default="{row}"><ElCheckbox v-model="row.selected" /></template></ElTableColumn><ElTableColumn prop="label" label="作业位置" /><ElTableColumn label="批准数量"><template #default="{row}"><FieldControl v-model="row.approved_quantity_scaled" :field="{type:'quantity'}" /></template></ElTableColumn></ElTable></div></template></ElForm><template #footer><ElButton @click="dialog=''">取消</ElButton><ElButton type="primary" :loading="busy" @click="save">保存</ElButton></template></ElDialog>
- <ElDialog :model-value="!!history" title="项目正式历史" width="950px" @close="history=null"><pre class="data-json">{{ JSON.stringify(history,null,2) }}</pre></ElDialog>
+  <template v-if="!detail"
+    ><div class="page-heading">
+      <div>
+        <div class="section-caption">
+          {{ financeOnly ? "Costs & settlements" : "Project portfolio" }}
+        </div>
+        <h1>{{ financeOnly ? "实际费用与结算" : "年度框架与子项目" }}</h1>
+        <p>
+          {{
+            financeOnly
+              ? "进入子项目办理真实费用、独立结算与正式核对。"
+              : "以完整需求范围立项，保留批准预算与资金归属历史。"
+          }}
+        </p>
+      </div>
+      <ElButton
+        :disabled="!can('write')"
+        v-if="!financeOnly"
+        type="primary"
+        @click="editProject()"
+        >新增子项目</ElButton
+      >
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <ElInput
+          v-model="query"
+          clearable
+          placeholder="搜索项目编码或名称"
+          @change="load"
+        /><ElButton @click="load">刷新</ElButton>
+      </div>
+      <ElTable :data="rows"
+        ><ElTableColumn
+          prop="code"
+          label="项目编码"
+          width="140"
+          sortable
+        /><ElTableColumn
+          prop="name"
+          label="项目名称"
+          min-width="220"
+        /><ElTableColumn label="阶段" width="110"
+          ><template #default="{ row }"
+            ><ElTag>{{ statusText[row.status] }}</ElTag></template
+          ></ElTableColumn
+        ><ElTableColumn label="批准预算"
+          ><template #default="{ row }"
+            >¥{{ money(row.approval?.approved_budget_fen) }}</template
+          ></ElTableColumn
+        ><ElTableColumn label="需求" width="80"
+          ><template #default="{ row }">{{
+            row.scopes.filter((x: Row) => x.binding).length
+          }}</template></ElTableColumn
+        ><ElTableColumn label="操作" width="110"
+          ><template #default="{ row }"
+            ><ElButton @click="open(row)">进入项目</ElButton></template
+          ></ElTableColumn
+        ></ElTable
+      ><ElPagination
+        v-model:current-page="page"
+        :total="total"
+        :page-size="30"
+        layout="prev,pager,next,total"
+        @current-change="load"
+      /></div
+  ></template>
+  <template v-else
+    ><div class="detail-header">
+      <ElButton @click="detail = null">返回项目列表</ElButton>
+      <h1>{{ detail.name }}</h1>
+      <ElTag>{{ statusText[detail.status] }}</ElTag
+      ><span class="muted">{{ detail.code }}</span>
+    </div>
+    <div class="toolbar">
+      <ElButton :disabled="!can('write')" @click="editProject(detail)"
+        >修订档案</ElButton
+      ><ElButton :disabled="!can('write')" @click="openDialog('funding')"
+        >资金归属</ElButton
+      ><ElButton @click="showHistory">档案与阶段历史</ElButton
+      ><ElButton
+        :disabled="!can('project.stock')"
+        v-if="detail.status === 'reserve'"
+        type="primary"
+        @click="action('stock')"
+        >确认入库</ElButton
+      ><ElButton
+        :disabled="!can('project.close')"
+        v-if="detail.status === 'approved'"
+        type="primary"
+        @click="action('close')"
+        >审核结项</ElButton
+      >
+    </div>
+    <div class="panel">
+      <ElDescriptions :column="2" border
+        ><ElDescriptionsItem label="项目类别">{{
+          detail.category_name || "未指定"
+        }}</ElDescriptionsItem
+        ><ElDescriptionsItem label="归口单位">{{
+          detail.managing_unit_name || "未指定"
+        }}</ElDescriptionsItem
+        ><ElDescriptionsItem label="责任人">{{
+          detail.owner_username || "未指定"
+        }}</ElDescriptionsItem
+        ><ElDescriptionsItem label="管理人员">{{
+          detail.manager_username || "未指定"
+        }}</ElDescriptionsItem
+        ><ElDescriptionsItem label="计划期间"
+          >{{ detail.planned_start_on || "未指定" }} 至
+          {{ detail.planned_end_on || "未指定" }}</ElDescriptionsItem
+        ><ElDescriptionsItem label="初步估算">{{
+          money(detail.preliminary_estimate_fen)
+        }}</ElDescriptionsItem></ElDescriptions
+      >
+    </div>
+    <ElTabs v-model="tab"
+      ><ElTabPane name="scope" label="需求与批准范围" /><ElTabPane
+        name="finance"
+        label="费用与结算"
+    /></ElTabs>
+    <template v-if="tab === 'scope'"
+      ><div class="panel">
+        <div class="toolbar">
+          <h2>当前关联需求</h2>
+          <ElButton
+            :disabled="!can('write') || detail.status === 'closed'"
+            @click="openDialog('link')"
+            >关联需求</ElButton
+          >
+        </div>
+        <ElTable :data="detail.scopes"
+          ><ElTableColumn
+            prop="demand_no"
+            label="需求编号"
+            min-width="220"
+          /><ElTableColumn label="状态"
+            ><template #default="{ row }"
+              ><ElTag :type="row.binding ? 'success' : 'info'">{{
+                row.binding ? "当前关联" : "已解绑"
+              }}</ElTag></template
+            ></ElTableColumn
+          ><ElTableColumn label="操作"
+            ><template #default="{ row }"
+              ><ElButton
+                :disabled="!can('write') || !row.binding"
+                @click="release(row)"
+                >显式解绑</ElButton
+              ></template
+            ></ElTableColumn
+          ></ElTable
+        >
+      </div>
+      <div class="toolbar">
+        <ElButton
+          type="primary"
+          :disabled="
+            !can('write') || !['stocked', 'approved'].includes(detail.status)
+          "
+          @click="openDialog('approval')"
+          >{{ detail.approval ? "编制正式变更" : "编制立项范围" }}</ElButton
+        ><ElButton :disabled="!can('write')" @click="openDialog('charge')"
+          >增加批次 / 项目参考费用</ElButton
+        >
+      </div>
+      <div
+        v-for="approval in detail.approvals"
+        :key="approval.id"
+        class="panel"
+      >
+        <div class="toolbar">
+          <h2>批准 V{{ approval.version_no }}</h2>
+          <ElTag>{{ statusText[approval.status] }}</ElTag
+          ><ElButton
+            :disabled="
+              !can(
+                approval.version_no === 1
+                  ? 'project.approve'
+                  : 'change.approve',
+              )
+            "
+            v-if="approval.status === 'draft'"
+            type="primary"
+            @click="action('approve', approval)"
+            >正式批准</ElButton
+          ><ElButton
+            :disabled="!can('write')"
+            v-if="approval.status === 'draft'"
+            type="danger"
+            @click="action('discard', approval)"
+            >删除草稿</ElButton
+          >
+        </div>
+        <ElDescriptions :column="2" border
+          ><ElDescriptionsItem label="批准预算"
+            >¥{{ money(approval.approved_budget_fen) }}</ElDescriptionsItem
+          ><ElDescriptionsItem label="参考价格">{{
+            approval.reference.complete
+              ? "完整参考价 ¥" + money(approval.reference.total_fen)
+              : "未完整计价，已计价小计 ¥" +
+                money(approval.reference.subtotal_fen)
+          }}</ElDescriptionsItem></ElDescriptions
+        ><ElTable :data="approval.scopes"
+          ><ElTableColumn
+            prop="demand_no"
+            label="需求"
+            min-width="180"
+          /><ElTableColumn label="承接数量"
+            ><template #default="{ row }">{{
+              quantity(row.quantity_scaled)
+            }}</template></ElTableColumn
+          ><ElTableColumn label="位置数"
+            ><template #default="{ row }">{{
+              row.locations.length
+            }}</template></ElTableColumn
+          ><ElTableColumn v-if="approval.status === 'draft'" label="操作"
+            ><template #default="{ row }"
+              ><ElButton :disabled="!can('write')" @click="priceScope(row)"
+                >按承接范围核价</ElButton
+              ></template
+            ></ElTableColumn
+          ></ElTable
+        >
+      </div></template
+    >
+    <FinancePanel v-if="tab === 'finance'" :project="detail" @changed="load" />
+  </template>
+  <ElDialog
+    :model-value="!!dialog"
+    :title="
+      {
+        project: editing ? '修订项目档案' : '新增子项目',
+        link: '关联专业需求',
+        funding: '变更资金归属',
+        approval: '编制完整批准范围',
+        charge: '批次 / 项目独立参考费用',
+      }[dialog]
+    "
+    width="950px"
+    :close-on-click-modal="false"
+    @close="dialog = ''"
+    ><ElForm ref="formRef" :model="form" label-position="top" novalidate
+      ><div class="form-grid">
+        <template v-if="dialog === 'project'"
+          ><ElFormItem label="项目编码（留空自动生成）" prop="code"
+            ><ElInput v-model="form.code" :disabled="!!editing" /></ElFormItem
+          ><ElFormItem
+            label="项目名称"
+            prop="name"
+            :rules="[{ required: true, message: '请填写项目名称' }]"
+            required
+            ><ElInput v-model="form.name" /></ElFormItem
+          ><ElFormItem
+            label="年度框架"
+            prop="framework_id"
+            :rules="[{ required: true, message: '请填写年度框架' }]"
+            required
+            ><FieldControl
+              v-model="form.framework_id"
+              :field="{ type: 'ref', reference: 'frameworks' }"
+              :disabled="!!editing" /></ElFormItem
+          ><ElFormItem label="项目类别"
+            ><FieldControl
+              v-model="form.category_id"
+              :field="{ type: 'ref', reference: 'categories' }" /></ElFormItem
+          ><ElFormItem label="归口单位"
+            ><FieldControl
+              v-model="form.managing_unit_id"
+              :field="{
+                type: 'ref',
+                reference: 'organizations',
+              }" /></ElFormItem
+          ><ElFormItem label="初步估算（元）"
+            ><FieldControl
+              v-model="form.preliminary_estimate_fen"
+              :field="{ type: 'money' }" /></ElFormItem
+          ><ElFormItem label="计划开始"
+            ><ElDatePicker
+              v-model="form.planned_start_on"
+              value-format="YYYY-MM-DD" /></ElFormItem
+          ><ElFormItem label="计划结束"
+            ><ElDatePicker
+              v-model="form.planned_end_on"
+              value-format="YYYY-MM-DD" /></ElFormItem
+          ><ElFormItem label="责任人"
+            ><ElSelect
+              v-model="form.owner_id"
+              clearable
+              filterable
+              @clear="form.owner_id = null"
+              ><ElOption
+                v-for="actor in actors"
+                :key="actor.id"
+                :value="actor.id"
+                :label="actor.username" /></ElSelect></ElFormItem
+          ><ElFormItem label="管理人员"
+            ><ElSelect
+              v-model="form.manager_id"
+              clearable
+              filterable
+              @clear="form.manager_id = null"
+              ><ElOption
+                v-for="actor in actors"
+                :key="actor.id"
+                :value="actor.id"
+                :label="actor.username" /></ElSelect></ElFormItem
+        ></template>
+        <template v-if="dialog === 'link'"
+          ><ElFormItem
+            label="专业需求"
+            prop="demand_id"
+            :rules="[{ required: true, message: '请填写专业需求' }]"
+            required
+            class="full-width"
+            ><ElSelect v-model="form.demand_id" filterable
+              ><ElOption
+                v-for="d in demands.filter(
+                  (x) => !x.binding && x.status !== 'cancelled',
+                )"
+                :key="d.id"
+                :value="d.id"
+                :label="
+                  d.demand_no + ' · ' + d.problem_description
+                " /></ElSelect></ElFormItem
+        ></template>
+        <template v-if="dialog === 'funding'"
+          ><ElFormItem label="执行协议（允许暂未指定）" class="full-width"
+            ><FieldControl
+              v-model="form.agreement_id"
+              :field="{ type: 'ref', reference: 'agreements' }" /></ElFormItem
+        ></template>
+        <template v-if="dialog === 'approval'"
+          ><ElFormItem
+            label="批准预算（元）"
+            prop="approved_budget_fen"
+            :rules="[{ required: true, message: '请填写批准预算（元）' }]"
+            required
+            ><FieldControl
+              v-model="form.approved_budget_fen"
+              :field="{ type: 'money' }" /></ElFormItem
+          ><ElFormItem label="批准依据"
+            ><ElInput v-model="form.basis" /></ElFormItem
+        ></template>
+        <template v-if="dialog === 'charge'"
+          ><ElFormItem
+            label="正式价格规则"
+            prop="reference_price_catalog_id"
+            :rules="[{ required: true, message: '请填写正式价格规则' }]"
+            required
+            ><FieldControl
+              v-model="form.reference_price_catalog_id"
+              :field="{ type: 'ref', reference: 'prices' }" /></ElFormItem
+          ><ElFormItem
+            label="唯一批次 / 项目费用键"
+            prop="charge_scope_key"
+            :rules="[
+              { required: true, message: '请填写唯一批次 / 项目费用键' },
+            ]"
+            required
+            ><ElInput v-model="form.charge_scope_key" /></ElFormItem
+          ><ElFormItem
+            label="计价数量"
+            prop="quantity_scaled"
+            :rules="[{ required: true, message: '请填写计价数量' }]"
+            required
+            ><FieldControl
+              v-model="form.quantity_scaled"
+              :field="{ type: 'quantity' }" /></ElFormItem
+        ></template>
+      </div>
+      <template v-if="dialog === 'approval'"
+        ><div
+          v-for="scope in approvalRows"
+          :key="scope.project_scope_id"
+          class="panel"
+        >
+          <ElCheckbox v-model="scope.selected">{{ scope.demand_no }}</ElCheckbox
+          ><ElTable :data="scope.locations"
+            ><ElTableColumn label="纳入批准" width="110"
+              ><template #default="{ row }"
+                ><ElCheckbox v-model="row.selected" /></template></ElTableColumn
+            ><ElTableColumn prop="label" label="作业位置" /><ElTableColumn
+              label="批准数量"
+              ><template #default="{ row }"
+                ><FieldControl
+                  v-model="row.approved_quantity_scaled"
+                  :field="{ type: 'quantity' }" /></template></ElTableColumn
+          ></ElTable>
+          <h3 class="subheading">批准物资（按承接范围明确数量）</h3>
+          <div
+            v-for="(item, index) in scope.materials"
+            :key="index"
+            class="toolbar"
+          >
+            <FieldControl
+              v-model="item.material_id"
+              :field="{ type: 'ref', reference: 'materials' }"
+            /><FieldControl
+              v-model="item.quantity_scaled"
+              :field="{ type: 'quantity' }"
+            /><ElButton type="danger" @click="scope.materials.splice(index, 1)"
+              >移除</ElButton
+            >
+          </div>
+          <ElButton @click="scope.materials.push({ quantity_scaled: 10000 })"
+            >添加批准物资</ElButton
+          >
+        </div></template
+      ></ElForm
+    ><template #footer
+      ><ElButton @click="dialog = ''">取消</ElButton
+      ><ElButton
+        :disabled="!can('write')"
+        type="primary"
+        :loading="busy"
+        @click="save"
+        >保存</ElButton
+      ></template
+    ></ElDialog
+  >
+  <ElDialog
+    :model-value="!!history"
+    title="项目正式历史"
+    width="950px"
+    @close="history = null"
+  >
+    <pre class="data-json">{{ JSON.stringify(history, null, 2) }}</pre>
+  </ElDialog>
+  <PricingQuoteDialog
+    v-if="priceScopeContext"
+    v-model="quoteOpen"
+    :demand-id="priceScopeContext.demand_id"
+    :expected-version="priceScopeContext.demand_version"
+    :scope-id="priceScopeContext.id"
+    @confirmed="load"
+  />
 </template>

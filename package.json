@@ -10,14 +10,16 @@
     "start": "node server/main.mjs",
     "init-admin": "node scripts/init-admin.mjs",
     "test": "node --test tests/api/*.test.mjs tests/domain/*.test.mjs tests/excel/*.test.mjs",
-    "check": "npm run check:ui:strict && npm run build && npm test && npm run check:database-boundary",
+    "check": "npm run check:no-tax && npm run check:ui:strict && npm run build && npm test && npm run check:database-boundary",
     "check:ui": "node scripts/check-native-ui.mjs",
     "check:ui:strict": "node scripts/check-native-ui.mjs --strict",
     "backup": "node scripts/backup.mjs",
-    "test:browser": "npm run build && node tests/e2e/browser.mjs",
-    "package:win": "npm run build && node scripts/release/package-win10.mjs",
+    "test:browser": "npm run build && node tests/e2e/browser.mjs && node tests/e2e/project-browser.mjs && node tests/e2e/masters-browser.mjs && node tests/e2e/lan-http-compat-browser.mjs",
+    "package:win": "npm run check:no-tax && npm run build && node scripts/release/package-win10.mjs",
     "check:database-boundary": "node scripts/check-database-boundary.mjs",
-    "check:schema": "python3 -B docs/architecture/schema113_database_acceptance.py && python3 -B docs/architecture/schema113_export_dictionary.py && python3 -B docs/architecture/schema113_structure_audit.py"
+    "check:schema": "python3 -B docs/architecture/schema113_database_acceptance.py && python3 -B docs/architecture/schema113_export_dictionary.py && python3 -B docs/architecture/schema113_structure_audit.py",
+    "test:package": "node scripts/release/verify-package.mjs",
+    "check:no-tax": "node scripts/check-no-tax.mjs"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
@@ -29,6 +31,7 @@
     "@vitejs/plugin-vue": "^6.0.0",
     "playwright": "^1.58.0",
     "typescript": "^5.9.0",
+    "unplugin-vue-components": "^32.1.0",
     "vite": "^7.3.0",
     "vue-tsc": "^3.1.0"
   }
