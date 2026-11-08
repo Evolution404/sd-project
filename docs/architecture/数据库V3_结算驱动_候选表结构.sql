@@ -232,6 +232,8 @@ CREATE TABLE operation_versions (
  default_quantity_scaled INTEGER CHECK(default_quantity_scaled IS NULL OR default_quantity_scaled>0),
  completion_standard TEXT,
  fields_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(fields_json)),
+ pricing_features_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(pricing_features_json) AND json_type(pricing_features_json)='array'),
  allow_tower INTEGER NOT NULL CHECK(allow_tower IN (0,1)),
  allow_span INTEGER NOT NULL CHECK(allow_span IN (0,1)),
  default_location_kind TEXT NOT NULL CHECK(default_location_kind IN ('tower','span')),
@@ -297,6 +299,11 @@ CREATE TABLE demands (
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
  custom_fields_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(custom_fields_json)),
  field_definitions_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(field_definitions_json)),
+ -- The original V1 source list; after publication, demand_versions.snapshot_json
+ -- becomes the immutable authoritative complete location list for each version.
+ initial_work_locations_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(initial_work_locations_json)
+    AND json_type(initial_work_locations_json)='array'),
  -- Generated only for read/UI; never user-entered or stored twice.
  location_kind TEXT GENERATED ALWAYS AS (CASE WHEN span_id IS NULL THEN 'tower' ELSE 'span' END) VIRTUAL,
  -- For a shared physical tower, the contextual line is a separate business fact
@@ -725,7 +732,19 @@ CREATE TABLE reference_price_versions (
  -- quantity_bracket: choose one explicit quantity band and use its
  -- per-location base + n * per-unit price. Application computes/quotes.
  pricing_mode TEXT NOT NULL DEFAULT 'per_unit'
-  CHECK(pricing_mode IN ('per_unit','base_plus_unit','quantity_bracket')),
+  CHECK(pricing_mode IN
+ ('fixed','per_unit','base_plus_unit','quantity_bracket',
+  'progressive_bracket','group','rate','composite')),
+ pricing_scope TEXT NOT NULL DEFAULT 'work_location'
+  CHECK(pricing_scope IN ('work_location','work_batch','project')),
+ calculation_params_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(calculation_params_json)
+    AND json_type(calculation_params_json)='object'),
+ -- Version-owned fee components. A composite rule cannot be amended
+ -- by appending another child row after publication.
+ fee_components_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(fee_components_json)
+    AND json_type(fee_components_json)='array'),
  base_fee_fen INTEGER NOT NULL DEFAULT 0 CHECK(base_fee_fen>=0),
  unit_price_fen INTEGER NOT NULL CHECK(unit_price_fen>=0),
  quantity_brackets_json TEXT NOT NULL DEFAULT '[]'
@@ -761,7 +780,6 @@ CREATE TABLE project_demand_scopes (
  tax_mode TEXT CHECK(tax_mode IN ('inclusive','exclusive','none')),
  note TEXT NOT NULL DEFAULT '',
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))), updated_at TEXT NOT NULL CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))), demand_snapshot_json TEXT,
- reference_price_version_id TEXT REFERENCES reference_price_versions(id) ON DELETE RESTRICT,
  FOREIGN KEY(demand_id,demand_version) REFERENCES demand_versions(demand_id,version) ON DELETE RESTRICT,
  UNIQUE(project_id,demand_id)
 ) STRICT;
@@ -1909,7 +1927,6 @@ CREATE INDEX idx_agreement_framework ON agreements(framework_id);
 CREATE INDEX idx_project_funding_agreement ON project_funding_versions(agreement_id,project_id);
 CREATE INDEX idx_projects_framework ON projects(framework_id,status);
 CREATE INDEX idx_reference_price_versions_operation ON reference_price_versions(operation_id,unit_id,status);
-CREATE INDEX idx_reference_scope_version ON project_demand_scopes(reference_price_version_id);
 CREATE INDEX idx_project_scope_demand ON project_demand_scopes(demand_id);
 CREATE INDEX idx_project_demand_link_event_history
  ON project_demand_link_events(actor_id,recorded_at);
@@ -1979,7 +1996,8 @@ SELECT c.id,c.code,c.created_by,c.created_at,
  v.id AS current_version_id,v.version_no,v.title,v.operation_id,
  v.operation_version,v.unit_id,v.unit_version,v.voltage_level_id,v.tower_type,
  v.work_mode,v.specification,v.additional_conditions_json,
- v.status,v.pricing_mode,v.base_fee_fen,v.unit_price_fen,
+ v.status,v.pricing_mode,v.pricing_scope,v.calculation_params_json,
+ v.fee_components_json,v.base_fee_fen,v.unit_price_fen,
  v.quantity_brackets_json,v.tax_mode,v.effective_on
 FROM reference_price_catalog c
 JOIN reference_price_versions v ON v.catalog_id=c.id
@@ -2456,7 +2474,7 @@ BEGIN SELECT RAISE(ABORT,'已记录需求关联/解绑历史不得删除'); END;
 
 CREATE TRIGGER frozen_approved_project_scope
  BEFORE UPDATE OF project_id,demand_id,demand_version,
- proposed_quantity_scaled,proposed_unit_price_fen,proposed_amount_fen,reference_price_version_id,
+ proposed_quantity_scaled,proposed_unit_price_fen,proposed_amount_fen,
  price_source,price_date,tax_mode,note,demand_snapshot_json
  ON project_demand_scopes
 WHEN EXISTS(SELECT 1 FROM project_approval_scope_versions v
@@ -2684,6 +2702,7 @@ BEGIN
  AND prev.default_quantity_scaled IS NEW.default_quantity_scaled
  AND prev.completion_standard IS NEW.completion_standard
  AND prev.fields_json=NEW.fields_json
+ AND prev.pricing_features_json=NEW.pricing_features_json
  AND prev.allow_tower=NEW.allow_tower AND prev.allow_span=NEW.allow_span
  AND prev.default_location_kind=NEW.default_location_kind
  AND prev.default_target_object=NEW.default_target_object
@@ -2716,6 +2735,9 @@ BEGIN
  AND prev.specification=NEW.specification
  AND prev.additional_conditions_json=NEW.additional_conditions_json
  AND prev.pricing_mode=NEW.pricing_mode
+ AND prev.pricing_scope=NEW.pricing_scope
+ AND prev.calculation_params_json=NEW.calculation_params_json
+ AND prev.fee_components_json=NEW.fee_components_json
  AND prev.base_fee_fen=NEW.base_fee_fen
  AND prev.quantity_brackets_json=NEW.quantity_brackets_json
  AND prev.status=NEW.status AND prev.unit_price_fen=NEW.unit_price_fen
@@ -2971,7 +2993,22 @@ BEGIN
  'observed_physical_tower_id',NEW.observed_physical_tower_id,
  'context_line_id',NEW.context_line_id,'span_id',NEW.span_id,
  'span_version',NEW.span_version,'span_snapshot_json',NEW.span_snapshot_json,
- 'custom_fields_json',NEW.custom_fields_json,'field_definitions_json',NEW.field_definitions_json),
+ 'custom_fields_json',NEW.custom_fields_json,'field_definitions_json',NEW.field_definitions_json,
+ 'work_locations',CASE WHEN json_array_length(NEW.initial_work_locations_json)>0
+ THEN json(NEW.initial_work_locations_json)
+ ELSE json_array(json_object(
+    'location_kind',CASE WHEN NEW.physical_tower_id IS NOT NULL
+      THEN 'physical_tower' WHEN NEW.span_id IS NOT NULL
+      THEN 'span' ELSE 'logical_tower' END,
+    'logical_tower_id',NEW.logical_tower_id,
+    'physical_tower_id',NEW.physical_tower_id,
+    'span_id',NEW.span_id,'span_version',NEW.span_version,
+    'quantity_scaled',NEW.quantity_scaled,
+    'work_mode','unspecified',
+    'site_features_json',json('{}'),
+    'location_snapshot_json',json_object(
+      'line_name',NEW.line_name_snapshot,'tower_no',NEW.tower_no_snapshot,
+      'physical_code',NEW.physical_code_snapshot))) END),
  NEW.created_by,NEW.created_at);
  INSERT INTO demand_lifecycle_events(id,demand_id,event_seq,from_status,
  to_status,reason,actor_id,recorded_at)
@@ -2989,7 +3026,13 @@ BEGIN
  json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.work_object_id'),
  json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.unit_id'),
  json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.unit_version'),
- json_patch(prev.snapshot_json,NEW.snapshot_json),
+ CASE WHEN json_type(NEW.snapshot_json,'$.quantity_scaled')='integer'
+  AND json_type(NEW.snapshot_json,'$.work_locations') IS NULL
+  AND json_array_length(prev.snapshot_json,'$.work_locations')=1
+ THEN json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),
+  '$.work_locations[0].quantity_scaled',
+  json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.quantity_scaled'))
+ ELSE json_patch(prev.snapshot_json,NEW.snapshot_json) END,
  NEW.changed_by,NEW.changed_at
  FROM demand_versions prev
  WHERE prev.demand_id=NEW.demand_id AND prev.version=NEW.version-1;
@@ -3027,7 +3070,13 @@ BEGIN
  AND r.version=NEW.version AND EXISTS(
  SELECT 1 FROM demand_versions prior
  WHERE prior.demand_id=NEW.demand_id AND prior.version=NEW.version-1
- AND json_patch(prior.snapshot_json,r.snapshot_json)=NEW.snapshot_json))
+ AND (CASE WHEN json_type(r.snapshot_json,'$.quantity_scaled')='integer'
+  AND json_type(r.snapshot_json,'$.work_locations') IS NULL
+  AND json_array_length(prior.snapshot_json,'$.work_locations')=1
+ THEN json_set(json_patch(prior.snapshot_json,r.snapshot_json),
+  '$.work_locations[0].quantity_scaled',
+  json_extract(json_patch(prior.snapshot_json,r.snapshot_json),'$.quantity_scaled'))
+ ELSE json_patch(prior.snapshot_json,r.snapshot_json) END)=NEW.snapshot_json))
  THEN RAISE(ABORT,'后续需求版本必须来自上一正式版本与真实修订内容') END;
  SELECT CASE WHEN json_extract(NEW.snapshot_json,'$.quantity_scaled') IS NOT NEW.quantity_scaled
  OR json_extract(NEW.snapshot_json,'$.operation_id') IS NOT NEW.operation_id
@@ -3787,3 +3836,682 @@ CREATE TRIGGER voltage_identity_immutable_update
 BEGIN SELECT RAISE(ABORT,'电压等级编码和名称属于稳定台账分类，不得无痕改写'); END;
 CREATE TRIGGER voltage_identity_immutable_delete BEFORE DELETE ON voltage_levels
 BEGIN SELECT RAISE(ABORT,'电压等级稳定身份不可删除'); END;
+
+
+-- Round 16: authoritative per-location demand work, extracted atomically from
+-- the exact immutable demand-version JSON. A root's legacy single locator is
+-- ONLY original intake context; new versions use the complete work_locations
+-- list and its typed immutable projection. There is NO independent mutable
+-- location list and NO duplicated free-running total.
+CREATE TABLE demand_version_work_locations (
+ demand_id TEXT NOT NULL,
+ demand_version INTEGER NOT NULL,
+ item_no INTEGER NOT NULL CHECK(item_no>0),
+ location_kind TEXT NOT NULL CHECK(
+  location_kind IN ('logical_tower','physical_tower','span')),
+ logical_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT,
+ physical_tower_id TEXT REFERENCES physical_towers(id) ON DELETE RESTRICT,
+ span_id TEXT REFERENCES line_spans(id) ON DELETE RESTRICT,
+ span_version INTEGER,
+ quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
+ work_mode TEXT NOT NULL DEFAULT 'unspecified'
+  CHECK(work_mode IN ('outage','non_outage','unspecified')),
+ site_features_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(site_features_json)
+   AND json_type(site_features_json)='object'),
+ location_snapshot_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(location_snapshot_json)
+   AND json_type(location_snapshot_json)='object'),
+ PRIMARY KEY(demand_id,demand_version,item_no),
+ FOREIGN KEY(demand_id,demand_version)
+  REFERENCES demand_versions(demand_id,version) ON DELETE RESTRICT,
+ FOREIGN KEY(span_id,span_version)
+  REFERENCES line_span_history(span_id,version_no) ON DELETE RESTRICT,
+ CHECK(
+  (location_kind='logical_tower' AND logical_tower_id IS NOT NULL
+   AND physical_tower_id IS NULL AND span_id IS NULL AND span_version IS NULL)
+  OR (location_kind='physical_tower' AND physical_tower_id IS NOT NULL
+   AND logical_tower_id IS NULL AND span_id IS NULL AND span_version IS NULL)
+  OR (location_kind='span' AND span_id IS NOT NULL AND span_version>0
+   AND logical_tower_id IS NULL AND physical_tower_id IS NULL))
+) STRICT;
+CREATE TRIGGER demand_version_work_locations_publish
+ AFTER INSERT ON demand_versions
+BEGIN
+ SELECT CASE WHEN json_type(NEW.snapshot_json,'$.work_locations')<>'array'
+  OR json_array_length(NEW.snapshot_json,'$.work_locations')=0
+ THEN RAISE(ABORT,'需求正式版本必须包含完整的非空作业位置明细') END;
+ INSERT INTO demand_version_work_locations(
+  demand_id,demand_version,item_no,location_kind,logical_tower_id,
+  physical_tower_id,span_id,span_version,quantity_scaled,work_mode,site_features_json,
+  location_snapshot_json)
+ SELECT NEW.demand_id,NEW.version,CAST(x.key AS INTEGER)+1,
+   json_extract(x.value,'$.location_kind'),
+   json_extract(x.value,'$.logical_tower_id'),
+   json_extract(x.value,'$.physical_tower_id'),
+   json_extract(x.value,'$.span_id'),
+   json_extract(x.value,'$.span_version'),
+   json_extract(x.value,'$.quantity_scaled'),
+   COALESCE(json_extract(x.value,'$.work_mode'),'unspecified'),
+   COALESCE(json_extract(x.value,'$.site_features_json'),'{}'),
+   COALESCE(json_extract(x.value,'$.location_snapshot_json'),'{}')
+ FROM json_each(NEW.snapshot_json,'$.work_locations') x;
+ SELECT CASE WHEN
+  (SELECT COALESCE(SUM(x.quantity_scaled),0)
+   FROM demand_version_work_locations x
+   WHERE x.demand_id=NEW.demand_id AND x.demand_version=NEW.version)
+  <>NEW.quantity_scaled
+ THEN RAISE(ABORT,'正式需求版本总工作量必须等于全部作业位置数量之和') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM demand_version_work_locations loc
+  WHERE loc.demand_id=NEW.demand_id AND loc.demand_version=NEW.version
+   AND ((NEW.work_target_type='physical'
+      AND loc.location_kind<>'physical_tower')
+   OR (NEW.work_target_type='line'
+      AND loc.location_kind='physical_tower')))
+ THEN RAISE(ABORT,'需求作业位置类型必须与操作类型设备定位方式一致') END;
+END;
+CREATE TRIGGER demand_work_location_immutable_insert
+ BEFORE INSERT ON demand_version_work_locations
+ -- Only the authoritative demand-version publish transaction may insert:
+ -- enclosing AFTER INSERT trigger still has its immutable parent row.
+ -- This extra check prevents fabricated cross-version identity and factors.
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM demand_versions dv
+  JOIN json_each(dv.snapshot_json,'$.work_locations') x
+  WHERE dv.demand_id=NEW.demand_id AND dv.version=NEW.demand_version
+   AND CAST(x.key AS INTEGER)+1=NEW.item_no
+   AND json_extract(x.value,'$.location_kind')=NEW.location_kind
+   AND json_extract(x.value,'$.logical_tower_id') IS NEW.logical_tower_id
+   AND json_extract(x.value,'$.physical_tower_id') IS NEW.physical_tower_id
+   AND json_extract(x.value,'$.span_id') IS NEW.span_id
+   AND json_extract(x.value,'$.span_version') IS NEW.span_version
+   AND json_extract(x.value,'$.quantity_scaled')=NEW.quantity_scaled
+   AND COALESCE(json_extract(x.value,'$.work_mode'),'unspecified')=NEW.work_mode
+   AND COALESCE(json_extract(x.value,'$.site_features_json'),'{}')
+       =NEW.site_features_json
+   AND COALESCE(json_extract(x.value,'$.location_snapshot_json'),'{}')
+       =NEW.location_snapshot_json
+ ) THEN RAISE(ABORT,'需求逐位置明细只能从不可变正式需求版本完整快照原子投影，不得额外插入') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM json_each(NEW.site_features_json) feature
+  LEFT JOIN dictionary_items def ON def.type_id='price_factor'
+    AND def.code=feature.key
+  LEFT JOIN dictionary_item_versions ver
+    ON ver.item_id=def.id
+    AND ver.version=json_extract(feature.value,'$.factor_version')
+  WHERE def.id IS NULL OR ver.id IS NULL
+    OR json_type(feature.value)<>'object'
+    OR json_type(feature.value,'$.factor_version')<>'integer'
+    OR json_type(feature.value,'$.value') IS NULL
+    OR COALESCE(
+      (json_extract(ver.fields_json,'$.kind')='enum'
+       AND json_type(feature.value,'$.value')='text'
+       AND length(trim(json_extract(feature.value,'$.value')))>0)
+      OR (json_extract(ver.fields_json,'$.kind')='number'
+       AND json_type(feature.value,'$.value')='integer'),0)=0
+ ) THEN RAISE(ABORT,'需求现场价格特征必须引用有版本的标准特征字典和合法实际值') END;
+END;
+CREATE TRIGGER demand_work_location_immutable_update
+ BEFORE UPDATE ON demand_version_work_locations
+BEGIN SELECT RAISE(ABORT,'需求正式版本的逐位置工作量和现场特征不可覆盖'); END;
+CREATE TRIGGER demand_work_location_immutable_delete
+ BEFORE DELETE ON demand_version_work_locations
+BEGIN SELECT RAISE(ABORT,'需求正式版本的逐位置工作量和现场特征不可删除'); END;
+
+-- This is a legal scope-subdivision, NOT another demand root or execution.
+-- A single approved demand can carry separate tower/span quantities, and
+-- each approved scope header is merely the signed quantity checksum.
+CREATE TABLE project_approval_work_locations (
+ approval_scope_version_id TEXT NOT NULL
+  REFERENCES project_approval_scope_versions(id) ON DELETE CASCADE,
+ demand_id TEXT NOT NULL,
+ demand_version INTEGER NOT NULL,
+ location_item_no INTEGER NOT NULL CHECK(location_item_no>0),
+ approved_quantity_scaled INTEGER NOT NULL CHECK(approved_quantity_scaled>0),
+ PRIMARY KEY(approval_scope_version_id,location_item_no),
+ FOREIGN KEY(demand_id,demand_version,location_item_no)
+  REFERENCES demand_version_work_locations(demand_id,demand_version,item_no)
+  ON DELETE RESTRICT
+) STRICT;
+CREATE TRIGGER project_approval_single_location_seed
+ AFTER INSERT ON project_approval_scope_versions
+WHEN (SELECT COUNT(*) FROM demand_version_work_locations loc
+ WHERE loc.demand_id=NEW.demand_id AND loc.demand_version=NEW.demand_version)=1
+BEGIN
+ INSERT INTO project_approval_work_locations(
+  approval_scope_version_id,demand_id,demand_version,location_item_no,
+  approved_quantity_scaled)
+ SELECT NEW.id,NEW.demand_id,NEW.demand_version,loc.item_no,
+  NEW.quantity_scaled
+ FROM demand_version_work_locations loc
+ WHERE loc.demand_id=NEW.demand_id AND loc.demand_version=NEW.demand_version;
+END;
+CREATE TRIGGER project_approval_location_guard
+ BEFORE INSERT ON project_approval_work_locations
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+  WHERE sc.id=NEW.approval_scope_version_id
+    AND sc.demand_id=NEW.demand_id AND sc.demand_version=NEW.demand_version
+    AND ap.status='draft')
+ THEN RAISE(ABORT,'项目批准位置只能对应同一未批准范围及正式需求版本') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM project_approval_scope_prices chosen
+  WHERE chosen.approval_scope_version_id=NEW.approval_scope_version_id)
+ THEN RAISE(ABORT,'已选用的正式报价锁定项目逐位置数量；请先取消报价选择再调整草稿') END;
+END;
+CREATE TRIGGER project_approval_location_guard_update
+ BEFORE UPDATE ON project_approval_work_locations
+BEGIN SELECT RAISE(ABORT,'批准需求位置工作量不可原地改写；应调整草稿明细后重新插入'); END;
+CREATE TRIGGER project_approval_location_guard_delete
+ BEFORE DELETE ON project_approval_work_locations
+ WHEN EXISTS(
+  SELECT 1 FROM project_approval_scope_prices chosen
+  WHERE chosen.approval_scope_version_id=OLD.approval_scope_version_id)
+ OR EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+  WHERE sc.id=OLD.approval_scope_version_id AND ap.status='approved')
+BEGIN SELECT RAISE(ABORT,'已批准或已完成正式计价的作业位置和工作量不可删除'); END;
+CREATE TRIGGER project_approval_locations_finalize
+ BEFORE UPDATE OF status ON project_approval_versions
+ WHEN NEW.status='approved' AND OLD.status='draft'
+BEGIN
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  WHERE sc.approval_version_id=NEW.id AND
+    ((SELECT COALESCE(SUM(loc.approved_quantity_scaled),0)
+      FROM project_approval_work_locations loc
+      WHERE loc.approval_scope_version_id=sc.id)<>sc.quantity_scaled
+     OR NOT EXISTS(
+      SELECT 1 FROM project_approval_work_locations loc
+      WHERE loc.approval_scope_version_id=sc.id))
+ ) THEN RAISE(ABORT,'正式项目批准需求的逐位置工作量必须完整且与批准数量一致') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  JOIN project_approval_work_locations loc
+   ON loc.approval_scope_version_id=sc.id
+  WHERE sc.approval_version_id=NEW.id
+    AND (loc.demand_id<>sc.demand_id OR loc.demand_version<>sc.demand_version))
+ THEN RAISE(ABORT,'批准位置不得引用已在草稿中更换的其他需求版本') END;
+END;
+
+-- Round 16: operation feature declarations are a versioned operation rule,
+-- not price values. The same dictionary_item_version must appear in actual
+-- demand site facts and price applicability predicates.
+CREATE TRIGGER operation_pricing_feature_definition_guard
+ BEFORE INSERT ON operation_versions
+BEGIN
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM json_each(NEW.pricing_features_json) x
+ LEFT JOIN dictionary_items f ON f.id=json_extract(x.value,'$.factor_id')
+  AND f.type_id='price_factor'
+ LEFT JOIN dictionary_item_versions fv ON fv.item_id=f.id
+  AND fv.version=json_extract(x.value,'$.factor_version')
+ WHERE json_type(x.value)<>'object'
+ OR json_type(x.value,'$.factor_id')<>'text'
+ OR json_type(x.value,'$.factor_version')<>'integer'
+ OR json_type(x.value,'$.required') NOT IN ('true','false')
+ OR json_type(x.value,'$.source')<>'text'
+ OR json_extract(x.value,'$.source') NOT IN ('asset','manual','either')
+ OR f.id IS NULL OR fv.id IS NULL
+ OR fv.status<>'active' OR fv.changed_at>NEW.changed_at
+ ) THEN RAISE(ABORT,'操作特征声明须引用有效正式价格特征字典、来源和必填规则') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT json_extract(x.value,'$.factor_id') factor_id
+  FROM json_each(NEW.pricing_features_json) x
+  GROUP BY factor_id HAVING COUNT(*)>1)
+ THEN RAISE(ABORT,'同一操作版本不能重复声明相同作业特征') END;
+END;
+
+-- Calculate in the application using decimal cents and scaled quantity.
+-- SQL rejects malformed or contradictory published parameters and fee lists.
+CREATE TRIGGER reference_price_formula_guard
+ BEFORE INSERT ON reference_price_versions
+BEGIN
+ SELECT CASE WHEN
+  (NEW.pricing_mode IN ('fixed','progressive_bracket','group','rate','composite')
+    AND NEW.base_fee_fen<>0)
+  OR (NEW.pricing_mode IN ('progressive_bracket','group','rate','composite')
+    AND NEW.unit_price_fen<>0)
+  OR (NEW.pricing_mode='composite' AND json_array_length(NEW.fee_components_json)=0)
+  OR (NEW.pricing_mode<>'composite' AND json_array_length(NEW.fee_components_json)<>0)
+ THEN RAISE(ABORT,'参考价计价模式与基础费、数量费或费用组合明细冲突') END;
+ SELECT CASE WHEN (json_type(NEW.calculation_params_json,'$.min_amount_fen')
+    IS NOT NULL AND json_type(NEW.calculation_params_json,'$.min_amount_fen')<>'integer')
+  OR (json_type(NEW.calculation_params_json,'$.max_amount_fen')
+    IS NOT NULL AND json_type(NEW.calculation_params_json,'$.max_amount_fen')<>'integer')
+  OR COALESCE(json_extract(NEW.calculation_params_json,'$.min_amount_fen'),0)<0
+  OR COALESCE(json_extract(NEW.calculation_params_json,'$.max_amount_fen'),0)<0
+  OR (json_type(NEW.calculation_params_json,'$.max_amount_fen')='integer'
+  AND json_extract(NEW.calculation_params_json,'$.min_amount_fen')>
+      json_extract(NEW.calculation_params_json,'$.max_amount_fen'))
+ THEN RAISE(ABORT,'参考价最低收费和最高封顶须为非负金额且区间合法') END;
+ SELECT CASE WHEN NEW.pricing_mode='group' AND (
+  json_type(NEW.calculation_params_json,'$.group_size_scaled')<>'integer'
+  OR json_extract(NEW.calculation_params_json,'$.group_size_scaled')<=0
+  OR json_type(NEW.calculation_params_json,'$.group_fee_fen')<>'integer'
+  OR json_extract(NEW.calculation_params_json,'$.group_fee_fen')<0)
+ THEN RAISE(ABORT,'成组计价需要有效的每组数量及收费金额') END;
+ SELECT CASE WHEN NEW.pricing_mode='rate' AND (
+  json_type(NEW.calculation_params_json,'$.rate_basis_points')<>'integer'
+  OR json_extract(NEW.calculation_params_json,'$.rate_basis_points')<0
+  OR json_extract(NEW.calculation_params_json,'$.rate_basis_points')>10000
+  OR COALESCE(json_type(NEW.calculation_params_json,'$.rate_basis'),'missing')<>'text'
+  OR COALESCE(json_extract(NEW.calculation_params_json,'$.rate_basis'),'missing')
+     NOT IN ('labor','materials','machinery','approved_subtotal')
+  OR (json_extract(NEW.calculation_params_json,'$.rate_basis')='approved_subtotal'
+      AND NEW.pricing_scope='work_location'))
+ THEN RAISE(ABORT,'费率计价必须给出合法费率及明确计费基数') END;
+ SELECT CASE WHEN NEW.pricing_mode='progressive_bracket'
+ AND (json_type(NEW.calculation_params_json,'$.tiers')<>'array'
+   OR json_array_length(NEW.calculation_params_json,'$.tiers')=0
+   OR EXISTS(
+     SELECT 1 FROM json_each(NEW.calculation_params_json,'$.tiers') x
+     WHERE json_type(x.value)<>'object'
+      OR json_type(x.value,'$.unit_price_fen')<>'integer'
+      OR json_extract(x.value,'$.unit_price_fen')<0
+      OR json_type(x.value,'$.up_to_quantity_scaled') NOT IN ('integer','null')
+      OR (json_type(x.value,'$.up_to_quantity_scaled')='integer'
+         AND json_extract(x.value,'$.up_to_quantity_scaled')<=0))
+   OR EXISTS(
+     SELECT 1 FROM json_each(NEW.calculation_params_json,'$.tiers') a
+     JOIN json_each(NEW.calculation_params_json,'$.tiers') b
+      ON CAST(a.key AS INTEGER)<CAST(b.key AS INTEGER)
+     WHERE json_type(a.value,'$.up_to_quantity_scaled')='null'
+      OR (json_type(b.value,'$.up_to_quantity_scaled')='integer'
+        AND json_extract(a.value,'$.up_to_quantity_scaled')>=
+            json_extract(b.value,'$.up_to_quantity_scaled'))))
+ THEN RAISE(ABORT,'累进计价必须采用依次升高的边际数量阈值，最终可开放上限') END;
+ SELECT CASE WHEN NEW.pricing_mode='composite' AND (
+  EXISTS(
+   SELECT 1 FROM json_each(NEW.fee_components_json) comp
+   WHERE json_type(comp.value)<>'object'
+    OR json_type(comp.value,'$.coverage_key')<>'text'
+    OR length(trim(json_extract(comp.value,'$.coverage_key'))) =0
+    OR json_extract(comp.value,'$.formula_mode')
+      NOT IN ('fixed','per_unit','base_plus_unit','quantity_bracket',
+              'progressive_bracket','group','rate')
+    OR json_type(comp.value,'$.parameters')<>'object')
+  OR EXISTS(
+   SELECT 1 FROM json_each(NEW.fee_components_json) comp
+   WHERE
+    (json_extract(comp.value,'$.formula_mode') IN ('fixed','per_unit')
+     AND (json_type(comp.value,'$.parameters.unit_price_fen')<>'integer'
+       OR json_extract(comp.value,'$.parameters.unit_price_fen')<0))
+    OR (json_extract(comp.value,'$.formula_mode')='base_plus_unit'
+     AND (json_type(comp.value,'$.parameters.unit_price_fen')<>'integer'
+       OR json_type(comp.value,'$.parameters.base_fee_fen')<>'integer'
+       OR json_extract(comp.value,'$.parameters.unit_price_fen')<0
+       OR json_extract(comp.value,'$.parameters.base_fee_fen')<0))
+    OR (json_extract(comp.value,'$.formula_mode')='group'
+     AND (json_type(comp.value,'$.parameters.group_size_scaled')<>'integer'
+       OR json_type(comp.value,'$.parameters.group_fee_fen')<>'integer'
+       OR json_extract(comp.value,'$.parameters.group_size_scaled')<=0
+       OR json_extract(comp.value,'$.parameters.group_fee_fen')<0))
+    OR (json_extract(comp.value,'$.formula_mode')='quantity_bracket'
+     AND (json_type(comp.value,'$.parameters.brackets')<>'array'
+       OR json_array_length(comp.value,'$.parameters.brackets')=0))
+    OR (json_extract(comp.value,'$.formula_mode')='progressive_bracket'
+     AND (json_type(comp.value,'$.parameters.tiers')<>'array'
+       OR json_array_length(comp.value,'$.parameters.tiers')=0))
+    OR (json_extract(comp.value,'$.formula_mode')='rate'
+     AND (json_type(comp.value,'$.parameters.rate_basis_points')<>'integer'
+       OR json_type(comp.value,'$.parameters.rate_basis')<>'text'
+       OR json_extract(comp.value,'$.parameters.rate_basis_points')<0
+       OR json_extract(comp.value,'$.parameters.rate_basis_points')>10000))
+  )
+  OR EXISTS(
+   SELECT 1 FROM json_each(NEW.fee_components_json) comp
+   GROUP BY json_extract(comp.value,'$.coverage_key')
+   HAVING COUNT(*)>1))
+ THEN RAISE(ABORT,'组合参考价的费用覆盖编码必须唯一且每项须有合法公式及参数') END;
+END;
+
+-- A reference-price evaluation belongs either to an entire immutable demand
+-- version (standalone preview/formal demand quote), or to a specific approved
+-- PROJECT SCOPE VERSION (the latter can have partial quantities per location).
+-- No snapshot of "current total" on a mutable demand, scope or project root.
+CREATE TABLE reference_price_evaluations (
+ id TEXT NOT NULL PRIMARY KEY,
+ demand_id TEXT NOT NULL,
+ demand_version INTEGER NOT NULL CHECK(demand_version>0),
+ approval_scope_version_id TEXT
+  REFERENCES project_approval_scope_versions(id) ON DELETE RESTRICT,
+ pricing_date TEXT NOT NULL CHECK(length(pricing_date)=10 AND
+  COALESCE(strftime('%Y-%m-%d',julianday(pricing_date))=pricing_date,0)),
+ status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','final')),
+ engine_version TEXT NOT NULL CHECK(length(trim(engine_version))>0),
+ input_basis_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(input_basis_json)
+   AND json_type(input_basis_json)='object'),
+ created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ created_at TEXT NOT NULL CHECK(length(created_at)=24
+  AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)),
+ finalized_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+ finalized_at TEXT CHECK(finalized_at IS NULL OR
+  (length(finalized_at)=24 AND
+   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(finalized_at))=finalized_at,0))),
+ FOREIGN KEY(demand_id,demand_version)
+  REFERENCES demand_versions(demand_id,version) ON DELETE RESTRICT,
+ CHECK((status='draft' AND finalized_by IS NULL AND finalized_at IS NULL)
+    OR (status='final' AND finalized_by IS NOT NULL AND finalized_at IS NOT NULL))
+) STRICT;
+
+-- Each whole price RULE may have several fee components within its immutable
+-- version. Each evaluated location + coverage_key is unique, preventing
+-- accidental double inclusion of labor/materials/transport in one quote.
+-- A fee amount is always a factual result of application-side arithmetic;
+-- no executable formula, tax engine or project report is hidden in SQLite.
+CREATE TABLE reference_price_evaluation_lines (
+ id TEXT NOT NULL PRIMARY KEY,
+ evaluation_id TEXT NOT NULL
+  REFERENCES reference_price_evaluations(id) ON DELETE CASCADE,
+ location_item_no INTEGER NOT NULL CHECK(location_item_no>0),
+ coverage_key TEXT NOT NULL CHECK(length(trim(coverage_key))>0),
+ reference_price_version_id TEXT NOT NULL
+  REFERENCES reference_price_versions(id) ON DELETE RESTRICT,
+ quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
+ amount_fen INTEGER NOT NULL CHECK(amount_fen>=0),
+ calculation_inputs_json TEXT NOT NULL
+  CHECK(json_valid(calculation_inputs_json)
+    AND json_type(calculation_inputs_json)='object'),
+ calculation_trace_json TEXT NOT NULL
+  CHECK(json_valid(calculation_trace_json)
+    AND json_type(calculation_trace_json)='object'),
+ UNIQUE(evaluation_id,location_item_no,coverage_key)
+) STRICT;
+CREATE TRIGGER reference_price_evaluation_insert_guard
+ BEFORE INSERT ON reference_price_evaluations
+BEGIN
+ SELECT CASE WHEN NEW.approval_scope_version_id IS NOT NULL AND NOT EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+  WHERE sc.id=NEW.approval_scope_version_id
+   AND sc.demand_id=NEW.demand_id
+   AND sc.demand_version=NEW.demand_version
+   AND ap.status='draft')
+ THEN RAISE(ABORT,'项目价格核算必须对应同一未批准项目范围及真实需求版本') END;
+ SELECT CASE WHEN NEW.status<>'draft'
+ THEN RAISE(ABORT,'新建价格核算只能从草稿开始，逐位置核算完整后才能正式确认') END;
+END;
+CREATE TRIGGER reference_price_evaluation_line_guard
+ BEFORE INSERT ON reference_price_evaluation_lines
+BEGIN
+ -- One comprehensive fee (main) is exclusive with narrower fee classes.
+ -- A composite price rule can contain many INTERNAL distinct coverage parts,
+ -- but it is represented as one comprehensive output line per location.
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM reference_price_evaluation_lines old
+  WHERE old.evaluation_id=NEW.evaluation_id
+   AND old.location_item_no=NEW.location_item_no
+   AND (old.coverage_key='main' OR NEW.coverage_key='main'))
+ THEN RAISE(ABORT,'综合参考价与分项费用不得在同一作业位置叠加重复计价') END;
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM reference_price_evaluations ev
+  JOIN demand_versions dv ON dv.demand_id=ev.demand_id AND dv.version=ev.demand_version
+  JOIN demand_version_work_locations loc
+   ON loc.demand_id=ev.demand_id AND loc.demand_version=ev.demand_version
+    AND loc.item_no=NEW.location_item_no
+  JOIN reference_price_versions pr ON pr.id=NEW.reference_price_version_id
+   AND pr.operation_id=dv.operation_id
+   AND pr.operation_version=dv.operation_version
+   AND pr.unit_id=dv.unit_id AND pr.unit_version=dv.unit_version
+   AND pr.status='active' AND pr.pricing_scope='work_location'
+   AND (pr.work_mode='both' OR pr.work_mode=loc.work_mode)
+   AND pr.effective_on<=ev.pricing_date AND pr.created_at<=ev.created_at
+  WHERE ev.id=NEW.evaluation_id AND ev.status='draft'
+   AND (ev.approval_scope_version_id IS NULL OR EXISTS(
+     SELECT 1 FROM project_approval_work_locations approved
+     JOIN project_approval_scope_versions sc
+      ON sc.id=approved.approval_scope_version_id
+     JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+      AND ap.status='draft'
+     WHERE approved.approval_scope_version_id=ev.approval_scope_version_id
+       AND approved.location_item_no=NEW.location_item_no))
+   AND NEW.quantity_scaled=COALESCE(
+    (SELECT approved.approved_quantity_scaled
+     FROM project_approval_work_locations approved
+     WHERE approved.approval_scope_version_id=ev.approval_scope_version_id
+       AND approved.location_item_no=NEW.location_item_no),
+     loc.quantity_scaled))
+ THEN RAISE(ABORT,'参考价逐位置结果必须匹配正式操作版本、适用日期、计量单位和当次需求工作量') END;
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM reference_price_evaluations ev
+ JOIN demand_versions dv ON dv.demand_id=ev.demand_id
+  AND dv.version=ev.demand_version
+ JOIN operation_versions ov ON ov.operation_id=dv.operation_id
+  AND ov.version=dv.operation_version
+ JOIN reference_price_versions pr ON pr.id=NEW.reference_price_version_id
+ JOIN json_each(pr.additional_conditions_json) condition
+ WHERE ev.id=NEW.evaluation_id AND NOT EXISTS(
+  SELECT 1 FROM json_each(ov.pricing_features_json) declared
+  JOIN dictionary_items factor ON factor.id=json_extract(declared.value,'$.factor_id')
+  WHERE factor.code=condition.key
+    AND json_extract(declared.value,'$.factor_version')=
+        json_extract(condition.value,'$.factor_version'))
+ ) THEN RAISE(ABORT,'使用的价格适用因素必须由同版操作类型正式声明') END;
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM reference_price_evaluations ev
+ JOIN demand_versions dv ON dv.demand_id=ev.demand_id
+  AND dv.version=ev.demand_version
+ JOIN operation_versions ov ON ov.operation_id=dv.operation_id
+  AND ov.version=dv.operation_version
+ JOIN demand_version_work_locations loc ON loc.demand_id=ev.demand_id
+  AND loc.demand_version=ev.demand_version AND loc.item_no=NEW.location_item_no
+ JOIN json_each(ov.pricing_features_json) declared
+ JOIN dictionary_items factor ON factor.id=json_extract(declared.value,'$.factor_id')
+ WHERE ev.id=NEW.evaluation_id
+  AND json_extract(declared.value,'$.required')=1
+  AND NOT EXISTS(
+   SELECT 1 FROM json_each(loc.site_features_json) actual
+   WHERE actual.key=factor.code
+    AND json_extract(actual.value,'$.factor_version')=
+        json_extract(declared.value,'$.factor_version'))
+ ) THEN RAISE(ABORT,'需求作业位置未完整提供操作类型要求的正式价格特征') END;
+END;
+CREATE TRIGGER reference_price_evaluation_line_immutable_update
+ BEFORE UPDATE ON reference_price_evaluation_lines
+BEGIN SELECT RAISE(ABORT,'参考价计算明细不允许覆盖，请替换草稿明细或重新正式计价'); END;
+CREATE TRIGGER reference_price_evaluation_line_guard_delete
+ BEFORE DELETE ON reference_price_evaluation_lines
+WHEN EXISTS(
+ SELECT 1 FROM reference_price_evaluations ev
+ WHERE ev.id=OLD.evaluation_id AND ev.status='final')
+BEGIN SELECT RAISE(ABORT,'正式参考价计算明细不可删除'); END;
+CREATE TRIGGER reference_price_evaluation_finalize_guard
+ BEFORE UPDATE OF status ON reference_price_evaluations
+ WHEN NEW.status='final' AND OLD.status='draft'
+BEGIN
+ SELECT CASE WHEN NEW.demand_id IS NOT OLD.demand_id
+  OR NEW.demand_version IS NOT OLD.demand_version
+  OR NEW.approval_scope_version_id IS NOT OLD.approval_scope_version_id
+  OR NEW.pricing_date IS NOT OLD.pricing_date
+  OR NEW.engine_version IS NOT OLD.engine_version
+  OR NEW.input_basis_json IS NOT OLD.input_basis_json
+  OR NEW.created_by IS NOT OLD.created_by
+  OR NEW.created_at IS NOT OLD.created_at
+ THEN RAISE(ABORT,'参考价确认时不可暗改需求、项目范围或报价输入依据') END;
+ SELECT CASE WHEN NEW.finalized_at<NEW.created_at
+ THEN RAISE(ABORT,'正式参考价确认时间不得早于计价创建时间') END;
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM reference_price_evaluation_lines l
+  WHERE l.evaluation_id=NEW.id)
+ THEN RAISE(ABORT,'无计价规则或未计价需求不得虚构零元完整参考价') END;
+ SELECT CASE WHEN NEW.approval_scope_version_id IS NULL AND EXISTS(
+  SELECT 1 FROM demand_version_work_locations loc
+  WHERE loc.demand_id=NEW.demand_id AND loc.demand_version=NEW.demand_version
+   AND NOT EXISTS(
+     SELECT 1 FROM reference_price_evaluation_lines l
+     WHERE l.evaluation_id=NEW.id AND l.location_item_no=loc.item_no))
+ THEN RAISE(ABORT,'需求参考价必须覆盖全部正式作业位置') END;
+ SELECT CASE WHEN NEW.approval_scope_version_id IS NOT NULL AND EXISTS(
+  SELECT 1 FROM project_approval_work_locations loc
+  WHERE loc.approval_scope_version_id=NEW.approval_scope_version_id
+   AND NOT EXISTS(
+    SELECT 1 FROM reference_price_evaluation_lines l
+    WHERE l.evaluation_id=NEW.id AND l.location_item_no=loc.location_item_no))
+ THEN RAISE(ABORT,'项目承接参考价必须覆盖本次批准的全部作业位置') END;
+ SELECT CASE WHEN NEW.approval_scope_version_id IS NOT NULL AND
+ (SELECT status FROM project_approval_versions ap
+ JOIN project_approval_scope_versions sc ON sc.approval_version_id=ap.id
+ WHERE sc.id=NEW.approval_scope_version_id)<>'draft'
+ THEN RAISE(ABORT,'已批准项目不能追加新的草稿计价结果') END;
+END;
+CREATE TRIGGER reference_price_evaluation_immutable_update
+ BEFORE UPDATE ON reference_price_evaluations
+ WHEN OLD.status='final'
+  OR NEW.status<>'final' OR OLD.status<>'draft'
+BEGIN SELECT RAISE(ABORT,'已正式确认的参考价历史不可修改；草稿只能正式确认'); END;
+CREATE TRIGGER reference_price_evaluation_immutable_delete
+ BEFORE DELETE ON reference_price_evaluations
+ WHEN OLD.status='final'
+BEGIN SELECT RAISE(ABORT,'正式参考价计算结果历史不可删除'); END;
+
+-- Approval scope chooses one finalized evaluation, or none (UNPRICED).
+-- No associated quote is never the same as a quoted zero-fen amount.
+CREATE TABLE project_approval_scope_prices (
+ approval_scope_version_id TEXT NOT NULL PRIMARY KEY
+  REFERENCES project_approval_scope_versions(id) ON DELETE CASCADE,
+ evaluation_id TEXT NOT NULL UNIQUE
+  REFERENCES reference_price_evaluations(id) ON DELETE RESTRICT
+) STRICT;
+CREATE TRIGGER project_approval_scope_price_guard
+ BEFORE INSERT ON project_approval_scope_prices
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+  JOIN reference_price_evaluations ev ON ev.id=NEW.evaluation_id
+  WHERE sc.id=NEW.approval_scope_version_id
+   AND sc.id=ev.approval_scope_version_id
+   AND sc.demand_id=ev.demand_id AND sc.demand_version=ev.demand_version
+   AND ev.status='final' AND ap.status='draft')
+ THEN RAISE(ABORT,'批准参考价只可引用同一正式需求范围已确认且不可变的计价结果') END;
+END;
+CREATE TRIGGER project_approval_scope_price_immutable_update
+ BEFORE UPDATE ON project_approval_scope_prices
+BEGIN SELECT RAISE(ABORT,'批准范围计价依据不可改写；草稿须撤回选择后重新关联'); END;
+CREATE TRIGGER project_approval_scope_price_guard_delete
+ BEFORE DELETE ON project_approval_scope_prices
+ WHEN EXISTS(
+ SELECT 1 FROM project_approval_scope_versions sc
+ JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+ WHERE sc.id=OLD.approval_scope_version_id AND ap.status='approved')
+BEGIN SELECT RAISE(ABORT,'已批准项目的正式参考价依据不可删除'); END;
+
+-- A FINAL quote is immutable, but the surrounding approval draft may have
+-- been changed since it was priced. On approval re-check exact location IDs,
+-- quantities, demand version and the selected result; a stale quote is NOT an
+-- approved price. Unpriced scope is allowed but must remain explicitly NULL.
+CREATE TRIGGER project_approval_reference_freshness_finalize
+ BEFORE UPDATE OF status ON project_approval_versions
+ WHEN NEW.status='approved' AND OLD.status='draft'
+BEGIN
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM project_approval_scope_prices chosen
+  JOIN project_approval_scope_versions sc
+   ON sc.id=chosen.approval_scope_version_id
+  JOIN reference_price_evaluations ev ON ev.id=chosen.evaluation_id
+  WHERE sc.approval_version_id=NEW.id
+   AND (ev.status<>'final' OR ev.approval_scope_version_id<>sc.id
+    OR ev.demand_id<>sc.demand_id OR ev.demand_version<>sc.demand_version
+    OR EXISTS(
+      SELECT 1 FROM project_approval_work_locations loc
+      WHERE loc.approval_scope_version_id=sc.id
+       AND NOT EXISTS(
+        SELECT 1 FROM reference_price_evaluation_lines priced
+        WHERE priced.evaluation_id=ev.id
+          AND priced.location_item_no=loc.location_item_no
+          AND priced.quantity_scaled=loc.approved_quantity_scaled))
+    OR EXISTS(
+      SELECT 1 FROM reference_price_evaluation_lines priced
+      WHERE priced.evaluation_id=ev.id AND NOT EXISTS(
+        SELECT 1 FROM project_approval_work_locations loc
+        WHERE loc.approval_scope_version_id=sc.id
+          AND loc.location_item_no=priced.location_item_no
+          AND loc.approved_quantity_scaled=priced.quantity_scaled))))
+ THEN RAISE(ABORT,'本次项目需求范围已调整，选用的正式参考价过期，请重新核价') END;
+END;
+
+-- Independent charges applying ONCE to the approved project or a declared
+-- work batch. They cannot be hidden under every demand to inflate the sum.
+CREATE TABLE project_reference_price_charges (
+ id TEXT NOT NULL PRIMARY KEY,
+ approval_version_id TEXT NOT NULL
+  REFERENCES project_approval_versions(id) ON DELETE RESTRICT,
+ reference_price_version_id TEXT NOT NULL
+  REFERENCES reference_price_versions(id) ON DELETE RESTRICT,
+ charge_scope_key TEXT NOT NULL CHECK(length(trim(charge_scope_key))>0),
+ amount_fen INTEGER NOT NULL CHECK(amount_fen>=0),
+ pricing_inputs_json TEXT NOT NULL CHECK(json_valid(pricing_inputs_json)
+  AND json_type(pricing_inputs_json)='object'),
+ calculation_trace_json TEXT NOT NULL CHECK(json_valid(calculation_trace_json)
+  AND json_type(calculation_trace_json)='object'),
+ created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ created_at TEXT NOT NULL CHECK(length(created_at)=24
+ AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)),
+ UNIQUE(approval_version_id,charge_scope_key)
+) STRICT;
+CREATE TRIGGER project_reference_price_charge_guard
+ BEFORE INSERT ON project_reference_price_charges
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM project_approval_versions ap
+  JOIN reference_price_versions pr ON pr.id=NEW.reference_price_version_id
+  WHERE ap.id=NEW.approval_version_id AND ap.status='draft'
+   AND pr.status='active'
+   AND pr.pricing_scope IN ('work_batch','project')
+   AND pr.created_at<=NEW.created_at)
+ THEN RAISE(ABORT,'项目独立参考价费用必须对应未批准项目及适用批次或项目作用域价格') END;
+END;
+CREATE TRIGGER project_reference_price_charge_immutable_update
+ BEFORE UPDATE ON project_reference_price_charges
+BEGIN SELECT RAISE(ABORT,'项目独立参考费用计算事实不可覆盖'); END;
+CREATE TRIGGER project_reference_price_charge_guard_delete
+ BEFORE DELETE ON project_reference_price_charges
+ WHEN EXISTS(SELECT 1 FROM project_approval_versions ap
+  WHERE ap.id=OLD.approval_version_id AND ap.status='approved')
+BEGIN SELECT RAISE(ABORT,'已批准项目独立参考费用不得删除'); END;
+
+-- Non-aggregated fact projections only. Application MUST compute the total,
+-- null/unpriced status, per-demand fees and project-level charge composition;
+-- these are NOT financial budgets or settlement fees.
+CREATE VIEW v_demand_reference_quote_current AS
+SELECT ev.* FROM reference_price_evaluations ev
+JOIN v_demand_current d ON d.id=ev.demand_id
+ AND d.current_version=ev.demand_version
+WHERE ev.approval_scope_version_id IS NULL AND ev.status='final'
+ AND ev.id=(
+  SELECT x.id FROM reference_price_evaluations x
+  WHERE x.demand_id=ev.demand_id AND x.demand_version=ev.demand_version
+    AND x.approval_scope_version_id IS NULL AND x.status='final'
+  ORDER BY x.finalized_at DESC,x.id DESC LIMIT 1);
+
+CREATE VIEW v_project_approval_reference_basis_current AS
+SELECT sc.approval_version_id,sc.id AS approval_scope_version_id,
+ sc.project_scope_id,sc.demand_id,sc.demand_version,
+ choice.evaluation_id,ev.engine_version,ev.pricing_date
+FROM v_approval_scope_current sc
+LEFT JOIN project_approval_scope_prices choice
+ ON choice.approval_scope_version_id=sc.id
+LEFT JOIN reference_price_evaluations ev ON ev.id=choice.evaluation_id;
+
+CREATE INDEX idx_ref_evaluation_demand_version
+ ON reference_price_evaluations(demand_id,demand_version,finalized_at);
+
+-- One site per physical tower / logical tower / span within one immutable
+-- work-operation demand version. Duplicate entries would collect its
+-- one-location base charge multiple times.
+CREATE UNIQUE INDEX uq_demand_location_physical
+ ON demand_version_work_locations(demand_id,demand_version,physical_tower_id)
+ WHERE physical_tower_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_demand_location_logical
+ ON demand_version_work_locations(demand_id,demand_version,logical_tower_id)
+ WHERE logical_tower_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_demand_location_span
+ ON demand_version_work_locations(demand_id,demand_version,span_id)
+ WHERE span_id IS NOT NULL;

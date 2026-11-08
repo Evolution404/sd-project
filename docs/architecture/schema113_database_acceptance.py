@@ -1705,8 +1705,10 @@ ok("no independent preapproval allocation table, projection or evidence FK",
     and not any(x["table"]=="cost_allocation_versions"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==25
-    and {'v_project_demand_binding_current','v_effective_demand_resolutions',
+    len(present)==27
+    and {'v_demand_reference_quote_current',
+         'v_project_approval_reference_basis_current',
+         'v_project_demand_binding_current','v_effective_demand_resolutions',
          'v_organizational_unit_current','v_approval_scope_current',
          'v_settlement_review_status','v_cost_current',
          'v_cost_reconciliation_current',
@@ -4509,6 +4511,514 @@ try:
 finally:
     db.execute("ROLLBACK TO r15_formal_reassignment")
     db.execute("RELEASE r15_formal_reassignment")
+
+
+# Round 16: actual work object vs physical target vs material, standard
+# versioned work factors, per-location work, immutable reference rules and
+# price evaluations, partial project scope, historic quote freeze, NO silent
+# zero totals or duplicate project charges. All amounts are illustrative.
+db.execute("SAVEPOINT r16_full_price_architecture")
+try:
+    import json
+    from decimal import Decimal
+
+    def r16_price(name, *, mode="base_plus_unit", op="r16_op",
+                  op_version=1, base=0, unit=0, scope="work_location",
+                  params=None, components=None, brackets=None, work_mode="both",
+                  conditions=None, created_at="2026-11-08T04:42:00.000Z"):
+        add("reference_price_catalog",id="r16_cat_"+name,
+            code="R16-"+name.upper(),created_by="u",
+            created_at="2026-11-08T04:40:00.000Z")
+        add("reference_price_versions",id="r16_price_"+name,
+            catalog_id="r16_cat_"+name,version_no=1,
+            title="第十六轮参考价 "+name,operation_id=op,
+            operation_version=op_version,unit_id="unit",unit_version=1,
+            pricing_mode=mode,pricing_scope=scope,work_mode=work_mode,
+            additional_conditions_json=json.dumps(conditions or {}),
+            calculation_params_json=json.dumps(params or {},ensure_ascii=False),
+            fee_components_json=json.dumps(components or [],ensure_ascii=False),
+            quantity_brackets_json=json.dumps(brackets or [],ensure_ascii=False),
+            base_fee_fen=base,unit_price_fen=unit,
+            status="active",price_source="仅用于隔离契约测试的假设价格",
+            price_date="2026-11-08",tax_mode="inclusive",
+            effective_on="2026-11-08",basis="计价规则测试",
+            created_by="u",created_at=created_at)
+        return "r16_price_"+name
+
+    def r16_eval(name, *, did, ver, scope_id=None):
+        add("reference_price_evaluations",id=name,demand_id=did,
+            demand_version=ver,approval_scope_version_id=scope_id,
+            pricing_date="2026-11-08",engine_version="r16-demo-v1",
+            input_basis_json='{"confirmed_source":"site-survey"}',
+            created_by="u",created_at="2026-11-08T04:50:00.000Z")
+        return name
+
+    def r16_line(name, ev, item, q, money, price="r16_price_base"):
+        add("reference_price_evaluation_lines",id=name,evaluation_id=ev,
+            location_item_no=item,coverage_key="main",
+            reference_price_version_id=price,quantity_scaled=q,
+            amount_fen=money,
+            calculation_inputs_json=json.dumps(
+                {"quantity_scaled":q,"pricing_scope":"work_location",
+                 "rounding":"half-up"}),
+            calculation_trace_json=json.dumps(
+                {"base_fee_fen":10000,"unit_price_fen":2000,
+                 "computed_amount_fen":money}))
+
+    def r16_final(ev):
+        db.execute("UPDATE reference_price_evaluations SET status='final',"
+            "finalized_by='u',finalized_at='2026-11-08T05:00:00.000Z'"
+            " WHERE id=?",(ev,))
+
+    add("dictionary_items",id="r16_terrain",type_id="price_factor",
+        code="r16_terrain",created_at="2026-11-08T04:20:00.000Z")
+    add("dictionary_item_versions",id="r16_terrain_v1",item_id="r16_terrain",
+        version=1,name="第十六轮地形",status="active",
+        fields_json='{"kind":"enum"}',changed_by="u",
+        changed_at="2026-11-08T04:21:00.000Z")
+    add("work_objects",id="r16_object",code="R16-BIRD",
+        created_at="2026-11-08T04:20:00.000Z")
+    add("work_object_versions",id="r16_object_v1",
+        work_object_id="r16_object",version_no=1,
+        name="防鸟装置",work_target_type="physical",status="active",
+        changed_by="u",recorded_at="2026-11-08T04:21:00.000Z")
+    add("operations",id="r16_op",code="R16-INSTALL-BIRD",
+        created_at="2026-11-08T04:21:00.000Z")
+    feature_config=json.dumps([{
+        "factor_id":"r16_terrain","factor_version":1,"source":"either",
+        "required":True}])
+    add("operation_versions",id="r16_op_v1",operation_id="r16_op",
+        version=1,name="安装防鸟装置",status="active",work_target_type="physical",
+        work_object_id="r16_object",default_unit_id="unit",
+        default_unit_version=1,allow_tower=1,allow_span=0,
+        default_location_kind="tower",pricing_features_json=feature_config,
+        changed_by="u",changed_at="2026-11-08T04:22:00.000Z")
+    blocked_reason("operation feature must have a real official factor version",
+        "INSERT INTO operation_versions(id,operation_id,version,name,"
+        "status,work_target_type,work_object_id,default_unit_id,"
+        "default_unit_version,allow_tower,allow_span,default_location_kind,"
+        "pricing_features_json,changed_by,changed_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "操作特征声明须引用有效正式价格特征字典",
+        ("r16_bad_operation_feature","r16_op",2,"非法作业特征",
+         "active","physical","r16_object","unit",1,1,0,"tower",
+         '[{"factor_id":"ghost","factor_version":1,"source":"asset","required":true}]',
+         "u","2026-11-08T04:30:00.000Z"))
+    add("physical_towers",id="r16_pt16",tower_code="R16-PT16",
+        tower_type="straight",created_by="u",created_at="2026-11-08T04:22:00.000Z")
+    add("physical_towers",id="r16_pt17",tower_code="R16-PT17",
+        tower_type="strain",created_by="u",created_at="2026-11-08T04:22:00.000Z")
+    def r16_locations(qs=(30000,20000,40000)):
+        return [{
+            "location_kind":"physical_tower","physical_tower_id":tower,
+            "quantity_scaled":qty,
+            "site_features_json":{
+                "r16_terrain":{"factor_version":1,"value":"mountain"}},
+            "location_snapshot_json":{"label":label}}
+            for tower,qty,label in zip(("pt","r16_pt16","r16_pt17"),
+                qs,("#15塔","#16塔","#17塔"))]
+    add("demands",id="r16_d",demand_no="R16-D-001",
+        physical_tower_id="pt",context_line_id="line",
+        line_name_snapshot="220kV现场某线路",tower_no_snapshot="#15",
+        work_target_type="physical",
+        operation_id="r16_op",operation_version=1,
+        operation_snapshot="安装防鸟装置",
+        work_object_id="r16_object",work_object_snapshot="防鸟装置",
+        target_object="各塔防鸟装置",quantity_scaled=90000,
+        unit_id="unit",unit_version=1,unit_snapshot="套",
+        completion_standard="安装验收合格",problem_description="鸟害隐患",
+        initial_work_locations_json=json.dumps(
+            r16_locations(),ensure_ascii=False),
+        created_by="u",created_at="2026-11-08T04:30:00.000Z")
+    add("demand_lifecycle_events",id="activate_r16_d",
+        demand_id="r16_d",event_seq=2,from_status="pending",
+        to_status="active",actor_id="u",
+        recorded_at="2026-11-08T04:31:00.000Z")
+    facts=list(db.execute(
+        "SELECT location_item_no,physical_tower_id,quantity_scaled "
+        "FROM (SELECT item_no AS location_item_no,physical_tower_id,quantity_scaled "
+        "FROM demand_version_work_locations WHERE demand_id='r16_d' "
+        "AND demand_version=1) ORDER BY location_item_no"))
+    ok("one demand holds 3 real independent physical towers with 3,2,4 units",
+        [(x["physical_tower_id"],x["quantity_scaled"]) for x in facts]
+        ==[("pt",30000),("r16_pt16",20000),("r16_pt17",40000)]
+        and sum(x["quantity_scaled"] for x in facts)==90000)
+    ok("standard work object and specific material master remain independent",
+        row("SELECT COUNT(*) n FROM sqlite_master WHERE name='r16_object'")["n"]==0
+        and row("SELECT work_object_id FROM operation_versions "
+            "WHERE id='r16_op_v1'")["work_object_id"]=="r16_object"
+        and len(db.execute("SELECT 1 FROM demand_material_version_items "
+            "WHERE demand_id='r16_d'").fetchall())==0)
+    blocked_reason("published demand cannot accept forged extra work location",
+        "INSERT INTO demand_version_work_locations("
+        "demand_id,demand_version,item_no,location_kind,physical_tower_id,"
+        "quantity_scaled) VALUES(?,?,?,?,?,?)",
+        "需求逐位置明细只能从不可变正式需求版本完整快照原子投影",
+        ("r16_d",1,4,"physical_tower","r16_pt17",10000))
+    blocked_reason("published work location cannot have its site or quantity overwritten",
+        "UPDATE demand_version_work_locations SET quantity_scaled=50000 "
+        "WHERE demand_id='r16_d' AND demand_version=1 AND item_no=1",
+        "需求正式版本的逐位置工作量和现场特征不可覆盖")
+    blocked_reason("root total cannot disagree with multi-location sum",
+        "INSERT INTO demands(id,demand_no,physical_tower_id,context_line_id,"
+        "line_name_snapshot,tower_no_snapshot,work_target_type,"
+        "operation_id,operation_version,operation_snapshot,work_object_id,"
+        "work_object_snapshot,target_object,quantity_scaled,unit_id,unit_version,"
+        "unit_snapshot,completion_standard,problem_description,created_by,"
+        "created_at,initial_work_locations_json) VALUES("
+        +",".join("?" for _ in range(22))+")",
+        "正式需求版本总工作量必须等于全部作业位置数量之和",
+        ("r16_wrong_sum","R16-WRONG-SUM","pt","line","某线路","#15",
+        "physical","r16_op",1,"安装防鸟装置","r16_object",
+        "防鸟装置","防鸟装置",10000,"unit",1,"套","合格","隐患",
+        "u","2026-11-08T04:31:00.000Z",json.dumps(r16_locations())))
+
+    # Fixed, whole-tier, progressive, group, rate, composite and min/max
+    # are defined by immutable concrete parameters. Math stays in Python/app.
+    r16_price("base",base=10000,unit=2000)
+    r16_price("per",mode="per_unit",unit=2000)
+    r16_price("fixed",mode="fixed",unit=20000)
+    r16_price("whole",mode="quantity_bracket",brackets=[
+        {"min_quantity_scaled":10000,"max_quantity_scaled":30000,
+         "base_fee_fen":10000,"unit_price_fen":2000},
+        {"min_quantity_scaled":40000,"max_quantity_scaled":None,
+         "base_fee_fen":12000,"unit_price_fen":1500}])
+    r16_price("progressive",mode="progressive_bracket",params={
+        "tiers":[{"up_to_quantity_scaled":30000,"unit_price_fen":10000},
+                 {"up_to_quantity_scaled":None,"unit_price_fen":8000}]})
+    r16_price("group",mode="group",params={
+        "group_size_scaled":30000,"group_fee_fen":10000,
+        "min_amount_fen":10000,"max_amount_fen":50000})
+    r16_price("rate",mode="rate",params={
+        "rate_basis_points":500,"rate_basis":"labor"})
+    r16_price("composite",mode="composite",components=[
+        {"coverage_key":"labor","formula_mode":"per_unit",
+         "parameters":{"unit_price_fen":2000}},
+        {"coverage_key":"machinery","formula_mode":"fixed",
+         "parameters":{"unit_price_fen":10000}}])
+    ok("all 8 named calculation models are versioned; no code is stored as a formula",
+        row("SELECT COUNT(DISTINCT pricing_mode) n FROM reference_price_versions "
+            "WHERE id LIKE 'r16_price_%'")["n"]==8
+        and row("SELECT COUNT(*) n FROM reference_price_versions "
+            "WHERE id LIKE 'r16_price_%'")["n"]==8)
+    def bad_rule(label,mode,params,components,reason):
+        blocked_reason(label,
+            "INSERT INTO reference_price_versions("
+            "id,catalog_id,version_no,title,operation_id,operation_version,"
+            "unit_id,unit_version,status,pricing_mode,base_fee_fen,"
+            "unit_price_fen,calculation_params_json,fee_components_json,"
+            "price_source,price_date,tax_mode,effective_on,basis,created_by,created_at)"
+            " VALUES("+",".join("?" for _ in range(21))+")",
+            reason,
+            ("r16_bad_rule_"+label,"r16_cat_base",2,"无效正式价格规则",
+             "r16_op",1,"unit",1,"active",mode,0,0,
+             json.dumps(params),json.dumps(components),"测试","2026-11-08",
+             "inclusive","2026-11-08","测试","u","2026-11-08T04:43:00.000Z"))
+    bad_rule("group_zero_size","group",{
+        "group_size_scaled":0,"group_fee_fen":100},[],
+        "成组计价需要有效的每组数量及收费金额")
+    bad_rule("invalid_min_max","per_unit",{
+        "min_amount_fen":900,"max_amount_fen":800},[],
+        "参考价最低收费和最高封顶须为非负金额且区间合法")
+    bad_rule("rate_no_basis","rate",{
+        "rate_basis_points":500},[],
+        "费率计价必须给出合法费率及明确计费基数")
+    bad_rule("progressive_reversed","progressive_bracket",{
+        "tiers":[{"up_to_quantity_scaled":30000,"unit_price_fen":100},
+                 {"up_to_quantity_scaled":20000,"unit_price_fen":80}]},[],
+        "累进计价必须采用依次升高的边际数量阈值")
+    bad_rule("composite_same_coverage","composite",{},[
+        {"coverage_key":"labor","formula_mode":"fixed",
+         "parameters":{"unit_price_fen":100}},
+        {"coverage_key":"labor","formula_mode":"fixed",
+         "parameters":{"unit_price_fen":50}}],
+        "组合参考价的费用覆盖编码必须唯一")
+
+    add("demands",id="r16_missing_factor",demand_no="R16-MISSING-FACTOR",
+        physical_tower_id="pt",context_line_id="line",
+        line_name_snapshot="价格因素缺失测试",tower_no_snapshot="#15",
+        work_target_type="physical",operation_id="r16_op",
+        operation_version=1,operation_snapshot="安装防鸟装置",
+        work_object_id="r16_object",work_object_snapshot="防鸟装置",
+        target_object="防鸟装置",quantity_scaled=10000,
+        unit_id="unit",unit_version=1,unit_snapshot="套",
+        completion_standard="合格",problem_description="条件待核实",
+        created_by="u",created_at="2026-11-08T04:33:00.000Z")
+    r16_eval("r16_missing_factor_quote",did="r16_missing_factor",ver=1)
+    blocked_reason("mandatory price feature absent at real tower cannot produce formal quote",
+        "INSERT INTO reference_price_evaluation_lines(id,evaluation_id,"
+        "location_item_no,coverage_key,reference_price_version_id,"
+        "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
+        " VALUES('r16_missing_factor_line','r16_missing_factor_quote',1,"
+        "'main','r16_price_base',10000,12000,'{}','{}')",
+        "需求作业位置未完整提供操作类型要求的正式价格特征")
+    # The correct per-tower base is counted for EACH work location.
+    r16_eval("r16_full_quote",did="r16_d",ver=1)
+    r16_price("outage_only",work_mode="outage",base=10000,unit=2000)
+    blocked_reason("outage-only rule cannot price a site with unspecified outage conditions",
+        "INSERT INTO reference_price_evaluation_lines(id,evaluation_id,"
+        "location_item_no,coverage_key,reference_price_version_id,"
+        "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
+        " VALUES('r16_bad_mode','r16_full_quote',1,'main',"
+        "'r16_price_outage_only',30000,16000,'{}','{}')",
+        "参考价逐位置结果必须匹配正式操作版本")
+    r16_line("r16_quote15","r16_full_quote",1,30000,16000)
+    blocked_reason("incomplete 3-location quote cannot be finalized as if total price known",
+        "UPDATE reference_price_evaluations SET status='final',"
+        "finalized_by='u',finalized_at='2026-11-08T05:00:00.000Z'"
+        " WHERE id='r16_full_quote'",
+        "需求参考价必须覆盖全部正式作业位置")
+    r16_line("r16_quote16","r16_full_quote",2,20000,14000)
+    r16_line("r16_quote17","r16_full_quote",3,40000,18000)
+    blocked_reason("comprehensive reference price cannot double-charge additional labor",
+        "INSERT INTO reference_price_evaluation_lines("
+        "id,evaluation_id,location_item_no,coverage_key,"
+        "reference_price_version_id,quantity_scaled,amount_fen,"
+        "calculation_inputs_json,calculation_trace_json)"
+        " VALUES('r16_double_labor','r16_full_quote',1,'labor',"
+        "'r16_price_per',30000,6000,'{}','{}')",
+        "综合参考价与分项费用不得在同一作业位置叠加重复计价")
+    blocked("same priced location and coverage cannot be billed twice",
+        "INSERT INTO reference_price_evaluation_lines("
+        "id,evaluation_id,location_item_no,coverage_key,"
+        "reference_price_version_id,quantity_scaled,amount_fen,"
+        "calculation_inputs_json,calculation_trace_json)"
+        " VALUES('r16_duplicate_main','r16_full_quote',1,'main',"
+        "'r16_price_base',30000,16000,'{}','{}')")
+    r16_final("r16_full_quote")
+    full_quote=sum(x["amount_fen"] for x in db.execute(
+        "SELECT amount_fen FROM reference_price_evaluation_lines "
+        "WHERE evaluation_id='r16_full_quote'"))
+    ok("3+2+4 devices per THREE towers quote 480 yuan, not 280 yuan",
+       full_quote==48000)
+    ok("standalone demand reference quote exposes latest explicit full official version",
+        row("SELECT id FROM v_demand_reference_quote_current "
+            "WHERE demand_id='r16_d'")["id"]=="r16_full_quote")
+    blocked_reason("approved original quote's per-location money cannot be edited",
+        "UPDATE reference_price_evaluation_lines SET amount_fen=0 "
+        "WHERE id='r16_quote15'",
+        "参考价计算明细不允许覆盖")
+    blocked_reason("finalized quote cannot be deleted",
+        "DELETE FROM reference_price_evaluations WHERE id='r16_full_quote'",
+        "正式参考价计算结果历史不可删除")
+    blocked_reason("finalized quote cannot change demand or data",
+        "UPDATE reference_price_evaluations SET demand_version=2 "
+        "WHERE id='r16_full_quote'",
+        "已正式确认的参考价历史不可修改")
+
+    # Formal approval is an independent, partial project commitment;
+    # 5 of the 9 planned units means #15:3 + #16:2, not 5/9 of 480.
+    add("projects",id="r16_p",code="R16-P",name="多基塔部分承接参考价",
+        framework_id="f",created_by="u",created_at="2026-11-08T04:40:00.000Z")
+    stage("r16_p","stocked",time="2026-11-08T04:41:00.000Z")
+    add("project_demand_scopes",id="r16_scope",
+        project_id="r16_p",demand_id="r16_d",demand_version=1,
+        proposed_quantity_scaled=50000,
+        created_at="2026-11-08T04:42:00.000Z",
+        updated_at="2026-11-08T04:42:00.000Z")
+    demand("r16_other_d")
+    activate_demand("r16_other_d")
+    add("project_demand_scopes",id="r16_other_scope",
+        project_id="r16_p",demand_id="r16_other_d",demand_version=1,
+        proposed_quantity_scaled=10000,
+        created_at="2026-11-08T04:42:00.000Z",
+        updated_at="2026-11-08T04:42:00.000Z")
+    add("project_approval_versions",id="r16_av",
+        project_id="r16_p",version_no=1,approved_budget_fen=120000,
+        snapshot_json="{}",created_at="2026-11-08T04:43:00.000Z")
+    add("project_approval_scope_versions",id="r16_ap_scope",
+        approval_version_id="r16_av",project_scope_id="r16_scope",
+        demand_id="r16_d",demand_version=1,quantity_scaled=50000,
+        approved_amount_fen=100000,snapshot_json="{}",
+        created_at="2026-11-08T04:44:00.000Z")
+    blocked_reason("multi-location approval cannot pretend unallocated quantity is complete",
+        "UPDATE project_approval_versions SET status='approved',"
+        "approved_by='u',approved_at='2026-11-08T04:45:00.000Z'"
+        " WHERE id='r16_av'",
+        "正式项目批准需求的逐位置工作量必须完整")
+    add("project_approval_work_locations",
+        approval_scope_version_id="r16_ap_scope",demand_id="r16_d",
+        demand_version=1,location_item_no=1,approved_quantity_scaled=30000)
+    add("project_approval_work_locations",
+        approval_scope_version_id="r16_ap_scope",demand_id="r16_d",
+        demand_version=1,location_item_no=2,approved_quantity_scaled=20000)
+    add("project_approval_scope_versions",id="r16_ap_other",
+        approval_version_id="r16_av",project_scope_id="r16_other_scope",
+        demand_id="r16_other_d",demand_version=1,quantity_scaled=10000,
+        approved_amount_fen=20000,snapshot_json="{}",
+        created_at="2026-11-08T04:44:00.000Z")
+    ok("one-location formal scope seeds a single checked per-location quantity",
+        row("SELECT approved_quantity_scaled FROM project_approval_work_locations "
+            "WHERE approval_scope_version_id='r16_ap_other'")["approved_quantity_scaled"]==10000)
+    r16_eval("r16_partial_quote",did="r16_d",ver=1,
+        scope_id="r16_ap_scope")
+    r16_line("r16_p15","r16_partial_quote",1,30000,16000)
+    blocked_reason("partial project quote must cover EVERY committed tower",
+        "UPDATE reference_price_evaluations SET status='final',"
+        "finalized_by='u',finalized_at='2026-11-08T05:00:00.000Z' "
+        "WHERE id='r16_partial_quote'",
+        "项目承接参考价必须覆盖本次批准的全部作业位置")
+    blocked_reason("third tower is not part of project's approved work",
+        "INSERT INTO reference_price_evaluation_lines(id,evaluation_id,"
+        "location_item_no,coverage_key,reference_price_version_id,"
+        "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
+        " VALUES('r16_wrong_tower','r16_partial_quote',3,'main',"
+        "'r16_price_base',40000,18000,'{}','{}')",
+        "参考价逐位置结果必须匹配正式操作版本")
+    r16_line("r16_p16","r16_partial_quote",2,20000,14000)
+    r16_final("r16_partial_quote")
+    add("project_approval_scope_prices",
+        approval_scope_version_id="r16_ap_scope",
+        evaluation_id="r16_partial_quote")
+    ok("project's five installed devices are 300 yuan, not 5/9 of demand's 480",
+        sum(r["amount_fen"] for r in db.execute(
+            "SELECT amount_fen FROM reference_price_evaluation_lines "
+            "WHERE evaluation_id='r16_partial_quote'"))==30000)
+    blocked_reason("chosen final quote prevents sneaking a new site into the draft",
+        "INSERT INTO project_approval_work_locations("
+        "approval_scope_version_id,demand_id,demand_version,"
+        "location_item_no,approved_quantity_scaled)"
+        " VALUES('r16_ap_scope','r16_d',1,3,10000)",
+        "已选用的正式报价锁定项目逐位置数量")
+
+    # Another different operation type and its own reference price; same
+    # project total aggregates both approved demand-scopes, not a mutable total.
+    r16_price("other_fixed",mode="fixed",op="op",unit=20000)
+    r16_price("undeclared_feature",mode="per_unit",op="op",unit=20000,
+        conditions={"r16_terrain":{"factor_version":1,"op":"eq",
+                                   "value":"mountain"}})
+    r16_eval("r16_other_quote",did="r16_other_d",ver=1,
+        scope_id="r16_ap_other")
+    blocked_reason("reference price cannot use site factor not declared by operation version",
+        "INSERT INTO reference_price_evaluation_lines(id,evaluation_id,"
+        "location_item_no,coverage_key,reference_price_version_id,"
+        "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
+        " VALUES('r16_undeclared','r16_other_quote',1,'main',"
+        "'r16_price_undeclared_feature',10000,20000,'{}','{}')",
+        "使用的价格适用因素必须由同版操作类型正式声明")
+    r16_line("r16_other_line","r16_other_quote",1,10000,20000,
+        price="r16_price_other_fixed")
+    r16_final("r16_other_quote")
+    add("project_approval_scope_prices",
+        approval_scope_version_id="r16_ap_other",
+        evaluation_id="r16_other_quote")
+
+    # Whole-project independent fee, once per declared unique charge key.
+    r16_price("trip_fee",mode="fixed",op="r16_op",unit=5000,scope="project")
+    add("project_reference_price_charges",id="r16_trip",
+        approval_version_id="r16_av",
+        reference_price_version_id="r16_price_trip_fee",
+        charge_scope_key="transport:one-trip",amount_fen=5000,
+        pricing_inputs_json='{"one_trip":true}',
+        calculation_trace_json='{"fixed_fee_fen":5000}',
+        created_by="u",created_at="2026-11-08T04:50:00.000Z")
+    blocked_reason("same project-level charge key cannot be repeated",
+        "INSERT INTO project_reference_price_charges("
+        "id,approval_version_id,reference_price_version_id,charge_scope_key,"
+        "amount_fen,pricing_inputs_json,calculation_trace_json,created_by,created_at)"
+        " VALUES('r16_duplicate_trip','r16_av','r16_price_trip_fee',"
+        "'transport:one-trip',5000,'{}','{}','u','2026-11-08T04:51:00.000Z')",
+        "UNIQUE constraint failed")
+    db.execute("SAVEPOINT r16_outdated_quote")
+    try:
+        # Draft users MAY detach a selected price, change quantities, and
+        # reselect it. Formal approval MUST reject stale qty/price amounts.
+        db.execute("DELETE FROM project_approval_scope_prices "
+                   "WHERE approval_scope_version_id='r16_ap_scope'")
+        db.execute("DELETE FROM project_approval_work_locations "
+                   "WHERE approval_scope_version_id='r16_ap_scope' "
+                   "AND location_item_no=2")
+        add("project_approval_work_locations",
+            approval_scope_version_id="r16_ap_scope",demand_id="r16_d",
+            demand_version=1,location_item_no=2,
+            approved_quantity_scaled=10000)
+        db.execute("UPDATE project_approval_scope_versions "
+                   "SET quantity_scaled=40000 WHERE id='r16_ap_scope'")
+        add("project_approval_scope_prices",
+            approval_scope_version_id="r16_ap_scope",
+            evaluation_id="r16_partial_quote")
+        blocked_reason("formal approval rejects a reselected reference quote priced for stale tower quantities",
+            "UPDATE project_approval_versions SET status='approved',"
+            "approved_by='u',approved_at='2026-11-08T05:02:00.000Z'"
+            " WHERE id='r16_av'",
+            "本次项目需求范围已调整，选用的正式参考价过期，请重新核价")
+    finally:
+        db.execute("ROLLBACK TO r16_outdated_quote")
+        db.execute("RELEASE r16_outdated_quote")
+    db.execute("UPDATE project_approval_versions SET status='approved',"
+        "approved_by='u',approved_at='2026-11-08T05:02:00.000Z'"
+        " WHERE id='r16_av'")
+    stage("r16_p","approved",time="2026-11-08T05:03:00.000Z")
+    approved_basis=list(db.execute(
+        "SELECT * FROM v_project_approval_reference_basis_current "
+        "WHERE approval_version_id='r16_av'"))
+    ok("formal project version pins exactly two independently finalized scopes",
+        len(approved_basis)==2
+        and {r["evaluation_id"] for r in approved_basis}==
+          {"r16_partial_quote","r16_other_quote"})
+    # Application-side total calculation; SQLite stores only immutable lines
+    # and approved project-level fee facts, not a second mutable total.
+    project_reference=sum(
+        z["amount_fen"] for z in db.execute(
+        "SELECT l.amount_fen FROM project_approval_scope_prices src "
+        "JOIN project_approval_scope_versions sc "
+        "ON sc.id=src.approval_scope_version_id "
+        "JOIN reference_price_evaluation_lines l ON l.evaluation_id=src.evaluation_id "
+        "WHERE sc.approval_version_id='r16_av'"))
+    project_fees=sum(z["amount_fen"] for z in db.execute(
+        "SELECT amount_fen FROM project_reference_price_charges "
+        "WHERE approval_version_id='r16_av'"))
+    ok("approved total reference price 550 yuan = 300+200+50, not project budget",
+        project_reference==50000 and project_fees==5000
+        and project_reference+project_fees==55000
+        and row("SELECT approved_budget_fen FROM project_approval_versions "
+                "WHERE id='r16_av'")["approved_budget_fen"]==120000)
+    blocked_reason("approved reference basis cannot be detached",
+        "DELETE FROM project_approval_scope_prices "
+        "WHERE approval_scope_version_id='r16_ap_scope'",
+        "已批准项目的正式参考价依据不可删除")
+    blocked_reason("approved project charge cannot be removed",
+        "DELETE FROM project_reference_price_charges WHERE id='r16_trip'",
+        "已批准项目独立参考费用不得删除")
+    blocked_reason("approved per-tower commitment cannot be deleted",
+        "DELETE FROM project_approval_work_locations "
+        "WHERE approval_scope_version_id='r16_ap_scope' AND location_item_no=1",
+        "已批准或已完成正式计价的作业位置和工作量不可删除")
+    blocked_reason("cannot append new quote selection after approval",
+        "INSERT INTO project_approval_scope_prices("
+        "approval_scope_version_id,evaluation_id)"
+        " VALUES('r16_ap_scope','r16_full_quote')",
+        "批准参考价只可引用同一正式需求范围已确认且不可变的计价结果")
+    # Missing formal quote stays NULL, never interpreted as a priced 0.
+    ok("unpriced older project scopes remain explicitly NULL, not fake zero price",
+        row("SELECT COUNT(*) n FROM v_project_approval_reference_basis_current "
+            "WHERE evaluation_id IS NULL")["n"]>0)
+    # Original standalone reference quote survives a demand revision;
+    # later current-demand projection must not pretend old quote is current.
+    revision_locations=r16_locations((30000,40000,40000))
+    add("demand_revisions",id="r16_d_rev2",demand_id="r16_d",
+        version=2,snapshot_json=json.dumps({
+            "quantity_scaled":110000,
+            "work_locations":revision_locations},ensure_ascii=False),
+        changed_by="u",changed_at="2026-11-08T05:10:00.000Z")
+    ok("multi-tower work quantities revise by NEW immutable demand version",
+        row("SELECT SUM(quantity_scaled) n "
+            "FROM demand_version_work_locations "
+            "WHERE demand_id='r16_d' AND demand_version=2")["n"]==110000
+        and row("SELECT SUM(quantity_scaled) n "
+            "FROM demand_version_work_locations "
+            "WHERE demand_id='r16_d' AND demand_version=1")["n"]==90000)
+    ok("new demand version is unpriced until recalculated; previously approved historical quote stays fixed",
+        row("SELECT COUNT(*) n FROM v_demand_reference_quote_current "
+            "WHERE demand_id='r16_d'")["n"]==0
+        and row("SELECT COUNT(*) n FROM reference_price_evaluation_lines "
+            "WHERE evaluation_id='r16_full_quote'")["n"]==3
+        and row("SELECT evaluation_id FROM project_approval_scope_prices "
+            "WHERE approval_scope_version_id='r16_ap_scope'")["evaluation_id"]==
+            "r16_partial_quote")
+finally:
+    db.execute("ROLLBACK TO r16_full_price_architecture")
+    db.execute("RELEASE r16_full_price_architecture")
 
 ok("current SQLite integrity",row("PRAGMA integrity_check")[0]=="ok")
 ok("current SQLite FK integrity",not db.execute("PRAGMA foreign_key_check").fetchall())

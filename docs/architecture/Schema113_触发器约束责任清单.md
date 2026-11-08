@@ -1,20 +1,20 @@
 # Schema 113｜触发器与约束责任全量审计
 
-本清单从最新候选 SQL 重建。触发器负责正式不可变历史、项目—需求唯一归属、显式解绑序列、真实身份引用、状态版本顺序、参考价格分档及结算实际需求结果；应用角色授权、报表和价格计算不由 SQLite 执行。
+从当前候选 SQL 自动重建：触发器负责对象关系/正式版本/真实身份/逐位置数量核对、完整价格事实及已确认历史的不可变边界。尤其在立项批准时重新核对已选正式报价是否仍与批准逐位置数量一致。参考价匹配、阶梯金额计算、项目总参考金额汇总和管理员角色授权仍严格属于应用层，不在 SQLite 编写业务算法。
 
 ## 分类数量
 
 | 责任类别 | 当前数量 |
 | --- | ---: |
-| 不可变历史或身份 | 119 |
-| 历史快照原子同步 | 17 |
-| 正式历史版本约束 | 28 |
-| 正式批准/结项一致性 | 5 |
+| 不可变历史或身份 | 131 |
+| 历史快照原子同步 | 19 |
+| 正式历史版本约束 | 29 |
+| 正式批准/结项一致性 | 8 |
 | 物资业务身份及关联 | 9 |
 | 状态事件合法性 | 3 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 2 |
-| 跨表关联和身份完整性 | 29 |
+| 跨表关联和身份完整性 | 36 |
 
 ## 完整触发器清单
 
@@ -66,9 +66,13 @@
 | `demand_revisions` | `demand_revision_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
 | `demand_sources` | `demand_source_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `demand_sources` | `demand_source_identity_protected_delete` | BEFORE/DELETE | 跨表关联和身份完整性 |
+| `demand_version_work_locations` | `demand_work_location_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `demand_version_work_locations` | `demand_work_location_immutable_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `demand_version_work_locations` | `demand_work_location_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `demand_versions` | `demand_version_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `demand_versions` | `demand_version_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `demand_versions` | `demand_version_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `demand_versions` | `demand_version_work_locations_publish` | AFTER/INSERT | 历史快照原子同步 |
 | `demands` | `demand_definition_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `demands` | `demand_initial_version_publish` | AFTER/INSERT | 正式历史版本约束 |
 | `demands` | `demand_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
@@ -120,6 +124,7 @@
 | `operation_versions` | `immutable_operation_version_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `operation_versions` | `immutable_operation_version_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `operation_versions` | `object_type_guard_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `operation_versions` | `operation_pricing_feature_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `operation_versions` | `operation_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `operation_versions` | `operation_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
 | `operations` | `operation_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
@@ -143,6 +148,9 @@
 | `project_approval_material_items` | `approved_material_scope_insert` | BEFORE/INSERT | 物资业务身份及关联 |
 | `project_approval_material_items` | `draft_approval_material_valid_update` | BEFORE/UPDATE | 物资业务身份及关联 |
 | `project_approval_material_items` | `project_approval_material_frozen_after_approval` | BEFORE/INSERT | 不可变历史或身份 |
+| `project_approval_scope_prices` | `project_approval_scope_price_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_approval_scope_prices` | `project_approval_scope_price_guard_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_approval_scope_prices` | `project_approval_scope_price_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_approval_scope_versions` | `approval_scope_link_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `project_approval_scope_versions` | `approved_scope_demand_version_relation` | BEFORE/INSERT | 正式历史版本约束 |
 | `project_approval_scope_versions` | `approved_scope_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
@@ -150,11 +158,17 @@
 | `project_approval_scope_versions` | `approved_scope_project_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `project_approval_scope_versions` | `draft_approval_scope_valid_update` | BEFORE/UPDATE | 历史快照原子同步 |
 | `project_approval_scope_versions` | `project_approval_scope_frozen_after_approval` | BEFORE/INSERT | 不可变历史或身份 |
+| `project_approval_scope_versions` | `project_approval_single_location_seed` | AFTER/INSERT | 历史快照原子同步 |
 | `project_approval_versions` | `immutable_approval_version_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_approval_versions` | `immutable_approval_version_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_approval_versions` | `project_approval_finalize_guard` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `project_approval_versions` | `project_approval_locations_finalize` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `project_approval_versions` | `project_approval_reference_freshness_finalize` | BEFORE/UPDATE | 正式批准/结项一致性 |
 | `project_approval_versions` | `project_approval_version_insert_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `project_approval_versions` | `project_demand_exclusive_approval` | BEFORE/UPDATE | 历史快照原子同步 |
+| `project_approval_work_locations` | `project_approval_location_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_approval_work_locations` | `project_approval_location_guard_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_approval_work_locations` | `project_approval_location_guard_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_change_orders` | `approved_change_order_immutable` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_change_orders` | `approved_change_order_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_change_orders` | `change_order_approval_metadata_guard` | BEFORE/UPDATE | 历史快照原子同步 |
@@ -183,6 +197,9 @@
 | `project_management_versions` | `management_version_no_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_management_versions` | `management_version_no_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_management_versions` | `project_management_category_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_reference_price_charges` | `project_reference_price_charge_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_reference_price_charges` | `project_reference_price_charge_guard_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `project_reference_price_charges` | `project_reference_price_charge_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_scope_materials` | `project_material_identity_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `project_scope_materials` | `project_material_identity_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `project_scope_materials` | `project_material_identity_insert` | BEFORE/INSERT | 物资业务身份及关联 |
@@ -199,9 +216,17 @@
 | `projects` | `project_status_projection_guard` | BEFORE/UPDATE | 历史快照原子同步 |
 | `reference_price_catalog` | `reference_price_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `reference_price_catalog` | `reference_price_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `reference_price_evaluation_lines` | `reference_price_evaluation_line_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `reference_price_evaluation_lines` | `reference_price_evaluation_line_guard_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `reference_price_evaluation_lines` | `reference_price_evaluation_line_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `reference_price_evaluations` | `reference_price_evaluation_finalize_guard` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `reference_price_evaluations` | `reference_price_evaluation_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
+| `reference_price_evaluations` | `reference_price_evaluation_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
+| `reference_price_evaluations` | `reference_price_evaluation_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `reference_price_versions` | `immutable_reference_price_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `reference_price_versions` | `immutable_reference_price_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `reference_price_versions` | `reference_price_factor_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `reference_price_versions` | `reference_price_formula_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `reference_price_versions` | `reference_price_quantity_bracket_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `reference_price_versions` | `reference_price_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `reference_price_versions` | `reference_price_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |

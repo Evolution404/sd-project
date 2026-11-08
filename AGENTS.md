@@ -2,14 +2,24 @@
 
 所有开发者、AI 和自动化修改本项目之前，必须阅读并遵守根目录的《docs/architecture/系统开发规范.md》。
 
-## 2026-11-08 Schema 113 第十五轮最新裁决：需求与子项目独占关联、明确解绑（优先于全部旧轮）
+## 2026-11-08 Schema 113 第十六轮最新裁决：操作类型、需求多位置与参考价格统一计价（当前最高优先级）
+
+- **三方同源、一体计价但不混合业务身份**：`work_objects` 标准作业对象（例如绝缘子串、防鸟装置）与具体 `materials`/`material_versions` 型号规格必须分开；`operation_versions` 每版固定唯一作业对象、计量单位与允许的位置类型，不得直接存单价。`operation_versions.pricing_features_json` 声明每种操作需要哪些 `price_factor` 正式特征版本、来源和必填性，需求实际值和价目适用条件统一使用**同一套特征字典**，零物资的业务需求合法。
+- **一条需求一种操作类型，允许多作业位置**：`demands.initial_work_locations_json` 保存原始多位置清单，`demand_versions.snapshot_json.work_locations` 保存每版完整正式定义；`demand_version_work_locations` 自动原子投影强类型位置、各位置数量、停电方式、现场特征、位置快照并锁定，不允许外部假造补行，不能重复列入同一塔/档距。版本总数量必须等于位置合计；多位置变化生成新需求版本。
+- **项目只承接需求的部分位置和数量**：`project_approval_work_locations` 明确本项目批准的哪些位置及每位置数量；正式立项确认前必须与该批准需求范围总数量一致，不能按原需求整体参考价的数量比例分摊每位置基费。第十五轮“需求同一时点只能关联一个子项目，显式解绑才能转承”仍强制。
+- **参考价规则版本化计价模型**：`reference_price_versions` 新增 `pricing_scope=work_location/work_batch/project`、结构化 `calculation_params_json`、不可变 `fee_components_json`，支持 `fixed/per_unit/base_plus_unit/quantity_bracket/progressive_bracket/group/rate/composite` 8 种规则，最低价/封顶、作业方式及正式特征字典匹配。物理塔的基费按位置一次，批次/项目级费用由 `project_reference_price_charges` 独立记一次。严格避免同位置综合参考价与人工材料等分项重复计算。
+- **逐需求/项目正式计价结果有独立历史**：`reference_price_evaluations` 和 `reference_price_evaluation_lines` 锁定正式价格规则版本、逐位置数量和费用覆盖、计算参数、金额与引擎版本。`project_approval_scope_prices` 引用项目本次批准范围对应的完整已确认报价，未计价是 `NULL` 而不是0；旧 `project_demand_scopes.reference_price_version_id` 已删除（无法表达多规则），手工拟承接预算仍独立。`v_demand_reference_quote_current`、`v_project_approval_reference_basis_current` 是纯事实投影，不生成报告/金额汇总。
+- **总参考价格必须完整且独立**：只有全部批准需求都选用完整正式报价时，应用才能计算 `Σ批准需求报价明细＋Σ不重复的批次/项目费用`；缺价须显示“未完整计价”，不可把已计价小计当作完整项目总价。`approved_budget_fen`、项目真实费用和分次结算独立，允许参考价与批准预算/实际费用不同。金额公式计算、Decimal舍入、条件优先级、价格匹配、税费和应用权限**必须在未来应用层实现，不得塞入 SQLite 触发器**。
+- **当前候选规模和验收**：77 STRICT 表、27 个非统计事实视图、249 个触发器、74 个显式索引、734 字段；**472/472 隔离 SQLite 契约通过**。最新设计报告 `docs/architecture/Schema113_第十六轮_操作类型_需求多位置_参考价格统一计价模型_2026-11-08.md`。**运行仍是 Schema112**，仅 Schema113 候选 SQL/验收/设计文档变更，严禁提前修改真实运行数据、前后端或实行业务迁移。
+
+## 2026-11-08 Schema 113 第十五轮历史裁决：需求与子项目独占关联、明确解绑（仍有效但由第十六轮补充）
 
 - **需求只有四种生命周期状态**：`pending`（待确认）、`active`（有效）、`returned`（退回）、`cancelled`（取消终态）。`v_demand_current.status` 从 `demand_lifecycle_events` 唯一推导。不要把“已关联子项目”伪造成第五种需求状态。
 - **关联时立即独占**：任何子项目一旦添加 `project_demand_scopes`，自动在 `project_demand_link_events` 写入首条 `linked` 事件；同一专业需求同一时刻只能有一个当前关联子项目。其他项目在**添加关联时**就拒绝（不仅是正式立项时），直到原子项目明确 `released`。`v_project_demand_binding_current` 是唯一当前需求归属投影。子项目关闭不会自动释放需求，手动正式解绑是必须的。
 - **解绑要保留正式历史**：`project_demand_link_events` 的关联/解绑事件连续、不可回写或删除，必须有真实操作人/时间；管理员原因可留空。项目尚未批准可直接释放无草稿的关联；项目当前批准范围仍包含该需求时必须先正式变更移出，或等项目正式关闭后再明确解绑；草稿仍引用需求时先移出草稿。原项目旧批准和结算历史不删除，新项目正式承接后各自分开计算真实需求解决数量。
 - **不要永久封锁历史需求**：`project_demand_exclusive_approval` 仅审核**当下该需求是否仍由本项目关联**，不再用“历史上曾由别的项目批准”永久拒绝新的合法承接。`approval_scope_link_guard` 阻止新草稿引用已解绑需求，`demand_adopted_cancel_guard` 阻止仍被项目关联的需求直接取消。`cancelled` 需求不可新关联或旧关联重新激活。
 - **无冗余状态**：已删除 `project_demand_scopes.proposal_status` 及重复的旧删除触发器，当前项目关联不能再在需求根或项目范围根存第二份可变状态。项目范围根固定项目、需求和关联创建人身份；取消关联只能写历史事件，不能改挂根身份。
-- **候选规模及验证**：71 STRICT 表、25 个事实视图、224 个触发器、71 个显式索引、681 字段；**432/432 SQLite 数据库契约通过**。最新报告 `docs/architecture/Schema113_第十五轮_需求状态与子项目独占关联_显式解绑及重新承接_2026-11-08.md`。运行 Schema112 及实际应用文件和用户数据不得因为候选 Schema113 改动提前修改。
+- **第十五轮历史规模快照**：71 STRICT 表、25 个事实视图、224 个触发器、71 个显式索引、681 字段；**432/432 当轮 SQLite 数据库契约通过**。最新报告 `docs/architecture/Schema113_第十五轮_需求状态与子项目独占关联_显式解绑及重新承接_2026-11-08.md`。运行 Schema112 及实际应用文件和用户数据不得因为候选 Schema113 改动提前修改。
 
 ## 2026-11-08 Schema 113 第十四轮业务裁决（当前受第十五轮覆盖的历史裁决）
 

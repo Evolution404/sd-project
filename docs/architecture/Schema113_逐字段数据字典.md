@@ -191,7 +191,7 @@
 | `demand_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
 | `item_no` | INTEGER | 是 | — | 组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
 | `material_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→materials.id（组0） | 统一物资主数据身份 | 保留：独立属性或真实关联 |
-| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：独立属性或真实关联 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
 | `note` | TEXT | 是 | '' | 见原生CHECK | 与业务对象关联的备注 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 | `updated_at` | TEXT | 是 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
@@ -207,7 +207,7 @@
 | `material_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→materials.id（组3） | 统一物资主数据身份 | 保留：独立属性或真实关联 |
 | `material_version_id` | TEXT | 是 | — | 外键→material_versions.id（组2） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
 | `item_no` | INTEGER | 是 | — | 组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
-| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：独立属性或真实关联 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
 | `unit_id` | TEXT | 是 | — | 外键→dictionary_items.id（组1） | 计量单位字典项 | 保留：独立属性或真实关联 |
 | `unit_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式批准或发生时的单位名称快照 | 保留：不可追溯重算的历史快照 |
 | `note` | TEXT | 是 | '' | 见原生CHECK | 与业务对象关联的备注 | 保留：独立属性或真实关联 |
@@ -244,7 +244,26 @@
 | `demand_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
 | `source_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→source_records.id（组0） | 来源记录稳定身份 | 保留：独立属性或真实关联 |
 
-## `demand_versions` — 正式需求完整定义版本
+## `demand_version_work_locations` — 正式需求版本逐作业位置的物理/逻辑塔或档距、数量、停电方式、现场特征字典版本、冻结位置描述；自动从需求版本完整JSON原子投影并保持只读
+
+业务领域：来源、需求和物资。字段数：12；外键分量：7。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `demand_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.demand_id（组1） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
+| `demand_version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.version（组1） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
+| `item_no` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
+| `location_kind` | TEXT | 是 | — | 见原生CHECK | 作业位置类型：物理杆塔、逻辑杆塔或档距；位置事实与标准作业对象和具体物资不同 | 保留：独立属性或真实关联 |
+| `logical_tower_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→logical_towers.id（组4） | 逻辑杆塔身份 | 保留：独立属性或真实关联 |
+| `physical_tower_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→physical_towers.id（组3） | 实际物理杆塔身份 | 保留：独立属性或真实关联 |
+| `span_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→line_span_history.span_id（组0）<escape>|</escape>外键→line_spans.id（组2） | 线路档距稳定身份 | 保留：独立属性或真实关联 |
+| `span_version` | INTEGER | 否 | — | 外键→line_span_history.version_no（组0） | 需求关联档距的正式版本号 | 保留：独立属性或真实关联 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
+| `work_mode` | TEXT | 是 | 'unspecified' | 见原生CHECK | 作业方式，停电或不停电等 | 保留：独立属性或真实关联 |
+| `site_features_json` | TEXT | 是 | '{}' | 见原生CHECK | 对应具体作业位置的真实现场价格特征值，键沿用同一price_factor字典编码并记录定义正式版本 | 保留：独立属性或真实关联 |
+| `location_snapshot_json` | TEXT | 是 | '{}' | 见原生CHECK | 需求正式版本中某作业位置当时的线路、杆号、现场识别信息不可变快照，不用当下台账重新解释旧计价 | 保留：不可追溯重算的历史快照 |
+
+## `demand_versions` — 需求正式不可变完整版本：一种操作类型，包含所有作业位置及数量、现场价格特征，数量由所有位置校验
 
 业务领域：来源、需求和物资。字段数：23；外键分量：16。
 
@@ -252,7 +271,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `demand_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→demands.id（组12） | 专业需求稳定身份 | 保留：历史/审核事实 |
 | `version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一 | 正式定义或设备当前连续版本 | 保留：历史/审核事实 |
-| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：历史/审核事实 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：历史/审核事实 |
 | `operation_id` | TEXT | 是 | — | 外键→operation_versions.operation_id（组2） | 正式操作类型身份 | 保留：历史/审核事实 |
 | `operation_version` | INTEGER | 是 | — | 外键→operation_versions.version（组2） | 操作类型正式版本号 | 保留：历史/审核事实 |
 | `work_object_id` | TEXT | 是 | — | 外键→work_objects.id（组11） | 操作类型对应的作业对象身份 | 保留：历史/审核事实 |
@@ -274,9 +293,9 @@
 | `recorded_by` | TEXT | 是 | — | 外键→users.id（组3） | 登记正式业务事实的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `demands` — 需求首次登记身份和原始事实
+## `demands` — 稳定原始需求身份和首版来源；完整初始多位置作业清单随发布形成不可变需求版本
 
-业务领域：来源、需求和物资。字段数：34；外键分量：17。
+业务领域：来源、需求和物资。字段数：35；外键分量：17。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -296,7 +315,7 @@
 | `work_object_id` | TEXT | 是 | — | 外键→work_objects.id（组8） | 操作类型对应的作业对象身份 | 保留：独立属性或真实关联 |
 | `work_object_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式需求确认时的作业对象名称 | 保留：不可追溯重算的历史快照 |
 | `target_object` | TEXT | 是 | — | 见原生CHECK | 本次具体作业对象或位置 | 保留：独立属性或真实关联 |
-| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：独立属性或真实关联 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
 | `unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组0）<escape>|</escape>外键→dictionary_items.id（组7） | 计量单位字典项 | 保留：独立属性或真实关联 |
 | `unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组0） | 计量单位字典正式版本号 | 保留：独立属性或真实关联 |
 | `unit_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式批准或发生时的单位名称快照 | 保留：不可追溯重算的历史快照 |
@@ -309,7 +328,8 @@
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 | `custom_fields_json` | TEXT | 是 | '{}' | 见原生CHECK | 分类扩展业务字段的结构化数据 | 保留：独立属性或真实关联 |
 | `field_definitions_json` | TEXT | 是 | '[]' | 见原生CHECK | 来源分类扩展字段定义 | 保留：独立属性或真实关联 |
-| `location_kind` | TEXT | 否 | — | 生成列 | 根据档距关联自动推导的虚拟位置类型，不单独存储 | 派生（不另存） |
+| `initial_work_locations_json` | TEXT | 是 | '[]' | 见原生CHECK | 首次来源专业需求包含全部作业位置、实际数量和现场特征的原始记录，自动发布为正式需求V1完整快照 | 保留：独立属性或真实关联 |
+| `location_kind` | TEXT | 否 | — | 生成列 | 作业位置类型：物理杆塔、逻辑杆塔或档距；位置事实与标准作业对象和具体物资不同 | 派生（不另存） |
 | `context_line_id` | TEXT | 否 | — | 外键→transmission_lines.id（组4） | 共享物理杆塔所在的具体线路背景 | 保留：独立属性或真实关联 |
 | `span_id` | TEXT | 否 | — | 外键→line_span_history.span_id（组2）<escape>|</escape>外键→line_spans.id（组3） | 线路档距稳定身份 | 保留：独立属性或真实关联 |
 | `span_version` | INTEGER | 否 | — | 外键→line_span_history.version_no（组2） | 需求关联档距的正式版本号 | 保留：独立属性或真实关联 |
@@ -574,9 +594,9 @@
 | `created_by` | TEXT | 否 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `operation_versions` — 操作定义、作业对象/位置/单位关系
+## `operation_versions` — 标准作业定义：独立作业对象、计量单位、允许位置及统一价格特征字典声明，不存具体物资或价格
 
-业务领域：操作类型、字典和标准价格。字段数：21；外键分量：6。
+业务领域：操作类型、字典和标准价格。字段数：22；外键分量：6。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -593,6 +613,7 @@
 | `default_quantity_scaled` | INTEGER | 否 | — | 见原生CHECK | 新增需求时建议的数量缩放整数 | 保留：历史/审核事实 |
 | `completion_standard` | TEXT | 否 | — | 见原生CHECK | 需求内容的质量或结果验收判据，不是施工完成记录 | 保留：历史/审核事实 |
 | `fields_json` | TEXT | 是 | '[]' | 见原生CHECK | 标准业务字典/操作类型扩展字段 | 保留：历史/审核事实 |
+| `pricing_features_json` | TEXT | 是 | '[]' | 见原生CHECK | 操作类型正式版本声明哪些统一price_factor字典特征参与录入/计价，含定义版本、数据来源及是否必需 | 保留：历史/审核事实 |
 | `allow_tower` | INTEGER | 是 | — | 见原生CHECK | 操作类型是否允许选择杆塔 | 保留：历史/审核事实 |
 | `allow_span` | INTEGER | 是 | — | 见原生CHECK | 操作类型是否允许选择档距 | 保留：历史/审核事实 |
 | `default_location_kind` | TEXT | 是 | — | 见原生CHECK | 操作类型默认选用位置种类 | 保留：历史/审核事实 |
@@ -707,11 +728,20 @@
 | `material_name` | TEXT | 是 | — | 见原生CHECK | 批准时冻结的物资名称 | 保留：独立属性或真实关联 |
 | `material_model` | TEXT | 是 | — | 见原生CHECK | 批准时冻结的物资型号 | 保留：独立属性或真实关联 |
 | `specification` | TEXT | 是 | '' | 见原生CHECK | 物资或参考单价的规格 | 保留：独立属性或真实关联 |
-| `approved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 项目正式批准的物资数量 | 保留：独立属性或真实关联 |
+| `approved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 本次项目正式批准的某项物资或具体作业位置的数量，依所属表分别解释，不能混为结算或已解决数量 | 保留：独立属性或真实关联 |
 | `unit_id` | TEXT | 是 | — | 外键→dictionary_items.id（组2） | 计量单位字典项 | 保留：独立属性或真实关联 |
 | `unit_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式批准或发生时的单位名称快照 | 保留：不可追溯重算的历史快照 |
 
-## `project_approval_scope_versions` — 准确关联需求及其当时正式批准范围版本；真实解绑以后仍保留原项目完整历史
+## `project_approval_scope_prices` — 批准需求范围正式选择的完整已确认参考价依据，可为空表示尚未计价，不能用零代替
+
+业务领域：框架、协议、项目与批准。字段数：2；外键分量：2。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `approval_scope_version_id` | TEXT | 是 | — | 主键<escape>|</escape>唯一<escape>|</escape>外键→project_approval_scope_versions.id（组1） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：独立属性或真实关联 |
+| `evaluation_id` | TEXT | 是 | — | 唯一<escape>|</escape>外键→reference_price_evaluations.id（组0） | 完整参考价计算与确认事实的唯一身份，项目批准只引用已正式确认且数量匹配的结果 | 保留：独立属性或真实关联 |
+
+## `project_approval_scope_versions` — 项目正式批准需求范围的不可变版本及总量核对；位置级数量和正式价格依据分别独立关联
 
 业务领域：框架、协议、项目与批准。字段数：10；外键分量：5。
 
@@ -722,13 +752,13 @@
 | `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_demand_scopes.id（组2） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：历史/审核事实 |
 | `demand_id` | TEXT | 是 | — | 外键→demand_versions.demand_id（组0）<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：历史/审核事实 |
 | `demand_version` | INTEGER | 是 | — | 外键→demand_versions.version（组0） | 项目所引用的专业需求正式版本号 | 保留：历史/审核事实 |
-| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：历史/审核事实 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：历史/审核事实 |
 | `unit_price_fen` | INTEGER | 否 | — | 见原生CHECK | 单位数量价格，以人民币分存储 | 保留：历史/审核事实 |
-| `approved_amount_fen` | INTEGER | 否 | — | 见原生CHECK | 本次批准的范围金额，NULL表示未核定 | 保留：历史/审核事实 |
+| `approved_amount_fen` | INTEGER | 否 | — | 见原生CHECK | 本次项目批准范围的独立预算/金额事实，非同需求参考价计价结果，NULL表示未核定 | 保留：历史/审核事实 |
 | `snapshot_json` | TEXT | 是 | — | 见原生CHECK | 正式业务版本整体快照 | 保留：不可追溯重算的历史快照 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
 
-## `project_approval_versions` — 项目正式批准要求至少一项有效且当前由本项目独占关联的需求；旧批准范围历史保留，已释放旧承接不阻止新项目承接
+## `project_approval_versions` — 项目正式批准预算软基准，与按全部已确认需求价格明细和独立批次/项目费用汇总的参考价严格分离
 
 业务领域：框架、协议、项目与批准。字段数：10；外键分量：3。
 
@@ -744,6 +774,18 @@
 | `approved_by` | TEXT | 否 | — | 外键→users.id（组0） | 正式批准人用户身份 | 保留：历史/审核事实 |
 | `approved_at` | TEXT | 否 | — | 见原生CHECK | 项目正式批准的UTC时间点 | 保留：历史/审核事实 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：历史/审核事实 |
+
+## `project_approval_work_locations` — 正式批准需求范围逐位置承接的实际数量；单位置自动初始化，多位置必须明确分配，最终与批准范围总量完全核对
+
+业务领域：框架、协议、项目与批准。字段数：5；外键分量：4。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `approval_scope_version_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→project_approval_scope_versions.id（组1） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：独立属性或真实关联 |
+| `demand_id` | TEXT | 是 | — | 外键→demand_version_work_locations.demand_id（组0） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
+| `demand_version` | INTEGER | 是 | — | 外键→demand_version_work_locations.demand_version（组0） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
+| `location_item_no` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→demand_version_work_locations.item_no（组0） | 本次需求或项目批准范围内的某个真实作业位置条目顺序，精确关联需求版本逐位置清单 | 保留：独立属性或真实关联 |
+| `approved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 本次项目正式批准的某项物资或具体作业位置的数量，依所属表分别解释，不能混为结算或已解决数量 | 保留：独立属性或真实关联 |
 
 ## `project_change_orders` — 项目正式变更审批依据，管理员可不填写理由，审核人/时间保留
 
@@ -819,16 +861,16 @@
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 | `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 
-## `project_demand_scopes` — 子项目与需求的稳定关联身份及拟承接数量；创建即锁定需求，绑定/解绑状态完全取不可变事件，不重复存储可变状态
+## `project_demand_scopes` — 子项目与需求唯一当前关联的稳定历史身份；拟承接数量/人工预算估算独立于正式多规则参考价格，移除冗余单一参考价指针
 
-业务领域：框架、协议、项目与批准。字段数：16；外键分量：6。
+业务领域：框架、协议、项目与批准。字段数：15；外键分量：5。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `created_by` | TEXT | 是 | — | 外键→users.id（组4） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
-| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组3） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
-| `demand_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→demand_versions.demand_id（组0）<escape>|</escape>外键→demands.id（组2） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
+| `created_by` | TEXT | 是 | — | 外键→users.id（组3） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
+| `project_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→projects.id（组2） | 子项目稳定身份；专业需求同一时刻只能由当前有效归属事件关联一个子项目 | 保留：独立属性或真实关联 |
+| `demand_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→demand_versions.demand_id（组0）<escape>|</escape>外键→demands.id（组1） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
 | `demand_version` | INTEGER | 是 | — | 外键→demand_versions.version（组0） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
 | `proposed_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 项目拟承接工作量缩放整数 | 保留：尚未批准的独立预计事实 |
 | `proposed_unit_price_fen` | INTEGER | 否 | — | 见原生CHECK | 拟承接单价，人民币分 | 保留：尚未批准的独立预计事实 |
@@ -840,7 +882,6 @@
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 | `updated_at` | TEXT | 是 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
 | `demand_snapshot_json` | TEXT | 否 | — | 见原生CHECK | 承接时冻结的专业需求定义 | 保留：不可追溯重算的历史快照 |
-| `reference_price_version_id` | TEXT | 否 | — | 外键→reference_price_versions.id（组1） | 本次采用的参考单价正式版本 | 保留：独立属性或真实关联 |
 
 ## `project_funding_versions` — 项目资金协议关联历史
 
@@ -879,6 +920,22 @@
 | `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组2） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
+
+## `project_reference_price_charges` — 批次或项目级独立参考费用：按唯一作用域只计算一次，正式批准后不可覆盖，不能隐藏在各需求中重复收取
+
+业务领域：框架、协议、项目与批准。字段数：9；外键分量：3。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
+| `approval_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_approval_versions.id（组2） | 项目正式批准版本身份 | 保留：独立属性或真实关联 |
+| `reference_price_version_id` | TEXT | 是 | — | 外键→reference_price_versions.id（组1） | 逐位置计价事实或独立项目/批次费用所采用的参考价格精确不可变版本；不再直接存到项目需求关系上 | 保留：独立属性或真实关联 |
+| `charge_scope_key` | TEXT | 是 | — | 组合唯一 | 批次或项目级独立参考费用的唯一计价作用域，例如一次进场运输；同一项目批准版本不能重复记同一项 | 保留：独立属性或真实关联 |
+| `amount_fen` | INTEGER | 是 | — | 见原生CHECK | 本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额 | 保留：独立属性或真实关联 |
+| `pricing_inputs_json` | TEXT | 是 | — | 见原生CHECK | 项目或作业批次独立附加费用使用的实际次数/范围/日期等正式计算参数 | 保留：独立属性或真实关联 |
+| `calculation_trace_json` | TEXT | 是 | — | 见原生CHECK | 已计价金额的完整公式输入、各项费用和舍入计算步骤，用于复核而不是可执行代码 | 保留：独立属性或真实关联 |
+| `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
+| `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
 ## `project_scope_materials` — 项目需求范围物资稳定身份
 
@@ -931,9 +988,44 @@
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `reference_price_versions` — 参考价精确对应操作版本，支持每件价、每位置基础费+件价、数量区间多档计价，电压塔型及动态因素共同适用
+## `reference_price_evaluation_lines` — 逐作业位置、费用覆盖分类、采用精确参考价规则版本及计算输入/轨迹的正式不可变金额依据，杜绝同类费用重复计入
 
-业务领域：操作类型、字典和标准价格。字段数：26；外键分量：9。
+业务领域：操作类型、字典和标准价格。字段数：9；外键分量：2。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
+| `evaluation_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→reference_price_evaluations.id（组1） | 完整参考价计算与确认事实的唯一身份，项目批准只引用已正式确认且数量匹配的结果 | 保留：独立属性或真实关联 |
+| `location_item_no` | INTEGER | 是 | — | 组合唯一 | 本次需求或项目批准范围内的某个真实作业位置条目顺序，精确关联需求版本逐位置清单 | 保留：独立属性或真实关联 |
+| `coverage_key` | TEXT | 是 | — | 组合唯一 | 本次逐位置参考价涉及的费用覆盖标识，同一位置同一覆盖标识只能计价一次，组合规则内部覆盖同样不得重复 | 保留：独立属性或真实关联 |
+| `reference_price_version_id` | TEXT | 是 | — | 外键→reference_price_versions.id（组0） | 逐位置计价事实或独立项目/批次费用所采用的参考价格精确不可变版本；不再直接存到项目需求关系上 | 保留：独立属性或真实关联 |
+| `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
+| `amount_fen` | INTEGER | 是 | — | 见原生CHECK | 本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额 | 保留：独立属性或真实关联 |
+| `calculation_inputs_json` | TEXT | 是 | — | 见原生CHECK | 正式逐位置参考计价时使用的数量、现场特征、价格适用参数、舍入依据不可变记录 | 保留：独立属性或真实关联 |
+| `calculation_trace_json` | TEXT | 是 | — | 见原生CHECK | 已计价金额的完整公式输入、各项费用和舍入计算步骤，用于复核而不是可执行代码 | 保留：独立属性或真实关联 |
+
+## `reference_price_evaluations` — 正式参考价试算/确认身份：独立需求完整版本或指定批准需求范围，锁定输入、算法版本、价格日期和确认人
+
+业务领域：操作类型、字典和标准价格。字段数：12；外键分量：5。
+
+| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
+| `demand_id` | TEXT | 是 | — | 外键→demand_versions.demand_id（组0） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
+| `demand_version` | INTEGER | 是 | — | 外键→demand_versions.version（组0） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
+| `approval_scope_version_id` | TEXT | 否 | — | 外键→project_approval_scope_versions.id（组3） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：独立属性或真实关联 |
+| `pricing_date` | TEXT | 是 | — | 见原生CHECK | 本次真实参考价核算采用的价格适用业务日期，不等同于价格来源制定日期 | 保留：独立属性或真实关联 |
+| `status` | TEXT | 是 | 'draft' | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：独立属性或真实关联 |
+| `engine_version` | TEXT | 是 | — | 见原生CHECK | 产生正式参考价计算结果的明确应用计价引擎版本，保证复核时知道采用何种算法 | 保留：独立属性或真实关联 |
+| `input_basis_json` | TEXT | 是 | '{}' | 见原生CHECK | 本次参考价确认采用的输入资料、设备台账依据、适用条件与版本信息的冻结记录 | 保留：独立属性或真实关联 |
+| `created_by` | TEXT | 是 | — | 外键→users.id（组2） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
+| `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
+| `finalized_by` | TEXT | 否 | — | 外键→users.id（组1） | 正式参考价核算确认人，需真实登录用户身份 | 保留：独立属性或真实关联 |
+| `finalized_at` | TEXT | 否 | — | 见原生CHECK | 正式参考价格核算结果完成确认的UTC时间 | 保留：独立属性或真实关联 |
+
+## `reference_price_versions` — 精确引用操作定义版本；按位置/批次/项目设费用作用域，支持固定/线性/整批分档/累进/成组/费率/组合、最低价及封顶；规则完整版本不可改写
+
+业务领域：操作类型、字典和标准价格。字段数：29；外键分量：9。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -951,10 +1043,13 @@
 | `specification` | TEXT | 是 | '' | 见原生CHECK | 物资或参考单价的规格 | 保留：历史/审核事实 |
 | `additional_conditions_json` | TEXT | 是 | '{}' | 见原生CHECK | 参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
-| `pricing_mode` | TEXT | 是 | 'per_unit' | 见原生CHECK | 参考价格计价模式：per_unit按件、base_plus_unit位置基础费加逐件价、quantity_bracket按数量区间计价 | 保留：历史/审核事实 |
+| `pricing_mode` | TEXT | 是 | 'per_unit' | 见原生CHECK | 正式参考价计算模型：fixed固定、per_unit按件、base_plus_unit位置基费加件价、quantity_bracket整批单档、progressive_bracket累进、group成组、rate费率、composite多费用组成 | 保留：历史/审核事实 |
+| `pricing_scope` | TEXT | 是 | 'work_location' | 见原生CHECK | 参考价作用域：work_location单作业位置、work_batch单批次、project整个子项目；不能把一次项目费用摊到每条需求重复收取 | 保留：历史/审核事实 |
+| `calculation_params_json` | TEXT | 是 | '{}' | 见原生CHECK | 参考价规则正式版本的组数、累进分档、费率、最低/封顶等结构化计算参数，实际运算由应用层完成 | 保留：历史/审核事实 |
+| `fee_components_json` | TEXT | 是 | '[]' | 见原生CHECK | 组合参考价正式价格版本中的完整费用构成列表，各费用类别必须唯一并明确计算模型和参数 | 保留：历史/审核事实 |
 | `base_fee_fen` | INTEGER | 是 | 0 | 见原生CHECK | 参考价格每个作业位置收取一次的固定基础费，人民币分，不随同位置设备数量重复收取 | 保留：历史/审核事实 |
 | `unit_price_fen` | INTEGER | 是 | — | 见原生CHECK | 单位数量价格，以人民币分存储 | 保留：历史/审核事实 |
-| `quantity_brackets_json` | TEXT | 是 | '[]' | 见原生CHECK | 按数量缩放整数区间顺序定义的完整分档价格（各档可含基础费与逐件价格），末档上限可为NULL表示不限数量 | 保留：历史/审核事实 |
+| `quantity_brackets_json` | TEXT | 是 | '[]' | 见原生CHECK | 仅用于整批单档计价的正式数量区间，分档基位费和件单价一并冻结，末档上限可为NULL | 保留：历史/审核事实 |
 | `price_source` | TEXT | 是 | — | 见原生CHECK | 单价引用的原始来源 | 保留：历史/审核事实 |
 | `price_date` | TEXT | 是 | — | 见原生CHECK | 参考单价所依据的业务日期 | 保留：历史/审核事实 |
 | `tax_mode` | TEXT | 是 | — | 见原生CHECK | 含税、不含税或无税业务口径 | 保留：历史/审核事实 |
@@ -1007,8 +1102,8 @@
 | `settlement_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组3） | 正式结算版本身份 | 保留：历史/审核事实 |
 | `settlement_item_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→settlement_items.id（组2） | 结算明细身份（实际实施登记时可空） | 保留：历史/审核事实 |
 | `cost_node_version_id` | TEXT | 是 | — | 外键→project_cost_node_versions.id（组1） | 本次实际费用确认或结算明细采用的费用名称定义历史版本 | 保留：历史/审核事实 |
-| `approval_scope_version_id` | TEXT | 否 | — | 外键→project_approval_scope_versions.id（组0） | 本条结算明细对应的正式批准范围版本 | 保留：历史/审核事实 |
-| `quantity_scaled` | INTEGER | 是 | 0 | 见原生CHECK | 需求预计或结算收费计量数量的缩放整数；结算明细计价数量不是需求实际解决数量 | 保留：历史/审核事实 |
+| `approval_scope_version_id` | TEXT | 否 | — | 外键→project_approval_scope_versions.id（组0） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：历史/审核事实 |
+| `quantity_scaled` | INTEGER | 是 | 0 | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：历史/审核事实 |
 | `amount_fen` | INTEGER | 是 | — | 见原生CHECK | 本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额 | 保留：历史/审核事实 |
 | `unit_price_fen` | INTEGER | 否 | — | 见原生CHECK | 单位数量价格，以人民币分存储 | 保留：历史/审核事实 |
 | `work_mode` | TEXT | 否 | — | 见原生CHECK | 作业方式，停电或不停电等 | 保留：历史/审核事实 |
@@ -1053,7 +1148,7 @@
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `settlement_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组2） | 正式结算版本身份 | 保留：独立属性或真实关联 |
 | `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
-| `approval_scope_version_id` | TEXT | 是 | — | 外键→project_approval_scope_versions.id（组0） | 本条结算明细对应的正式批准范围版本 | 保留：独立属性或真实关联 |
+| `approval_scope_version_id` | TEXT | 是 | — | 外键→project_approval_scope_versions.id（组0） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：独立属性或真实关联 |
 | `resolved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 结算单版本对应某专业需求本次新增解决数量，缩放10000倍；0表示仅补结此前工作而不虚增完成量，实际量可超过批准量 | 保留：独立属性或真实关联 |
 | `evidence` | TEXT | 是 | '' | 见原生CHECK | 现场实际或成本确认的书面依据 | 保留：独立属性或真实关联 |
 
@@ -1187,6 +1282,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：71；字段总数（含生成列）：681；需要人工补写独立描述的字段名：0。
+基础数据表数：77；字段总数（含生成列）：734；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。

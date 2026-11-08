@@ -129,6 +129,67 @@ assert "reference_price_factor_definition_guard" in triggers
 assert {"pricing_mode","base_fee_fen","unit_price_fen",
         "quantity_brackets_json"}<=price_fields
 assert "reference_price_quantity_bracket_guard" in triggers
+# Round16: operation type and immutable work-object/material definitions are
+# independent. Exact price-factor definitions, per-location work and price
+# evidence are normalized, rather than a new mutable reference-total column.
+assert "pricing_features_json" in {r["name"] for r in db.execute(
+    "PRAGMA table_xinfo(operation_versions)")}
+assert "operation_pricing_feature_definition_guard" in triggers
+assert "demand_version_work_locations" in tables
+assert "demand_version_work_locations_publish" in triggers
+assert "demand_work_location_immutable_insert" in triggers
+assert "demand_work_location_immutable_update" in triggers
+assert "demand_work_location_immutable_delete" in triggers
+assert {"initial_work_locations_json"} <= {r["name"] for r in
+    db.execute("PRAGMA table_xinfo(demands)")}
+work_locations={r["name"] for r in db.execute(
+    "PRAGMA table_xinfo(demand_version_work_locations)")}
+assert {"demand_id","demand_version","item_no","location_kind",
+        "quantity_scaled","work_mode","site_features_json",
+        "location_snapshot_json"}<=work_locations
+for name in ("uq_demand_location_physical",
+             "uq_demand_location_logical","uq_demand_location_span"):
+    assert name in indexes
+assert "project_approval_work_locations" in tables
+assert "project_approval_single_location_seed" in triggers
+assert "project_approval_locations_finalize" in triggers
+assert {"pricing_scope","pricing_mode","fee_components_json",
+        "calculation_params_json"}<=price_fields
+assert "reference_price_formula_guard" in triggers
+assert "reference_price_evaluations" in tables
+assert "reference_price_evaluation_lines" in tables
+assert "project_approval_scope_prices" in tables
+assert "project_reference_price_charges" in tables
+assert "reference_price_evaluation_finalize_guard" in triggers
+assert "reference_price_evaluation_line_guard" in triggers
+assert "project_approval_scope_price_guard" in triggers
+assert "project_approval_reference_freshness_finalize" in triggers
+assert "reference_price_evaluation_lines" in triggers[
+    "project_approval_reference_freshness_finalize"]["sql"]
+assert "approved_quantity_scaled" in triggers[
+    "project_approval_reference_freshness_finalize"]["sql"]
+assert "project_reference_price_charge_guard" in triggers
+assert "v_demand_reference_quote_current" in views
+assert "v_project_approval_reference_basis_current" in views
+assert "reference_price_version_id" not in {
+    r["name"] for r in db.execute("PRAGMA table_xinfo(project_demand_scopes)")}
+assert "idx_reference_scope_version" not in indexes
+assert "total_reference_fen" not in {
+    r["name"] for t in ("demands","demand_versions","project_demand_scopes",
+        "project_approval_scope_versions","project_approval_versions") for r in
+        db.execute("PRAGMA table_xinfo("+t+")")}
+assert not {"material_id"} & {r["name"] for r in
+    db.execute("PRAGMA table_xinfo(work_objects)")}
+assert not {"work_object_id"} & {r["name"] for r in
+    db.execute("PRAGMA table_xinfo(materials)")}
+assert all(k in tables for k in
+    ("work_object_versions","material_versions",
+     "demand_material_version_items"))
+# Work, prices and actual settlements are different facts; the current
+# reference-basis view contains no SUM/aggregate/report/business arithmetic.
+basis_sql=views["v_project_approval_reference_basis_current"]["sql"]
+assert "SUM(" not in basis_sql and "COUNT(" not in basis_sql
+assert "approved_budget_fen" not in basis_sql
 # A formally approved project must have actual approved demand scopes; each
 # formal settlement VERSION records actual demand work once independent of
 # the number of invoiced labor/material cost-tree rows.
