@@ -19,6 +19,7 @@ after_json|操作后的结构化审计事实
 agreement_id|业务归属执行协议
 allow_span|操作类型是否允许选择档距
 allow_tower|操作类型是否允许选择杆塔
+additional_conditions_json|参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行
 amount_fen|本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额
 approval_scope_version_id|本条结算明细对应的正式批准范围版本
 approval_version_id|项目正式批准版本身份
@@ -27,7 +28,7 @@ approved_at|项目正式批准的UTC时间点
 approved_budget_fen|项目本次批准的整体软预算，人民币分
 approved_by|正式批准人用户身份
 approved_quantity_scaled|项目正式批准的物资数量
-asset_no|PMS等系统中的设备资产编号
+asset_no|一次性清洗后的设备资产编号
 base_approval_version_id|变更单所依据的前一项目正式批准版本
 based_on_version_id|草稿所依据的上一正式结算版本
 basis|价格、结算或估算的依据说明
@@ -100,7 +101,7 @@ event_seq|同一业务对象状态事件的连续序号
 evidence|现场实际或成本确认的书面依据
 expected_on|专业需求期望办理日期
 expires_at|登录会话或授权到期UTC时间
-external_record_id|PMS等外部来源系统的唯一记录编号
+external_record_id|一次性数据导入原始来源编号，不作为持续外部系统映射
 field_definitions_json|来源分类扩展字段定义
 fields_json|标准业务字典/操作类型扩展字段
 file_id|不可变证据文件身份
@@ -131,7 +132,7 @@ linked_by|提交证据关联的用户
 logical_code|逻辑杆塔稳定编码
 logical_tower_id|逻辑杆塔身份
 longitude|设备地理经度
-maintenance_team|负责设备运维的班组
+operations_team|对应逻辑杆塔所属线路的运维班组，独立于子项目归口单位
 management_department|设备主管部门
 manager_id|子项目管理人员
 matched_demand_id|去重审查中已存在的需求
@@ -162,7 +163,6 @@ physical_code_snapshot|需求首次登记时的物理杆塔编码
 physical_tower_id|实际物理杆塔身份
 planned_end_on|子项目预计结束业务日期
 planned_start_on|子项目预计开始业务日期
-pms_material_code|PMS外部物资编码映射，随物资正式主数据版本保留修订历史；当前同码不可对应两个物资
 preliminary_estimate_basis|子项目初步估算金额的依据
 preliminary_estimate_fen|子项目初步估算金额（非正式批准）
 previous_version_id|当前结算版本的上一历史版本

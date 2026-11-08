@@ -30,7 +30,7 @@ CREATE TABLE transmission_lines (
     voltage_level_id TEXT NOT NULL REFERENCES voltage_levels(id) ON DELETE RESTRICT,
     name TEXT NOT NULL CHECK (length(trim(name)) > 0),
     status TEXT NOT NULL DEFAULT 'active'
-        CHECK (status IN ('active', 'inactive')),
+        CHECK (status IN ('active', 'inactive', 'retired')),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))),
@@ -76,9 +76,9 @@ CREATE TABLE logical_towers (
     sort_rank INTEGER NOT NULL CHECK (sort_rank > 0),
     circuit_position TEXT,
     management_department TEXT NOT NULL DEFAULT '',
-    maintenance_team TEXT NOT NULL DEFAULT '',
+    operations_team TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'draft'
-        CHECK (status IN ('draft', 'active', 'inactive')),
+        CHECK (status IN ('draft', 'active', 'inactive', 'retired')),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0))),
@@ -86,14 +86,6 @@ CREATE TABLE logical_towers (
     updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
     change_reason TEXT NOT NULL DEFAULT '首次建档',
     CHECK (status <> 'active' OR physical_tower_id IS NOT NULL)
-) STRICT;
-
-
-CREATE TABLE line_source_aliases (
- line_id TEXT NOT NULL REFERENCES transmission_lines(id) ON DELETE RESTRICT,
- source_name TEXT NOT NULL,
- source_kind TEXT NOT NULL,
- PRIMARY KEY(line_id,source_name,source_kind)
 ) STRICT;
 
 
@@ -135,7 +127,7 @@ CREATE TABLE logical_tower_history (
  physical_tower_id TEXT REFERENCES physical_towers(id) ON DELETE RESTRICT,
  tower_no TEXT NOT NULL,display_name TEXT,sort_rank INTEGER NOT NULL,
  circuit_position TEXT,management_department TEXT NOT NULL,
- maintenance_team TEXT NOT NULL,status TEXT NOT NULL,
+ operations_team TEXT NOT NULL,status TEXT NOT NULL,
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  reason TEXT NOT NULL CHECK(length(trim(reason))>0),
  recorded_at TEXT NOT NULL,
@@ -184,6 +176,9 @@ INSERT INTO role_permissions(role,permission_code) VALUES
  ('verifier','settlement.approve'),('verifier','demand.activate'),
  ('verifier','cost.confirm');
 CREATE TABLE dictionary_types (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL) STRICT;
+-- Built-in pricing factor category; actual factors are configured as normal
+-- versioned dictionary entries, never as hard-coded price table columns.
+INSERT INTO dictionary_types(id,title) VALUES('price_factor','参考价适用因素');
 
 
 -- Ordinary selectable dictionary values only; job operations are first-class.
@@ -259,7 +254,7 @@ CREATE TABLE source_records (
  id TEXT NOT NULL PRIMARY KEY, type_id TEXT REFERENCES dictionary_items(id), type_snapshot TEXT, proposed_by TEXT,
  discovered_on TEXT CHECK(discovered_on IS NULL OR (length(discovered_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(discovered_on))=discovered_on,0))), description TEXT,
  source_system TEXT NOT NULL DEFAULT 'manual'
-  CHECK(source_system IN ('manual','pms','excel','other')),
+  CHECK(source_system IN ('manual','excel','other')),
  external_record_id TEXT,
  source_file_id TEXT REFERENCES evidence_files(id) ON DELETE RESTRICT,
  worksheet_name TEXT,
@@ -708,9 +703,20 @@ CREATE TABLE reference_price_versions (
  unit_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
  unit_version INTEGER NOT NULL CHECK(unit_version>0),
  voltage_level_id TEXT REFERENCES voltage_levels(id) ON DELETE RESTRICT,
+ -- NULL means the price is not restricted to one tower construction category.
+ -- This is matched against the cleaned physical_towers.tower_type field.
+ tower_type TEXT CHECK(tower_type IS NULL OR
+  (length(trim(tower_type))>0 AND tower_type=trim(tower_type))),
  work_mode TEXT NOT NULL DEFAULT 'both'
   CHECK(work_mode IN ('outage','non_outage','both')),
  specification TEXT NOT NULL DEFAULT '',
+ -- Immutable additional applicability predicates: stable factor codes keyed
+ -- to exact dictionary definition versions (enum equality or integer range).
+ -- Application matches input context, detects rule overlaps and snapshots
+ -- selected rule/inputs into the approved price basis.
+ additional_conditions_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(additional_conditions_json)
+    AND json_type(additional_conditions_json)='object'),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
  unit_price_fen INTEGER NOT NULL CHECK(unit_price_fen>=0),
  price_source TEXT NOT NULL,
@@ -890,10 +896,8 @@ CREATE TABLE work_object_versions (
 
 
 -- A demand can have zero or many material items; no dummy material rows.
--- Unified material master. No materials_version/history table by design:
--- mutable descriptive fields stay on this one row. Stable code & unit prevent
--- old quantities from silently changing meaning; approved project snapshots
--- are separate PROJECT approval history, not master-material versions.
+-- Unified material master: immutable identity and separate full formal
+-- material_versions. No external PMS sync aliases or external mapping IDs.
 -- Material identity stable; name/model/spec/status/category are immutable full versions.
 -- Units stay on identity so historical quantities cannot change interpretation.
 CREATE TABLE materials (
@@ -908,11 +912,6 @@ CREATE TABLE material_versions (
  id TEXT NOT NULL PRIMARY KEY,
  material_id TEXT NOT NULL REFERENCES materials(id) ON DELETE RESTRICT,
  version_no INTEGER NOT NULL CHECK(version_no>=1),
- -- External PMS codes are revisable; unlike the internal stable code on materials.
- pms_material_code TEXT COLLATE NOCASE CHECK(
-  pms_material_code IS NULL OR
-  (length(trim(pms_material_code))>0
-   AND pms_material_code=trim(pms_material_code))),
  name TEXT NOT NULL CHECK(length(trim(name))>0),
  model TEXT NOT NULL DEFAULT '',
  specification TEXT NOT NULL DEFAULT '',
@@ -926,7 +925,7 @@ CREATE TABLE material_versions (
  UNIQUE(material_id,version_no)
 ) STRICT;
 CREATE VIEW v_material_current AS
-SELECT m.id,m.code,v.pms_material_code,m.unit_id,m.created_by,m.created_at,
+SELECT m.id,m.code,m.unit_id,m.created_by,m.created_at,
  v.id AS material_version_id,v.version_no,v.name,v.model,v.specification,
  v.category_id,v.status,v.note,v.changed_by,v.recorded_at AS updated_at
 FROM materials m JOIN material_versions v ON v.material_id=m.id
@@ -1732,6 +1731,47 @@ BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM operation_versions o
  AND o.default_unit_id=NEW.unit_id)
  THEN RAISE(ABORT,'参考价格单位必须与操作类型固定单位一致') END; END;
 
+-- Extensible price factors reuse the existing VERSIONED dictionary:
+-- dictionary_types.id='price_factor'; item.code is a stable factor key;
+-- item version fields_json.kind is either 'enum' or 'number'.
+-- Every rule atomically embeds its full typed predicates in its immutable
+-- reference_price_versions row; an older rule pins the exact factor version.
+-- Category-match/pricing search itself remains an application function.
+CREATE TRIGGER reference_price_factor_definition_guard
+ BEFORE INSERT ON reference_price_versions
+BEGIN
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM json_each(NEW.additional_conditions_json) j
+  GROUP BY j.key HAVING COUNT(*)>1
+ ) THEN RAISE(ABORT,'参考价扩展价格因素不能重复声明') END;
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM json_each(NEW.additional_conditions_json) j
+  LEFT JOIN dictionary_items f
+   ON f.type_id='price_factor' AND f.code=j.key
+  LEFT JOIN dictionary_item_versions fv ON fv.item_id=f.id
+   AND fv.version=json_extract(j.value,'$.factor_version')
+  WHERE f.id IS NULL OR fv.id IS NULL
+   OR fv.status<>'active' OR fv.changed_at>NEW.created_at
+   OR fv.version<>(
+     SELECT MAX(vers.version) FROM dictionary_item_versions vers
+     WHERE vers.item_id=f.id)
+   OR json_type(j.value)<>'object'
+   OR json_type(j.value,'$.factor_version')<>'integer'
+   OR COALESCE((
+    (json_extract(fv.fields_json,'$.kind')='enum'
+      AND json_extract(j.value,'$.op')='eq'
+      AND json_type(j.value,'$.value')='text'
+      AND length(trim(json_extract(j.value,'$.value')))>0)
+    OR
+    (json_extract(fv.fields_json,'$.kind')='number'
+      AND json_extract(j.value,'$.op')='range'
+      AND json_type(j.value,'$.min')='integer'
+      AND json_type(j.value,'$.max')='integer'
+      AND json_extract(j.value,'$.min')<=json_extract(j.value,'$.max'))
+   ),0)=0
+ ) THEN RAISE(ABORT,'参考价格扩展因素须引用有效的正式定义版本并使用正确值类型') END;
+END;
+
 
 -- Retained original asset, demand, category or audit rule.
 CREATE TRIGGER immutable_cost_version_delete BEFORE DELETE ON cost_versions
@@ -1826,8 +1866,9 @@ WHERE v.version=(SELECT MAX(x.version) FROM operation_versions x
 CREATE VIEW v_reference_price_current AS
 SELECT c.id,c.code,c.created_by,c.created_at,
  v.id AS current_version_id,v.version_no,v.title,v.operation_id,
- v.operation_version,v.unit_id,v.unit_version,v.voltage_level_id,v.work_mode,
- v.specification,v.status,v.unit_price_fen,v.tax_mode,v.effective_on
+ v.operation_version,v.unit_id,v.unit_version,v.voltage_level_id,v.tower_type,
+ v.work_mode,v.specification,v.additional_conditions_json,
+ v.status,v.unit_price_fen,v.tax_mode,v.effective_on
 FROM reference_price_catalog c
 JOIN reference_price_versions v ON v.catalog_id=c.id
 WHERE v.version_no=(SELECT MAX(x.version_no)
@@ -2426,7 +2467,9 @@ BEGIN
  AND prev.operation_version=NEW.operation_version
  AND prev.unit_id=NEW.unit_id AND prev.unit_version=NEW.unit_version
  AND prev.voltage_level_id IS NEW.voltage_level_id
- AND prev.work_mode=NEW.work_mode AND prev.specification=NEW.specification
+ AND prev.tower_type IS NEW.tower_type AND prev.work_mode=NEW.work_mode
+ AND prev.specification=NEW.specification
+ AND prev.additional_conditions_json=NEW.additional_conditions_json
  AND prev.status=NEW.status AND prev.unit_price_fen=NEW.unit_price_fen
  AND prev.price_source=NEW.price_source AND prev.price_date=NEW.price_date
  AND prev.tax_mode=NEW.tax_mode AND prev.effective_on=NEW.effective_on
@@ -3092,21 +3135,21 @@ BEGIN
 END;
 
 CREATE TRIGGER logical_tower_history_initial AFTER INSERT ON logical_towers
-BEGIN INSERT INTO logical_tower_history(logical_tower_id,version,line_id,physical_tower_id,tower_no,display_name,sort_rank,circuit_position,management_department,maintenance_team,status,actor_id,reason,recorded_at)
- VALUES(NEW.id,NEW.version,NEW.line_id,NEW.physical_tower_id,NEW.tower_no,NEW.display_name,NEW.sort_rank,NEW.circuit_position,NEW.management_department,NEW.maintenance_team,NEW.status,NEW.created_by,'首次建档',NEW.created_at); END;
+BEGIN INSERT INTO logical_tower_history(logical_tower_id,version,line_id,physical_tower_id,tower_no,display_name,sort_rank,circuit_position,management_department,operations_team,status,actor_id,reason,recorded_at)
+ VALUES(NEW.id,NEW.version,NEW.line_id,NEW.physical_tower_id,NEW.tower_no,NEW.display_name,NEW.sort_rank,NEW.circuit_position,NEW.management_department,NEW.operations_team,NEW.status,NEW.created_by,'首次建档',NEW.created_at); END;
 CREATE TRIGGER logical_tower_history_version_guard BEFORE UPDATE ON logical_towers
-WHEN (NEW.line_id IS NOT OLD.line_id OR NEW.physical_tower_id IS NOT OLD.physical_tower_id OR NEW.tower_no IS NOT OLD.tower_no OR NEW.display_name IS NOT OLD.display_name OR NEW.sort_rank IS NOT OLD.sort_rank OR NEW.circuit_position IS NOT OLD.circuit_position OR NEW.management_department IS NOT OLD.management_department OR NEW.maintenance_team IS NOT OLD.maintenance_team OR NEW.status IS NOT OLD.status) OR NEW.version<>OLD.version
+WHEN (NEW.line_id IS NOT OLD.line_id OR NEW.physical_tower_id IS NOT OLD.physical_tower_id OR NEW.tower_no IS NOT OLD.tower_no OR NEW.display_name IS NOT OLD.display_name OR NEW.sort_rank IS NOT OLD.sort_rank OR NEW.circuit_position IS NOT OLD.circuit_position OR NEW.management_department IS NOT OLD.management_department OR NEW.operations_team IS NOT OLD.operations_team OR NEW.status IS NOT OLD.status) OR NEW.version<>OLD.version
 BEGIN
  SELECT CASE WHEN NEW.version<>OLD.version+1
- OR (NEW.line_id IS OLD.line_id AND NEW.physical_tower_id IS OLD.physical_tower_id AND NEW.tower_no IS OLD.tower_no AND NEW.display_name IS OLD.display_name AND NEW.sort_rank IS OLD.sort_rank AND NEW.circuit_position IS OLD.circuit_position AND NEW.management_department IS OLD.management_department AND NEW.maintenance_team IS OLD.maintenance_team AND NEW.status IS OLD.status)
+ OR (NEW.line_id IS OLD.line_id AND NEW.physical_tower_id IS OLD.physical_tower_id AND NEW.tower_no IS OLD.tower_no AND NEW.display_name IS OLD.display_name AND NEW.sort_rank IS OLD.sort_rank AND NEW.circuit_position IS OLD.circuit_position AND NEW.management_department IS OLD.management_department AND NEW.operations_team IS OLD.operations_team AND NEW.status IS OLD.status)
  OR NEW.updated_by IS NULL OR length(trim(NEW.change_reason))=0
  OR NEW.updated_at<=OLD.updated_at
  THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人、原因和连续新版本') END;
 END;
 CREATE TRIGGER logical_tower_history_append AFTER UPDATE ON logical_towers
-WHEN (NEW.line_id IS NOT OLD.line_id OR NEW.physical_tower_id IS NOT OLD.physical_tower_id OR NEW.tower_no IS NOT OLD.tower_no OR NEW.display_name IS NOT OLD.display_name OR NEW.sort_rank IS NOT OLD.sort_rank OR NEW.circuit_position IS NOT OLD.circuit_position OR NEW.management_department IS NOT OLD.management_department OR NEW.maintenance_team IS NOT OLD.maintenance_team OR NEW.status IS NOT OLD.status)
-BEGIN INSERT INTO logical_tower_history(logical_tower_id,version,line_id,physical_tower_id,tower_no,display_name,sort_rank,circuit_position,management_department,maintenance_team,status,actor_id,reason,recorded_at)
- VALUES(NEW.id,NEW.version,NEW.line_id,NEW.physical_tower_id,NEW.tower_no,NEW.display_name,NEW.sort_rank,NEW.circuit_position,NEW.management_department,NEW.maintenance_team,NEW.status,NEW.updated_by,NEW.change_reason,NEW.updated_at); END;
+WHEN (NEW.line_id IS NOT OLD.line_id OR NEW.physical_tower_id IS NOT OLD.physical_tower_id OR NEW.tower_no IS NOT OLD.tower_no OR NEW.display_name IS NOT OLD.display_name OR NEW.sort_rank IS NOT OLD.sort_rank OR NEW.circuit_position IS NOT OLD.circuit_position OR NEW.management_department IS NOT OLD.management_department OR NEW.operations_team IS NOT OLD.operations_team OR NEW.status IS NOT OLD.status)
+BEGIN INSERT INTO logical_tower_history(logical_tower_id,version,line_id,physical_tower_id,tower_no,display_name,sort_rank,circuit_position,management_department,operations_team,status,actor_id,reason,recorded_at)
+ VALUES(NEW.id,NEW.version,NEW.line_id,NEW.physical_tower_id,NEW.tower_no,NEW.display_name,NEW.sort_rank,NEW.circuit_position,NEW.management_department,NEW.operations_team,NEW.status,NEW.updated_by,NEW.change_reason,NEW.updated_at); END;
 CREATE TRIGGER logical_tower_history_immutable_update BEFORE UPDATE ON logical_tower_history
 BEGIN SELECT RAISE(ABORT,'设备完整历史不可覆盖'); END;
 CREATE TRIGGER logical_tower_history_immutable_delete BEFORE DELETE ON logical_tower_history
@@ -3117,7 +3160,7 @@ BEGIN
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM logical_towers a WHERE a.id=NEW.logical_tower_id
  AND a.version=NEW.version
- AND NEW.line_id IS a.line_id AND NEW.physical_tower_id IS a.physical_tower_id AND NEW.tower_no IS a.tower_no AND NEW.display_name IS a.display_name AND NEW.sort_rank IS a.sort_rank AND NEW.circuit_position IS a.circuit_position AND NEW.management_department IS a.management_department AND NEW.maintenance_team IS a.maintenance_team AND NEW.status IS a.status
+ AND NEW.line_id IS a.line_id AND NEW.physical_tower_id IS a.physical_tower_id AND NEW.tower_no IS a.tower_no AND NEW.display_name IS a.display_name AND NEW.sort_rank IS a.sort_rank AND NEW.circuit_position IS a.circuit_position AND NEW.management_department IS a.management_department AND NEW.operations_team IS a.operations_team AND NEW.status IS a.status
  AND (a.created_at=NEW.recorded_at OR a.updated_at=NEW.recorded_at)
  )
  THEN RAISE(ABORT,'设备历史必须来自已保存的真实台账完整版本') END;
@@ -3178,7 +3221,7 @@ CREATE TRIGGER management_version_no_update BEFORE UPDATE ON project_management_
 BEGIN SELECT RAISE(ABORT,'子项目归口及管理档案历史不可覆盖'); END;
 CREATE TRIGGER management_version_no_delete BEFORE DELETE ON project_management_versions
 BEGIN SELECT RAISE(ABORT,'子项目归口及管理档案历史不可删除'); END;
-CREATE UNIQUE INDEX uq_pms_source_record
+CREATE UNIQUE INDEX uq_import_source_record
  ON source_records(source_system,external_record_id) WHERE external_record_id IS NOT NULL;
 CREATE UNIQUE INDEX uq_excel_source_row
  ON source_records(source_file_id,worksheet_name,row_number)
@@ -3272,12 +3315,49 @@ CREATE TRIGGER active_span_line_guard
  OR NEW.junction_tower_id IS NOT OLD.junction_tower_id)
  AND EXISTS(SELECT 1 FROM line_spans sp WHERE sp.line_id=OLD.id AND sp.status='active')
 BEGIN SELECT RAISE(ABORT,'在运档距所在线路的状态或接线关系变化须先更新档距历史'); END;
+-- Permanently retiring one line is NOT a multi-circuit tower demolition.
+-- All active logical towers on THAT line and its active spans must first be
+-- legally retired; shared physical towers or other lines stay unchanged.
+CREATE TRIGGER line_retirement_logical_guard
+ BEFORE UPDATE OF status ON transmission_lines
+ WHEN NEW.status='retired' AND OLD.status<>'retired'
+ AND EXISTS(SELECT 1 FROM logical_towers l WHERE l.line_id=OLD.id
+ AND l.status='active')
+BEGIN SELECT RAISE(ABORT,'线路正式退役前须处理本线路全部在运逻辑杆塔，不影响其他共塔线路'); END;
+-- Physical operation status is independent of per-circuit logical retirement,
+-- but an active logical tower cannot be served by a non-operational structure.
+CREATE TRIGGER active_logical_tower_physical_guard
+ BEFORE INSERT ON logical_towers
+ WHEN NEW.status='active'
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM physical_towers p WHERE p.id=NEW.physical_tower_id
+ AND p.status='active')
+ THEN RAISE(ABORT,'在运逻辑杆塔必须关联在运物理杆塔') END;
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM transmission_lines l WHERE l.id=NEW.line_id
+ AND l.status='retired')
+ THEN RAISE(ABORT,'已退役线路不得增加在运逻辑杆塔') END;
+END;
+CREATE TRIGGER active_logical_tower_physical_update_guard
+ BEFORE UPDATE OF status,physical_tower_id,line_id ON logical_towers
+ WHEN NEW.status='active'
+BEGIN
+ SELECT CASE WHEN NOT EXISTS(
+ SELECT 1 FROM physical_towers p WHERE p.id=NEW.physical_tower_id
+ AND p.status='active')
+ THEN RAISE(ABORT,'在运逻辑杆塔必须关联在运物理杆塔') END;
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM transmission_lines l WHERE l.id=NEW.line_id
+ AND l.status='retired')
+ THEN RAISE(ABORT,'已退役线路不得关联在运逻辑杆塔') END;
+END;
 CREATE TRIGGER active_physical_tower_retire_guard
  BEFORE UPDATE OF status ON physical_towers
- WHEN NEW.status='retired' AND OLD.status<>'retired'
+ WHEN NEW.status<>'active' AND OLD.status='active'
  AND EXISTS(SELECT 1 FROM logical_towers l WHERE l.physical_tower_id=OLD.id
  AND l.status='active')
-BEGIN SELECT RAISE(ABORT,'有在运逻辑杆塔关联的物理杆塔不可直接退役，须先登记整体更换'); END;
+BEGIN SELECT RAISE(ABORT,'仍有在运逻辑杆塔关联，物理杆塔不可停用或退役；须先处理相关线路'); END;
 
 CREATE TRIGGER demand_adopted_cancel_guard
  BEFORE INSERT ON demand_lifecycle_events
@@ -3326,7 +3406,7 @@ END;
 -- Source lineage: no redundant batch/demand/source triple. Once a raw source
 -- is associated with a demand or an import batch, it becomes evidence, not
 -- editable text whose contents can silently change after project approval.
--- Existing uq_pms_source_record / uq_excel_source_row enforce source identity; do not duplicate indexes.
+-- Existing uq_import_source_record / uq_excel_source_row enforce source identity; do not duplicate indexes.
 CREATE TRIGGER source_identity_immutable_update
  BEFORE UPDATE ON source_records
  WHEN EXISTS(SELECT 1 FROM demand_sources d WHERE d.source_id=OLD.id)
@@ -3408,7 +3488,7 @@ CREATE INDEX idx_approval_scope_demand_version
  ON project_approval_scope_versions(demand_id,demand_version);
 
 CREATE TRIGGER material_root_immutable_update BEFORE UPDATE ON materials
-BEGIN SELECT RAISE(ABORT,'物资编码、PMS编码和计量单位为不可变稳定身份；修改名称规格请发布版本'); END;
+BEGIN SELECT RAISE(ABORT,'物资内部编码和计量单位为不可变稳定身份；修改名称规格请发布版本'); END;
 CREATE TRIGGER material_root_immutable_delete BEFORE DELETE ON materials
 BEGIN SELECT RAISE(ABORT,'统一物资主数据身份不可删除，停用请发布版本'); END;
 CREATE TRIGGER material_version_insert_guard BEFORE INSERT ON material_versions
@@ -3425,18 +3505,11 @@ BEGIN
  WHERE x.material_id=NEW.material_id),(
  SELECT m.created_at FROM materials m WHERE m.id=NEW.material_id))
  THEN RAISE(ABORT,'物资版本登记时间不可倒序') END;
- -- A PMS material code may be corrected or replaced by a new version, but
- -- must never map to TWO current material identities at the same moment.
- SELECT CASE WHEN NEW.pms_material_code IS NOT NULL AND EXISTS(
- SELECT 1 FROM v_material_current other
- WHERE other.id<>NEW.material_id AND other.pms_material_code COLLATE NOCASE
- = NEW.pms_material_code COLLATE NOCASE)
- THEN RAISE(ABORT,'PMS外部物资编码不可同时指向不同的当前物资身份') END;
  SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
  SELECT 1 FROM material_versions x WHERE x.material_id=NEW.material_id
  AND x.version_no=NEW.version_no-1
  AND x.name IS NEW.name AND x.model IS NEW.model
- AND x.pms_material_code IS NEW.pms_material_code
+
  AND x.specification IS NEW.specification AND x.category_id IS NEW.category_id
  AND x.status IS NEW.status AND x.note IS NEW.note)
  THEN RAISE(ABORT,'物资版本必须存在真实内容变化') END;
@@ -3454,9 +3527,6 @@ CREATE INDEX idx_approved_material_catalog_version
  ON project_approval_material_items(material_version_id);
 CREATE INDEX idx_evidence_material_catalog_version
  ON evidence_links(material_version_id) WHERE material_version_id IS NOT NULL;
-CREATE INDEX idx_material_version_pms_code
- ON material_versions(pms_material_code COLLATE NOCASE)
- WHERE pms_material_code IS NOT NULL;
 
 -- Immutable decision and request facts must not be retroactively changed.
 -- Reassessment of a duplicate demand creates a NEW reviewed decision event;
@@ -3470,7 +3540,7 @@ BEGIN SELECT RAISE(ABORT,'幂等请求的原参数和返回结果不可在确认
 CREATE TRIGGER ledger_request_immutable_delete BEFORE DELETE ON ledger_requests
 BEGIN SELECT RAISE(ABORT,'已有确认的请求幂等身份不可删除'); END;
 
--- Voltage classification codes and official descriptions are stable PMS
+-- Voltage classification codes and official descriptions are stable
 -- identity data; status/order can be managed without relabeling history.
 CREATE TRIGGER voltage_identity_immutable_update
  BEFORE UPDATE OF id,code,name ON voltage_levels

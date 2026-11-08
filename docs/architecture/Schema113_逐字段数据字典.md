@@ -460,16 +460,6 @@
 | `reason` | TEXT | 是 | — | 见原生CHECK | 登记、修订、审批或撤销的正式理由 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `line_source_aliases` — 外部线路别名映射
-
-业务领域：输电设备及组织台账。字段数：3；外键分量：1。
-
-| 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
-| --- | --- | --- | --- | --- | --- | --- |
-| `line_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→transmission_lines.id（组0） | 所属线路身份 | 保留：独立属性或真实关联 |
-| `source_name` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一 | 来源系统的对外名称 | 保留：独立属性或真实关联 |
-| `source_kind` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一 | 来源渠道类别 | 保留：独立属性或真实关联 |
-
 ## `line_span_history` — 档距及管辖长度历史
 
 业务领域：输电设备及组织台账。字段数：11；外键分量：5。
@@ -507,7 +497,7 @@
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 | `updated_at` | TEXT | 是 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
 
-## `logical_tower_history` — 逻辑杆塔及物理关联历史
+## `logical_tower_history` — 逻辑杆塔完整历史；运维班组和单回线路退役事实不可覆盖
 
 业务领域：输电设备及组织台账。字段数：14；外键分量：4。
 
@@ -522,13 +512,13 @@
 | `sort_rank` | INTEGER | 是 | — | 见原生CHECK | 设备在线路中的拓扑顺序 | 保留：历史/审核事实 |
 | `circuit_position` | TEXT | 否 | — | 见原生CHECK | 同塔多回时的回路物理/逻辑位置 | 保留：历史/审核事实 |
 | `management_department` | TEXT | 是 | — | 见原生CHECK | 设备主管部门 | 保留：历史/审核事实 |
-| `maintenance_team` | TEXT | 是 | — | 见原生CHECK | 负责设备运维的班组 | 保留：历史/审核事实 |
+| `operations_team` | TEXT | 是 | — | 见原生CHECK | 对应逻辑杆塔所属线路的运维班组，独立于子项目归口单位 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `actor_id` | TEXT | 是 | — | 外键→users.id（组0） | 执行业务事件的用户 | 保留：历史/审核事实 |
 | `reason` | TEXT | 是 | — | 见原生CHECK | 登记、修订、审批或撤销的正式理由 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `logical_towers` — 线路回路逻辑杆塔身份
+## `logical_towers` — 每回线路逻辑杆塔；运维班组及在运、停用、独立退役
 
 业务领域：输电设备及组织台账。字段数：17；外键分量：4。
 
@@ -543,7 +533,7 @@
 | `sort_rank` | INTEGER | 是 | — | 组合唯一 | 设备在线路中的拓扑顺序 | 保留：独立属性或真实关联 |
 | `circuit_position` | TEXT | 否 | — | 见原生CHECK | 同塔多回时的回路物理/逻辑位置 | 保留：独立属性或真实关联 |
 | `management_department` | TEXT | 是 | '' | 见原生CHECK | 设备主管部门 | 保留：独立属性或真实关联 |
-| `maintenance_team` | TEXT | 是 | '' | 见原生CHECK | 负责设备运维的班组 | 保留：独立属性或真实关联 |
+| `operations_team` | TEXT | 是 | '' | 见原生CHECK | 对应逻辑杆塔所属线路的运维班组，独立于子项目归口单位 | 保留：独立属性或真实关联 |
 | `status` | TEXT | 是 | 'draft' | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：独立属性或真实关联 |
 | `version` | INTEGER | 是 | 1 | 见原生CHECK | 正式定义或设备当前连续版本 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | strftime('%Y-%m-%dT%H:%M:%fZ', 'now') | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
@@ -552,16 +542,15 @@
 | `updated_by` | TEXT | 否 | — | 外键→users.id（组0） | 修改主数据或可编辑业务草稿的用户 | 保留：独立属性或真实关联 |
 | `change_reason` | TEXT | 是 | '首次建档' | 见原生CHECK | 台账设备属性变化原因 | 保留：独立属性或真实关联 |
 
-## `material_versions` — 物资正式定义历史及可修订的PMS外部编码（当前唯一映射）
+## `material_versions` — 统一内部物资定义历史（名称、型号、规格、类别、状态），不保留PMS外部物资映射
 
-业务领域：来源、需求和物资主数据。字段数：13；外键分量：3。
+业务领域：来源、需求和物资主数据。字段数：12；外键分量：3。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `material_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→materials.id（组2） | 统一物资主数据身份 | 保留：历史/审核事实 |
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
-| `pms_material_code` | TEXT | 否 | — | 见原生CHECK | PMS外部物资编码映射，随物资正式主数据版本保留修订历史；当前同码不可对应两个物资 | 保留：历史/审核事实 |
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
 | `model` | TEXT | 是 | '' | 见原生CHECK | 设备或物资型号 | 保留：历史/审核事实 |
 | `specification` | TEXT | 是 | '' | 见原生CHECK | 物资或参考单价的规格 | 保留：历史/审核事实 |
@@ -664,7 +653,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `physical_tower_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→physical_towers.id（组1） | 实际物理杆塔身份 | 保留：历史/审核事实 |
 | `version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一 | 正式定义或设备当前连续版本 | 保留：历史/审核事实 |
-| `asset_no` | TEXT | 否 | — | 见原生CHECK | PMS等系统中的设备资产编号 | 保留：历史/审核事实 |
+| `asset_no` | TEXT | 否 | — | 见原生CHECK | 一次性清洗后的设备资产编号 | 保留：历史/审核事实 |
 | `tower_type` | TEXT | 否 | — | 见原生CHECK | 杆塔类型 | 保留：历史/审核事实 |
 | `longitude` | REAL | 否 | — | 见原生CHECK | 设备地理经度 | 保留：历史/审核事实 |
 | `latitude` | REAL | 否 | — | 见原生CHECK | 设备地理纬度 | 保留：历史/审核事实 |
@@ -677,7 +666,7 @@
 | `reason` | TEXT | 是 | — | 见原生CHECK | 登记、修订、审批或撤销的正式理由 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `physical_towers` — 物理杆塔身份及当前属性
+## `physical_towers` — 实体杆塔独立状态（在运、停用、退役），不得在仍有在运逻辑回路时停用
 
 业务领域：输电设备及组织台账。字段数：17；外键分量：2。
 
@@ -685,7 +674,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `tower_code` | TEXT | 是 | — | 唯一 | 物理杆塔业务编码 | 保留：稳定身份或唯一编码 |
-| `asset_no` | TEXT | 否 | — | 见原生CHECK | PMS等系统中的设备资产编号 | 保留：独立属性或真实关联 |
+| `asset_no` | TEXT | 否 | — | 见原生CHECK | 一次性清洗后的设备资产编号 | 保留：独立属性或真实关联 |
 | `tower_type` | TEXT | 否 | — | 见原生CHECK | 杆塔类型 | 保留：独立属性或真实关联 |
 | `longitude` | REAL | 否 | — | 见原生CHECK | 设备地理经度 | 保留：独立属性或真实关联 |
 | `latitude` | REAL | 否 | — | 见原生CHECK | 设备地理纬度 | 保留：独立属性或真实关联 |
@@ -927,9 +916,9 @@
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `reference_price_versions` — 参考单价正式历史
+## `reference_price_versions` — 操作定义及单位历史版本关联；电压等级、塔型、作业方式及可扩展正式价格因素
 
-业务领域：操作类型、字典和标准价格。字段数：21；外键分量：9。
+业务领域：操作类型、字典和标准价格。字段数：23；外键分量：9。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -942,8 +931,10 @@
 | `unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组0）<escape>|</escape>外键→dictionary_items.id（组4） | 计量单位字典项 | 保留：历史/审核事实 |
 | `unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组0） | 计量单位字典正式版本号 | 保留：历史/审核事实 |
 | `voltage_level_id` | TEXT | 否 | — | 外键→voltage_levels.id（组3） | 线路设备所在电压等级 | 保留：历史/审核事实 |
+| `tower_type` | TEXT | 否 | — | 见原生CHECK | 杆塔类型 | 保留：历史/审核事实 |
 | `work_mode` | TEXT | 是 | 'both' | 见原生CHECK | 作业方式，停电或不停电等 | 保留：历史/审核事实 |
 | `specification` | TEXT | 是 | '' | 见原生CHECK | 物资或参考单价的规格 | 保留：历史/审核事实 |
+| `additional_conditions_json` | TEXT | 是 | '{}' | 见原生CHECK | 参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `unit_price_fen` | INTEGER | 是 | — | 见原生CHECK | 单位数量价格，以人民币分存储 | 保留：历史/审核事实 |
 | `price_source` | TEXT | 是 | — | 见原生CHECK | 单价引用的原始来源 | 保留：历史/审核事实 |
@@ -1066,7 +1057,7 @@
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `source_records` — PMS/Excel 原始证据
+## `source_records` — 一次性清洗导入或人工录入的原始来源证据，不做外部系统持续同步
 
 业务领域：来源、需求和物资。字段数：14；外键分量：3。
 
@@ -1079,7 +1070,7 @@
 | `discovered_on` | TEXT | 否 | — | 见原生CHECK | 问题被发现的业务日期 | 保留：独立属性或真实关联 |
 | `description` | TEXT | 否 | — | 见原生CHECK | 来源线索或原始记录描述 | 保留：独立属性或真实关联 |
 | `source_system` | TEXT | 是 | 'manual' | 组合唯一 | 外部业务系统或Excel来源名称 | 保留：独立属性或真实关联 |
-| `external_record_id` | TEXT | 否 | — | 组合唯一 | PMS等外部来源系统的唯一记录编号 | 保留：独立属性或真实关联 |
+| `external_record_id` | TEXT | 否 | — | 组合唯一 | 一次性数据导入原始来源编号，不作为持续外部系统映射 | 保留：独立属性或真实关联 |
 | `source_file_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→evidence_files.id（组1） | 原始输入证据文件身份 | 保留：独立属性或真实关联 |
 | `worksheet_name` | TEXT | 否 | — | 组合唯一 | 来源Excel工作表名称 | 保留：独立属性或真实关联 |
 | `row_number` | INTEGER | 否 | — | 组合唯一 | Excel/PMS来源所在数据行号 | 保留：独立属性或真实关联 |
@@ -1087,7 +1078,7 @@
 | `created_by` | TEXT | 是 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `transmission_lines` — 线路身份与当前台账
+## `transmission_lines` — 线路本体独立在运、停用、退役状态，完整历史；退役只约束本线逻辑杆塔
 
 业务领域：输电设备及组织台账。字段数：16；外键分量：5。
 
@@ -1165,6 +1156,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：70；字段总数（含生成列）：666；需要人工补写独立描述的字段名：0。
+基础数据表数：69；字段总数（含生成列）：664；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。

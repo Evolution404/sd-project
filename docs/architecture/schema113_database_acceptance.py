@@ -32,7 +32,7 @@ def add(t, **data):
             if k in data})
         insert_raw("material_versions",id=data["id"]+"_v1",
             material_id=data["id"],version_no=1,
-            pms_material_code=data.get("pms_material_code"),name=data["name"],
+            name=data["name"],
             model=data.get("model",""),specification=data.get("specification",""),
             category_id=data.get("category_id"),status=data.get("status","active"),
             note=data.get("note",""),reason="首次登记",
@@ -124,8 +124,7 @@ def revise_material(material_id, *, recorded_at, reason, changed_by="u",
         (material_id,)).fetchone()
     assert current is not None, material_id
     fields={k:changes.get(k,current[k]) for k in
-        ("name","model","specification","category_id","status","note",
-         "pms_material_code")}
+        ("name","model","specification","category_id","status","note")}
     version_no=current["version_no"]+1
     insert_raw("material_versions",id=f"{material_id}_v{version_no}",
         material_id=material_id,version_no=version_no,
@@ -1171,14 +1170,14 @@ ok("responsibility and schedule are separate historical project facts",
 blocked("project management history cannot be overwritten",
     "UPDATE project_management_versions SET planned_end_on='2027-01-01' "
     "WHERE id='mgt1'")
-add("source_records",id="pms_source",source_system="pms",
-    external_record_id="PMS-DEV-100",
-    description="PMS 台账来源",created_by="u",
+add("source_records",id="clean_source",source_system="excel",
+    external_record_id="CLEAN-DEV-100",
+    description="一次性清洗导入的原始依据",created_by="u",
     created_at="2026-11-07T18:00:00.000Z")
-blocked("one PMS source ID cannot be imported into two independent source identities",
+blocked("one cleaned import source ID cannot be duplicated",
     "INSERT INTO source_records(id,source_system,external_record_id,"
-    "description,created_by,created_at) VALUES('duplicate_pms','pms',"
-    "'PMS-DEV-100','重复','u','2026-11-07T18:01:00.000Z')")
+    "description,created_by,created_at) VALUES('duplicate_source','excel',"
+    "'CLEAN-DEV-100','重复','u','2026-11-07T18:01:00.000Z')")
 blocked("audit evidence cannot use a nonexistent user",
     "INSERT INTO audit_events(id,actor_id,entity,entity_id,action,created_at)"
     " VALUES('fake_audit','ghost','projects','p','edit',"
@@ -1414,16 +1413,16 @@ ok("source facts retain batch membership and demand-source authoritative links",
     and row("SELECT COUNT(*) n FROM sqlite_master "
         "WHERE type='table' AND name='demand_sources'")["n"]==1)
 db.execute("SAVEPOINT source_lineage_test")
-add("demand_sources",demand_id="d",source_id="pms_source")
+add("demand_sources",demand_id="d",source_id="clean_source")
 blocked("used raw source description cannot change without new source evidence",
-    "UPDATE source_records SET description='篡改来源' WHERE id='pms_source'")
+    "UPDATE source_records SET description='篡改来源' WHERE id='clean_source'")
 blocked("used raw source record cannot be deleted",
-    "DELETE FROM source_records WHERE id='pms_source'")
+    "DELETE FROM source_records WHERE id='clean_source'")
 blocked("confirmed demand cannot erase its original source association",
-    "DELETE FROM demand_sources WHERE demand_id='d' AND source_id='pms_source'")
+    "DELETE FROM demand_sources WHERE demand_id='d' AND source_id='clean_source'")
 blocked("demand source may not be silently changed to another source",
     "UPDATE demand_sources SET source_id='missing' WHERE demand_id='d'")
-add("demand_batches",id="batch_used",source_id="pms_source",
+add("demand_batches",id="batch_used",source_id="clean_source",
     status="submitted",draft_json="[]",created_by="u",
     created_at="2026-11-07T23:30:00.000Z",
     updated_at="2026-11-07T23:30:00.000Z")
@@ -1431,17 +1430,17 @@ blocked("submitted batch cannot silently replace origin source",
     "UPDATE demand_batches SET source_id=NULL WHERE id='batch_used'")
 demand("imported_from_batch",batch_id="batch_used")
 add("batch_demand_sources",batch_id="batch_used",
-    demand_id="imported_from_batch",source_id="pms_source")
+    demand_id="imported_from_batch",source_id="clean_source")
 ok("raw import provenance remains a separate immutable assertion",
     row("SELECT COUNT(*) n FROM batch_demand_sources "
         "WHERE batch_id='batch_used' AND demand_id='imported_from_batch'")["n"]==1)
-add("demand_batches",id="other_batch",source_id="pms_source",
+add("demand_batches",id="other_batch",source_id="clean_source",
     status="submitted",draft_json="[]",created_by="u",
     created_at="2026-11-07T23:30:00.000Z",
     updated_at="2026-11-07T23:30:00.000Z")
 blocked("import provenance cannot claim an unrelated batch",
     "INSERT INTO batch_demand_sources(batch_id,demand_id,source_id) "
-    "VALUES('other_batch','imported_from_batch','pms_source')")
+    "VALUES('other_batch','imported_from_batch','clean_source')")
 blocked("raw import provenance row cannot be erased",
     "DELETE FROM batch_demand_sources "
     "WHERE batch_id='batch_used' AND demand_id='imported_from_batch'")
@@ -1517,7 +1516,7 @@ blocked("intake batch payload hash must be normalized SHA-256",
     "created_at,updated_at) VALUES('badHash','{}','incorrect','u',"
     "'2026-11-07T23:30:00.000Z','2026-11-07T23:30:00.000Z')")
 add("demand_batches",id="audit_intake",draft_json='{"work":"v1"}',
-    source_id="pms_source",created_by="u",
+    source_id="clean_source",created_by="u",
     created_at="2026-11-07T23:30:00.000Z",
     updated_at="2026-11-07T23:30:00.000Z")
 blocked("editing intake draft without optimistic version increment",
@@ -2165,42 +2164,33 @@ for source_table,version_column,idx in [
         " WHERE "+version_column+"=?",("master1_v1",)))
     ok("indexed material version evidence lookup: "+source_table,
         idx in detail)
-# PMS material code is an external mapping, not an immutable local identity.
-# A correction must be auditable, and two current materials cannot claim the
-# same external code (ASCII case-insensitive).
-add("materials",id="pms_mat_a",code="LOCAL-A",name="PMS映射试验A",
-    pms_material_code="PMS-ORIGINAL",unit_id="unit",
-    created_by="u",created_at="2026-11-07T12:00:00.000Z")
-add("materials",id="pms_mat_b",code="LOCAL-B",name="PMS映射试验B",
-    unit_id="unit",created_by="u",
+# After a one-time clean import there is no mapping to an external PMS
+# material identifier. Local codes remain stable and descriptive revisions
+# remain independently auditable.
+add("materials",id="local_mat_a",code="LOCAL-A",name="绝缘子旧型号",
+    unit_id="unit",model="A-v1",
     created_at="2026-11-07T12:00:00.000Z")
-ok("initial PMS external code belongs to a material version",
-    row("SELECT pms_material_code FROM material_versions "
-        "WHERE id='pms_mat_a_v1'")["pms_material_code"]=="PMS-ORIGINAL")
-blocked("two current materials cannot claim one case-insensitive PMS code",
-    "INSERT INTO material_versions(id,material_id,version_no,pms_material_code,"
-    "name,status,reason,changed_by,recorded_at)"
-    " VALUES(?,?,?,?,?,?,?,?,?)",
-    ("duplicate_pms_v2","pms_mat_b",2,"pms-original",
-     "PMS映射试验B","active","冲突映射","u","2026-11-07T13:00:00.000Z"))
-revise_material("pms_mat_a",pms_material_code="PMS-CORRECTED",
+add("materials",id="local_mat_b",code="LOCAL-B",name="另一个材料",
+    unit_id="unit",model="B",
+    created_at="2026-11-07T12:00:00.000Z")
+ok("cleaned material master has no external PMS synchronization fields",
+    not {"pms_material_code","external_material_id"}&
+    {x["name"] for x in db.execute("PRAGMA table_info(material_versions)")})
+revise_material("local_mat_a",model="A-v2",
     recorded_at="2026-11-07T13:00:00.000Z",
-    reason="外部PMS编码勘误")
-ok("PMS code correction retains old external code in immutable history",
-    row("SELECT pms_material_code FROM material_versions WHERE "
-        "id='pms_mat_a_v1'")["pms_material_code"]=="PMS-ORIGINAL"
-    and row("SELECT pms_material_code FROM v_material_current "
-        "WHERE id='pms_mat_a'")["pms_material_code"]=="PMS-CORRECTED"
-    and row("SELECT code FROM materials WHERE id='pms_mat_a'")["code"]
+    reason="正式更正规格型号")
+ok("local material model change is versioned without external mapping",
+    row("SELECT model FROM material_versions WHERE "
+        "id='local_mat_a_v1'")["model"]=="A-v1"
+    and row("SELECT model FROM v_material_current "
+        "WHERE id='local_mat_a'")["model"]=="A-v2"
+    and row("SELECT code FROM materials WHERE id='local_mat_a'")["code"]
        =="LOCAL-A")
-revise_material("pms_mat_b",pms_material_code="PMS-ORIGINAL",
-    recorded_at="2026-11-07T13:01:00.000Z",
-    reason="旧PMS编码完成正式重新映射")
-ok("old external PMS alias can be reassigned only after it is no longer current",
-    row("SELECT pms_material_code FROM v_material_current "
-        "WHERE id='pms_mat_b'")["pms_material_code"]=="PMS-ORIGINAL"
-    and row("SELECT pms_material_code FROM material_versions "
-        "WHERE id='pms_mat_a_v1'")["pms_material_code"]=="PMS-ORIGINAL")
+blocked("distinct local material identities cannot reuse the same code",
+    "INSERT INTO materials(id,code,unit_id,created_at)"
+    " VALUES(?,?,?,?)",
+    ("local_mat_duplicate","local-a","unit",
+     "2026-11-07T13:05:00.000Z"))
 # User-confirmed business model: one subproject can be settled in MANY
 # independent installments. Each approved settlement item is its THIS-TIME
 # amount, never a cumulative amount. Actual cost is settled progressively
@@ -2321,11 +2311,11 @@ with tempfile.TemporaryDirectory(prefix="schema113_versioned_backup_") as folder
     competing.execute("PRAGMA busy_timeout=0")
     assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0]=="wal"
     assert writer.execute("SELECT COUNT(*) FROM material_versions").fetchone()[0]>=3
-    ok("online backup preserves latest PMS mapping and old exact master versions",
-        writer.execute("SELECT pms_material_code FROM v_material_current "
-            "WHERE id='pms_mat_a'").fetchone()[0]=="PMS-CORRECTED"
-        and writer.execute("SELECT pms_material_code FROM material_versions "
-            "WHERE id='pms_mat_a_v1'").fetchone()[0]=="PMS-ORIGINAL"
+    ok("online backup preserves latest local master and immutable old definitions",
+        writer.execute("SELECT model FROM v_material_current "
+            "WHERE id='local_mat_a'").fetchone()[0]=="A-v2"
+        and writer.execute("SELECT model FROM material_versions "
+            "WHERE id='local_mat_a_v1'").fetchone()[0]=="A-v1"
         and writer.execute("SELECT material_version_id FROM "
             "project_approval_material_items WHERE id='am1'").fetchone()[0]
             =="master1_v1")
@@ -2372,20 +2362,291 @@ blocked("internal stable material code must not contain edge whitespace",
     "INSERT INTO materials(id,code,unit_id,created_at) VALUES(?,?,?,?)",
     ("bad_spaced_master","  MAT-WHITESPACE  ","unit",
      "2026-11-08T02:00:00.000Z"))
-blocked("external PMS code must not contain leading or trailing whitespace",
-    "INSERT INTO material_versions(id,material_id,version_no,"
-    "pms_material_code,name,status,reason,changed_by,recorded_at)"
-    " VALUES(?,?,?,?,?,?,?,?,?)",
-    ("bad_spaced_pms","pms_mat_a",3,"  PMS-SPACED ",
-     "未规范化编码","active","非法空格","u",
+blocked("cleaned source must not pretend to support ongoing PMS synchronization",
+    "INSERT INTO source_records("
+    "id,source_system,description,created_by,created_at)"
+    " VALUES(?,?,?,?,?)",
+    ("invalid_external_sync","pms","不支持持续外部对接","u",
      "2026-11-08T02:00:00.000Z"))
-blocked("external PMS code cannot be whitespace-only",
-    "INSERT INTO material_versions(id,material_id,version_no,"
-    "pms_material_code,name,status,reason,changed_by,recorded_at)"
-    " VALUES(?,?,?,?,?,?,?,?,?)",
-    ("empty_pms","pms_mat_a",3,"   ",
-     "空白编码","active","非法空格","u",
-     "2026-11-08T02:00:00.000Z"))
+# Separate physical and logical lifecycle: a shared physical tower may serve
+# multiple circuits, each with an independently maintained retirement status.
+# The physical asset may stop operating only after ALL active logical circuits
+# are no longer in service, and the old per-circuit team name remains historical.
+db.execute("SAVEPOINT full_shared_tower_retirement")
+try:
+    add("transmission_lines",id="shared_line_a",line_code="L-SHARED-A",
+        name="共享物理塔第一回线路",voltage_level_id="vol",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z",
+        updated_at="2026-11-08T03:00:00.000Z")
+    add("transmission_lines",id="shared_line_b",line_code="L-SHARED-B",
+        name="共享物理塔第二回线路",voltage_level_id="vol",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z",
+        updated_at="2026-11-08T03:00:00.000Z")
+    add("physical_towers",id="shared_physical",tower_code="PT-SHARED",
+        created_by="u",created_at="2026-11-08T03:00:00.000Z",
+        updated_at="2026-11-08T03:00:00.000Z")
+    add("logical_towers",id="shared_circuit_a",logical_code="SHARED-A",
+        line_id="shared_line_a",physical_tower_id="shared_physical",
+        tower_no="SHARED-001",sort_rank=15,status="active",
+        operations_team="输电运维一班",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z",
+        updated_at="2026-11-08T03:00:00.000Z")
+    add("logical_towers",id="shared_circuit_b",logical_code="SHARED-B",
+        line_id="shared_line_b",physical_tower_id="shared_physical",
+        tower_no="SHARED-002",sort_rank=15,status="active",
+        operations_team="输电运维二班",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z",
+        updated_at="2026-11-08T03:00:00.000Z")
+    ok("shared physical tower has independent active logical circuits",
+        row("SELECT COUNT(*) n FROM logical_towers "
+            "WHERE physical_tower_id='shared_physical' AND status='active'")['n']==2)
+    blocked("cannot retire a whole line with active logical circuit",
+        "UPDATE transmission_lines SET status='retired',version=2,"
+        "updated_by='u',change_reason='逻辑杆塔未退运',"
+        "updated_at='2026-11-08T03:05:00.000Z'"
+        " WHERE id='shared_line_a'")
+    db.execute("UPDATE logical_towers SET status='retired',version=2,"
+        "updated_by='u',change_reason='第一回线路独立退役',"
+        "updated_at='2026-11-08T03:10:00.000Z'"
+        " WHERE id='shared_circuit_a'")
+    ok("retiring one shared circuit keeps other circuit and physical tower active",
+        row("SELECT status FROM logical_towers WHERE id='shared_circuit_b'")['status']
+        =='active' and
+        row("SELECT status FROM physical_towers WHERE id='shared_physical'")['status']
+        =='active' and
+        row("SELECT operations_team,status FROM logical_tower_history "
+            "WHERE logical_tower_id='shared_circuit_a' AND version=1")
+            ['operations_team']=='输电运维一班' and
+        row("SELECT status FROM logical_tower_history "
+            "WHERE logical_tower_id='shared_circuit_a' AND version=2")['status']
+            =='retired')
+    db.execute("UPDATE transmission_lines SET status='retired',version=2,"
+        "updated_by='u',change_reason='第一回线路正式退役',"
+        "updated_at='2026-11-08T03:15:00.000Z'"
+        " WHERE id='shared_line_a'")
+    ok("one entire shared line may retire while the other line stays in service",
+        row("SELECT status FROM transmission_lines WHERE id='shared_line_a'")
+            ['status']=='retired'
+        and row("SELECT status FROM transmission_lines WHERE id='shared_line_b'")
+            ['status']=='active'
+        and row("SELECT status FROM physical_towers WHERE id='shared_physical'")
+            ['status']=='active'
+        and row("SELECT status FROM line_history "
+            "WHERE line_id='shared_line_a' AND version=2")['status']=='retired')
+    blocked("retired line cannot accept an active new logical circuit",
+        "INSERT INTO logical_towers("
+        "id,logical_code,line_id,physical_tower_id,tower_no,sort_rank,"
+        "status,created_by,created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        ("invalid_retired_line","INVALID-RETIRED-LINE","shared_line_a",
+         "shared_physical","BAD-RETIRED",60,"active","u",
+         "2026-11-08T03:18:00.000Z"))
+    blocked("physical tower cannot be marked inactive with an active other circuit",
+        "UPDATE physical_towers SET status='inactive',version=2,"
+        "updated_by='u',change_reason='错误停用实物',"
+        "updated_at='2026-11-08T03:20:00.000Z'"
+        " WHERE id='shared_physical'")
+    db.execute("UPDATE logical_towers SET status='retired',version=2,"
+        "updated_by='u',change_reason='第二回线路也正式退役',"
+        "updated_at='2026-11-08T03:30:00.000Z'"
+        " WHERE id='shared_circuit_b'")
+    db.execute("UPDATE physical_towers SET status='retired',version=2,"
+        "updated_by='u',change_reason='已无在运回路，物理资产正式退役',"
+        "updated_at='2026-11-08T03:40:00.000Z'"
+        " WHERE id='shared_physical'")
+    ok("physical retirement follows both circuit retirements with exact history",
+        row("SELECT status FROM physical_tower_history "
+            "WHERE physical_tower_id='shared_physical' AND version=1")['status']
+            =='active' and row("SELECT status FROM physical_tower_history "
+            "WHERE physical_tower_id='shared_physical' AND version=2")['status']
+            =='retired')
+    blocked("new active logical circuit may not use a retired physical structure",
+        "INSERT INTO logical_towers("
+        "id,logical_code,line_id,physical_tower_id,tower_no,sort_rank,"
+        "status,created_by,created_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        ("invalid_active_shared","INVALID-SHARED","shared_line_b",
+         "shared_physical","BAD-001",50,"active","u",
+         "2026-11-08T03:45:00.000Z"))
+finally:
+    db.execute("ROLLBACK TO full_shared_tower_retirement")
+    db.execute("RELEASE full_shared_tower_retirement")
+
+# Referential operation -> immutable operation-version -> rule conditions.
+# The price is specific to voltage, tower type, work mode and immutable extra
+# factors. No price is attached to mutable operation or physical tower labels.
+db.execute("SAVEPOINT reference_price_contexts")
+try:
+    ok("price-factor dictionary category is preinstalled in clean Schema113",
+        row("SELECT title FROM dictionary_types WHERE id='price_factor'")
+            ['title']=='参考价适用因素')
+    add("dictionary_items",id="price_factor_terrain",type_id="price_factor",
+        code="terrain",created_at="2026-11-08T03:00:00.000Z")
+    add("dictionary_item_versions",id="factor_terrain_v1",
+        item_id="price_factor_terrain",version=1,name="地形条件",
+        status="active",fields_json='{"kind":"enum"}',
+        reason="价格因素首次定义",changed_by="u",
+        changed_at="2026-11-08T03:00:00.000Z")
+    add("dictionary_items",id="price_factor_height",type_id="price_factor",
+        code="height_mm",created_at="2026-11-08T03:00:00.000Z")
+    add("dictionary_item_versions",id="factor_height_v1",
+        item_id="price_factor_height",version=1,name="塔高毫米",
+        status="active",fields_json='{"kind":"number","unit":"mm"}',
+        reason="价格因素首次定义",changed_by="u",
+        changed_at="2026-11-08T03:00:00.000Z")
+    add("voltage_levels",id="vol220",code="220",name="220kV")
+    add("reference_price_catalog",id="price_angle",
+        code="REF-PRICE-ANGLE",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z")
+    add("reference_price_versions",id="price_angle_v1",
+        catalog_id="price_angle",version_no=1,title="耐张塔山区参考价",
+        operation_id="op",operation_version=1,unit_id="unit",
+        unit_version=1,voltage_level_id="vol",tower_type="angle",
+        work_mode="outage",additional_conditions_json=
+        '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"}}',
+        status="active",unit_price_fen=250000,price_source="内部定额",
+        price_date="2026-11-08",tax_mode="inclusive",
+        effective_on="2026-11-08",basis="电压塔型和山区条件",
+        reason="首次价格规则",created_by="u",
+        created_at="2026-11-08T03:01:00.000Z")
+    add("reference_price_catalog",id="price_suspension",
+        code="REF-PRICE-SUSPENSION",created_by="u",
+        created_at="2026-11-08T03:00:00.000Z")
+    add("reference_price_versions",id="price_suspension_v1",
+        catalog_id="price_suspension",version_no=1,title="直线塔平原参考价",
+        operation_id="op",operation_version=1,unit_id="unit",
+        unit_version=1,voltage_level_id="vol220",tower_type="suspension",
+        work_mode="outage",additional_conditions_json=
+        '{"terrain":{"factor_version":1,"op":"eq","value":"plain"}}',
+        status="active",unit_price_fen=160000,price_source="内部定额",
+        price_date="2026-11-08",tax_mode="inclusive",
+        effective_on="2026-11-08",basis="电压塔型和平原条件",
+        reason="首次价格规则",created_by="u",
+        created_at="2026-11-08T03:01:00.000Z")
+    ok("same operation and unit support independent voltage/tower/factor prices",
+        row("SELECT COUNT(*) n FROM v_reference_price_current "
+            "WHERE operation_id='op' AND operation_version=1 "
+            "AND work_mode='outage'")['n']>=2
+        and row("SELECT voltage_level_id,tower_type FROM reference_price_versions "
+            "WHERE id='price_angle_v1'")['voltage_level_id']=='vol'
+        and row("SELECT voltage_level_id,tower_type FROM reference_price_versions "
+            "WHERE id='price_suspension_v1'")['voltage_level_id']=='vol220'
+        and row("SELECT tower_type FROM reference_price_versions "
+            "WHERE id='price_suspension_v1'")['tower_type']=='suspension'
+        and row("SELECT additional_conditions_json FROM reference_price_versions "
+            "WHERE id='price_angle_v1'")['additional_conditions_json']
+            =='{"terrain":{"factor_version":1,"op":"eq","value":"mountain"}}')
+    blocked("reference price factors must be a valid JSON object",
+        "INSERT INTO reference_price_versions("
+        "id,catalog_id,version_no,title,operation_id,operation_version,"
+        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
+        "tax_mode,effective_on,basis,reason,created_by,created_at,"
+        "additional_conditions_json) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("invalid_price_factor","price_angle",2,"条件非法","op",1,
+         "unit",1,"active",250000,"内部定额","2026-11-08",
+         "inclusive","2026-11-08","非法数组","无效规则",
+         "u","2026-11-08T03:02:00.000Z",'[]'))
+    blocked("reference price tower type cannot contain padding",
+        "INSERT INTO reference_price_versions("
+        "id,catalog_id,version_no,title,operation_id,operation_version,"
+        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
+        "tax_mode,effective_on,basis,reason,created_by,created_at,"
+        "tower_type) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("invalid_price_tower","price_angle",2,"塔型非法","op",1,
+         "unit",1,"active",250000,"内部定额","2026-11-08",
+         "inclusive","2026-11-08","非法塔型","无效规则",
+         "u","2026-11-08T03:02:00.000Z",' angle '))
+    blocked_reason("price factor code must exist in the active versioned dictionary",
+        "INSERT INTO reference_price_versions("
+        "id,catalog_id,version_no,title,operation_id,operation_version,"
+        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
+        "tax_mode,effective_on,basis,reason,created_by,created_at,"
+        "additional_conditions_json) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
+        ("invalid_unknown_factor","price_angle",2,"无效因素","op",1,
+         "unit",1,"active",250000,"内部定额","2026-11-08",
+         "inclusive","2026-11-08","不存在的因素","无效规则",
+         "u","2026-11-08T03:02:00.000Z",
+         '{"does_not_exist":{"factor_version":1,"op":"eq","value":"x"}}'))
+    blocked_reason("enum price factor cannot be used as a numeric range",
+        "INSERT INTO reference_price_versions("
+        "id,catalog_id,version_no,title,operation_id,operation_version,"
+        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
+        "tax_mode,effective_on,basis,reason,created_by,created_at,"
+        "additional_conditions_json) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
+        ("invalid_factor_type","price_angle",2,"错误因素值类型","op",1,
+         "unit",1,"active",250000,"内部定额","2026-11-08",
+         "inclusive","2026-11-08","因素类型不符","无效规则",
+         "u","2026-11-08T03:02:00.000Z",
+         '{"terrain":{"factor_version":1,"op":"range","min":1,"max":2}}'))
+    invalid_factor_sql=(
+        "INSERT INTO reference_price_versions("
+        "id,catalog_id,version_no,title,operation_id,operation_version,"
+        "unit_id,unit_version,status,unit_price_fen,price_source,price_date,"
+        "tax_mode,effective_on,basis,reason,created_by,created_at,"
+        "additional_conditions_json)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+    def invalid_factor_args(label, value):
+        return (label,"price_angle",2,"无效因素","op",1,"unit",1,"active",
+                250000,"内部定额","2026-11-08","inclusive","2026-11-08",
+                "测试无效因素","无效规则","u","2026-11-08T03:03:00.000Z",value)
+    blocked_reason("factor definition version must exist and be pinned",
+        invalid_factor_sql,
+        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
+        invalid_factor_args("unknown_price_factor_version",
+            '{"terrain":{"factor_version":99,"op":"eq","value":"mountain"}}'))
+    blocked_reason("numeric reference factor interval cannot be reversed",
+        invalid_factor_sql,
+        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
+        invalid_factor_args("invalid_numeric_factor_interval",
+            '{"height_mm":{"factor_version":1,"op":"range",'
+            '"min":60000,"max":30000}}'))
+    blocked_reason("duplicate JSON factor keys cannot double-declare one factor",
+        invalid_factor_sql,"参考价扩展价格因素不能重复声明",
+        invalid_factor_args("duplicate_price_factor_keys",
+            '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
+            '"terrain":{"factor_version":1,"op":"eq","value":"plain"}}'))
+    add("reference_price_versions",id="price_angle_v2",
+        catalog_id="price_angle",version_no=2,title="耐张塔山区参考价",
+        operation_id="op",operation_version=1,unit_id="unit",
+        unit_version=1,voltage_level_id="vol",tower_type="angle",
+        work_mode="outage",additional_conditions_json=
+        '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
+        '"height_mm":{"factor_version":1,"op":"range","min":30000,"max":50000}}',
+        status="active",unit_price_fen=250000,price_source="内部定额",
+        price_date="2026-11-08",tax_mode="inclusive",
+        effective_on="2026-11-08",basis="电压塔型和山区条件",
+        reason="增加高度适用条件",created_by="u",
+        created_at="2026-11-08T03:04:00.000Z")
+    ok("applicability-only reference price revision is a full immutable version",
+        row("SELECT additional_conditions_json FROM v_reference_price_current "
+            "WHERE id='price_angle'")['additional_conditions_json']
+            !=row("SELECT additional_conditions_json FROM reference_price_versions "
+            "WHERE id='price_angle_v1'")['additional_conditions_json'])
+    blocked_reason("unchanged price conditions cannot create another version",
+        "INSERT INTO reference_price_versions("
+        "id,catalog_id,version_no,title,operation_id,operation_version,"
+        "unit_id,unit_version,voltage_level_id,tower_type,work_mode,"
+        "additional_conditions_json,status,unit_price_fen,price_source,"
+        "price_date,tax_mode,effective_on,basis,reason,created_by,created_at)"
+        " VALUES("+",".join("?" for _ in range(22))+")",
+        "参考价正式版本没有真实价格或分类依据变化，不允许空改版",
+        ("unchanged_price_conditions","price_angle",3,"耐张塔山区参考价",
+         "op",1,"unit",1,"vol","angle","outage",
+         '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
+         '"height_mm":{"factor_version":1,"op":"range","min":30000,"max":50000}}',
+         "active",250000,"内部定额","2026-11-08","inclusive",
+         "2026-11-08","电压塔型和山区条件","只改备注","u",
+         "2026-11-08T03:05:00.000Z"))
+finally:
+    db.execute("ROLLBACK TO reference_price_contexts")
+    db.execute("RELEASE reference_price_contexts")
+
 # User-approved expense tree: multiple granular fees per project, each fee can
 # be settled partially in several independent approved settlement statements.
 # This isolated fixture also proves that overhead need not invent a demand scope.

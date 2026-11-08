@@ -1,20 +1,19 @@
-# Schema 113｜70 张表业务对象完整性矩阵
+# Schema 113｜69 张表业务对象完整性矩阵
 
 **治理顺序：功能完备 → 业务关系 → 历史一致性 → 字段精简。** 本矩阵由当前候选 SQL 生成，覆盖全部实际表。
 
 | 业务域 | 数据表 | 字段数 | 外键分量数 | 事实及主要用途 |
 | --- | --- | ---: | ---: | --- |
 | 输电设备及组织台账 | `line_history` | 13 | 5 | 线路完整属性历史 |
-| 输电设备及组织台账 | `line_source_aliases` | 3 | 1 | 外部线路别名映射 |
 | 输电设备及组织台账 | `line_span_history` | 11 | 5 | 档距及管辖长度历史 |
 | 输电设备及组织台账 | `line_spans` | 12 | 5 | 档距身份和当前关联 |
-| 输电设备及组织台账 | `logical_tower_history` | 14 | 4 | 逻辑杆塔及物理关联历史 |
-| 输电设备及组织台账 | `logical_towers` | 17 | 4 | 线路回路逻辑杆塔身份 |
+| 输电设备及组织台账 | `logical_tower_history` | 14 | 4 | 逻辑杆塔完整历史；运维班组和单回线路退役事实不可覆盖 |
+| 输电设备及组织台账 | `logical_towers` | 17 | 4 | 每回线路逻辑杆塔；运维班组及在运、停用、独立退役 |
 | 输电设备及组织台账 | `organizational_units` | 2 | 0 | 组织单位稳定身份和编码，名称、父级及启停历史独立版本化 |
 | 输电设备及组织台账 | `organizational_unit_versions` | 9 | 3 | 正式组织单位名称、上级与启停的完整不可变历史版本 |
 | 输电设备及组织台账 | `physical_tower_history` | 14 | 2 | 物理杆塔属性历史 |
-| 输电设备及组织台账 | `physical_towers` | 17 | 2 | 物理杆塔身份及当前属性 |
-| 输电设备及组织台账 | `transmission_lines` | 16 | 5 | 线路身份与当前台账 |
+| 输电设备及组织台账 | `physical_towers` | 17 | 2 | 实体杆塔独立状态（在运、停用、退役），不得在仍有在运逻辑回路时停用 |
+| 输电设备及组织台账 | `transmission_lines` | 16 | 5 | 线路本体独立在运、停用、退役状态，完整历史；退役只约束本线逻辑杆塔 |
 | 输电设备及组织台账 | `voltage_levels` | 6 | 0 | 电压等级基础定义 |
 | 操作类型、字典和标准价格 | `dictionary_item_versions` | 10 | 2 | 字典项定义版本 |
 | 操作类型、字典和标准价格 | `dictionary_items` | 4 | 1 | 字典项稳定身份 |
@@ -22,7 +21,7 @@
 | 操作类型、字典和标准价格 | `operation_versions` | 21 | 6 | 操作定义、作业对象/位置/单位关系 |
 | 操作类型、字典和标准价格 | `operations` | 3 | 0 | 操作类型身份 |
 | 操作类型、字典和标准价格 | `reference_price_catalog` | 4 | 1 | 参考单价身份 |
-| 操作类型、字典和标准价格 | `reference_price_versions` | 21 | 9 | 参考单价正式历史 |
+| 操作类型、字典和标准价格 | `reference_price_versions` | 23 | 9 | 操作定义及单位历史版本关联；电压等级、塔型、作业方式及可扩展正式价格因素 |
 | 操作类型、字典和标准价格 | `work_object_versions` | 10 | 2 | 作业对象定义版本 |
 | 操作类型、字典和标准价格 | `work_objects` | 3 | 0 | 作业对象身份 |
 | 来源、需求和物资 | `batch_demand_sources` | 3 | 3 | 批次与需求、来源的不可变导入断言 |
@@ -36,7 +35,7 @@
 | 来源、需求和物资 | `demand_sources` | 2 | 2 | 需求来源关联 |
 | 来源、需求和物资 | `demand_versions` | 23 | 16 | 正式需求完整定义版本 |
 | 来源、需求和物资 | `demands` | 34 | 17 | 需求首次登记身份和原始事实 |
-| 来源、需求和物资 | `source_records` | 14 | 3 | PMS/Excel 原始证据 |
+| 来源、需求和物资 | `source_records` | 14 | 3 | 一次性清洗导入或人工录入的原始来源证据，不做外部系统持续同步 |
 | 框架、协议、项目与批准 | `agreement_versions` | 14 | 2 | 协议合同及额度版本 |
 | 框架、协议、项目与批准 | `agreements` | 4 | 1 | 执行协议身份 |
 | 框架、协议、项目与批准 | `framework_versions` | 9 | 2 | 框架批准额度与历史 |
@@ -58,7 +57,7 @@
 | 结算文件与审核 | `settlement_versions` | 12 | 5 | 结算单完整历史版本；每个版本的明细金额仅表示本次部分结算 |
 | 结算文件与审核 | `settlements` | 5 | 2 | 结算单稳定身份 |
 | 来源、需求和物资主数据 | `materials` | 5 | 2 | 统一物资稳定身份：编码、单位不可无痕改写 |
-| 来源、需求和物资主数据 | `material_versions` | 13 | 3 | 物资正式定义历史及可修订的PMS外部编码（当前唯一映射） |
+| 来源、需求和物资主数据 | `material_versions` | 12 | 3 | 统一内部物资定义历史（名称、型号、规格、类别、状态），不保留PMS外部物资映射 |
 | 实际费用与正式核对 | `project_cost_nodes` | 5 | 4 | 子项目费用树的稳定节点、父子层级及所属项目，末级可发生费用 |
 | 实际费用与正式核对 | `project_cost_node_versions` | 8 | 2 | 费用节点名称和启停状态的不可变版本历史 |
 | 实际费用与正式核对 | `cost_entries` | 5 | 4 | 独立于结算的项目实际费用身份 |
@@ -79,10 +78,10 @@
 
 | 场景 | 已建模的数据对象 | 验收边界 |
 | --- | --- | --- |
-| PMS/Excel 需求导入及重复识别 | source_records、demand_batches、demand_duplicate_reviews、demand_sources | 已建模；真实台账仍需导入验证 |
+| 一次性清洗导入与需求重复识别 | source_records、demand_batches、demand_duplicate_reviews、demand_sources | 已建模；真实台账仍需导入验证 |
 | 线路、物理杆塔、逻辑杆塔、同塔多回、档距管辖 | transmission_lines、physical_towers、logical_towers、line_spans 及各历史 | 已建模；真实设备台账待实施验收 |
 | 操作类型、作业对象、位置、计量单位 | operation_versions、work_object_versions、dictionary_item_versions | 正式版本关系可验证 |
-| 需求版本与版本物资清单 | demand_versions、demand_material_version_items | 已建模；物资主数据版本含PMS外部编码历史；业务物资批准快照独立保存 |
+| 需求版本与版本物资清单 | demand_versions、demand_material_version_items | 已建模；物资主数据无外部系统编码映射；业务物资批准快照独立保存 |
 | 储备、入库、立项与正式项目变更 | project_stage_events、project_approval_versions、project_change_orders | 审批历史及非法变更检查已覆盖 |
 | 框架预算与可选执行协议 | framework_versions、agreement_versions、project_funding_versions | 预算仅为软基准，金额可超额 |
 | 独立真实费用与批准结算逐笔核对 | cost_entries、cost_versions、settlement_item_versions、cost_reconciliation_versions | 已修复：费用归项目，核对只关联实际已批准的结算明细 |
@@ -97,7 +96,7 @@
 2. 正式关闭项目重新授权开启：须独立审批历史，不能简单把状态改回已批准。
 3. 用户已确认：同一子项目可多次部分结算，单据金额都是本次结算；不再设预付款/进度/最终的累计口径分类。
 4. 仓库库存、供应商采购、实际银行付款和完整发票台账属于新增业务范围，不能混同项目费用发生。
-5. 真实 PMS 数据批量清洗、客户端权限、文件系统断电与附件恢复尚待实施验证。
+5. 实际源数据一次性清洗导入、客户端权限、文件系统断电与附件恢复尚待实施验证。
 
 ## 数据字段去留原则
 

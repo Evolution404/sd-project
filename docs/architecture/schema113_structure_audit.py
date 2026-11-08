@@ -84,7 +84,8 @@ assert db.execute("PRAGMA integrity_check").fetchone()[0]=="ok"
 assert db.execute("PRAGMA foreign_key_check").fetchall()==[]
 
 for removed in ("executions","completion_records","material_usage_records",
-                "material_usage_revisions","cost_allocations","cost_allocation_versions"):
+                "material_usage_revisions","cost_allocations","cost_allocation_versions",
+                "line_source_aliases"):
     assert removed not in tables,"superseded business table restored "+removed
 for removed in ("v_completion_current","v_material_usage_current",
                 "v_cost_allocation_current"):
@@ -98,6 +99,31 @@ org_fields={r["name"] for r in db.execute("PRAGMA table_xinfo(organizational_uni
 assert not {"name","parent_id","status"}&org_fields
 assert "organizational_unit_versions" in tables
 assert "v_organizational_unit_current" in views
+# One-time cleaned import, without PMS-specific runtime mapping or sync.
+assert "pms_material_code" not in {r["name"] for r in
+    db.execute('PRAGMA table_xinfo(material_versions)')}
+assert "idx_material_version_pms_code" not in indexes
+assert "uq_pms_source_record" not in indexes
+assert "uq_import_source_record" in indexes
+# A shared physical tower is not the same lifecycle as each line circuit.
+for tower in ("logical_towers","logical_tower_history"):
+    fields={r["name"] for r in db.execute('PRAGMA table_xinfo("'+tower+'")')}
+    assert "operations_team" in fields and "maintenance_team" not in fields
+logical_sql=tables["logical_towers"]["sql"]
+assert "'retired'" in logical_sql and "'inactive'" in logical_sql
+assert "line_retirement_logical_guard" in triggers
+assert "'retired'" in tables["transmission_lines"]["sql"]
+assert "active_logical_tower_physical_guard" in triggers
+assert "active_logical_tower_physical_update_guard" in triggers
+assert "active_physical_tower_retire_guard" in triggers
+# Price rules pin an operation and its version, typed base qualifiers, and
+# an immutable dictionary-version governed set of extensible conditions.
+price_fields={r["name"] for r in db.execute(
+    'PRAGMA table_xinfo(reference_price_versions)')}
+assert {"operation_id","operation_version","unit_id","unit_version",
+        "voltage_level_id","tower_type","work_mode",
+        "additional_conditions_json","effective_on"}<=price_fields
+assert "reference_price_factor_definition_guard" in triggers
 version_fields={r["name"] for r in db.execute(
     "PRAGMA table_xinfo(project_management_versions)")}
 assert {"name","category_version","managing_unit_id",

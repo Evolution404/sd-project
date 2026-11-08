@@ -2,6 +2,14 @@
 
 所有开发者、AI 和自动化修改本项目之前，必须阅读并遵守根目录的《docs/architecture/系统开发规范.md》。
 
+## 2026-11-08 Schema 113 第十三轮业务裁决（覆盖旧轮次冲突内容）
+
+- **只考虑一次性清洗导入，不再考虑 PMS 持续对接**：候选 SQL 不保留 `line_source_aliases`、物资 `pms_material_code`、PMS 同步业务表或映射索引；`source_records` 只记录人工或一次性文件导入的可审计原始依据。旧版运行程序中的 `scripts/import-pms` 仅为开发历史工具，不能作为 Schema113 产品功能依据。
+- **同塔多回独立退运**：`physical_towers.status` 是物理实体独立状态（`active/inactive/retired`）；`transmission_lines.status` 独立支持 `active/inactive/retired`（退役须先处理本线路在运档距/逻辑杆塔），`logical_towers.status` 是每回逻辑杆塔独立状态（`draft/active/inactive/retired`）。某一回退役不得自动影响共塔其他在运回路；在运逻辑杆塔只可关联在运物理杆塔，仍承载任何在运逻辑回路的物理杆塔不得停用或退役。相关档距状态需先合法变更。
+- **运维班组标准名称**：`logical_towers.operations_team` 及 `logical_tower_history.operations_team` 是按回路维护的**运维班组**，不可与子项目 `managing_unit_id`（归口单位）混淆。设备状态或班组变更须完整、连续历史和操作者/理由。
+- **多因素参考价格**：`operation_versions` 保留唯一作业定义、单位、位置，不直接保存参考价格；`reference_price_versions` 精确引用操作定义版本，按电压等级、塔型、作业方式及可扩展 `additional_conditions_json` 描述适用性；扩展因素从现有版本化字典 `price_factor` 获取并锁定因子定义版本。数据库守护因素身份和类型，应用层负责价格条件匹配、时间筛选、重叠冲突和选择依据；不同操作版本不得私自共用未匹配的价目。
+- **最新候选数量**：69 STRICT 表、23 视图、213 触发器、70 显式索引、664 字段；382/382 SQLite 契约通过。所有更旧轮次的统计属于历史快照。新裁决见 `docs/architecture/Schema113_第十三轮_一次性清洗导入_设备独立退役_参考价格多因素_2026-11-08.md`。运行 Schema112、前后端、用户真实数据均不得因候选调整直接改写。
+
 ## 2026-11-07 Schema 113 最新数据库业务裁决
 
 - **最终用户裁决**：取消检修计划，不存在施工/实施完成业务阶段；子项目只有一张张部分费用结算单，直到全部费用正式结清。禁止在未来 Schema 113 前后端重写时重新引入施工完工量、检修计划、剩余工作量处置或双重结项流程。
