@@ -22,6 +22,7 @@ test("database and evidence restart, independent backup and verified restore", a
   const root = mkdtempSync(join(tmpdir(), "sd113-backup-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const backup = await s.database.backupTo(join(root, "backup"));
+  await assert.rejects(() => s.database.backupTo(backup), /已存在/);
   const restored = restoreBackup(backup, join(root, "restored"));
   assert.throws(() => restoreBackup(backup, restored), /独立目录/);
   const reopened = createSystem(restored);

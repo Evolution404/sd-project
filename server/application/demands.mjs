@@ -10,7 +10,7 @@ export function createDemands(repo, catalog) {
   function get(key, includeDeleted = false) {
     const row = repo.find("v_demand_current", "id", key);
     requireValue(
-      row && (includeDeleted || !repo.deleted("demands").has(key)),
+      row && (includeDeleted || !repo.isDeleted("demands", key)),
       "需求不存在或已删除",
       404,
     );
@@ -18,6 +18,7 @@ export function createDemands(repo, catalog) {
     return {
       ...definition,
       ...row,
+      deleted: repo.isDeleted("demands", key),
       work_locations: definition.work_locations,
       materials: repo
         .where("demand_material_version_items", {
@@ -366,7 +367,14 @@ export function createDemands(repo, catalog) {
     integer(total, "需求总数量", 1);
     const materials = (input.materials ?? previous?.materials ?? []).map(
       (item, index) => {
-        const master = catalog.get("materials", item.material_id);
+        const adopted = previous?.materials?.some(
+          (old) => old.material_id === item.material_id,
+        );
+        const master = catalog.get(
+          "materials",
+          item.material_id,
+          Boolean(adopted),
+        );
         requireValue(
           master.status === "active" ||
             previous?.materials?.some((old) => old.material_id === master.id),
@@ -666,6 +674,14 @@ export function createDemands(repo, catalog) {
       get(key, true);
       return {
         versions: repo.where("demand_versions", { demand_id: key }),
+        reference_quotes: repo
+          .where("reference_price_evaluations", { demand_id: key })
+          .map((quote) => ({
+            ...quote,
+            lines: repo.where("reference_price_evaluation_lines", {
+              evaluation_id: quote.id,
+            }),
+          })),
         sources: currentSources(repo, key, true),
         events: repo.where("demand_lifecycle_events", { demand_id: key }),
         bindings: repo

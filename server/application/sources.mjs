@@ -7,30 +7,7 @@ const editable = [
   "external_record_id",
 ];
 export function currentSources(repo, demandId, includeHistorical = false) {
-  const decisions = repo.where("audit_events", { entity: "sources" }),
-    deleted = new Set(
-      decisions
-        .filter((event) => event.action === "delete")
-        .map((event) => event.entity_id),
-    ),
-    corrected = new Set(
-      decisions
-        .filter((event) => event.action === "correct")
-        .map((event) => event.entity_id),
-    );
-  return repo
-    .where("demand_sources", { demand_id: demandId })
-    .map((link) => repo.find("source_records", "id", link.source_id))
-    .filter(
-      (source) =>
-        includeHistorical ||
-        (!deleted.has(source.id) && !corrected.has(source.id)),
-    )
-    .map((source) => ({
-      ...source,
-      deleted: deleted.has(source.id),
-      superseded: corrected.has(source.id),
-    }));
+  return repo.demandSources(demandId, includeHistorical);
 }
 export function reviseSource(repo, catalog, actor, key, input) {
   authorize(actor, "write");

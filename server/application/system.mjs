@@ -2,7 +2,7 @@ import { openDatabase } from "../database/connection.mjs";
 import { createStore } from "../database/repositories/store.mjs";
 import { businessRepository } from "../database/repositories/business.mjs";
 import { identityRepository } from "../database/repositories/identity.mjs";
-import { createAuth, authorize, digest, id, now } from "./auth.mjs";
+import { createAuth, digest, now } from "./auth.mjs";
 import { createCatalog } from "./catalog.mjs";
 import { createDemands } from "./demands.mjs";
 import { createPricing } from "./pricing.mjs";

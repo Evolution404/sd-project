@@ -17,7 +17,7 @@ export function createFinance(repo, catalog, projects) {
     while (current) {
       requireValue(
         current.status === "active" &&
-          !repo.deleted("cost_nodes").has(current.id),
+          !repo.isDeleted("cost_nodes", current.id),
         "费用科目及全部上级必须启用且未删除",
       );
       current = current.parent_id
@@ -34,7 +34,7 @@ export function createFinance(repo, catalog, projects) {
         ? repo.find("v_project_cost_node_current", "id", key)
         : null;
       if (previous) {
-        requireValue(!repo.deleted("cost_nodes").has(key), "费用科目已删除");
+        requireValue(!repo.isDeleted("cost_nodes", key), "费用科目已删除");
         requireValue(previous.project_id === projectId, "科目不属于本项目");
         expectedVersion(previous.version_no, input.expected_version);
       }
@@ -66,7 +66,7 @@ export function createFinance(repo, catalog, projects) {
       const project = projects.get(projectId),
         previous = key ? repo.latest("cost_versions", "entry_id", key) : null;
       if (previous) {
-        requireValue(!repo.deleted("costs").has(key), "费用已删除", 409);
+        requireValue(!repo.isDeleted("costs", key), "费用已删除", 409);
         expectedVersion(previous.version_no, input.expected_version);
         requireValue(
           repo.find("cost_entries", "id", key).project_id === projectId,
@@ -221,7 +221,7 @@ export function createFinance(repo, catalog, projects) {
     return repo.transaction(() => {
       const previous = key ? settlement(key) : null;
       if (key)
-        requireValue(!repo.deleted("settlements").has(key), "结算单已删除");
+        requireValue(!repo.isDeleted("settlements", key), "结算单已删除");
       if (previous) {
         requireValue(previous.project_id === projectId, "结算单不属于本项目");
         expectedVersion(
@@ -416,6 +416,7 @@ export function createFinance(repo, catalog, projects) {
         return {
           project_scope_id: scope.project_scope_id,
           demand_id: scope.demand_id,
+          demand_no: repo.find("demands", "id", scope.demand_id).demand_no,
           approved_quantity_scaled: scope.quantity_scaled,
           resolved_quantity_scaled: solved,
           remaining_quantity_scaled: Math.max(
@@ -439,20 +440,20 @@ export function createFinance(repo, catalog, projects) {
       repo
         .where("v_cost_current", { project_id: projectId })
         .filter(
-          (cost) => includeDeleted || !repo.deleted("costs").has(cost.entry_id),
+          (cost) => includeDeleted || !repo.isDeleted("costs", cost.entry_id),
         ),
     settlements: (projectId) =>
       repo
         .where("settlements", { project_id: projectId })
-        .filter((x) => !repo.deleted("settlements").has(x.id))
+        .filter((x) => !repo.isDeleted("settlements", x.id))
         .map((x) => settlement(x.id)),
     allSettlements: (includeDeleted = false) =>
       repo
         .list("settlements")
-        .filter((x) => includeDeleted || !repo.deleted("settlements").has(x.id))
+        .filter((x) => includeDeleted || !repo.isDeleted("settlements", x.id))
         .map((x) => ({
           ...settlement(x.id),
-          deleted: repo.deleted("settlements").has(x.id),
+          deleted: repo.isDeleted("settlements", x.id),
         })),
     review(actor, key, input) {
       authorize(actor, "settlement.approve");
@@ -499,7 +500,7 @@ export function createFinance(repo, catalog, projects) {
       return repo.transaction(() => {
         requireValue(
           !input.record_id ||
-            !repo.deleted("reconciliations").has(input.record_id),
+            !repo.isDeleted("reconciliations", input.record_id),
           "核对记录已删除",
           409,
         );
@@ -570,10 +571,10 @@ export function createFinance(repo, catalog, projects) {
       return repo.list("v_cost_reconciliation_current").filter((record) => {
         const cost = repo.find("cost_versions", "id", record.cost_version_id),
           entry = repo.find("cost_entries", "id", cost.entry_id);
+        record.deleted = repo.isDeleted("reconciliations", record.record_id);
         return (
           (!projectId || entry.project_id === projectId) &&
-          (includeDeleted ||
-            !repo.deleted("reconciliations").has(record.record_id))
+          (includeDeleted || !record.deleted)
         );
       });
     },

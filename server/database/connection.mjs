@@ -1,6 +1,6 @@
 import { DatabaseSync, backup } from "node:sqlite";
 import { mkdirSync, readFileSync, existsSync, cpSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, sep } from "node:path";
 
 const canonicalSql = readFileSync(
   new URL("./schema/schema113.sql", import.meta.url),
@@ -97,8 +97,13 @@ export function openDatabase(
     },
     async backupTo(destination) {
       const target = resolve(destination);
-      if (target === directory || target.startsWith(directory + "/objects"))
+      if (
+        target === directory ||
+        target === join(directory, "objects") ||
+        target.startsWith(join(directory, "objects") + sep)
+      )
         throw Error("备份目录无效");
+      if (existsSync(target)) throw Error("备份目标已存在，请使用新的独立目录");
       mkdirSync(target, { recursive: true });
       await backup(connection, join(target, "schema113.sqlite"));
       const objects = join(directory, "objects");

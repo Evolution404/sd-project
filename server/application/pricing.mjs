@@ -315,6 +315,52 @@ export function createPricing(repo, catalog, demands) {
         return row;
       });
     },
+    removeCharge(actor, key) {
+      authorize(actor, "write");
+      return repo.transaction(() => {
+        const charge = repo.find("project_reference_price_charges", "id", key);
+        requireValue(charge, "该参考费用已发生变化，请刷新", 409);
+        const approval = repo.find(
+          "project_approval_versions",
+          "id",
+          charge.approval_version_id,
+        );
+        requireValue(
+          approval.status === "draft",
+          "正式批准后的参考费用须通过项目变更更正",
+        );
+        catalog.audit(actor, "reference_charges", key, "delete", charge, {
+          logical: true,
+        });
+        repo.remove("project_reference_price_charges", "id", key);
+        return { deleted: true };
+      });
+    },
+    reviseCharge(actor, key, input) {
+      authorize(actor, "write");
+      return repo.transaction(() => {
+        const charge = repo.find("project_reference_price_charges", "id", key);
+        requireValue(charge, "该参考费用已发生变化，请刷新", 409);
+        this.removeCharge(actor, key);
+        const values = {
+          ...JSON.parse(charge.pricing_inputs_json),
+          ...input,
+          approval_version_id: charge.approval_version_id,
+        };
+        if (input.reference_price_catalog_id)
+          delete values.reference_price_version_id;
+        const revised = this.addCharge(actor, values);
+        catalog.audit(
+          actor,
+          "reference_charges",
+          key,
+          "revise",
+          charge,
+          revised,
+        );
+        return revised;
+      });
+    },
     summary(approvalId) {
       const scopes = repo.where("project_approval_scope_versions", {
         approval_version_id: approvalId,
@@ -348,7 +394,18 @@ export function createPricing(repo, catalog, demands) {
         total_fen: scopes.length && missing.length === 0 ? subtotal : null,
         subtotal_fen: subtotal,
         missing,
-        charges,
+        charges: charges.map((charge) => {
+          const rule = repo.find(
+            "reference_price_versions",
+            "id",
+            charge.reference_price_version_id,
+          );
+          return {
+            ...charge,
+            rule_title: rule.title,
+            reference_price_catalog_id: rule.catalog_id,
+          };
+        }),
       };
     },
   };

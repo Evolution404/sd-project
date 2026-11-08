@@ -58,7 +58,9 @@ export function createExchange(system) {
   // Rebuilt for each preflight/commit: O(n) code and sheet indexes instead of
   // rescanning all 5000 master records for each of 5000 Excel detail rows.
   let codeIndexes = new Map();
+  let matchingMs = 0;
   function resolveCode(kind, code) {
+    const started = performance.now();
 
     const key =
       { physical: "tower_code", towers: "logical_code", lines: "line_code" }[
@@ -68,7 +70,10 @@ export function createExchange(system) {
     if (!index) {
       index = new Map();
       for (const row of catalog.list(kind, true)) {
-        for (const value of new Set([row[key], kind === "spans" ? row.id : null])) {
+        for (const value of new Set([
+          row[key],
+          kind === "spans" ? row.id : null,
+        ])) {
           if (value == null) continue;
           const rows = index.get(value) || [];
           if (!rows.some((existing) => existing.id === row.id)) rows.push(row);
@@ -82,6 +87,7 @@ export function createExchange(system) {
       matches.length === 1,
       `编码 ${code} 未精确匹配唯一${catalog.definitions[kind].title}`,
     );
+    matchingMs += performance.now() - started;
     return matches[0];
   }
   function nodePath(nodeId) {
@@ -136,6 +142,9 @@ export function createExchange(system) {
   function prepare(kind, parsed, mode, projectId) {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
     codeIndexes = new Map();
+    matchingMs = 0;
+    const preparationStarted = performance.now();
+    let validationMs = 0;
     const numberKey = kind === "demands" ? "demand_no" : "number",
       grouped = new Map(),
       sourceByPosition = new Map();
@@ -252,17 +261,17 @@ export function createExchange(system) {
             }
           }
           const rows = rowsFor(key, number).map((row) => {
-              const value = clean(row);
-              delete value[numberKey];
-              for (const [field, data] of Object.entries(value))
-                if (data === "__EMPTY__") value[field] = "";
-              if (
-                value.site_features_json &&
-                typeof value.site_features_json === "string"
-              )
-                value.site_features_json = JSON.parse(value.site_features_json);
-              return value;
-            });
+            const value = clean(row);
+            delete value[numberKey];
+            for (const [field, data] of Object.entries(value))
+              if (data === "__EMPTY__") value[field] = "";
+            if (
+              value.site_features_json &&
+              typeof value.site_features_json === "string"
+            )
+              value.site_features_json = JSON.parse(value.site_features_json);
+            return value;
+          });
           payload[key] = mergeDetails(key, payload[key] || [], rows);
         }
         for (const key of detailKeys) {
@@ -273,6 +282,7 @@ export function createExchange(system) {
             "同一单据的明细身份重复",
           );
         }
+        let normalized;
         if (kind === "demands") {
           for (const row of rowsFor("work_locations", number).filter(
             (row) => row.action !== "delete",
@@ -300,10 +310,10 @@ export function createExchange(system) {
           }
           payload.sources = rowsFor("sources", number).length
             ? rowsFor("sources", number).map((row) => {
-                  const value = clean(row);
-                  delete value.demand_no;
-                  return value;
-                })
+                const value = clean(row);
+                delete value.demand_no;
+                return value;
+              })
             : existing?.sources || [];
           for (const source of payload.sources)
             if (source.id) {
@@ -433,7 +443,8 @@ export function createExchange(system) {
             }
             payload.custom_fields[definition.key] = value;
           }
-          const normalized = demands.normalize(payload, existing);
+          const validationStarted = performance.now();
+          normalized = demands.normalize(payload, existing);
           const duplicates = repo.demandDuplicates(
             normalized.operation_id,
             normalized.work_locations,
@@ -445,6 +456,7 @@ export function createExchange(system) {
             409,
             { duplicates },
           );
+          validationMs += performance.now() - validationStarted;
           Object.assign(payload, normalized);
         } else
           finance.validateDraft(
@@ -455,7 +467,7 @@ export function createExchange(system) {
           kind === "demands" && existing
             ? demands.normalize(existing, existing)
             : existing?.draft?.document || {},
-          kind === "demands" ? demands.normalize(payload, existing) : payload,
+          kind === "demands" ? normalized : payload,
         );
         if (
           kind === "demands" &&
@@ -554,15 +566,24 @@ export function createExchange(system) {
     }
     return {
       documents: documents.filter((doc) => !invalidNumbers.has(doc.number)),
+      timings_ms: {
+        preparation: performance.now() - preparationStarted,
+        code_matching: matchingMs,
+        validation: validationMs,
+      },
       document_count: parsed.rows.documents.length,
-      invalid_document_count: invalidNumbers.size,
+      invalid_document_count:
+        parsed.rows.documents.length -
+        documents.filter((doc) => !invalidNumbers.has(doc.number)).length,
       issues,
     };
   }
   async function preview(actor, kind, buffer, options = {}) {
     authorize(actor, "write");
     requireValue(["demands", "settlements"].includes(kind), "未知交换类型");
+    const started = performance.now();
     const parsed = await parseWorkbook(buffer, kind);
+    const parsedAt = performance.now();
     if (kind === "settlements" && options.projectId) {
       const project = system.projects.get(options.projectId);
       for (const root of parsed.rows.documents) {
@@ -594,7 +615,16 @@ export function createExchange(system) {
       created_at: now(),
       updated_at: now(),
     });
-    return { token, ...prepared, summary: counts(prepared) };
+    return {
+      token,
+      ...prepared,
+      timings_ms: {
+        ...prepared.timings_ms,
+        parse: parsedAt - started,
+        total: performance.now() - started,
+      },
+      summary: counts(prepared),
+    };
   }
   function counts(prepared) {
     return {
@@ -626,6 +656,7 @@ export function createExchange(system) {
           404,
         );
         requireValue(batch.status === "draft", "批次已提交", 409);
+        const commitStarted = performance.now();
         const body = JSON.parse(batch.draft_json),
           prepared = prepare(body.kind, body.parsed, body.mode, body.projectId),
           results = [],
@@ -670,10 +701,16 @@ export function createExchange(system) {
             }
           }
         };
+        const writeStarted = performance.now();
         execute();
+        const writeCompleted = performance.now();
         const result = {
           results,
           issues: failures,
+          timings_ms: {
+            revalidation: writeStarted - commitStarted,
+            business_writes: writeCompleted - writeStarted,
+          },
           submitted_at: now(),
           kind: body.kind,
         };

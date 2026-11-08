@@ -113,7 +113,7 @@ export function createEvidence(system) {
       authorize(actor, "write");
       const link = repo.find("evidence_links", "id", key);
       requireValue(link, "附件不存在", 404);
-      requireValue(!repo.deleted("evidence").has(key), "附件已删除", 409);
+      requireValue(!repo.isDeleted("evidence", key), "附件已删除", 409);
       requireValue(
         typeof note === "string" && note.length <= 2000,
         "附件说明不能超过2000字",

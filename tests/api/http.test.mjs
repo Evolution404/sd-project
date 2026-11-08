@@ -83,4 +83,28 @@ test("actual HTTP login, permissions, optimistic locking, idempotency and IP gua
     body: input,
   });
   assert.equal(csrf.status, 403);
+  const originalIpCheck = s.auth.permittedIp;
+  const seen = [];
+  s.auth.permittedIp = (address) => {
+    seen.push(address);
+    return false;
+  };
+  try {
+    assert.equal(
+      (await fetch(base + "/", { headers: { "X-Forwarded-For": "127.0.0.1" } }))
+        .status,
+      403,
+    );
+    assert.equal((await fetch(base + "/api/demands", { headers })).status, 403);
+    assert.ok(seen.every((address) => address === "127.0.0.1"));
+  } finally {
+    s.auth.permittedIp = originalIpCheck;
+  }
+  const repeatedCode = await fetch(base + "/api/catalog/units", {
+    method: "POST",
+    headers: { ...headers, "Idempotency-Key": "duplicate-safe-message" },
+    body: input,
+  });
+  assert.equal(repeatedCode.status, 422);
+  assert.ok(!(await repeatedCode.json()).message.includes("constraint"));
 });

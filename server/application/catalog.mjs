@@ -357,6 +357,23 @@ export function createCatalog(repo) {
     requireValue(value, "未知业务目录", 404);
     return value;
   }
+  function label(kind, row) {
+    if (kind !== "spans")
+      return (
+        row.name ||
+        row.title ||
+        row.tower_no ||
+        row.tower_code ||
+        row.line_code ||
+        row.code
+      );
+    return [
+      repo.find("transmission_lines", "id", row.line_id)?.name,
+      repo.find("logical_towers", "id", row.start_tower_id)?.tower_no +
+        " ~ " +
+        repo.find("logical_towers", "id", row.end_tower_id)?.tower_no,
+    ].join(" ");
+  }
   function list(kind, includeDeleted = false) {
     const c = config(kind),
       deleted = repo.deleted(kind);
@@ -381,6 +398,7 @@ export function createCatalog(repo) {
           ...row,
           id: row.id,
           deleted: deleted.has(row.id),
+          label: label(kind, row),
           ...(c.plain
             ? {
                 version:
@@ -400,7 +418,7 @@ export function createCatalog(repo) {
     );
     const c = config(kind),
       row = repo.find(c.view || c.root, "id", key),
-      deleted = repo.deleted(kind).has(key);
+      deleted = repo.isDeleted(kind, key);
     requireValue(
       row &&
         (!c.typeId || row.type_id === c.typeId) &&
@@ -416,6 +434,7 @@ export function createCatalog(repo) {
       ...row,
       id: row.id,
       deleted,
+      label: label(kind, row),
       ...(c.plain
         ? {
             version:

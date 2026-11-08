@@ -119,7 +119,7 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
     effective_on: "2026-01-01",
     basis: "项目只计一次",
   });
-  s.pricing.addCharge(user, {
+  let charge = s.pricing.addCharge(user, {
     approval_version_id: approval.id,
     reference_price_version_id: transport.current_version_id,
     quantity_scaled: 10000,
@@ -136,9 +136,26 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
       }),
     /UNIQUE/,
   );
+  assert.throws(() =>
+    s.pricing.reviseCharge(user, charge.id, { quantity_scaled: 0 }),
+  );
+  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  charge = s.pricing.reviseCharge(user, charge.id, { quantity_scaled: 20000 });
+  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  s.pricing.removeCharge(user, charge.id);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 50000);
+  charge = s.pricing.addCharge(user, {
+    approval_version_id: approval.id,
+    reference_price_version_id: transport.current_version_id,
+    quantity_scaled: 10000,
+  });
+  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
   assert.equal(
     s.projects.approve(user, project.id, approval.id, { expected_version: 2 })
       .approval.approved_budget_fen,
     120000,
   );
+  assert.throws(() => s.pricing.removeCharge(user, charge.id), /项目变更/);
+  assert.ok(s.repo.auditFor("reference_charges", charge.id).length === 0);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
 });

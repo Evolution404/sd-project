@@ -9,7 +9,7 @@ export function createProjects(repo, catalog, demands, pricing) {
   function get(key, includeDeleted = false) {
     const root = repo.find("projects", "id", key);
     requireValue(
-      root && (includeDeleted || !repo.deleted("projects").has(key)),
+      root && (includeDeleted || !repo.isDeleted("projects", key)),
       "项目不存在或已删除",
       404,
     );
@@ -40,6 +40,7 @@ export function createProjects(repo, catalog, demands, pricing) {
     return {
       ...profile,
       ...root,
+      deleted: repo.isDeleted("projects", key),
       category_name: profile.category_id
         ? repo.where("dictionary_item_versions", {
             item_id: profile.category_id,
@@ -90,7 +91,7 @@ export function createProjects(repo, catalog, demands, pricing) {
         .where("v_project_cost_node_current", { project_id: key })
         .map((node) => ({
           ...node,
-          deleted: repo.deleted("cost_nodes").has(node.id),
+          deleted: repo.isDeleted("cost_nodes", node.id),
         })),
       changes: repo.where("project_change_orders", { project_id: key }),
     };
@@ -120,7 +121,7 @@ export function createProjects(repo, catalog, demands, pricing) {
           requireValue(
             user &&
               user.status === "active" &&
-              !repo.deleted("users").has(user.id),
+              !repo.isDeleted("users", user.id),
             "请选择有效责任人或管理人员",
           );
         }
@@ -367,7 +368,9 @@ export function createProjects(repo, catalog, demands, pricing) {
     release(actor, key, scopeId, input) {
       authorize(actor, "write");
       return repo.transaction(() => {
-        const scope = get(key).scopes.find((x) => x.id === scopeId);
+        const project = get(key, true);
+        if (project.deleted) authorize(actor, "admin");
+        const scope = project.scopes.find((x) => x.id === scopeId);
         requireValue(scope, "关联不存在", 404);
         const last = repo.latest(
           "project_demand_link_events",
@@ -385,7 +388,7 @@ export function createProjects(repo, catalog, demands, pricing) {
           recorded_at: now(),
           reason: input.reason || "",
         });
-        return get(key);
+        return get(key, true);
       });
     },
     fund(actor, key, input) {
@@ -489,6 +492,31 @@ export function createProjects(repo, catalog, demands, pricing) {
             scopes: repo.where("project_approval_scope_versions", {
               approval_version_id: approval.id,
             }),
+          })),
+        costs: repo
+          .where("cost_entries", { project_id: key })
+          .map((entry) => ({
+            ...entry,
+            versions: repo.where("cost_versions", { entry_id: entry.id }),
+          })),
+        settlements: repo
+          .where("settlements", { project_id: key })
+          .map((bill) => ({
+            ...bill,
+            versions: repo
+              .where("settlement_versions", { settlement_id: bill.id })
+              .map((version) => ({
+                ...version,
+                items: repo.where("settlement_item_versions", {
+                  settlement_version_id: version.id,
+                }),
+                resolutions: repo.where("settlement_scope_results", {
+                  settlement_version_id: version.id,
+                }),
+                events: repo.where("settlement_review_events", {
+                  settlement_version_id: version.id,
+                }),
+              })),
           })),
         profiles: repo.where("project_management_versions", {
           project_id: key,

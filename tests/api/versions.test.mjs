@@ -282,3 +282,33 @@ test("quantity revision retains adopted span history until explicit current-defi
   );
   assert.equal(adopted.work_locations[0].span_version, 2);
 });
+test("adopted material definitions survive unrelated revisions after current material changes and logical deletion", (t) => {
+  const { s, user, save, unit, demandInput } = fixture(t);
+  const material = save("materials", {
+    code: "VERSION-M",
+    name: "旧物资名称",
+    model: "A",
+    unit_id: unit.id,
+  });
+  let demand = s.demands.save(user, {
+    ...demandInput,
+    materials: [{ material_id: material.id, quantity_scaled: 10000 }],
+  });
+  const version = demand.materials[0].material_version_id;
+  s.catalog.save(
+    user,
+    "materials",
+    { name: "新物资名称", model: "B", expected_version: 1 },
+    material.id,
+  );
+  s.catalog.remove(user, "materials", material.id, 2);
+  demand = s.demands.save(
+    user,
+    { ...demand, problem_description: "仅修订现场说明", expected_version: 1 },
+    demand.id,
+  );
+  assert.equal(demand.materials[0].material_version_id, version);
+  assert.equal(demand.materials[0].material_name, "旧物资名称");
+  assert.equal(demand.materials[0].model, "A");
+  assert.equal(s.demands.history(demand.id).versions.length, 2);
+});
