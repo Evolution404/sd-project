@@ -23,8 +23,11 @@ export async function api<T = Row>(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   const result = await response.json();
-  if (!response.ok)
+  if (!response.ok) {
+    if (response.status === 401 && path !== "/login")
+      window.dispatchEvent(new Event("session-expired"));
     throw new ApiError(result.message || "请求失败", result.fields);
+  }
   return result;
 }
 export async function download(path: string, filename: string) {
@@ -35,7 +38,7 @@ export async function download(path: string, filename: string) {
   link.href = url;
   link.download = filename;
   link.click();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 function displayFixed(value: number, places: number, trim = false) {
   const integer = BigInt(value),
@@ -55,6 +58,40 @@ export const money = (value: number | null | undefined) =>
 export const quantity = (value: number | undefined) =>
   displayFixed(value || 0, 4, true);
 export const statusText: Row = {
+  create: "新增",
+  update: "修改",
+  unchanged: "保持原值",
+  delete: "删除",
+  revise: "更正",
+  correct: "更正",
+  note: "补充说明",
+  linked: "关联",
+  released: "解绑",
+  void: "正式注销",
+  voided: "已撤销",
+  revision: "正式修订",
+  admin: "管理员",
+  editor: "编辑人员",
+  verifier: "审核人员",
+  viewer: "只读人员",
+  disabled: "禁用",
+  line: "线路设备",
+  physical: "共用物理杆塔",
+  tower: "杆塔",
+  span: "档距",
+  physical_tower: "物理杆塔",
+  logical_tower: "逻辑杆塔",
+  fixed: "固定金额",
+  per_unit: "数量乘单价",
+  base_plus_unit: "基础费加单价",
+  quantity_bracket: "整批数量阶梯",
+  progressive_bracket: "累进阶梯",
+  group: "按组计价",
+  rate: "比例计价",
+  composite: "组合费用",
+  work_location: "逐作业位置",
+  work_batch: "批次",
+  project: "项目",
   outage: "停电",
   non_outage: "不停电",
   unspecified: "未明确",

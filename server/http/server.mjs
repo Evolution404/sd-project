@@ -15,7 +15,7 @@ const mime = {
 };
 export function httpServer(
   system,
-  { staticDirectory = resolve(import.meta.dirname, "../../dist") } = {},
+  { staticDirectory = resolve(import.meta.dirname, "../../dist/web") } = {},
 ) {
   const exchange = createExchange(system),
     evidence = createEvidence(system),
@@ -132,6 +132,7 @@ export function httpServer(
         } catch {
           file = resolve(root, "index.html");
         }
+        requireValue(Boolean(mime[extname(file)]), "资源不存在", 404);
         const data = await readFile(file);
         res.writeHead(200, {
           "Content-Type": mime[extname(file)] || "application/octet-stream",
@@ -194,7 +195,10 @@ export function httpServer(
       switch (resource) {
         case "actors":
           requireValue(read, "请求方法无效", 405);
-          result = system.management.actors(actor);
+          result = system.management.actors(
+            actor,
+            url.searchParams.get("history") === "true",
+          );
           break;
         case "dashboard":
           requireValue(read, "请求方法无效", 405);
@@ -378,7 +382,11 @@ export function httpServer(
           break;
         case "charges":
           result = mutate("write", () =>
-            system.pricing.addCharge(actor, input),
+            key
+              ? method === "DELETE"
+                ? system.pricing.removeCharge(actor, key)
+                : system.pricing.reviseCharge(actor, key, input)
+              : system.pricing.addCharge(actor, input),
           );
           break;
         case "exchange":
@@ -458,13 +466,17 @@ export function httpServer(
           authorize(actor, "admin");
           result = read
             ? page(system.management.users(actor, deleted), url.searchParams)
-            : mutate("admin", () => system.management.saveUser(actor, input, key, method));
+            : mutate("admin", () =>
+                system.management.saveUser(actor, input, key, method),
+              );
           break;
         case "ips":
           authorize(actor, "admin");
           result = read
             ? page(system.management.ips(actor), url.searchParams)
-            : mutate("admin", () => system.management.saveIp(actor, input, key, method));
+            : mutate("admin", () =>
+                system.management.saveIp(actor, input, key, method),
+              );
           break;
         case "audit":
           authorize(actor, "admin");
@@ -472,7 +484,9 @@ export function httpServer(
             ? key
               ? system.management.audits(actor, deleted, key)
               : page(system.management.audits(actor, deleted), url.searchParams)
-            : mutate("admin", () => system.management.annotateAudit(actor, input, key, method));
+            : mutate("admin", () =>
+                system.management.annotateAudit(actor, input, key, method),
+              );
           break;
         case "permissions":
           authorize(actor, "admin");
@@ -491,7 +505,16 @@ export function httpServer(
       const status = error.status || (integrity ? 422 : 500);
       if (status === 500) console.error(error);
       json(res, status, {
-        message: status === 500 ? "服务内部错误" : error.message,
+        message:
+          status === 500
+            ? "服务内部错误"
+            : /UNIQUE constraint failed/.test(error.message)
+              ? "编号或唯一业务标识已存在，请刷新核对"
+              : /FOREIGN KEY constraint failed/.test(error.message)
+                ? "关联记录不存在或仍被引用，请刷新核对"
+                : /(?:CHECK|NOT NULL) constraint failed/.test(error.message)
+                  ? "填写内容不符合业务约束，请检查必填值和范围"
+                  : error.message,
         fields: error.fields || {},
       });
     }

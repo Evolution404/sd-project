@@ -6,7 +6,6 @@ import {
   defineAsyncComponent,
   provide,
 } from "vue";
-import { ElMessage } from "element-plus";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { api, type Row } from "./services/api";
 const DashboardPage = defineAsyncComponent(

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
 import { ref, onMounted } from "vue";
@@ -25,16 +26,19 @@ const rows = ref<Row[]>([]),
   approvalRows = ref<Row[]>([]),
   priceScopeContext = ref<Row | null>(null),
   quoteOpen = ref(false);
+const editingCharge = ref<Row | null>(null);
+const showDeleted = ref(false);
 async function load() {
   const value = await api(
-    `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}`,
+    `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}`,
   );
   rows.value = value.items;
   total.value = value.total;
-  if (detail.value) detail.value = await api("/projects/" + detail.value.id);
+  if (detail.value)
+    detail.value = await api("/projects/" + detail.value.id + "?deleted=true");
 }
 async function open(row: Row) {
-  detail.value = await api("/projects/" + row.id);
+  detail.value = await api("/projects/" + row.id + "?deleted=true");
   tab.value = props.financeOnly ? "finance" : "scope";
 }
 function editProject(row?: Row) {
@@ -44,11 +48,16 @@ function editProject(row?: Row) {
     : { code: "", name: "", framework_id: "" };
   dialog.value = "project";
 }
+async function searchDemands(q = "") {
+  demands.value = (
+    await api("/demands?page_size=200&q=" + encodeURIComponent(q))
+  ).items;
+}
 async function openDialog(type: string) {
+  editingCharge.value = null;
   dialog.value = type;
   form.value = {};
-  if (type === "link")
-    demands.value = (await api("/demands?page_size=200")).items;
+  if (type === "link") await searchDemands();
   if (type === "funding")
     form.value = {
       agreement_id: detail.value?.funding?.agreement_id,
@@ -68,6 +77,7 @@ async function openDialog(type: string) {
           approved_quantity_scaled: loc.quantity_scaled,
           selected: true,
           label:
+            loc.location_snapshot_json.location_label ||
             loc.location_snapshot_json.physical_code ||
             loc.location_snapshot_json.tower_no ||
             loc.span_id,
@@ -113,12 +123,16 @@ async function save() {
           })),
       });
     if (dialog.value === "charge")
-      await api("/charges", "POST", {
-        ...form.value,
-        approval_version_id: detail.value!.approvals.find(
-          (x: Row) => x.status === "draft",
-        )?.id,
-      });
+      await api(
+        "/charges" + (editingCharge.value ? "/" + editingCharge.value.id : ""),
+        "POST",
+        {
+          ...form.value,
+          approval_version_id: detail.value!.approvals.find(
+            (x: Row) => x.status === "draft",
+          )?.id,
+        },
+      );
     dialog.value = "";
     await load();
     ElMessage.success("已保存");
@@ -177,6 +191,42 @@ function priceScope(scope: Row) {
   priceScopeContext.value = scope;
   quoteOpen.value = true;
 }
+function editCharge(charge: Row) {
+  editingCharge.value = charge;
+  form.value = {
+    ...JSON.parse(charge.pricing_inputs_json),
+    reference_price_catalog_id: charge.reference_price_catalog_id,
+  };
+  dialog.value = "charge";
+}
+async function removeCharge(charge: Row) {
+  try {
+    await ElMessageBox.confirm(
+      "删除本草稿参考费用，原计算依据保存在审计中。",
+      "删除参考费用",
+    );
+    await api("/charges/" + charge.id, "DELETE", {});
+    await load();
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
+  }
+}
+async function removeProject() {
+  try {
+    await ElMessageBox.confirm(
+      "删除后从正常项目列表移除，正式范围、费用、结算和证据历史继续保留。",
+      "删除子项目",
+    );
+    await api(`/projects/${detail.value!.id}`, "DELETE", {
+      expected_version: detail.value!.version,
+    });
+    detail.value = null;
+    await load();
+    ElMessage.success("项目已删除，可在包含已删除中查询");
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
+  }
+}
 async function showHistory() {
   history.value = await api(`/projects/${detail.value!.id}/history`);
 }
@@ -216,7 +266,9 @@ onMounted(async () => {
           clearable
           placeholder="搜索项目编码或名称"
           @change="load"
-        /><ElButton @click="load">刷新</ElButton>
+        /><ElCheckbox v-model="showDeleted" @change="load"
+          >包含已删除</ElCheckbox
+        ><ElButton @click="load">刷新</ElButton>
       </div>
       <ElTable :data="rows"
         ><ElTableColumn
@@ -261,11 +313,18 @@ onMounted(async () => {
       ><span class="muted">{{ detail.code }}</span>
     </div>
     <div class="toolbar">
-      <ElButton :disabled="!can('write')" @click="editProject(detail)"
+      <ElButton
+        :disabled="!can('write') || detail.deleted"
+        @click="editProject(detail)"
         >修订档案</ElButton
       ><ElButton :disabled="!can('write')" @click="openDialog('funding')"
         >资金归属</ElButton
       ><ElButton @click="showHistory">档案与阶段历史</ElButton
+      ><ElButton
+        type="danger"
+        :disabled="!can('admin') || detail.deleted"
+        @click="removeProject"
+        >删除项目</ElButton
       ><ElButton
         :disabled="!can('project.stock')"
         v-if="detail.status === 'reserve'"
@@ -409,9 +468,41 @@ onMounted(async () => {
             ></ElTableColumn
           ></ElTable
         >
+        <ElTable
+          v-if="approval.reference.charges.length"
+          :data="approval.reference.charges"
+          ><ElTableColumn
+            prop="rule_title"
+            label="批次或项目参考费用"
+          /><ElTableColumn label="金额"
+            ><template #default="{ row }"
+              >¥{{ money(row.amount_fen) }}</template
+            ></ElTableColumn
+          ><ElTableColumn v-if="approval.status === 'draft'" label="操作"
+            ><template #default="{ row }"
+              ><ElButton :disabled="!can('write')" @click="editCharge(row)"
+                >更正</ElButton
+              ><ElButton
+                type="danger"
+                :disabled="!can('write')"
+                @click="removeCharge(row)"
+                >删除</ElButton
+              ></template
+            ></ElTableColumn
+          ></ElTable
+        >
       </div></template
     >
-    <FinancePanel v-if="tab === 'finance'" :project="detail" @changed="load" />
+    <ElAlert
+      v-if="detail.deleted && tab === 'finance'"
+      title="项目已归档删除，费用与结算记录可在档案历史中查询。"
+      type="info"
+      :closable="false"
+    /><FinancePanel
+      v-if="tab === 'finance' && !detail.deleted"
+      :project="detail"
+      @changed="load"
+    />
   </template>
   <ElDialog
     :model-value="!!dialog"
@@ -500,7 +591,11 @@ onMounted(async () => {
             :rules="[{ required: true, message: '请填写专业需求' }]"
             required
             class="full-width"
-            ><ElSelect v-model="form.demand_id" filterable
+            ><ElSelect
+              v-model="form.demand_id"
+              filterable
+              remote
+              :remote-method="searchDemands"
               ><ElOption
                 v-for="d in demands.filter(
                   (x) => !x.binding && x.status !== 'cancelled',
@@ -612,7 +707,7 @@ onMounted(async () => {
     width="950px"
     @close="history = null"
   >
-    <pre class="data-json">{{ JSON.stringify(history, null, 2) }}</pre>
+    <BusinessHistory :value="history" />
   </ElDialog>
   <PricingQuoteDialog
     v-if="priceScopeContext"

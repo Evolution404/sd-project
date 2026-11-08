@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { factText } from "../services/display";
+import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
 import { ref, watch, onMounted, computed } from "vue";
@@ -18,7 +20,6 @@ const definitions = ref<Row>({}),
   page = ref(1),
   query = ref(""),
   deleted = ref(false),
-  selected = ref<Row[]>([]),
   dialog = ref(false),
   loading = ref(false),
   editing = ref<Row | null>(null),
@@ -261,13 +262,8 @@ onMounted(async () => {
         ><ElButton @click="load">刷新</ElButton
         ><span class="muted">共 {{ total }} 项</span>
       </div>
-      <ElTable
-        :data="rows"
-        v-loading="loading"
-        @selection-change="selected = $event"
-        ><ElTableColumn type="selection" width="42" /><ElTableColumn
-          label="编码 / 名称"
-          min-width="190"
+      <ElTable :data="rows" v-loading="loading"
+        ><ElTableColumn label="编码 / 名称" min-width="190"
           ><template #default="{ row }"
             ><strong>{{
               row.name ||
@@ -379,9 +375,9 @@ onMounted(async () => {
           :label="field.label"
           :span="field.type === 'json' ? 2 : 1"
         >
-          <pre v-if="field.type === 'json'" class="data-json">{{
-            detail[field.key]
-          }}</pre>
+          <span v-if="field.type === 'json'">{{
+            factText(detail[field.key], field.key)
+          }}</span>
           <span v-else>{{
             display(field, detail[field.key])
           }}</span></ElDescriptionsItem
@@ -390,9 +386,8 @@ onMounted(async () => {
     </div>
     <div v-if="history" class="panel">
       <h2>完整版本与审计历史</h2>
-      <pre class="data-json">{{ JSON.stringify(history, null, 2) }}</pre>
-    </div></template
-  >
+      <BusinessHistory :value="history" /></div
+  ></template>
   <ElDialog
     v-model="dialog"
     :title="(editing ? '编辑' : '新增') + (definitions[kind]?.title || '')"

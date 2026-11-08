@@ -33,9 +33,15 @@ async function save() {
   try {
     await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 8000 });
   } catch (error) {
-    console.error("MASTER_SAVE_STILL_OPEN", await page.getByRole("dialog").innerText());
+    console.error(
+      "MASTER_SAVE_STILL_OPEN",
+      await page.getByRole("dialog").innerText(),
+    );
     console.error("MASTER_PAGE_ERRORS", errors);
-    await page.screenshot({ path: join(output, "master-save-failure.png"), fullPage: true });
+    await page.screenshot({
+      path: join(output, "master-save-failure.png"),
+      fullPage: true,
+    });
     throw error;
   }
 }
@@ -71,6 +77,9 @@ try {
   await page
     .getByRole("heading", { name: "完整版本与审计历史", exact: true })
     .waitFor();
+  await page.getByText("正式内容版本", { exact: true }).click();
+  await page.getByText("创建时间", { exact: true }).first().waitFor();
+  assert.equal(await page.locator("pre.data-json").count(), 0);
   await page.screenshot({
     path: join(output, "ledger-detail-1500.png"),
     fullPage: true,
@@ -92,7 +101,7 @@ try {
     .click();
   await page.getByLabel("编码", { exact: true }).fill("UI-OBJECT");
   await page.getByLabel("名称", { exact: true }).fill("浏览器专用对象");
-  await select("设备对象", "physical");
+  await select("设备对象", "共用物理杆塔");
   await save();
   await page.getByRole("tab", { name: "计量单位", exact: true }).click();
   await page.getByRole("button", { name: "新增计量单位", exact: true }).click();
@@ -105,7 +114,7 @@ try {
   await page.getByLabel("名称", { exact: true }).fill("浏览器安装");
   await select("标准作业对象", "浏览器专用对象");
   await select("固定计量单位", "件");
-  await select("设备对象", "physical");
+  await select("设备对象", "共用物理杆塔");
   await page
     .getByRole("dialog")
     .getByRole("tab", { name: "录入模板", exact: true })

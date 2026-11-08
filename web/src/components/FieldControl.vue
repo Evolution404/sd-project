@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from "vue";
-import { api, type Row } from "../services/api";
+import { ElMessage } from "element-plus";
+import { api, statusText, type Row } from "../services/api";
 const props = defineProps<{
   field: Row;
   modelValue: any;
@@ -39,20 +40,38 @@ const numeric = computed({
             ),
     ),
 });
+let requestSequence = 0;
 async function search(q = "") {
-  if (props.field.type === "ref")
-    options.value = (
-      await api(
-        "/catalog/" +
-          props.field.reference +
-          "?page_size=200&q=" +
-          encodeURIComponent(q),
-      )
-    ).items;
+  if (props.field.type !== "ref") return;
+  const sequence = ++requestSequence,
+    reference = props.field.reference,
+    selectedId = props.modelValue;
+  try {
+    const response = await api(
+      "/catalog/" + reference + "?page_size=200&q=" + encodeURIComponent(q),
+    );
+    let selected = null;
+    if (
+      selectedId &&
+      !response.items.some((item: Row) => item.id === selectedId)
+    ) {
+      try {
+        selected = await api(
+          "/catalog/" + reference + "/" + selectedId + "?deleted=true",
+        );
+      } catch {
+        selected = { id: selectedId, label: "原关联需重新选择" };
+      }
+    }
+    if (sequence === requestSequence)
+      options.value = selected ? [selected, ...response.items] : response.items;
+  } catch (error) {
+    if (sequence === requestSequence) ElMessage.error((error as Error).message);
+  }
 }
 onMounted(() => search());
 watch(
-  () => props.field.reference,
+  () => [props.field.reference, props.modelValue],
   () => search(),
 );
 </script>
@@ -72,7 +91,12 @@ watch(
       :key="item.id"
       :value="item.id"
       :label="
-        item.name || item.title || item.tower_no || item.tower_code || item.id
+        item.label ||
+        item.name ||
+        item.title ||
+        item.tower_no ||
+        item.tower_code ||
+        '业务记录'
       "
     />
   </ElSelect>
@@ -85,7 +109,7 @@ watch(
       v-for="option in field.options"
       :key="option"
       :value="option"
-      :label="option"
+      :label="statusText[option] || option"
   /></ElSelect>
   <ElSwitch
     v-else-if="field.type === 'boolean'"

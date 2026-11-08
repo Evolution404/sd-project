@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
 import { ref, onMounted, computed } from "vue";
@@ -8,7 +9,7 @@ import PricingQuoteDialog from "../components/PricingQuoteDialog.vue";
 import SiteFeaturesEditor from "../components/SiteFeaturesEditor.vue";
 import EvidencePanel from "../components/EvidencePanel.vue";
 import ExchangePanel from "../components/ExchangePanel.vue";
-import { api, type Row, quantity, money, statusText } from "../services/api";
+import { api, type Row, quantity, statusText } from "../services/api";
 const adoptedOperation = ref<Row | null>(null),
   lastOperationId = ref("");
 const props = defineProps<{ user: Row }>();
@@ -46,7 +47,8 @@ async function load() {
   );
   rows.value = result.items;
   total.value = result.total;
-  if (detail.value) detail.value = await api("/demands/" + detail.value.id);
+  if (detail.value)
+    detail.value = await api("/demands/" + detail.value.id + "?deleted=true");
 }
 async function edit(row?: Row) {
   editing.value = row || null;
@@ -299,7 +301,9 @@ onMounted(async () => {
             ><ElButton
               size="small"
               @click="
-                api('/demands/' + row.id).then((value) => (detail = value))
+                api('/demands/' + row.id + '?deleted=true').then(
+                  (value) => (detail = value),
+                )
               "
               >查看</ElButton
             ></template
@@ -527,7 +531,19 @@ onMounted(async () => {
               ><ElOption label="杆塔" value="logical_tower" /><ElOption
                 label="档距"
                 value="span" /></ElSelect></ElFormItem
-          ><ElFormItem label="作业设备" required
+          ><ElFormItem
+            label="作业设备"
+            :prop="[
+              'work_locations',
+              String(index),
+              loc.location_kind === 'span'
+                ? 'span_id'
+                : loc.location_kind === 'physical_tower'
+                  ? 'physical_tower_id'
+                  : 'logical_tower_id',
+            ]"
+            :rules="[{ required: true, message: '请选择真实作业设备' }]"
+            required
             ><FieldControl
               v-model="
                 loc[
@@ -548,7 +564,14 @@ onMounted(async () => {
                 reference:
                   loc.location_kind === 'span' ? 'spans' : locationReference,
               }" /></ElFormItem
-          ><ElFormItem label="实际数量" required
+          ><ElFormItem
+            label="实际数量"
+            :prop="['work_locations', String(index), 'quantity_scaled']"
+            :rules="[
+              { required: true, message: '请填写实际数量' },
+              { type: 'number', min: 1, message: '实际数量必须大于0' },
+            ]"
+            required
             ><FieldControl
               v-model="loc.quantity_scaled"
               :field="{ type: 'quantity' }" /></ElFormItem
@@ -627,6 +650,6 @@ onMounted(async () => {
     width="900px"
     @close="history = null"
   >
-    <pre class="data-json">{{ JSON.stringify(history, null, 2) }}</pre>
+    <BusinessHistory :value="history" />
   </ElDialog>
 </template>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { api, type Row } from "../services/api";
+import { api, statusText, type Row } from "../services/api";
 const tab = ref("users"),
   rows = ref<Row[]>([]),
   dialog = ref(false),
@@ -69,8 +69,15 @@ onMounted(load);
     <ElTable :data="rows"
       ><template v-if="tab === 'users'"
         ><ElTableColumn prop="username" label="账号" /><ElTableColumn
-          prop="role"
-          label="角色" /><ElTableColumn prop="status" label="状态" /></template
+          label="角色"
+          ><template #default="{ row }">{{
+            statusText[row.role] || row.role
+          }}</template></ElTableColumn
+        ><ElTableColumn label="状态"
+          ><template #default="{ row }">{{
+            statusText[row.status] || row.status
+          }}</template></ElTableColumn
+        ></template
       ><template v-if="tab === 'ips'"
         ><ElTableColumn prop="ip" label="IP地址" /><ElTableColumn
           prop="note"
@@ -84,8 +91,8 @@ onMounted(load);
           label="业务对象" /><ElTableColumn
           prop="action"
           label="动作" /><ElTableColumn
-          prop="actor_id"
-          label="操作人标识"
+          prop="actor_username"
+          label="操作人"
           min-width="190" /></template
       ><ElTableColumn label="操作"
         ><template #default="{ row }"

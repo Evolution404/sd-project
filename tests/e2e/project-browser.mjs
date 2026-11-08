@@ -154,7 +154,36 @@ try {
     await row.getByRole("button", { name: "批准", exact: true }).click();
     await confirm();
   }
+  await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
+  await select("实际费用", "浏览器真实费用 ¥1,400.00");
+  await select("已批准结算明细", "BROWSER-JS1 ¥400.00");
+  await page.getByLabel("费用份额（元）", { exact: true }).fill("300");
+  await page.getByLabel("核定结算额（元）", { exact: true }).fill("400");
+  await page.getByLabel("核对依据", { exact: true }).fill("浏览器核对原始依据");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const reconciliation = page
+    .getByRole("row")
+    .filter({ hasText: "浏览器核对原始依据" });
+  await reconciliation
+    .getByRole("button", { name: "更正", exact: true })
+    .click();
+  await page.getByLabel("费用份额（元）", { exact: true }).fill("200");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await reconciliation
+    .getByRole("button", { name: "删除", exact: true })
+    .click();
+  await confirm();
   const project = s.projects.list().find((p) => p.code === "P-BROWSER");
+  assert.equal(s.finance.reconciliations(project.id).length, 0);
+  assert.equal(s.finance.reconciliations(project.id, true).length, 1);
   assert.equal(s.finance.summary(project.id).settlement_fen, 120000);
   assert.equal(
     s.finance.summary(project.id).demands[0].resolved_quantity_scaled,

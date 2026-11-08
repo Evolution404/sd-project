@@ -3,8 +3,9 @@ import { useAccess } from "../services/access";
 const can = useAccess();
 import { ref, computed, onUnmounted } from "vue";
 import { ElMessage } from "element-plus";
-import { api, download, money, quantity, type Row } from "../services/api";
+import { api, download, type Row } from "../services/api";
 import { newClientId } from "../services/id";
+import { fieldName, factText, visibleFact } from "../services/display";
 const props = defineProps<{
   kind: "demands" | "settlements";
   selectedIds?: string[];
@@ -32,7 +33,9 @@ function beginPhase(title: string) {
   phaseStarted = performance.now();
   if (timer !== undefined) window.clearInterval(timer);
   timer = window.setInterval(() => {
-    elapsedSeconds.value = Math.floor((performance.now() - phaseStarted) / 1000);
+    elapsedSeconds.value = Math.floor(
+      (performance.now() - phaseStarted) / 1000,
+    );
   }, 500);
 }
 function endPhase() {
@@ -64,55 +67,6 @@ const allIssues = computed(
 const displayedIssues = computed(() =>
   allIssues.value.slice((issuePage.value - 1) * 30, issuePage.value * 30),
 );
-const fieldNames: Record<string, string> = {
-  work_locations: "作业位置及各位置工作量",
-  materials: "预计物资",
-  sources: "需求来源",
-  site_features_json: "现场价格特征",
-  custom_fields: "补充现场字段",
-  demand_no: "需求编号",
-  operation_id: "操作类型",
-  operation_version: "操作定义版本",
-  quantity_scaled: "工作量",
-  amount_fen: "金额",
-  unit_price_fen: "单价",
-  target_object: "处理部位",
-  problem_description: "问题描述",
-  completion_standard: "验收标准",
-  physical_tower_id: "物理杆塔",
-  logical_tower_id: "逻辑杆塔",
-  span_id: "档距",
-  location_code: "设备编码",
-  location_kind: "位置类型",
-  work_mode: "作业方式",
-  status: "状态",
-  evidence: "事实依据",
-  resolved_quantity_scaled: "本次新增解决工作量",
-};
-function fieldName(name: string) {
-  return fieldNames[name] || name;
-}
-function showValue(value: unknown, field = "", depth = 0): string {
-  if (value === null || value === undefined) return "（未填写）";
-  if (field.endsWith("_fen") && typeof value === "number")
-    return money(value) + " 元";
-  if (field.endsWith("_scaled") && typeof value === "number")
-    return quantity(value);
-  if (typeof value === "boolean") return value ? "是" : "否";
-  if (typeof value !== "object") return String(value);
-  if (depth >= 4) return "（嵌套明细）";
-  if (Array.isArray(value)) {
-    if (!value.length) return "（无明细）";
-    return value.map((entry, index) =>
-      (index + 1) + ". " + showValue(entry, field, depth + 1)
-    ).join("；");
-  }
-  const entries = Object.entries(value as Row);
-  if (!entries.length) return "（无附加信息）";
-  return entries.filter(([key]) => !["_sheet", "_row"].includes(key))
-    .map(([key, item]) => fieldName(key) + "：" + showValue(item, key, depth + 1))
-    .join("；");
-}
 async function exportFile(report = false, selected = false) {
   const query = new URLSearchParams({
     q: props.query || "",
@@ -191,14 +145,21 @@ async function commit() {
     <ElAlert
       v-if="busy"
       :title="phase + ' · ' + elapsedSeconds + ' 秒'"
-      :description="canCancelPreview
-        ? '预检尚未写入正式业务数据，可以取消当前请求。'
-        : '正在提交完整业务单据。为保护原子性，提交期间不可中断；完成后将显示实际结果。'"
+      :description="
+        canCancelPreview
+          ? '预检尚未写入正式业务数据，可以取消当前请求。'
+          : '正在提交完整业务单据。为保护原子性，提交期间不可中断；完成后将显示实际结果。'
+      "
       type="info"
       :closable="false"
       show-icon
     />
-    <ElButton v-if="busy && canCancelPreview" type="warning" @click="cancelPreview">取消预检</ElButton>
+    <ElButton
+      v-if="busy && canCancelPreview"
+      type="warning"
+      @click="cancelPreview"
+      >取消预检</ElButton
+    >
     <div class="toolbar">
       <ElButton
         @click="
@@ -240,11 +201,20 @@ async function commit() {
         ><ElButton :disabled="!can('write')" type="primary" :loading="busy"
           >上传并预检</ElButton
         ></ElUpload
-      ><ElCheckbox v-model="atomic" :disabled="busy">整个批次全部成功或全部回滚</ElCheckbox>
+      ><ElCheckbox v-model="atomic" :disabled="busy"
+        >整个批次全部成功或全部回滚</ElCheckbox
+      >
     </div>
     <template v-if="preview"
       ><div class="toolbar">
-        <ElTag>新增 {{ preview.summary.created }}</ElTag
+        <ElTag>共 {{ preview.summary.documents }} 张单据</ElTag
+        ><ElTag type="success">有效 {{ preview.documents.length }}</ElTag
+        ><ElTag type="danger"
+          >无效 {{ preview.summary.invalid_documents }}</ElTag
+        ><ElTag type="warning"
+          >重复 {{ preview.summary.duplicate_issues }} / 版本冲突
+          {{ preview.summary.conflicts }}</ElTag
+        ><ElTag>新增 {{ preview.summary.created }}</ElTag
         ><ElTag>更新 {{ preview.summary.updated }}</ElTag
         ><ElTag type="info">无变化 {{ preview.summary.unchanged }}</ElTag
         ><ElTag type="danger">问题 {{ preview.issues.length }}</ElTag
@@ -262,11 +232,15 @@ async function commit() {
               prop="number"
               label="业务编号"
               width="140"
-            /><ElTableColumn
-              prop="action"
-              label="动作"
-              width="100"
-            /><ElTableColumn label="预计结果" width="120"
+            /><ElTableColumn label="动作" width="100"
+              ><template #default="{ row }">{{
+                row.action === "create"
+                  ? "新增"
+                  : row.action === "update"
+                    ? "修改"
+                    : "保持原值"
+              }}</template></ElTableColumn
+            ><ElTableColumn label="预计结果" width="120"
               ><template #default="{ row }">{{
                 row.action === "unchanged"
                   ? "保持原值"
@@ -276,10 +250,15 @@ async function commit() {
               }}</template></ElTableColumn
             ><ElTableColumn label="变化"
               ><template #default="{ row }"
-                ><div v-for="change in row.changes" :key="change.field">
+                ><div
+                  v-for="change in row.changes.filter((item: Row) =>
+                    visibleFact(item.field),
+                  )"
+                  :key="change.field"
+                >
                   <strong>{{ fieldName(change.field) }}</strong>
-                  {{ showValue(change.before, change.field) }} →
-                  {{ showValue(change.after, change.field) }}
+                  {{ factText(change.before, change.field) }} →
+                  {{ factText(change.after, change.field) }}
                 </div></template
               ></ElTableColumn
             ></ElTable
@@ -294,14 +273,13 @@ async function commit() {
             ><ElTableColumn prop="sheet" label="工作表" /><ElTableColumn
               prop="row"
               label="行号"
-              width="70" /><ElTableColumn
-              prop="field"
-              label="字段" /><ElTableColumn
-              prop="raw_value"
-              label="原始值"
-              min-width="180"
+              width="70" /><ElTableColumn label="字段"
               ><template #default="{ row }">{{
-                showValue(row.raw_value, row.field)
+                fieldName(row.field)
+              }}</template></ElTableColumn
+            ><ElTableColumn prop="raw_value" label="原始值" min-width="180"
+              ><template #default="{ row }">{{
+                factText(row.raw_value, row.field)
               }}</template></ElTableColumn
             ><ElTableColumn
               prop="reason"
@@ -322,6 +300,14 @@ async function commit() {
       :type="result.issues.length ? 'warning' : 'success'"
       :closable="false"
     />
+    <p v-if="preview" class="muted">
+      解析 {{ (preview.timings_ms.parse / 1000).toFixed(2) }} 秒 · 预检共
+      {{ (preview.timings_ms.total / 1000).toFixed(2) }} 秒<span v-if="result">
+        · 正式校验 {{ (result.timings_ms.revalidation / 1000).toFixed(2) }} 秒 ·
+        逐单据写入
+        {{ (result.timings_ms.business_writes / 1000).toFixed(2) }} 秒</span
+      >
+    </p>
     <ElButton
       v-if="result"
       @click="download(`/exchange/${preview!.token}/results`, '导入结果.xlsx')"

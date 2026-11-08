@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BusinessHistory from "./BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
 import { ref, watch, computed } from "vue";
@@ -18,7 +19,8 @@ import {
 const formRef = ref();
 const props = defineProps<{ project: Row }>();
 const showDeletedNodes = ref(false),
-  showDeletedCosts = ref(false);
+  showDeletedCosts = ref(false),
+  showDeletedReconciliations = ref(false);
 function enabledPath(node: Row) {
   let current: Row | undefined = node;
   while (current) {
@@ -71,7 +73,9 @@ async function load() {
   billTotal.value = billResult.total;
   summary.value = await api(`/projects/${props.project.id}/summary`);
   reconciliations.value = (
-    await api(`/reconciliations?page_size=200&project_id=${props.project.id}`)
+    await api(
+      `/reconciliations?page_size=200&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}`,
+    )
   ).items;
 }
 function edit(type: string, row?: Row) {
@@ -120,7 +124,12 @@ function edit(type: string, row?: Row) {
         };
   if (type === "reconcile")
     form.value = row
-      ? { ...row, expected_version: row.version_no, is_final: !!row.is_final }
+      ? {
+          ...row,
+          request_key: undefined,
+          expected_version: row.version_no,
+          is_final: !!row.is_final,
+        }
       : {
           expected_version: 0,
           reconciled_cost_fen: 0,
@@ -293,7 +302,11 @@ watch(() => props.project.id, load, { immediate: true });
           project.cost_nodes.find((n: Row) => n.id === row.parent_id)?.name ||
           "根科目"
         }}</template></ElTableColumn
-      ><ElTableColumn prop="status" label="状态" /><ElTableColumn label="操作"
+      ><ElTableColumn label="状态"
+        ><template #default="{ row }">{{
+          statusText[row.status] || row.status
+        }}</template></ElTableColumn
+      ><ElTableColumn label="操作"
         ><template #default="{ row }"
           ><ElButton
             :disabled="!can('write')"
@@ -339,9 +352,11 @@ watch(() => props.project.id, load, { immediate: true });
         :page-size="30"
         layout="prev,pager,next,total"
         @current-change="load"
-      /><ElTableColumn prop="status" label="状态" /><ElTableColumn
-        label="操作"
-        min-width="180"
+      /><ElTableColumn label="状态"
+        ><template #default="{ row }">{{
+          statusText[row.status] || row.status
+        }}</template></ElTableColumn
+      ><ElTableColumn label="操作" min-width="180"
         ><template #default="{ row }"
           ><ElButton
             size="small"
@@ -466,7 +481,9 @@ watch(() => props.project.id, load, { immediate: true });
   <div class="panel">
     <div class="toolbar">
       <h2>费用与结算核对</h2>
-      <ElButton :disabled="!can('cost.confirm')" @click="edit('reconcile')"
+      <ElCheckbox v-model="showDeletedReconciliations" @change="load"
+        >包含已删除核对</ElCheckbox
+      ><ElButton :disabled="!can('cost.confirm')" @click="edit('reconcile')"
         >新增正式核对</ElButton
       >
     </div>
@@ -480,16 +497,33 @@ watch(() => props.project.id, load, { immediate: true });
           money(row.reconciled_settlement_fen)
         }}</template></ElTableColumn
       ><ElTableColumn prop="evidence" label="核对依据" /><ElTableColumn
-        prop="status"
         label="状态"
-    /></ElTable>
+        ><template #default="{ row }">{{
+          row.deleted ? "已删除" : row.status === "voided" ? "已撤销" : "有效"
+        }}</template></ElTableColumn
+      ><ElTableColumn label="操作" min-width="230"
+        ><template #default="{ row }"
+          ><ElButton
+            :disabled="!can('cost.confirm') || row.deleted"
+            @click="edit('reconcile', row)"
+            >更正</ElButton
+          ><ElButton @click="reconciliationHistory(row)">历史</ElButton
+          ><ElButton
+            type="danger"
+            :disabled="!can('cost.confirm') || row.deleted"
+            @click="removeReconciliation(row)"
+            >删除</ElButton
+          ></template
+        ></ElTableColumn
+      ></ElTable
+    >
   </div>
   <div class="panel">
     <h2>实际解决需求</h2>
     <ElTable :data="summary.demands"
       ><ElTableColumn
-        prop="demand_id"
-        label="需求标识"
+        prop="demand_no"
+        label="需求编号"
         min-width="200"
       /><ElTableColumn label="批准数量"
         ><template #default="{ row }">{{
@@ -774,6 +808,6 @@ watch(() => props.project.id, load, { immediate: true });
     width="950px"
     @close="history = null"
   >
-    <pre class="data-json">{{ JSON.stringify(history, null, 2) }}</pre>
+    <BusinessHistory :value="history" />
   </ElDialog>
 </template>
