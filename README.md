@@ -1,101 +1,117 @@
 # 输电项目全流程管理系统
 
-面向输电运检业务的内网项目管理系统，覆盖设备台账、操作类型、需求、项目框架、执行协议、检修计划、费用与结算。项目采用 Node.js 24 + SQLite + Vue 3 + Element Plus，内网终端通过浏览器使用。
+采用 Node.js 24、SQLite、Vue 3、TypeScript、Element Plus 和 ExcelJS。当前程序使用独立的 Schema 113，覆盖输电台账、专业需求、年度框架、子项目、执行协议、参考计价、真实费用及分次结算。
 
-## 一、快速启动
+## 启动
 
-**Mac 开发机**
-
-```bash
+```sh
 npm ci
-make dev
+npm run build
+npm run init-admin
+npm start
 ```
 
-首次启动交互创建管理员。访问 `http://127.0.0.1:8787`。也可使用 `npm start` 启动已构建的服务，或双击 [本地测试启动脚本](scripts/dev/启动本地测试.command)。
+本机访问 `http://127.0.0.1:8787`。首次初始化创建管理员，密码至少12位。已有管理员不会被初始化脚本覆盖。Mac 开发可执行 `make dev`。开发前后端热更新分别使用 `npm run dev:api` 与 `npx vite --host 127.0.0.1`。
 
-**Windows 10 x64 内网电脑（无需预装 Node/npm）**
+默认仅监听本机。内网部署可设置 `HOST=0.0.0.0`，管理员先在系统管理中添加客户端的完整 IP。连接身份以实际套接字地址为准。业务接口要求登录，正式批准、需求确认、费用核定和结算审核分别检查服务端权限。
 
-在开发机执行：
-
-```bash
-npm run package:win
-```
-
-发布包固定输出到 **`dist/sd-project-win10-x64.zip`**。在 Windows 电脑将 ZIP 完整解压到有写权限的目录（如 `D:\SDProject`），依次双击 `初始化管理员.cmd`、`启动服务.cmd`。本机访问 `http://127.0.0.1:8787`；局域网电脑使用服务器 IP 和相同端口，须配置 Windows 防火墙和系统 IP 授权。
-
-**运行数据只存放在项目/Windows 解压根目录的 `data/`**：
+## 数据与恢复
 
 ```text
 data/
-├── business.sqlite          # 主数据库
-├── business.sqlite-wal      # SQLite 引擎自动产生
-├── business.sqlite-shm      # SQLite 引擎自动产生
-├── attachments/             # 业务附件
-└── backups/                 # SQLite 和附件备份
+├── schema113.sqlite
+├── schema113.sqlite-wal
+├── schema113.sqlite-shm
+├── objects/sha256/        # 内容寻址的证据文件
+└── backups/              # 数据库和证据文件备份
 ```
 
-发布 ZIP 不含 `data/`，覆盖升级程序文件时切勿删除、移动或覆盖该目录。开发测试可以显式指定 `DATA_DIR` 使用隔离数据目录；旧 Mac 用户目录中的开发样本不会被自动搬入新数据目录。
+旧 `business.sqlite`、原附件及备份继续保留。新程序创建自己的数据库文件。开发和测试显式设置临时 `DATA_DIR`。初始化校验完整结构指纹，遇到同为113但定义不同的数据库也会拒绝启动，需要选择匹配备份或新的独立目录。
 
-## 二、主要源码目录
+```sh
+npm run backup
+node scripts/restore.mjs /绝对路径/备份目录 /绝对路径/全新恢复目录
+```
+
+恢复前校验数据库外键、完整性及全部证据文件的字节数与 SHA256。恢复目标必须尚不存在。恢复后将 `DATA_DIR` 指向恢复目录启动。
+
+## 主要目录
 
 ```text
 server/
-├── main.mjs                 # Node 服务入口
-├── http/                    # HTTP 路由和请求访问控制
-├── application/             # 项目、需求、计划、财务等用例
-├── domain/                  # 数量、金额、操作类型等规则
-├── database/                # SQLite 连接、Schema、事务、备份、Repository
-└── infrastructure/          # Excel 等非数据库设施
-
+├── database/             # 连接、事务、唯一SQL、Repository、备份恢复
+│   └── schema/schema113.sql
+├── domain/               # 定点数、计价模型与完整参数验证
+├── application/          # 认证、主数据、需求、项目、资金、计价、财务、来源与统计
+├── exchange/             # Excel解析、模板、预检、差异和原子提交
+├── http/                 # 访问控制、API与静态资源
+└── main.mjs
 web/src/
-├── App.vue                  # 应用根工作区
-├── app/                     # 认证、布局
-├── modules/                 # 业务页面和组件
-├── shared/                  # 公共 API、组件和工具
-└── styles/                  # Element Plus / 全局视觉规范
-
-scripts/
-├── dev/                     # 本地双击启动脚本
-├── windows/                 # Windows 发布包入口模板
-├── release/                 # Windows 打包脚本
-└── import-pms/              # 仅开发用 PMS 导入工具
-
+├── pages/                # 工作台、需求、项目、主数据、系统管理
+├── components/           # 位置特征、计价、结算、附件与Excel工作台
+├── services/             # 公共HTTP传输与精确显示
+└── styles/               # Element Plus官方样式和设计令牌
+dist/
+├── web/                  # 可重建的生产前端
+├── sd-project-win10-x64.zip
+└── RELEASE-MANIFEST.json  # 实际ZIP哈希、源码提交及宿主验证结果
 tests/
-├── unit/
-├── database/
-├── integration/
-├── browser/
-├── helpers/
-└── fixtures/
+├── api/
+├── domain/
+├── excel/
+└── e2e/
 ```
 
-数据库访问已统一收敛到 `server/database/`：2026-11-07 运行 `npm run check:database-boundary`，35 个受保护源文件均无跨层直接 SQL。**这属于当前 Schema 112 应用结构的静态验证，不代表 Schema 113 已接入或生产验收完成**。详见 [仓库收口与治理状态](docs/architecture/Schema113_仓库收口与治理状态_2026-11-07.md)。
+## 业务使用
 
-## 三、开发检查
+1. 在作业标准中建立计量单位、标准作业对象、操作类型、物资和价格规则。在台账中维护电压、线路、物理塔、逻辑塔和档距。
+2. 新增需求时选择操作、真实位置和数量，补足现场问题、验收标准和来源。同一需求允许多个位置，单位和作业对象由操作定义取得。需求先进入待确认，确认决定单独办理。
+3. 创建年度框架和子项目，关联需求后立即形成独占归属。正式入库后编制逐位置批准范围和预算，可只承接需求的部分位置及数量。
+4. 对完整需求或项目实际承接范围分别试算并确认参考价。重叠规则需要明确选择及依据。缺价格时显示已计价小计及缺项。
+5. 在项目内维护费用树并核定真实费用，按各独立结算单编制当次费用及本次新增解决量。保存草稿、正式提交、审核批准分别办理。只补结费用可填写新增解决量0。
+6. 费用与结算通过正式核对关联。结项确认冻结当时的完成量及资金差异。需求再由其他项目承接前办理明确解绑。
 
-```bash
-npm run check         # Element Plus 规范门禁、TS/Vite 构建、全部自动化测试
-npm run test:browser  # Chrome 浏览器业务及 UI 回归
-npm run package:win   # Windows 10 x64 一键交付 ZIP
-npm run backup        # 备份当前 DATA_DIR 数据库和附件
+需求、项目和结算的在线编号可以留空自动生成。Excel中新单据需要文件内唯一编号关联其明细。所有正式金额直接按人民币金额处理。
+
+## Excel
+
+专业需求页面和项目结算页面提供空白模板、筛选结果导出、勾选项导出、数据维护回导、业务报表和预检工作台。结算入口继承当前子项目及其批准、资金版本。
+
+维护工作簿携带稳定身份与原正式版本。需求包含需求清单、作业位置、预计物资、来源依据及按需使用的补充现场字段、现场价格特征。结算包含结算单、费用明细、需求解决明细。可使用精确的操作、设备、物资、项目编码及科目完整路径录入。系统不按显示名称模糊匹配。
+
+金额填写元，最多2位小数。工作量填写实际单位数量，最多4位小数。`__KEEP__` 或缺少单元格保持原值，`__CLEAR__` 清除可空字段，`__EMPTY__` 表示空文本。明细 `action=delete` 明确删除该行，未出现的行保持原值。替换作业位置需要明确删除原位置并新增新位置。
+
+预检只保存工作批次。默认逐单据原子提交，合格单据成功、失败单据保留问题。可选择整批全部成功或回滚。提交重新检查版本和引用，幂等回执与业务记录在同一事务保存。结算导入只生成草稿。业务报表带只读标记，不能回导。
+
+单批最多5000张单据、25000行业务明细。仅接受12MB以内的 `.xlsx`，解压总规模不超过80MB，最多2000个ZIP条目。公式、富文本、超链接及Excel错误单元格需要修正为真实值。
+
+## 验收
+
+```sh
+npm run check
+npm run check:schema
+npm run test:browser
+npm run package:win
+npm run test:package
 ```
 
-单元、数据库、接口和浏览器测试均应使用独立临时数据目录；PMS 开发样本、测试库及 `test-results/` 不进入正式发布包。
+`check` 覆盖无税务模型检查、严格UI门禁、未使用声明检查、构建、新系统测试和数据库边界。Schema验收使用独立内存库。浏览器验收使用独立临时数据库，包含三位置需求、逐范围报价、实际项目批准、费用、三次结算及结项，以及1500、1280、960、760px布局。
 
-## 数据库重构状态
+## Windows 离线包
 
-当前应用仍使用 **Schema 112**；**Schema 113 是尚未接入运行应用的候选数据库设计**。当前依据[第十六轮统一计价模型](docs/architecture/Schema113_第十六轮_操作类型_需求多位置_参考价格统一计价模型_2026-11-08.md)：保留操作类型、标准作业对象、物资主数据三个不同实体；一条需求可以在多基杆塔/档距分别记录数量和现场特征；正式价格按完整规则版本、每位置工作量和费用覆盖单独确认，项目按实际批准的需求位置重新计算参考价，并单独汇总批次/项目级费用。完整项目参考价和批准预算、实际费用、结算互不混淆，缺报价绝不能假报完整总价。第十五轮“需求同一时刻只与一个子项目关联，必须显式解绑才能转承”和第十四轮逐次结算解决需求、弹性结项、管理员理由可留空继续有效。**当前候选 77 张 STRICT 表、27 个事实视图、249 个触发器、74 个显式索引、734 字段、472/472 数据库契约通过**。规则匹配、价格金额算法和 Element Plus 页面尚未开发，真实 Schema112 及业务数据未修改。
+```sh
+npm run package:win
+```
 
-## 四、文档入口
+打包前提交全部源码和文档，工作区须干净。前端只清理 `dist/web/`，后续构建保留已生成ZIP。输出 `dist/sd-project-win10-x64.zip`，内置 Node.js 24.13.0 x64、生产依赖和前端资源。包内不含 `data/`。在 Windows 10/11 x64 的可写目录解压后，运行 `初始化管理员.cmd` 和 `启动服务.cmd`。运行数据位于解压根目录的 `data/`。恢复可执行 `runtime\node.exe scripts\restore.mjs 备份目录 全新恢复目录`，验证后以对应DATA_DIR启动。
 
-- [文档导航](docs/README.md)
-- [项目开发规范](docs/architecture/系统开发规范.md)
-- [已批准架构与目录约束](docs/architecture/repository-layout-2026-11-05.md)
-- [数据库 V2 重构实施记录](docs/architecture/数据库V2_模型与重构实施记录_2026-11-05.md)
-- [数据库 Schema 112 结构优化验收](docs/architecture/数据库V2_Schema112_结构优化验收_2026-11-06.md)
-- [业务设计文档](docs/architecture/项目全流程管理系统_功能设计文档.md)
-- [2026-11-05 全面审计报告](docs/architecture/架构与交互全面审计_2026-11-05_重构实施方案.md)
-- [操作类型与作业位置规则](docs/business/操作类型维护界面与字段联动_2026-11-03.md)
-- [设计裁决](docs/decisions/架构裁决_2026-10-30_四层管理与需求承接.md)
+打包检查包含官方运行时 SHA256、ZIP完整性、PowerShell UTF-8 BOM、CMD ASCII编码和数据排除。`test:package` 解压实际ZIP，复核源码提交和文件哈希，执行一次前端重建验证ZIP字节保持，再用宿主Node验证初始化、登录、临时需求、附件、备份、恢复和重启。最终大小、SHA256、时间和Git提交号保存在 `dist/RELEASE-MANIFEST.json`。Windows系统自身的CMD、PowerShell、防火墙和文件锁行为需要Windows实机验收。
 
-正式业务数据和历史审批/结算记录不可擅自清除。更改业务行为前应同时查看 [AGENTS.md](AGENTS.md) 和适用的设计裁决。
+## 当前记录
+
+- [重写执行计划](docs/implementation/Schema113_重写执行计划_2026-11-08.md)
+- [重写与验收记录](docs/implementation/Schema113_重写交付与验收_2026-11-08.md)
+- [应用接入与草稿历史治理](docs/architecture/Schema113_应用接入_无税率_草稿撤回与完整计价_2026-11-08.md)
+- [系统开发规范](docs/architecture/系统开发规范.md)
+
+旧实现的 Git 恢复标签为 `codex/pre-schema113-rewrite-20261108`。本轮提交保存在本地。
