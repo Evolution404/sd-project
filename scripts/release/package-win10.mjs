@@ -124,7 +124,14 @@ for (const f of ["package.json", "package-lock.json"])
 console.log("Installing production dependencies in isolated staging");
 const npm = spawnSync(
   "npm",
-  ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"],
+  [
+    "ci",
+    "--omit=dev",
+    "--omit=optional",
+    "--ignore-scripts",
+    "--no-audit",
+    "--no-fund",
+  ],
   { cwd: stage, stdio: "inherit" },
 );
 if (npm.status !== 0) throw Error("Production dependency installation failed");

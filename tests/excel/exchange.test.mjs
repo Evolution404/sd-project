@@ -110,7 +110,10 @@ test("new workbook accepts exact operation and equipment codes with human decima
   });
   assert.equal(result.results.length, 1);
   assert.equal(s.demands.get(result.results[0].id).quantity_scaled, 25000);
-  assert.equal(s.demands.get(result.results[0].id).work_locations[0].work_mode, "outage");
+  assert.equal(
+    s.demands.get(result.results[0].id).work_locations[0].work_mode,
+    "outage",
+  );
 });
 test("required operation-specific facts share online and workbook validation", async (t) => {
   const { s, user, operation, demandInput } = fixture(t);
@@ -217,4 +220,29 @@ test("workbook price features use equipment and dictionary codes without manual 
       .terrain,
     { factor_version: 1, value: "mountain" },
   );
+});
+test("patched UUID dependency supports ExcelJS extended formatting and workbook roundtrip", async () => {
+  const workbook = new ExcelJS.Workbook(),
+    sheet = workbook.addWorksheet("格式回归");
+  sheet.getCell("A1").value = 1;
+  sheet.getCell("A2").value = 2;
+  sheet.addConditionalFormatting({
+    ref: "A1:A2",
+    rules: [
+      {
+        type: "dataBar",
+        gradient: false,
+        cfvo: [{ type: "min" }, { type: "max" }],
+        color: { argb: "FF006600" },
+      },
+    ],
+  });
+  const buffer = await workbook.xlsx.writeBuffer();
+  assert.match(
+    sheet.conditionalFormattings[0].rules[0].x14Id,
+    /^\{[0-9A-F-]{36}\}$/,
+  );
+  const loaded = new ExcelJS.Workbook();
+  await loaded.xlsx.load(buffer);
+  assert.equal(loaded.getWorksheet("格式回归").getCell("A2").value, 2);
 });
