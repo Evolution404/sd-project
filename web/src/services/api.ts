@@ -59,6 +59,10 @@ export const quantity = (value: number | undefined) =>
   displayFixed(value || 0, 4, true);
 export const statusText: Row = {
   create: "新增",
+  new: "新建实物",
+  shared: "共用已有实物",
+  distinct: "已确认不同实物",
+  replace: "整基更换",
   update: "修改",
   unchanged: "保持原值",
   delete: "删除",

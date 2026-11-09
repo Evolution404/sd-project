@@ -13,6 +13,7 @@ for (const count of [100, 1000, 5000])
         s.repo.insert("physical_towers", {
           id: `bulk-tower-${i}`,
           tower_code: `BULK-${i}`,
+          asset_no: `BULK-${i}`,
           created_by: user.id,
           created_at: timestamp,
           updated_at: timestamp,
@@ -21,17 +22,15 @@ for (const count of [100, 1000, 5000])
     const documents = [],
       work_locations = [];
     for (let i = 0; i < count; i++) {
-      const number = `BULK-D${i}`;
       documents.push({
-        demand_no: number,
-        operation_code: operation.code,
+        operation_name: operation.name,
         problem_description: "批量巡视事实",
         completion_standard: "安装牢固",
       });
       work_locations.push({
-        demand_no: number,
+        document_row: i + 2,
         location_kind: "physical_tower",
-        location_code: `BULK-${i}`,
+        asset_no: `BULK-${i}`,
         quantity_scaled: 10000,
       });
     }

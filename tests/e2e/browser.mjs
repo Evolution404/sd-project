@@ -43,9 +43,6 @@ try {
   });
   await page.getByRole("menuitem", { name: "专业需求", exact: true }).click();
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
-  await page
-    .getByLabel("需求编号（留空自动生成）", { exact: true })
-    .fill("BROWSER-D001");
   await select("操作类型", "安装防鸟装置");
   await page.getByLabel("问题描述", { exact: true }).fill("三基塔防鸟装置缺失");
   await select("作业设备", "T15");
@@ -61,7 +58,7 @@ try {
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page
     .getByRole("row")
-    .filter({ hasText: "BROWSER-D001" })
+    .filter({ hasText: "三基塔防鸟装置缺失" })
     .getByRole("button", { name: "查看", exact: true })
     .click();
   await page.getByText("总工作量", { exact: true }).waitFor();

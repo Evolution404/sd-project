@@ -97,6 +97,8 @@ for (const [src, dest] of [
     "docs/implementation/Schema113_重写交付与验收_2026-11-08.md",
     "docs/architecture/Schema113_应用接入_无税率_草稿撤回与完整计价_2026-11-08.md",
     "docs/architecture/系统开发规范.md",
+    "docs/decisions/2026-11-09_系统独立_自动编码_最少录入.md",
+    "docs/implementation/2026-11-09_独立业务_自动身份与最少录入_实施验收.md",
   ].map((path) => [path, path]),
   ["package.json", "package.json"],
 ]) {

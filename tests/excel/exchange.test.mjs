@@ -72,14 +72,14 @@ test("formula cells are rejected and missing detail rows preserve existing posit
   );
   assert.ok(invalid.issues.some((x) => x.reason.includes("公式")));
 });
-test("new workbook accepts exact operation and equipment codes with human decimal quantities", async (t) => {
+test("new workbook accepts business operation and equipment names with human decimal quantities", async (t) => {
   const { s, user } = fixture(t),
     exchange = createExchange(s);
   const buffer = await makeWorkbook("demands", {
     documents: [
       {
         demand_no: "CODE-D001",
-        operation_code: "install",
+        operation_name: "安装防鸟装置",
         problem_description: "按现场设备编码录入",
         completion_standard: "安装牢固",
       },
@@ -89,7 +89,7 @@ test("new workbook accepts exact operation and equipment codes with human decima
         demand_no: "CODE-D001",
         action: "upsert",
         location_kind: "physical_tower",
-        location_code: "T15",
+        asset_no: "T15",
         quantity_scaled: 25000,
         work_mode: "outage",
       },
@@ -135,7 +135,7 @@ test("required operation-specific facts share online and workbook validation", a
       documents: [
         {
           demand_no: "EXTRA-D",
-          operation_code: "install",
+          operation_name: "安装防鸟装置",
           problem_description: "现场附加事实",
           completion_standard: "牢固",
         },
@@ -144,7 +144,7 @@ test("required operation-specific facts share online and workbook validation", a
         {
           demand_no: "EXTRA-D",
           location_kind: "physical_tower",
-          location_code: "T15",
+          asset_no: "T15",
           quantity_scaled: 10000,
         },
       ],
@@ -159,7 +159,7 @@ test("required operation-specific facts share online and workbook validation", a
   });
   assert.equal(s.demands.get(result.results[0].id).custom_fields.height, 12.5);
 });
-test("workbook price features use equipment and dictionary codes without manual version entry", async (t) => {
+test("workbook price features use business equipment and feature names without manual version entry", async (t) => {
   const { s, user, save, operation } = fixture(t),
     factor = save("factors", {
       code: "terrain",
@@ -188,7 +188,7 @@ test("workbook price features use equipment and dictionary codes without manual 
       documents: [
         {
           demand_no: "FEATURE-D",
-          operation_code: "install",
+          operation_name: "安装防鸟装置",
           problem_description: "现场条件",
           completion_standard: "牢固",
         },
@@ -197,15 +197,15 @@ test("workbook price features use equipment and dictionary codes without manual 
         {
           demand_no: "FEATURE-D",
           location_kind: "physical_tower",
-          location_code: "T15",
+          asset_no: "T15",
           quantity_scaled: 10000,
         },
       ],
       site_features: [
         {
           demand_no: "FEATURE-D",
-          location_code: "T15",
-          factor_code: "terrain",
+          asset_no: "T15",
+          factor_name: "地形",
           value: "mountain",
         },
       ],
@@ -216,8 +216,9 @@ test("workbook price features use equipment and dictionary codes without manual 
     request_key: "feature-code-001",
   });
   assert.deepEqual(
-    s.demands.get(result.results[0].id).work_locations[0].site_features_json
-      .terrain,
+    s.demands.get(result.results[0].id).work_locations[0].site_features_json[
+      factor.code
+    ],
     { factor_version: 1, value: "mountain" },
   );
 });

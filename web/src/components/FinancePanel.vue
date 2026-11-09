@@ -626,8 +626,6 @@ watch(() => props.project.id, load, { immediate: true });
             ><ElInput v-model="form.evidence" type="textarea" /></ElFormItem
         ></template>
         <template v-if="dialog === 'settlement'"
-          ><ElFormItem label="结算编号（留空自动生成）" prop="number"
-            ><ElInput v-model="form.number" :disabled="!!editing" /></ElFormItem
           ><ElFormItem label="结算日期"
             ><ElDatePicker
               v-model="form.settlement_on"

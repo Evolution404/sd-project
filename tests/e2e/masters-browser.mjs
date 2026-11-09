@@ -58,12 +58,11 @@ try {
     .click();
   await page.getByRole("tab", { name: "电压等级", exact: true }).click();
   await page.getByRole("button", { name: "新增电压等级", exact: true }).click();
-  await page.getByLabel("编码", { exact: true }).fill("UI-110");
   await page.getByLabel("名称", { exact: true }).fill("110kV");
   await save();
   await page
     .getByRole("row")
-    .filter({ hasText: "UI-110" })
+    .filter({ hasText: "110kV" })
     .getByRole("button", { name: "查看", exact: true })
     .click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
@@ -87,7 +86,7 @@ try {
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
   await page
     .getByRole("row")
-    .filter({ hasText: "UI-110" })
+    .filter({ hasText: "110千伏" })
     .getByRole("button", { name: "删除", exact: true })
     .click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
@@ -99,22 +98,18 @@ try {
   await page
     .getByRole("button", { name: "新增标准作业对象", exact: true })
     .click();
-  await page.getByLabel("编码", { exact: true }).fill("UI-OBJECT");
   await page.getByLabel("名称", { exact: true }).fill("浏览器专用对象");
   await select("设备对象", "共用物理杆塔");
   await save();
   await page.getByRole("tab", { name: "计量单位", exact: true }).click();
   await page.getByRole("button", { name: "新增计量单位", exact: true }).click();
-  await page.getByLabel("编码", { exact: true }).fill("UI-UNIT");
   await page.getByLabel("名称", { exact: true }).fill("件");
   await save();
   await page.getByRole("tab", { name: "操作类型", exact: true }).click();
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
-  await page.getByLabel("编码", { exact: true }).fill("UI-OP");
   await page.getByLabel("名称", { exact: true }).fill("浏览器安装");
   await select("标准作业对象", "浏览器专用对象");
   await select("固定计量单位", "件");
-  await select("设备对象", "共用物理杆塔");
   await page
     .getByRole("dialog")
     .getByRole("tab", { name: "录入模板", exact: true })

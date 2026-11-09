@@ -943,7 +943,7 @@ CREATE TABLE work_object_versions (
 
 -- A demand can have zero or many material items; no dummy material rows.
 -- Unified material master: immutable identity and separate full formal
--- material_versions. No external PMS sync aliases or external mapping IDs.
+-- material_versions keep immutable specifications for independent business use.
 -- Material identity stable; name/model/spec/status/category are immutable full versions.
 -- Units stay on identity so historical quantities cannot change interpretation.
 CREATE TABLE materials (

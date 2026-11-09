@@ -51,7 +51,7 @@ watch(
     /><template v-if="rule.pricing_mode === 'composite'"
       ><div v-for="(component, index) in components" :key="index" class="panel">
         <div class="form-grid">
-          <ElFormItem label="费用覆盖编码" required
+          <ElFormItem label="费用项名称" required
             ><ElInput v-model="component.coverage_key" /></ElFormItem
           ><ElFormItem label="费用模型" required
             ><ElSelect v-model="component.formula_mode"

@@ -18,14 +18,11 @@ export const today = () =>
     day: "2-digit",
   }).format(new Date());
 export const id = () => randomUUID();
-export const documentCode = (prefix) =>
-  `${prefix}-${today().replaceAll("-", "")}-${randomUUID().slice(0, 8).toUpperCase()}`;
+export const documentCode = (prefix, identity = randomUUID()) =>
+  `${prefix}-${today().replaceAll("-", "")}-${identity.replaceAll("-", "").toUpperCase()}`;
 export function passwordHash(password) {
   text(password, "密码");
-  requireValue(
-    password.length <= 256,
-    "密码长度不能超过256位",
-  );
+  requireValue(password.length <= 256, "密码长度不能超过256位");
   const salt = randomBytes(16).toString("hex");
   return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;
 }

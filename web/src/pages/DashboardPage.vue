@@ -31,7 +31,11 @@ onMounted(async () => (dashboard.value = await api("/dashboard")));
   <div class="panel">
     <h2>项目费用与预算差异</h2>
     <ElTable :data="dashboard.portfolio"
-      ><ElTableColumn prop="code" label="编码" min-width="120" /><ElTableColumn
+      ><ElTableColumn
+        prop="code"
+        label="项目编号"
+        min-width="120"
+      /><ElTableColumn
         prop="name"
         label="子项目"
         min-width="180"

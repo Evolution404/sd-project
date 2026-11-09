@@ -204,11 +204,23 @@ export function httpServer(
           requireValue(read, "请求方法无效", 405);
           result = system.dashboard(actor);
           break;
+        case "display-labels":
+          requireValue(read, "请求方法无效", 405);
+          result = system.catalog.displayLabels();
+          break;
         case "catalogs":
           requireValue(read, "请求方法无效", 405);
           result = system.catalog.definitions;
           break;
         case "catalog":
+          if (key === "physical" && subKey === "replacement") {
+            result = read
+              ? system.catalog.replacementPreview(sub)
+              : mutate("admin", () =>
+                  system.catalog.replacePhysical(actor, sub, input),
+                );
+            break;
+          }
           if (read)
             result =
               sub === "history"

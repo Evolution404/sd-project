@@ -6,6 +6,8 @@ import {
   issue,
   MAX_DOCUMENTS,
 } from "./workbook.mjs";
+import { createAssetExchange } from "./assets.mjs";
+import { createReferences } from "./references.mjs";
 import { decimalText } from "../domain/decimal.mjs";
 import { authorize, id, now, digest } from "../application/auth.mjs";
 import { requireValue, expectedVersion } from "../domain/errors.mjs";
@@ -55,41 +57,9 @@ function differences(before, after, path = "") {
 }
 export function createExchange(system) {
   const { repo, catalog, demands, finance } = system;
-  // Rebuilt for each preflight/commit: O(n) code and sheet indexes instead of
-  // rescanning all 5000 master records for each of 5000 Excel detail rows.
-  let codeIndexes = new Map();
+  const assets = createAssetExchange(system);
+  let references;
   let matchingMs = 0;
-  function resolveCode(kind, code) {
-    const started = performance.now();
-
-    const key =
-      { physical: "tower_code", towers: "logical_code", lines: "line_code" }[
-        kind
-      ] || "code";
-    let index = codeIndexes.get(kind);
-    if (!index) {
-      index = new Map();
-      for (const row of catalog.list(kind, true)) {
-        for (const value of new Set([
-          row[key],
-          kind === "spans" ? row.id : null,
-        ])) {
-          if (value == null) continue;
-          const rows = index.get(value) || [];
-          if (!rows.some((existing) => existing.id === row.id)) rows.push(row);
-          index.set(value, rows);
-        }
-      }
-      codeIndexes.set(kind, index);
-    }
-    const matches = index.get(code) || [];
-    requireValue(
-      matches.length === 1,
-      `编码 ${code} 未精确匹配唯一${catalog.definitions[kind].title}`,
-    );
-    matchingMs += performance.now() - started;
-    return matches[0];
-  }
   function nodePath(nodeId) {
     const parts = [];
     let node = repo.find("v_project_cost_node_current", "id", nodeId);
@@ -101,25 +71,45 @@ export function createExchange(system) {
     }
     return parts.join("/");
   }
-  function resolveDetails(kind, row, projectId) {
+  function resolveDetails(kind, row, projectId, existing) {
     const value = { ...row };
-    if (kind === "work_locations" && value.location_code) {
-      const reference =
-          value.location_kind === "physical_tower"
-            ? "physical"
-            : value.location_kind === "span"
-              ? "spans"
-              : "towers",
-        key =
-          value.location_kind === "physical_tower"
-            ? "physical_tower_id"
-            : value.location_kind === "span"
-              ? "span_id"
-              : "logical_tower_id";
-      value[key] = resolveCode(reference, value.location_code).id;
+    const started = performance.now();
+    if (kind === "work_locations") {
+      const adopted = existing?.work_locations.find(
+        (location) =>
+          identity("work_locations", location) ===
+          identity("work_locations", value),
+      );
+      const frozen =
+        adopted &&
+        (!row.line_name ||
+          row.line_name === adopted.location_snapshot_json.line_name) &&
+        (!row.tower_no ||
+          row.tower_no === adopted.location_snapshot_json.tower_no);
+      if (!frozen) Object.assign(value, references.location(value));
     }
-    if (kind === "materials" && value.material_code)
-      value.material_id = resolveCode("materials", value.material_code).id;
+    if (
+      kind === "materials" &&
+      value.material_name &&
+      !existing?.materials.some(
+        (material) =>
+          material.material_id === value.material_id &&
+          material.material_name === value.material_name &&
+          (!value.material_model || value.material_model === material.model) &&
+          (!value.material_specification ||
+            value.material_specification === material.specification),
+      )
+    )
+      value.material_id = references.named(
+        "materials",
+        value.material_name,
+        value.material_id,
+        {
+          model: value.material_model,
+          specification: value.material_specification,
+        },
+      ).id;
+    matchingMs += performance.now() - started;
     if (kind === "items" && value.cost_node_path) {
       const matches = repo
         .where("v_project_cost_node_current", { project_id: projectId })
@@ -127,21 +117,17 @@ export function createExchange(system) {
       requireValue(matches.length === 1, "费用科目完整路径未精确匹配唯一科目");
       value.cost_node_id = matches[0].id;
     }
-    if (["items", "resolutions"].includes(kind) && value.demand_no) {
-      const demand = repo.find("demands", "demand_no", value.demand_no);
-      requireValue(demand, "需求编号不存在");
-      const scope = repo.where("project_demand_scopes", {
-        project_id: projectId,
-        demand_id: demand.id,
-      })[0];
-      requireValue(scope, "该需求未关联此子项目");
-      value.project_scope_id = scope.id;
-    }
+    if (["items", "resolutions"].includes(kind) && value.demand_description)
+      value.project_scope_id = references.scope(
+        projectId,
+        value.demand_description,
+        value.project_scope_id,
+      ).id;
     return value;
   }
   function prepare(kind, parsed, mode, projectId) {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
-    codeIndexes = new Map();
+    references = createReferences(system);
     matchingMs = 0;
     const preparationStarted = performance.now();
     let validationMs = 0;
@@ -170,18 +156,39 @@ export function createExchange(system) {
         );
         requireValue(!numbers.has(number), "文件内业务编号重复");
         numbers.add(number);
-        if (kind === "demands" && root.operation_code)
-          root.operation_id = resolveCode("operations", root.operation_code).id;
-        if (kind === "settlements" && root.project_code) {
-          const project = repo.find("projects", "code", root.project_code);
-          requireValue(project, "子项目编码不存在");
-          root.project_id = project.id;
-        }
         const existing = root.id
           ? kind === "demands"
             ? demands.get(root.id)
             : finance.settlement(root.id)
           : null;
+        const matchingStarted = performance.now();
+        if (
+          kind === "demands" &&
+          root.operation_name &&
+          (!existing || root.operation_name !== existing.operation_snapshot)
+        )
+          root.operation_id = references.named(
+            "operations",
+            root.operation_name,
+            root.operation_id,
+          ).id;
+        if (kind === "demands" && root.priority_name)
+          root.priority_id = references.named(
+            "priorities",
+            root.priority_name,
+            root.priority_id,
+          ).id;
+        if (kind === "settlements" && root.project_name)
+          root.project_id = references.project(
+            root.project_name,
+            root.project_id,
+          ).id;
+        if (kind === "settlements" && !existing && root.project_id) {
+          const project = system.projects.get(root.project_id);
+          root.approval_version_id ??= project.approval?.id;
+          root.funding_version_id ??= project.funding?.id || null;
+        }
+        matchingMs += performance.now() - matchingStarted;
         requireValue(
           !existing || existing[numberKey] === number,
           "业务编号与稳定标识不一致",
@@ -236,6 +243,7 @@ export function createExchange(system) {
                   key,
                   row,
                   payload.project_id || existing?.project_id,
+                  existing,
                 ),
               );
             } catch (error) {
@@ -243,17 +251,12 @@ export function createExchange(system) {
                 issue(
                   row._sheet,
                   row._row,
-                  row.location_code
-                    ? "location_code"
-                    : row.material_code
-                      ? "material_code"
-                      : row.cost_node_path
-                        ? "cost_node_path"
-                        : "demand_no",
-                  row.location_code ||
-                    row.material_code ||
-                    row.cost_node_path ||
-                    row.demand_no,
+                  key === "work_locations"
+                    ? "tower_no"
+                    : key === "materials"
+                      ? "material_name"
+                      : "cost_node_path",
+                  clean(row),
                   error.message,
                 ),
               );
@@ -345,48 +348,50 @@ export function createExchange(system) {
           const declaredFeatures = JSON.parse(adopted.pricing_features_json);
           for (const row of rowsFor("site_features", number)) {
             try {
-              const matches = payload.work_locations.filter((location) => {
-                const locationCode =
-                  location.location_code ||
-                  (location.physical_tower_id
-                    ? catalog.get("physical", location.physical_tower_id, true)
-                        .tower_code
-                    : location.logical_tower_id
-                      ? catalog.get("towers", location.logical_tower_id, true)
-                          .logical_code
-                      : location.span_id);
-                return (
-                  locationCode === row.location_code &&
-                  (!row.location_kind ||
-                    location.location_kind === row.location_kind)
-                );
-              });
-              requireValue(
-                matches.length === 1,
-                "现场价格特征未精确匹配本需求唯一作业位置",
+              const locationRows = rowsFor("work_locations", number);
+              const sourceRow = row.location_row
+                ? locationRows.find(
+                    (location) => location._row === Number(row.location_row),
+                  )
+                : locationRows.length === 1
+                  ? locationRows[0]
+                  : null;
+              requireValue(sourceRow, "请填写本需求作业位置的工作表行号");
+              const location = payload.work_locations.find(
+                (location) =>
+                  identity("work_locations", location) ===
+                  identity("work_locations", sourceRow),
               );
-              const factor = repo.where("dictionary_items", {
-                  type_id: "price_factor",
-                  code: row.factor_code,
-                })[0],
-                declared =
-                  factor &&
-                  declaredFeatures.find(
-                    (feature) => feature.factor_id === factor.id,
-                  );
+              requireValue(location, "现场特征未对应本需求真实位置");
+              const candidates = declaredFeatures
+                .map((feature) => ({
+                  feature,
+                  factor: catalog.get("factors", feature.factor_id, true),
+                }))
+                .filter((entry) =>
+                  row.factor_id
+                    ? entry.factor.id === row.factor_id
+                    : entry.factor.name === row.factor_name,
+                );
+              requireValue(
+                candidates.length === 1,
+                "特征名称须唯一对应本需求采用的正式定义",
+              );
+              const { factor, feature: declared } = candidates[0];
+              const factorCode = factor.code;
               requireValue(declared, "价格特征不属于本需求采用的正式操作定义");
               const version = repo.where("dictionary_item_versions", {
                   item_id: factor.id,
                   version: declared.factor_version,
                 })[0],
                 definition = JSON.parse(version.fields_json),
-                location = matches[0];
+                actualLocation = location;
               const actual =
-                typeof location.site_features_json === "string"
-                  ? JSON.parse(location.site_features_json)
-                  : { ...(location.site_features_json || {}) };
+                typeof actualLocation.site_features_json === "string"
+                  ? JSON.parse(actualLocation.site_features_json)
+                  : { ...(actualLocation.site_features_json || {}) };
               if (row.value === undefined) continue;
-              if (row.value === null) delete actual[row.factor_code];
+              if (row.value === null) delete actual[factorCode];
               else {
                 let value = row.value;
                 if (definition.kind === "number") {
@@ -396,12 +401,12 @@ export function createExchange(system) {
                     "价格特征实际值须为整数",
                   );
                 } else value = String(value);
-                actual[row.factor_code] = {
+                actual[factorCode] = {
                   factor_version: declared.factor_version,
                   value,
                 };
               }
-              location.site_features_json = actual;
+              actualLocation.site_features_json = actual;
             } catch (error) {
               issues.push(
                 issue(row._sheet, row._row, "value", row.value, error.message),
@@ -478,7 +483,7 @@ export function createExchange(system) {
               !existing.sources.some(
                 (old) =>
                   old.id === source.id &&
-                  ["description", "discovered_on", "external_record_id"].every(
+                  ["description", "discovered_on"].every(
                     (field) =>
                       source[field] === undefined ||
                       source[field] === old[field],
@@ -511,7 +516,8 @@ export function createExchange(system) {
             root._row,
             error.message.includes("版本")
               ? "expected_version"
-              : Object.keys(error.fields || {})[0] || numberKey,
+              : Object.keys(error.fields || {})[0] ||
+                  (kind === "demands" ? "operation_name" : "project_name"),
             root,
             error.message,
           ),
@@ -579,11 +585,38 @@ export function createExchange(system) {
     };
   }
   async function preview(actor, kind, buffer, options = {}) {
+    if (kind === "assets") return assets.preview(actor, buffer, options);
     authorize(actor, "write");
     requireValue(["demands", "settlements"].includes(kind), "未知交换类型");
     const started = performance.now();
     const parsed = await parseWorkbook(buffer, kind);
     const parsedAt = performance.now();
+    const numberKey = kind === "demands" ? "demand_no" : "number";
+    for (const root of parsed.rows.documents)
+      root[numberKey] ||= "row-" + root._row;
+    for (const [sheet, rows] of Object.entries(parsed.rows))
+      if (sheet !== "documents")
+        for (const row of rows) {
+          if (row[numberKey]) continue;
+          const root = row.document_row
+            ? parsed.rows.documents.find(
+                (root) => root._row === Number(row.document_row),
+              )
+            : parsed.rows.documents.length === 1
+              ? parsed.rows.documents[0]
+              : null;
+          if (root) row[numberKey] = root[numberKey];
+          else
+            parsed.issues.push(
+              issue(
+                row._sheet,
+                row._row,
+                "document_row",
+                row.document_row,
+                "多单据明细须指明对应清单的实际行号",
+              ),
+            );
+        }
     if (kind === "settlements" && options.projectId) {
       const project = system.projects.get(options.projectId);
       for (const root of parsed.rows.documents) {
@@ -658,7 +691,10 @@ export function createExchange(system) {
         requireValue(batch.status === "draft", "批次已提交", 409);
         const commitStarted = performance.now();
         const body = JSON.parse(batch.draft_json),
-          prepared = prepare(body.kind, body.parsed, body.mode, body.projectId),
+          prepared =
+            body.kind === "assets"
+              ? assets.prepare(body.parsed, body.mode)
+              : prepare(body.kind, body.parsed, body.mode, body.projectId),
           results = [],
           failures = [...prepared.issues];
         requireValue(
@@ -673,8 +709,12 @@ export function createExchange(system) {
               const result = repo.transaction(() => {
                 if (document.action === "unchanged")
                   return { id: document.id, unchanged: true };
+                if (body.kind === "assets")
+                  return assets.execute(actor, document);
                 if (body.kind === "demands")
-                  return demands.save(actor, document.payload, document.id);
+                  return demands.save(actor, document.payload, document.id, {
+                    batchId: token,
+                  });
                 return finance.saveDraft(
                   actor,
                   document.payload.project_id,
@@ -683,7 +723,7 @@ export function createExchange(system) {
                 );
               });
               results.push({
-                number: document.number,
+                number: result.demand_no || result.number || document.number,
                 id: result.id,
                 action: document.action,
               });
@@ -736,45 +776,21 @@ export function createExchange(system) {
       "materials",
       "lines",
       "units",
-    ]
-      .flatMap((kind) =>
-        catalog
-          .list(kind)
-          .filter((row) => !["inactive", "retired"].includes(row.status))
-          .map((row) => ({
-            kind,
-            id: row.id,
-            code:
-              row.code ||
-              row.tower_code ||
-              row.logical_code ||
-              row.line_code ||
-              "",
-            name: row.name || row.tower_no || "",
-          })),
-      )
-      .concat(
-        repo.list("projects").map((row) => ({
-          kind: "projects",
+    ].flatMap((kind) =>
+      catalog
+        .list(kind)
+        .filter((row) => !["inactive", "retired"].includes(row.status))
+        .map((row) => ({
+          kind: catalog.definitions[kind].title,
           id: row.id,
-          code: row.code,
-          name: system.projects.get(row.id).name,
+          name: row.label,
+          model: row.model,
+          specification: row.specification,
         })),
-        repo.list("v_project_cost_node_current").map((row) => ({
-          kind: "cost_nodes",
-          id: row.id,
-          name: row.name,
-          code: row.project_id,
-        })),
-        repo.list("project_demand_scopes").map((row) => ({
-          kind: "project_scopes",
-          id: row.id,
-          name: row.demand_id,
-          code: row.project_id,
-        })),
-      );
+    );
   }
   async function exportData(actor, kind, options = {}) {
+    if (kind === "assets") return assets.exportData(actor, options);
     authorize(actor, "read");
     let records =
       kind === "demands" ? demands.list() : finance.allSettlements();
@@ -793,6 +809,7 @@ export function createExchange(system) {
       "导出超过5000张，请收窄筛选条件",
     );
     if (options.report) {
+      const businessLabels = system.catalog.displayLabels();
       const statuses = {
         pending: "待确认",
         active: "有效",
@@ -840,7 +857,13 @@ export function createExchange(system) {
                     ? "不停电"
                     : "未明确",
               现场特征: Object.entries(location.site_features_json)
-                .map(([code, fact]) => code + "=" + fact.value)
+                .map(
+                  ([code, fact]) =>
+                    (businessLabels[code + "@" + fact.factor_version] ||
+                      "历史价格特征") +
+                    "=" +
+                    fact.value,
+                )
                 .join(" / "),
             })),
           ),
@@ -869,7 +892,7 @@ export function createExchange(system) {
                 : [];
           return {
             结算编号: record.number,
-            子项目编码: project.code,
+            子项目编号: project.code,
             子项目当前名称: project.name,
             最新正式版本: record.version?.version_no || 0,
             最新审核状态: statuses[record.review?.action] || "未提交",
@@ -907,18 +930,12 @@ export function createExchange(system) {
     };
     for (let record of records) {
       if (kind === "demands") record = demands.get(record.id);
-      else
-        record.project_code = repo.find(
-          "projects",
-          "id",
-          record.project_id,
-        ).code;
+      else record.project_name = system.projects.get(record.project_id).name;
       if (kind === "demands") {
         rows.documents.push({
           ...record,
           expected_version: record.current_version,
-          operation_code: catalog.get("operations", record.operation_id, true)
-            .code,
+          operation_name: record.operation_snapshot,
         });
         rows.work_locations.push(
           ...record.work_locations.map((x) => ({
@@ -926,35 +943,45 @@ export function createExchange(system) {
             demand_no: record.demand_no,
             specification: x.location_snapshot_json?.specification || "",
             action: "upsert",
-            location_code: x.physical_tower_id
-              ? catalog.get("physical", x.physical_tower_id, true).tower_code
-              : x.logical_tower_id
-                ? catalog.get("towers", x.logical_tower_id, true).logical_code
-                : x.span_id,
+            line_name: x.location_snapshot_json.line_name,
+            tower_no: x.location_snapshot_json.tower_no || undefined,
+            asset_no: x.physical_tower_id
+              ? catalog.get("physical", x.physical_tower_id, true).asset_no
+              : undefined,
           })),
         );
         for (const location of record.work_locations) {
-          const locationCode = location.physical_tower_id
-            ? catalog.get("physical", location.physical_tower_id, true)
-                .tower_code
-            : location.logical_tower_id
-              ? catalog.get("towers", location.logical_tower_id, true)
-                  .logical_code
-              : location.span_id;
+          const locationRow =
+            rows.work_locations.length -
+            record.work_locations.length +
+            record.work_locations.indexOf(location) +
+            2;
           for (const [code, feature] of Object.entries(
             location.site_features_json || {},
           ))
             rows.site_features.push({
               demand_no: record.demand_no,
-              location_code: locationCode,
+              location_row: locationRow,
               location_kind: location.location_kind,
-              factor_code: code,
+              factor_id: repo.where("dictionary_items", {
+                type_id: "price_factor",
+                code,
+              })[0].id,
+              factor_name: repo.where("dictionary_item_versions", {
+                item_id: repo.where("dictionary_items", {
+                  type_id: "price_factor",
+                  code,
+                })[0].id,
+                version: feature.factor_version,
+              })[0].name,
               value: feature.value,
             });
         }
         rows.materials.push(
           ...record.materials.map((x) => ({
-            material_code: catalog.get("materials", x.material_id, true).code,
+            material_name: x.material_name,
+            material_model: x.model,
+            material_specification: x.specification,
             ...x,
             demand_no: record.demand_no,
             action: "upsert",
@@ -977,7 +1004,7 @@ export function createExchange(system) {
           ...doc,
           id: record.id,
           number: record.number,
-          project_code: record.project_code,
+          project_name: record.project_name,
           project_id: record.project_id,
           expected_version: record.version?.version_no || 0,
           expected_edit_version: record.draft?.edit_version || 0,
@@ -989,20 +1016,28 @@ export function createExchange(system) {
             cost_node_path: x.cost_node_id
               ? nodePath(x.cost_node_id)
               : undefined,
-            demand_no: x.project_scope_id
-              ? repo.find(
-                  "demands",
-                  "id",
+            demand_description: x.project_scope_id
+              ? system.demands.get(
                   repo.find("project_demand_scopes", "id", x.project_scope_id)
                     .demand_id,
-                ).demand_no
+                  true,
+                ).problem_description
               : undefined,
             action: "upsert",
           })),
         );
         rows.resolutions.push(
           ...(record.draft?.document.resolutions || record.resolutions).map(
-            (x) => ({ ...x, number: record.number, action: "upsert" }),
+            (x) => ({
+              ...x,
+              number: record.number,
+              demand_description: system.demands.get(
+                repo.find("project_demand_scopes", "id", x.project_scope_id)
+                  .demand_id,
+                true,
+              ).problem_description,
+              action: "upsert",
+            }),
           ),
         );
       }
@@ -1018,6 +1053,7 @@ export function createExchange(system) {
     exportData,
     template(actor, kind, projectId) {
       authorize(actor, "read");
+      if (kind === "assets") return makeWorkbook("assets");
       const project = projectId ? system.projects.get(projectId) : null;
       return makeWorkbook(
         kind,

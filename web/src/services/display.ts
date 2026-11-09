@@ -17,7 +17,6 @@ export const fieldNames: Record<string, string> = {
   physical_tower_id: "物理杆塔",
   logical_tower_id: "逻辑杆塔",
   span_id: "档距",
-  location_code: "设备编码",
   location_kind: "位置类型",
   work_mode: "作业方式",
   status: "状态",
@@ -39,6 +38,11 @@ export const fieldNames: Record<string, string> = {
   expected_version: "原正式版本",
   expected_edit_version: "原草稿版本",
   document: "整张单据",
+  identity_decisions: "实物关系确认",
+  replacements: "整基更换历史",
+  decision: "确认决定",
+  old_version: "原版本",
+  new_version: "更换后版本",
   reference_quotes: "正式参考报价",
   costs: "实际费用历史",
   settlements: "分次结算历史",
@@ -161,6 +165,9 @@ export function visibleFact(key: string) {
     actorFields.has(key) ||
     !(
       key === "id" ||
+      key === "code" ||
+      key.endsWith("_code") ||
+      key.endsWith("_code_snapshot") ||
       key.endsWith("_id") ||
       [
         "_sheet",
@@ -227,7 +234,10 @@ export function factText(
     ? entries
         .map(
           ([key, item]) =>
-            fieldName(key, labels) +
+            (item && typeof item === "object" && "factor_version" in item
+              ? labels[key + "@" + (item as Row).factor_version] ||
+                fieldName(key, labels)
+              : fieldName(key, labels)) +
             " " +
             factText(item, key, labels, actors, depth + 1),
         )

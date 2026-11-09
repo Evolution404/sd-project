@@ -156,7 +156,7 @@ export function createFinance(repo, catalog, projects) {
   function validateDraft(projectId, input) {
     const project = projects.get(projectId),
       approval = project.approvals.find(
-        (ap) => ap.id === input.approval_version_id,
+        (ap) => ap.id === (input.approval_version_id || project.approval?.id),
       );
     requireValue(
       project.status === "approved" && approval?.status === "approved",
@@ -240,7 +240,7 @@ export function createFinance(repo, catalog, projects) {
         repo.insert("settlements", {
           id: settlementId,
           project_id: projectId,
-          number: text(input.number || documentCode("JS"), "结算编号"),
+          number: documentCode("JS", settlementId),
           created_by: actor.id,
           created_at: timestamp,
         });

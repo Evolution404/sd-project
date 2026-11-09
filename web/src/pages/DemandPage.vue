@@ -24,6 +24,7 @@ const rows = ref<Row[]>([]),
   form = ref<Row>({}),
   editing = ref<Row | null>(null),
   operations = ref<Row[]>([]),
+  businessLabels = ref<Row>({}),
   errors = ref<Row>({}),
   history = ref<Row | null>(null),
   quoteOpen = ref(false),
@@ -62,9 +63,7 @@ async function edit(row?: Row) {
         completion_standard: "",
         work_locations: [],
         materials: [],
-        sources: [
-          { description: "", discovered_on: "", source_system: "manual" },
-        ],
+        sources: [{ description: "", discovered_on: "" }],
       };
   for (const loc of form.value.work_locations)
     loc.site_features_json = JSON.stringify(loc.site_features_json || {});
@@ -232,6 +231,7 @@ async function remove(row: Row) {
 }
 onMounted(async () => {
   operations.value = (await api("/catalog/operations?page_size=200")).items;
+  businessLabels.value = await api("/display-labels");
   await load();
 });
 </script>
@@ -397,7 +397,14 @@ onMounted(async () => {
         ><ElTableColumn label="现场特征"
           ><template #default="{ row }">{{
             Object.entries(row.site_features_json)
-              .map(([key, value]) => key + " · " + (value as Row).value)
+              .map(
+                ([key, value]) =>
+                  (businessLabels[key + "@" + (value as Row).factor_version] ||
+                    businessLabels[key] ||
+                    "历史价格特征") +
+                  " · " +
+                  (value as Row).value,
+              )
               .join(" / ") || "—"
           }}</template></ElTableColumn
         ></ElTable
@@ -443,11 +450,7 @@ onMounted(async () => {
     :close-on-click-modal="false"
     ><ElForm ref="formRef" :model="form" label-position="top" novalidate
       ><div class="form-grid">
-        <ElFormItem label="需求编号（留空自动生成）" prop="demand_no"
-          ><ElInput
-            v-model="form.demand_no"
-            :disabled="!!editing" /></ElFormItem
-        ><ElFormItem
+        <ElFormItem
           label="操作类型"
           prop="operation_id"
           :rules="[{ required: true, message: '请选择操作类型' }]"
@@ -622,8 +625,7 @@ onMounted(async () => {
             value-format="YYYY-MM-DD"
         /></ElFormItem>
       </div>
-      <ElButton
-        @click="form.sources.push({ description: '', source_system: 'manual' })"
+      <ElButton @click="form.sources.push({ description: '' })"
         >补充来源</ElButton
       ></ElForm
     ><template #footer

@@ -34,7 +34,7 @@ test("quantity revisions retain adopted operation and unit definitions after mas
 });
 test("duplicate creation requires a concrete human decision and records the original matches", (t) => {
   const { s, user, demandInput } = fixture(t);
-  s.demands.save(user, demandInput);
+  const original = s.demands.save(user, demandInput);
   assert.throws(
     () => s.demands.save(user, { ...demandInput, demand_no: "D002" }),
     /疑似重复/,
@@ -43,9 +43,9 @@ test("duplicate creation requires a concrete human decision and records the orig
     ...demandInput,
     demand_no: "D002",
     duplicate_decision: "separate",
-    duplicate_matches: ["D001"],
+    duplicate_matches: [original.demand_no],
   });
-  assert.equal(separate.demand_no, "D002");
+  assert.notEqual(separate.demand_no, original.demand_no);
   assert.equal(s.repo.list("demand_duplicate_reviews").length, 1);
 });
 test("voltage rename is auditable and optimistic, and source corrections retain original evidence", (t) => {
@@ -159,7 +159,7 @@ test("versioned price features are inferred from declared asset sources and chec
   );
   const demand = s.demands.save(user, demandInput);
   assert.equal(
-    demand.work_locations[0].site_features_json["tower-type"].value,
+    demand.work_locations[0].site_features_json[factor.code].value,
     "angle",
   );
   const wrong = {
@@ -168,11 +168,20 @@ test("versioned price features are inferred from declared asset sources and chec
     work_locations: demandInput.work_locations.map((loc) => ({
       ...loc,
       site_features_json: {
-        "tower-type": { factor_version: 1, value: "suspension" },
+        [factor.code]: { factor_version: 1, value: "suspension" },
       },
     })),
   };
   assert.throws(() => s.demands.save(user, wrong), /台账事实不一致/);
+  s.catalog.save(
+    user,
+    "factors",
+    { ...factor, name: "新塔型名称", expected_version: 1 },
+    factor.id,
+  );
+  const labels = s.catalog.displayLabels();
+  assert.equal(labels[factor.code + "@1"], "塔型条件");
+  assert.equal(labels[factor.code + "@2"], "新塔型名称");
 });
 test("explicit historical equipment correction preserves deletion and permits real retirement", (t) => {
   const { s, user, towers } = fixture(t);

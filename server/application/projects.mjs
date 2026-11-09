@@ -109,7 +109,7 @@ export function createProjects(repo, catalog, demands, pricing) {
         requireValue(framework.status === "active", "框架已停用");
         repo.insert("projects", {
           id: projectId,
-          code: text(input.code || documentCode("XM"), "项目编码"),
+          code: documentCode("XM", projectId),
           framework_id: framework.id,
           created_by: actor.id,
           created_at: timestamp,
@@ -493,12 +493,10 @@ export function createProjects(repo, catalog, demands, pricing) {
               approval_version_id: approval.id,
             }),
           })),
-        costs: repo
-          .where("cost_entries", { project_id: key })
-          .map((entry) => ({
-            ...entry,
-            versions: repo.where("cost_versions", { entry_id: entry.id }),
-          })),
+        costs: repo.where("cost_entries", { project_id: key }).map((entry) => ({
+          ...entry,
+          versions: repo.where("cost_versions", { entry_id: entry.id }),
+        })),
         settlements: repo
           .where("settlements", { project_id: key })
           .map((bill) => ({

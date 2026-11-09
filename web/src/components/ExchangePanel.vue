@@ -7,7 +7,7 @@ import { api, download, type Row } from "../services/api";
 import { newClientId } from "../services/id";
 import { fieldName, factText, visibleFact } from "../services/display";
 const props = defineProps<{
-  kind: "demands" | "settlements";
+  kind: "demands" | "settlements" | "assets";
   selectedIds?: string[];
   query?: string;
   projectId?: string;
@@ -178,9 +178,11 @@ async function commit() {
     </div>
     <ElAlert
       :title="
-        kind === 'settlements'
-          ? '导入仅保存结算草稿，提交与审核需分别确认。金额与本次新增解决量独立填写。'
-          : '需求更新生成新的正式内容版本。缺少位置或物资行保持原值，删除须明确标记。'
+        kind === 'assets'
+          ? '线路与杆塔仅填写真实业务属性。共塔须明确指向已有回路，歧义记录需核对后提交。'
+          : kind === 'settlements'
+            ? '导入仅保存结算草稿，提交与审核需分别确认。金额与本次新增解决量独立填写。'
+            : '需求更新生成新的正式内容版本。缺少位置或物资行保持原值，删除须明确标记。'
       "
       type="info"
       :closable="false"
@@ -244,9 +246,11 @@ async function commit() {
               ><template #default="{ row }">{{
                 row.action === "unchanged"
                   ? "保持原值"
-                  : kind === "settlements"
-                    ? "保存结算草稿"
-                    : "需求 V" + ((row.payload.expected_version || 0) + 1)
+                  : kind === "assets"
+                    ? "保存完整台账"
+                    : kind === "settlements"
+                      ? "保存结算草稿"
+                      : "需求 V" + ((row.payload.expected_version || 0) + 1)
               }}</template></ElTableColumn
             ><ElTableColumn label="变化"
               ><template #default="{ row }"

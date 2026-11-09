@@ -49,7 +49,7 @@ try {
     documents: [
       {
         demand_no: "HTTP-LAN-001",
-        operation_code: "install",
+        operation_name: "安装防鸟装置",
         problem_description: "内网HTTP浏览器批量录入",
         completion_standard: "安装牢固",
       },
@@ -58,7 +58,7 @@ try {
       {
         demand_no: "HTTP-LAN-001",
         location_kind: "physical_tower",
-        location_code: "T15",
+        asset_no: "T15",
         quantity_scaled: 10000,
       },
     ],
@@ -72,10 +72,7 @@ try {
   await page.getByText("新增 1", { exact: false }).waitFor();
   await page.getByRole("button", { name: "确认提交有效单据" }).click();
   await page.getByText("已处理 1 张单据，失败 0 项").waitFor();
-  assert.equal(
-    s.demands.list().filter((x) => x.demand_no === "HTTP-LAN-001").length,
-    1,
-  );
+  assert.equal(s.demands.list().length, 1);
   const downloaded = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "筛选结果维护导出", exact: true })
@@ -89,21 +86,17 @@ try {
     .values.findIndex((value) => String(value).endsWith("|quantity"));
   assert.ok(quantityColumn > 0);
   positions.getRow(2).getCell(quantityColumn).value = "2.5";
-  await page
-    .locator(".el-upload input[type=file]")
-    .setInputFiles({
-      name: "http-lan-revision.xlsx",
-      mimeType:
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
-    });
+  await page.locator(".el-upload input[type=file]").setInputFiles({
+    name: "http-lan-revision.xlsx",
+    mimeType:
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+  });
   await page.getByText("更新 1", { exact: false }).waitFor();
   assert.equal(await page.locator(".el-dialog pre").count(), 0);
   await page.getByRole("button", { name: "确认提交有效单据" }).click();
   await page.getByText("已处理 1 张单据，失败 0 项").waitFor();
-  const revised = s.demands
-    .list()
-    .find((row) => row.demand_no === "HTTP-LAN-001");
+  const revised = s.demands.list()[0];
   assert.equal(revised.current_version, 2);
   assert.equal(revised.quantity_scaled, 25000);
   assert.deepEqual(errors, []);

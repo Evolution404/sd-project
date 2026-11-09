@@ -9,6 +9,17 @@ const props = defineProps<{
 }>();
 const emit = defineEmits(["update:modelValue"]);
 const options = ref<Row[]>([]);
+const optionLabel = (item: Row) =>
+  item.label || item.name || item.title || item.tower_no || "业务记录";
+const ambiguous = computed(() => {
+  const counts = new Map<string, number>();
+  for (const item of options.value)
+    counts.set(optionLabel(item), (counts.get(optionLabel(item)) || 0) + 1);
+  return options.value.some(
+    (item) =>
+      item.id === props.modelValue && counts.get(optionLabel(item))! > 1,
+  );
+});
 const value = computed({
   get: () => props.modelValue,
   set: (v) => emit("update:modelValue", v === undefined ? null : v),
@@ -90,14 +101,7 @@ watch(
       v-for="item in options"
       :key="item.id"
       :value="item.id"
-      :label="
-        item.label ||
-        item.name ||
-        item.title ||
-        item.tower_no ||
-        item.tower_code ||
-        '业务记录'
-      "
+      :label="optionLabel(item)"
     />
   </ElSelect>
   <ElSelect
@@ -151,5 +155,11 @@ watch(
     v-model="value"
     :disabled="disabled"
     :type="field.type === 'password' ? 'password' : 'text'"
+  />
+  <ElAlert
+    v-if="field.type === 'ref' && ambiguous"
+    type="warning"
+    :closable="false"
+    title="存在同名对象，请到台账核对名称和真实属性后再保存。"
   />
 </template>

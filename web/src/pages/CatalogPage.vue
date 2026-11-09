@@ -10,6 +10,7 @@ import FactorDefinitionEditor from "../components/FactorDefinitionEditor.vue";
 import PriceConditionsEditor from "../components/PriceConditionsEditor.vue";
 import OperationFeaturesEditor from "../components/OperationFeaturesEditor.vue";
 import PricingModelEditor from "../components/PricingModelEditor.vue";
+import ExchangePanel from "../components/ExchangePanel.vue";
 import FieldControl from "../components/FieldControl.vue";
 import { api, type Row, statusText, money, quantity } from "../services/api";
 const props = defineProps<{ kinds: string[]; title: string }>();
@@ -28,29 +29,66 @@ const definitions = ref<Row>({}),
   formRef = ref(),
   detail = ref<Row | null>(null),
   referenceNames = ref<Row>({}),
+  businessLabels = ref<Row>({}),
   history = ref<Row | null>(null),
   tab = ref("basic");
+const replacing = ref(false),
+  replacement = ref<Row | null>(null),
+  replacementForm = ref<Row>({});
+async function openReplacement() {
+  replacement.value = await api(
+    `/catalog/physical/${detail.value!.id}/replacement`,
+  );
+  replacementForm.value = {};
+  replacing.value = true;
+}
+async function saveReplacement() {
+  try {
+    await api(`/catalog/physical/${detail.value!.id}/replacement`, "POST", {
+      expected_version: replacement.value!.physical.version,
+      bindings: replacement.value!.bindings.map((row: Row) => ({
+        id: row.id,
+        version: row.version,
+      })),
+      properties: replacementForm.value,
+    });
+    replacing.value = false;
+    await load();
+    detail.value = await api(`/catalog/physical/${detail.value!.id}`);
+    ElMessage.success("整基更换已记录，原实体及关联历史已归档");
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  }
+}
 const catalogPermission = computed(() =>
   ["frameworks", "agreements"].includes(kind.value) ? "write" : "admin",
 );
+let loadSequence = 0;
 async function load() {
+  const sequence = ++loadSequence,
+    requestedKind = kind.value;
   loading.value = true;
   try {
     const result = await api(
-      `/catalog/${kind.value}?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${deleted.value}`,
+      `/catalog/${requestedKind}?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${deleted.value}`,
     );
+    if (sequence !== loadSequence || requestedKind !== kind.value) return;
     rows.value = result.items;
     total.value = result.total;
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {
-    loading.value = false;
+    if (sequence === loadSequence) loading.value = false;
   }
 }
 function edit(row?: Row, historical = false) {
   editing.value = row || null;
   errors.value = {};
-  form.value = { historical_update: historical };
+  form.value = {
+    historical_update: historical,
+    physical_mode: row?.physical_tower_id ? "shared" : "new",
+    physical_properties: {},
+  };
   for (const f of fields()) {
     const value =
       row?.[f.key] ??
@@ -68,9 +106,22 @@ function edit(row?: Row, historical = false) {
 }
 function fields() {
   const c = definitions.value[kind.value];
-  return c ? [...c.rootFields, ...c.fields] : [];
+  return c
+    ? [...c.rootFields, ...c.fields].filter(
+        (f) =>
+          !f.systemManaged &&
+          !(kind.value === "towers" && f.key === "sort_rank"),
+      )
+    : [];
 }
 function visible(f: Row) {
+  if (kind.value === "operations" && f.key === "work_target_type") return false;
+  if (
+    kind.value === "towers" &&
+    !editing.value &&
+    f.key === "physical_tower_id"
+  )
+    return form.value.physical_mode === "shared";
   if (kind.value === "factors" && f.key === "fields_json") return false;
   if (
     kind.value === "operations" &&
@@ -114,6 +165,12 @@ async function save() {
   loading.value = true;
   try {
     const c = definitions.value[kind.value];
+    if (
+      kind.value === "towers" &&
+      !editing.value &&
+      form.value.physical_mode === "new"
+    )
+      delete form.value.physical_tower_id;
     await api(
       "/catalog/" + kind.value + (editing.value ? "/" + editing.value.id : ""),
       "POST",
@@ -155,6 +212,23 @@ async function save() {
       );
   } catch (e) {
     errors.value = (e as Row).fields || {};
+    if (errors.value.physical_candidates && !form.value.physical_tower_id) {
+      try {
+        await ElMessageBox.confirm(
+          "已有同号杆塔。请核对 " +
+            errors.value.physical_candidates
+              .map((row: Row) => row.label)
+              .join("、") +
+            "。确认本次是不同实物才继续新建，共塔请取消并选择已有实体。",
+          "确认实际杆塔关系",
+        );
+        form.value.confirm_distinct = true;
+        await save();
+        return;
+      } catch {
+        return;
+      }
+    }
     ElMessage.error((e as Error).message);
   } finally {
     loading.value = false;
@@ -192,9 +266,9 @@ async function openDetail(row: Row) {
         `/catalog/${field.reference}/${row[field.key]}?deleted=true`,
       );
       referenceNames.value[field.key] =
-        record.name || record.tower_no || record.tower_code || record.code;
+        record.label || record.name || record.tower_no || "历史关联对象";
     } catch {
-      referenceNames.value[field.key] = row[field.key];
+      referenceNames.value[field.key] = "历史关联对象";
     }
   }
 }
@@ -202,7 +276,8 @@ function display(field: Row, value: unknown) {
   if (value == null || value === "") return "—";
   if (field.type === "money") return "¥" + money(value as number);
   if (field.type === "quantity") return quantity(value as number);
-  if (field.type === "ref") return referenceNames.value[field.key] || value;
+  if (field.type === "ref")
+    return referenceNames.value[field.key] || "历史关联对象";
   if (field.type === "boolean") return value ? "是" : "否";
   if (field.key === "status") return statusText[String(value)] || value;
   return value;
@@ -212,6 +287,9 @@ async function viewHistory(row: Row) {
   history.value = await api(`/catalog/${kind.value}/history/${row.id}`);
 }
 watch(kind, () => {
+  rows.value = [];
+  detail.value = null;
+  history.value = null;
   page.value = 1;
   load();
 });
@@ -222,7 +300,10 @@ watch(
   },
 );
 onMounted(async () => {
-  definitions.value = await api("/catalogs");
+  [definitions.value, businessLabels.value] = await Promise.all([
+    api("/catalogs"),
+    api("/display-labels"),
+  ]);
   await load();
 });
 </script>
@@ -239,7 +320,12 @@ onMounted(async () => {
         type="primary"
         @click="edit()"
         >新增{{ definitions[kind]?.title }}</ElButton
-      >
+      ><ExchangePanel
+        v-if="['lines', 'towers', 'physical', 'spans'].includes(kind)"
+        kind="assets"
+        :query="query"
+        @changed="load"
+      />
     </div>
     <ElTabs v-model="kind"
       ><ElTabPane
@@ -253,7 +339,7 @@ onMounted(async () => {
         <ElInput
           v-model="query"
           clearable
-          placeholder="搜索编码或名称"
+          placeholder="搜索名称或真实属性"
           @change="
             page = 1;
             load();
@@ -262,21 +348,10 @@ onMounted(async () => {
         ><ElButton @click="load">刷新</ElButton
         ><span class="muted">共 {{ total }} 项</span>
       </div>
-      <ElTable :data="rows" v-loading="loading"
-        ><ElTableColumn label="编码 / 名称" min-width="190"
+      <ElTable :data="rows" row-key="id" v-loading="loading"
+        ><ElTableColumn label="业务对象" min-width="190"
           ><template #default="{ row }"
-            ><strong>{{
-              row.name ||
-              row.title ||
-              row.tower_no ||
-              row.tower_code ||
-              row.line_code
-            }}</strong>
-            <div class="muted">
-              {{
-                row.code || row.logical_code || row.line_code || row.tower_code
-              }}
-            </div></template
+            ><strong>{{ row.label || row.name || row.title }}</strong></template
           ></ElTableColumn
         ><ElTableColumn label="状态" width="100"
           ><template #default="{ row }"
@@ -341,13 +416,7 @@ onMounted(async () => {
         >返回列表</ElButton
       >
       <h1>
-        {{
-          detail.name ||
-          detail.title ||
-          detail.tower_no ||
-          detail.tower_code ||
-          definitions[kind].title
-        }}
+        {{ detail.label || detail.name || detail.title }}
       </h1>
       <ElTag>{{
         detail.deleted ? "已删除" : statusText[detail.status] || detail.status
@@ -359,6 +428,13 @@ onMounted(async () => {
         @click="edit(detail)"
         >编辑</ElButton
       ><ElButton @click="viewHistory(detail)">完整历史</ElButton
+      ><ElButton
+        v-if="
+          kind === 'physical' && detail.status !== 'retired' && !detail.deleted
+        "
+        :disabled="!can('admin')"
+        @click="openReplacement"
+        >整基更换</ElButton
       ><ElButton
         type="danger"
         :disabled="!can('admin') || detail.deleted"
@@ -376,7 +452,7 @@ onMounted(async () => {
           :span="field.type === 'json' ? 2 : 1"
         >
           <span v-if="field.type === 'json'">{{
-            factText(detail[field.key], field.key)
+            factText(detail[field.key], field.key, businessLabels)
           }}</span>
           <span v-else>{{
             display(field, detail[field.key])
@@ -384,10 +460,44 @@ onMounted(async () => {
         ></ElDescriptions
       >
     </div>
+    <BusinessHistory
+      v-if="detail.identity_decisions?.length"
+      :value="{ identity_decisions: detail.identity_decisions }" />
+    <BusinessHistory
+      v-if="detail.replacements?.length"
+      :value="{ replacements: detail.replacements }" />
     <div v-if="history" class="panel">
       <h2>完整版本与审计历史</h2>
       <BusinessHistory :value="history" /></div
   ></template>
+  <ElDialog
+    v-model="replacing"
+    title="整基杆塔更换"
+    width="850px"
+    :close-on-click-modal="false"
+    ><ElAlert
+      title="核对全部关联回路后建立新实物。历史需求继续采用原正式位置。"
+      type="info"
+      :closable="false"
+    /><ElTable :data="replacement?.bindings"
+      ><ElTableColumn prop="label" label="本次全部关联回路" /></ElTable
+    ><ElForm :model="replacementForm" label-position="top" novalidate
+      ><div class="form-grid">
+        <ElFormItem
+          v-for="f in definitions.physical.fields.filter(
+            (field: Row) => field.key !== 'status',
+          )"
+          :key="f.key"
+          :label="'新杆塔' + f.label"
+          ><FieldControl v-model="replacementForm[f.key]" :field="f"
+        /></ElFormItem></div></ElForm
+    ><template #footer
+      ><ElButton @click="replacing = false">取消</ElButton
+      ><ElButton type="primary" @click="saveReplacement"
+        >确认整基更换</ElButton
+      ></template
+    ></ElDialog
+  >
   <ElDialog
     v-model="dialog"
     :title="(editing ? '编辑' : '新增') + (definitions[kind]?.title || '')"
@@ -410,6 +520,29 @@ onMounted(async () => {
         type="info"
         :closable="false"
       />
+      <template v-if="kind === 'towers' && !editing"
+        ><ElFormItem label="实际杆塔关系"
+          ><ElRadioGroup v-model="form.physical_mode"
+            ><ElRadioButton value="new">新建独立杆塔</ElRadioButton
+            ><ElRadioButton value="shared"
+              >与已有杆塔共用实体</ElRadioButton
+            ></ElRadioGroup
+          ></ElFormItem
+        >
+        <ElCollapse v-if="form.physical_mode === 'new'"
+          ><ElCollapseItem title="实物属性（按需填写）" name="physical"
+            ><div class="form-grid">
+              <ElFormItem
+                v-for="f in definitions.physical.fields.filter(
+                  (field: Row) => field.key !== 'status',
+                )"
+                :key="f.key"
+                :label="f.label"
+                ><FieldControl
+                  v-model="form.physical_properties[f.key]"
+                  :field="f"
+              /></ElFormItem></div></ElCollapseItem></ElCollapse
+      ></template>
       <div class="form-grid">
         <ElFormItem
           v-for="f in fields()"

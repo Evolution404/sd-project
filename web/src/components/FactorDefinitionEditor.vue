@@ -47,7 +47,9 @@ watch(
       ><ElFormItem label="可自动取得的台账事实"
         ><ElSelect v-model="definition.asset_field" clearable
           ><ElOption label="物理杆塔塔型" value="tower_type" /><ElOption
-            label="线路电压编码"
+            label="线路电压等级"
+            value="voltage_name" /><ElOption
+            label="线路电压等级（历史定义）"
             value="voltage_code" /></ElSelect
       ></ElFormItem>
     </div>

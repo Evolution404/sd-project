@@ -269,6 +269,9 @@ export function createDemands(repo, catalog) {
       actual = { ...actual };
       const asset = {
         tower_type: physical?.tower_type || null,
+        voltage_name: line
+          ? catalog.get("voltages", line.voltage_level_id, true).name
+          : null,
         voltage_code: line
           ? catalog.get("voltages", line.voltage_level_id, true).code
           : null,
@@ -350,7 +353,15 @@ export function createDemands(repo, catalog) {
             loc.specification ||
             loc.location_snapshot_json?.specification ||
             "",
-          tower_no: entity.tower_no || "",
+          tower_no:
+            entity.tower_no ||
+            associated
+              .filter(
+                (tower) => !contextLineId || tower.line_id === contextLineId,
+              )
+              .map((tower) => tower.tower_no)
+              .join(" / "),
+          asset_no: physical?.asset_no || null,
           physical_code: physical?.tower_code || "",
           tower_type: physical?.tower_type || null,
           span: kind === "span" ? entity : null,
@@ -359,7 +370,7 @@ export function createDemands(repo, catalog) {
               ? catalog.get("towers", entity.start_tower_id, true).tower_no +
                 " ~ " +
                 catalog.get("towers", entity.end_tower_id, true).tower_no
-              : entity.tower_no || physical?.tower_code || "",
+              : entity.tower_no || physical?.label || "真实作业位置",
         },
       };
     });
@@ -458,7 +469,7 @@ export function createDemands(repo, catalog) {
       materials,
     };
   }
-  function save(actor, input, key) {
+  function save(actor, input, key, context = {}) {
     authorize(actor, "write");
     return repo.transaction(() => {
       const previous = key ? get(key) : null;
@@ -529,7 +540,8 @@ export function createDemands(repo, catalog) {
         const { work_locations, materials, ...root } = normalized;
         repo.insert("demands", {
           id: keyId,
-          demand_no: text(input.demand_no || documentCode("XQ"), "需求编号"),
+          demand_no: documentCode("XQ", keyId),
+          batch_id: context.batchId || null,
           ...root,
           initial_work_locations_json: JSON.stringify(work_locations),
           created_by: actor.id,
@@ -574,8 +586,8 @@ export function createDemands(repo, catalog) {
             const sourceId = id();
             repo.insert("source_records", {
               id: sourceId,
-              source_system: source.source_system || "manual",
-              external_record_id: source.external_record_id || null,
+              source_system: context.batchId ? "excel" : "manual",
+              external_record_id: null,
               description: text(source.description, "来源说明"),
               discovered_on: source.discovered_on || null,
               created_by: actor.id,

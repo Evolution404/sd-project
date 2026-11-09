@@ -105,6 +105,8 @@ test("actual HTTP login, permissions, optimistic locking, idempotency and IP gua
     headers: { ...headers, "Idempotency-Key": "duplicate-safe-message" },
     body: input,
   });
-  assert.equal(repeatedCode.status, 422);
-  assert.ok(!(await repeatedCode.json()).message.includes("constraint"));
+  assert.equal(repeatedCode.status, 200);
+  const independentlyGenerated = await repeatedCode.json();
+  assert.notEqual(independentlyGenerated.code, item.code);
+  assert.notEqual(item.code, "http-unit");
 });

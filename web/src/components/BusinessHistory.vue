@@ -13,13 +13,15 @@ const sections = computed(() =>
 const records = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : [value];
 onMounted(async () => {
-  const [definitions, people] = await Promise.all([
+  const [definitions, people, businessLabels] = await Promise.all([
     api("/catalogs"),
     api<Row[]>("/actors?history=true"),
+    api("/display-labels"),
   ]);
   for (const definition of Object.values(definitions) as Row[])
     for (const field of [...definition.rootFields, ...definition.fields])
       labels.value[field.key] = field.label;
+  Object.assign(labels.value, businessLabels);
   actors.value = Object.fromEntries(
     people.map((person) => [person.id, person.username]),
   );

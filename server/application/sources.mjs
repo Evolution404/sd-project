@@ -1,11 +1,6 @@
 import { authorize, id, now } from "./auth.mjs";
 import { requireValue, text } from "../domain/errors.mjs";
-const editable = [
-  "description",
-  "discovered_on",
-  "proposed_by",
-  "external_record_id",
-];
+const editable = ["description", "discovered_on", "proposed_by"];
 export function currentSources(repo, demandId, includeHistorical = false) {
   return repo.demandSources(demandId, includeHistorical);
 }

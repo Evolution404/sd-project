@@ -55,11 +55,8 @@ try {
     .getByRole("menuitem", { name: "年度框架与子项目", exact: true })
     .click();
   await page.getByRole("button", { name: "新增子项目", exact: true }).click();
-  await page
-    .getByLabel("项目编码（留空自动生成）", { exact: true })
-    .fill("P-BROWSER");
   await page.getByLabel("项目名称", { exact: true }).fill("浏览器完整流程项目");
-  await select("年度框架", "浏览器验收框架");
+  await select("年度框架", "浏览器验收框架 · 2026");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "保存", exact: true })
@@ -67,13 +64,13 @@ try {
   await page.getByRole("dialog").waitFor({ state: "hidden" });
   await page
     .getByRole("row")
-    .filter({ hasText: "P-BROWSER" })
+    .filter({ hasText: "浏览器完整流程项目" })
     .getByRole("button", { name: "进入项目" })
     .click();
   await page.getByRole("button", { name: "确认入库", exact: true }).click();
   await confirm();
   await page.getByRole("button", { name: "关联需求", exact: true }).click();
-  await select("专业需求", "D001 · 防鸟设施缺失");
+  await select("专业需求", demand.demand_no + " · 防鸟设施缺失");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "保存", exact: true })
@@ -123,21 +120,19 @@ try {
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
+  const generatedBills = [];
   for (const [index, resolved] of [2, 3, 0].entries()) {
     await page
       .getByRole("button", { name: "新增结算草稿", exact: true })
       .click();
-    await page
-      .getByLabel("结算编号（留空自动生成）", { exact: true })
-      .fill("BROWSER-JS" + (index + 1));
     await select("费用科目", "人工费");
-    await select("关联需求（共同费用可不选）", "D001");
+    await select("关联需求（共同费用可不选）", demand.demand_no);
     await page.getByLabel("本次金额（元）", { exact: true }).fill("400");
-    await page.getByLabel("依据", { exact: true }).fill("本期结算依据");
+    await page.getByLabel("依据", { exact: true }).fill("本期结算依据" + index);
     await page
       .getByRole("button", { name: "添加解决需求", exact: true })
       .click();
-    await select("项目需求", "D001");
+    await select("项目需求", demand.demand_no);
     await page
       .getByLabel("本次新增解决量", { exact: true })
       .fill(String(resolved));
@@ -146,9 +141,14 @@ try {
       .getByRole("button", { name: "保存草稿", exact: true })
       .click();
     await page.getByRole("dialog").waitFor({ state: "hidden" });
-    const row = page
-      .getByRole("row")
-      .filter({ hasText: "BROWSER-JS" + (index + 1) });
+    const createdBill = s.finance
+      .allSettlements()
+      .find(
+        (bill) =>
+          bill.draft?.document.items[0].evidence === "本期结算依据" + index,
+      );
+    generatedBills.push(createdBill.number);
+    const row = page.getByRole("row").filter({ hasText: createdBill.number });
     await row.getByRole("button", { name: "正式提交", exact: true }).click();
     await confirm();
     await row.getByRole("button", { name: "批准", exact: true }).click();
@@ -156,7 +156,7 @@ try {
   }
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await select("实际费用", "浏览器真实费用 ¥1,400.00");
-  await select("已批准结算明细", "BROWSER-JS1 ¥400.00");
+  await select("已批准结算明细", generatedBills[0] + " ¥400.00");
   await page.getByLabel("费用份额（元）", { exact: true }).fill("300");
   await page.getByLabel("核定结算额（元）", { exact: true }).fill("400");
   await page.getByLabel("核对依据", { exact: true }).fill("浏览器核对原始依据");
@@ -181,7 +181,9 @@ try {
     .getByRole("button", { name: "删除", exact: true })
     .click();
   await confirm();
-  const project = s.projects.list().find((p) => p.code === "P-BROWSER");
+  const project = s.projects
+    .list()
+    .find((p) => p.name === "浏览器完整流程项目");
   assert.equal(s.finance.reconciliations(project.id).length, 0);
   assert.equal(s.finance.reconciliations(project.id, true).length, 1);
   assert.equal(s.finance.summary(project.id).settlement_fen, 120000);

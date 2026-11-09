@@ -264,7 +264,7 @@ onMounted(async () => {
         <ElInput
           v-model="query"
           clearable
-          placeholder="搜索项目编码或名称"
+          placeholder="搜索项目编号或名称"
           @change="load"
         /><ElCheckbox v-model="showDeleted" @change="load"
           >包含已删除</ElCheckbox
@@ -273,7 +273,7 @@ onMounted(async () => {
       <ElTable :data="rows"
         ><ElTableColumn
           prop="code"
-          label="项目编码"
+          label="项目编号"
           width="140"
           sortable
         /><ElTableColumn
@@ -521,8 +521,6 @@ onMounted(async () => {
     ><ElForm ref="formRef" :model="form" label-position="top" novalidate
       ><div class="form-grid">
         <template v-if="dialog === 'project'"
-          ><ElFormItem label="项目编码（留空自动生成）" prop="code"
-            ><ElInput v-model="form.code" :disabled="!!editing" /></ElFormItem
           ><ElFormItem
             label="项目名称"
             prop="name"

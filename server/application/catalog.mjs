@@ -18,7 +18,10 @@ const status = field("status", "状态", "select", {
   required: true,
 });
 const name = field("name", "名称", "text", { required: true });
-const code = field("code", "编码", "text", { required: true, immutable: true });
+const code = field("code", "系统编码", "text", {
+  systemManaged: true,
+  immutable: true,
+});
 const ref = (key, label, reference, required = false) =>
   field(key, label, "ref", { reference, required });
 const json = (key, label, defaultValue) =>
@@ -206,7 +209,7 @@ export const catalogDefinitions = {
     root: "transmission_lines",
     rootFields: [
       field("line_code", "线路编码", "text", {
-        required: true,
+        systemManaged: true,
         immutable: true,
       }),
     ],
@@ -234,7 +237,7 @@ export const catalogDefinitions = {
     root: "physical_towers",
     rootFields: [
       field("tower_code", "物理塔编码", "text", {
-        required: true,
+        systemManaged: true,
         immutable: true,
       }),
     ],
@@ -261,7 +264,7 @@ export const catalogDefinitions = {
     root: "logical_towers",
     rootFields: [
       field("logical_code", "逻辑塔编码", "text", {
-        required: true,
+        systemManaged: true,
         immutable: true,
       }),
     ],
@@ -275,7 +278,7 @@ export const catalogDefinitions = {
       field("management_department", "管辖部门"),
       field("status", "状态", "select", {
         options: ["draft", "active", "inactive", "retired"],
-        default: "draft",
+        default: "active",
       }),
     ],
     equipment: true,
@@ -358,15 +361,42 @@ export function createCatalog(repo) {
     return value;
   }
   function label(kind, row) {
-    if (kind !== "spans")
+    if (kind === "lines")
       return (
-        row.name ||
-        row.title ||
-        row.tower_no ||
-        row.tower_code ||
-        row.line_code ||
-        row.code
+        row.name +
+        " · " +
+        (repo.find("voltage_levels", "id", row.voltage_level_id)?.name ||
+          "电压待确认")
       );
+    if (kind === "towers")
+      return (
+        label("lines", repo.find("transmission_lines", "id", row.line_id)) +
+        " · " +
+        row.tower_no
+      );
+    if (kind === "physical") {
+      const links = repo.where("logical_towers", { physical_tower_id: row.id });
+      return links.length
+        ? links.map((tower) => label("towers", tower)).join(" / ")
+        : row.asset_no ||
+            [
+              row.tower_type,
+              row.model,
+              row.height_scaled ? row.height_scaled / 10000 + "米" : "",
+            ]
+              .filter(Boolean)
+              .join(" · ") ||
+            "独立物理杆塔";
+    }
+    if (kind === "materials")
+      return [row.name, row.model, row.specification]
+        .filter(Boolean)
+        .join(" · ");
+    if (kind === "frameworks")
+      return [row.name, row.fiscal_year].filter(Boolean).join(" · ");
+    if (kind === "agreements")
+      return [row.name, row.contract_number].filter(Boolean).join(" · ");
+    if (kind !== "spans") return row.name || row.title || "业务对象";
     return [
       repo.find("transmission_lines", "id", row.line_id)?.name,
       repo.find("logical_towers", "id", row.start_tower_id)?.tower_no +
@@ -435,6 +465,12 @@ export function createCatalog(repo) {
       id: row.id,
       deleted,
       label: label(kind, row),
+      ...(kind === "towers"
+        ? { identity_decisions: repo.auditFor("tower_identity_decisions", key) }
+        : {}),
+      ...(kind === "physical"
+        ? { replacements: repo.auditFor("tower_replacements", key) }
+        : {}),
       ...(c.plain
         ? {
             version:
@@ -476,11 +512,99 @@ export function createCatalog(repo) {
             )
           : null,
         sequence = c.sequence || "version_no";
+      const keyId = key || id();
+      input = { ...input };
+      let physicalDecision;
+      for (const f of c.rootFields.filter((field) => field.systemManaged)) {
+        if (previous && input[f.key] !== undefined)
+          requireValue(input[f.key] === previous[f.key], "系统身份不可修改");
+        input[f.key] =
+          previous?.[f.key] ||
+          kind.toUpperCase() + "-" + keyId.replaceAll("-", "");
+      }
+      if (kind === "towers" && input.tower_no !== undefined)
+        input.tower_no = String(input.tower_no).trim();
+      if (kind === "towers" && !previous) {
+        physicalDecision = input.physical_tower_id
+          ? "shared"
+          : input.confirm_distinct
+            ? "distinct"
+            : "new";
+        const line = get("lines", input.line_id);
+        requireValue(line.status === "active", "请选择在运线路");
+        const siblings = repo.where("logical_towers", { line_id: line.id });
+        requireValue(
+          !siblings.some(
+            (tower) =>
+              tower.tower_no === input.tower_no &&
+              tower.status !== "retired" &&
+              !repo.isDeleted("towers", tower.id),
+          ),
+          "本线路已有该杆塔号，请查询已有杆塔",
+          409,
+          { tower_no: "本线路杆塔号重复" },
+        );
+        input.sort_rank ??=
+          Math.max(0, ...siblings.map((tower) => tower.sort_rank)) + 1;
+        input.status ??= "active";
+        requireValue(
+          input.physical_mode !== "shared" || input.physical_tower_id,
+          "请选择要共用的已有物理杆塔",
+          422,
+          { physical_tower_id: "共塔必须明确选择已有实物" },
+        );
+        if (!input.physical_tower_id) {
+          const candidates = repo
+            .where("logical_towers", { tower_no: input.tower_no })
+            .filter(
+              (tower) => tower.physical_tower_id && tower.status !== "retired",
+            );
+          requireValue(
+            !candidates.length || input.confirm_distinct === true,
+            "已有相同杆塔号，须明确选择共用已有实体或确认是不同实物",
+            409,
+            {
+              physical_candidates: candidates.map((tower) => ({
+                id: tower.physical_tower_id,
+                label: label("towers", tower),
+              })),
+            },
+          );
+          input.physical_tower_id = save(
+            actor,
+            "physical",
+            input.physical_properties || {},
+          ).id;
+        } else {
+          requireValue(
+            !Object.values(input.physical_properties || {}).some(
+              (value) => value !== undefined && value !== null && value !== "",
+            ),
+            "共塔关系复用已有实物，实物属性变更请在物理杆塔详情办理",
+          );
+          requireValue(
+            get("physical", input.physical_tower_id).status === "active",
+            "共用杆塔须选择在运物理实体",
+          );
+        }
+      }
       if (previous)
         expectedVersion(
           previous[sequence] || previous.version || 1,
           input.expected_version,
         );
+      if (kind === "operations" && input.work_object_id) {
+        input.work_target_type = get(
+          "objects",
+          input.work_object_id,
+        ).work_target_type;
+        if (input.work_target_type === "physical")
+          Object.assign(input, {
+            allow_tower: 1,
+            allow_span: 0,
+            default_location_kind: "tower",
+          });
+      }
       const root = {},
         values = {};
       for (const f of [...c.rootFields, ...c.fields]) {
@@ -552,7 +676,15 @@ export function createCatalog(repo) {
           );
       }
       if (kind === "operations") {
-        const fields = JSON.parse(values.fields_json);
+        const oldFields = previous ? JSON.parse(previous.fields_json) : [];
+        const fields = JSON.parse(values.fields_json).map((field) => ({
+          ...field,
+          key:
+            field.key ||
+            oldFields.find((old) => old.label === field.label)?.key ||
+            id(),
+        }));
+        values.fields_json = JSON.stringify(fields);
         requireValue(Array.isArray(fields), "附加字段须为完整字段清单");
         requireValue(
           new Set(fields.map((field) => field.key)).size === fields.length,
@@ -595,13 +727,12 @@ export function createCatalog(repo) {
               "请先为台账来源的价格特征配置可自动取得的台账事实",
             );
           }
-      const keyId = key || id(),
-        timestamp =
-          c.equipment && previous
-            ? new Date(
-                Math.max(Date.now(), Date.parse(previous.updated_at) + 1),
-              ).toISOString()
-            : now();
+      const timestamp =
+        c.equipment && previous
+          ? new Date(
+              Math.max(Date.now(), Date.parse(previous.updated_at) + 1),
+            ).toISOString()
+          : now();
       if (c.typeId) {
         if (!repo.find("dictionary_types", "id", c.typeId))
           repo.insert("dictionary_types", { id: c.typeId, title: c.title });
@@ -690,15 +821,111 @@ export function createCatalog(repo) {
           previous,
           result,
         );
+      if (physicalDecision)
+        audit(actor, "tower_identity_decisions", keyId, "confirm", null, {
+          decision: physicalDecision,
+          physical_tower_id: result.physical_tower_id,
+          label: result.label,
+        });
       return result;
     });
   }
   return {
     definitions,
+    displayLabels() {
+      const labels = {},
+        factors = new Map(
+          repo
+            .where("dictionary_items", { type_id: "price_factor" })
+            .map((row) => [row.id, row.code]),
+        );
+      for (const version of repo
+        .list("dictionary_item_versions")
+        .sort((a, b) => a.version - b.version)) {
+        const code = factors.get(version.item_id);
+        if (code) {
+          labels[code] = version.name;
+          labels[code + "@" + version.version] = version.name;
+        }
+      }
+      for (const version of repo
+        .list("operation_versions")
+        .sort((a, b) => a.version - b.version))
+        for (const field of JSON.parse(version.fields_json))
+          labels[field.key] = field.label;
+      return labels;
+    },
     list,
     get,
     save,
     audit,
+    replacementPreview(key) {
+      const physical = get("physical", key);
+      requireValue(physical.status !== "retired", "该物理实体已退役");
+      return {
+        physical,
+        bindings: repo
+          .where("logical_towers", { physical_tower_id: key })
+          .filter((tower) => tower.status !== "retired")
+          .map((tower) => ({ ...tower, label: label("towers", tower) })),
+      };
+    },
+    replacePhysical(actor, key, input) {
+      authorize(actor, "admin");
+      return repo.transaction(() => {
+        const current = this.replacementPreview(key);
+        expectedVersion(current.physical.version, input.expected_version);
+        const identity = (rows) =>
+          rows.map((row) => row.id + "/" + row.version).sort();
+        requireValue(
+          JSON.stringify(identity(current.bindings)) ===
+            JSON.stringify(identity(input.bindings || [])),
+          "关联回路已变化，请重新核对整基更换范围",
+          409,
+        );
+        const replacement = save(actor, "physical", {
+          ...input.properties,
+          status: "active",
+        });
+        for (const tower of current.bindings)
+          save(
+            actor,
+            "towers",
+            {
+              ...tower,
+              expected_version: tower.version,
+              physical_tower_id: replacement.id,
+            },
+            tower.id,
+          );
+        save(
+          actor,
+          "physical",
+          { status: "retired", expected_version: current.physical.version },
+          key,
+        );
+        const decision = {
+          old_physical_id: key,
+          new_physical_id: replacement.id,
+          bindings: current.bindings.map((tower) => ({
+            logical_tower_id: tower.id,
+            label: tower.label,
+            old_version: tower.version,
+            new_version: tower.version + 1,
+          })),
+        };
+        audit(actor, "tower_replacements", key, "replace", current, decision);
+        audit(
+          actor,
+          "tower_replacements",
+          replacement.id,
+          "replace",
+          null,
+          decision,
+        );
+        return { ...get("physical", replacement.id), replacement: decision };
+      });
+    },
     history(kind, key) {
       const c = config(kind);
       get(kind, key, true);

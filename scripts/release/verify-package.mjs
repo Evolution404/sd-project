@@ -196,21 +196,19 @@ try {
     assert.equal(response.status, 200, JSON.stringify(result));
     return result;
   }
-  const unit = await write("/catalog/units", { code: "PKG-UNIT", name: "套" });
+  const unit = await write("/catalog/units", { name: "套" });
   const object = await write("/catalog/objects", {
-    code: "PKG-OBJECT",
     name: "防鸟装置",
     work_target_type: "physical",
   });
   const operation = await write("/catalog/operations", {
-    code: "PKG-OP",
     name: "包装验收操作",
     work_object_id: object.id,
     default_unit_id: unit.id,
     work_target_type: "physical",
     completion_standard: "安装牢固",
   });
-  const tower = await write("/catalog/physical", { tower_code: "PKG-TOWER" });
+  const tower = await write("/catalog/physical", { asset_no: "离线验收实物" });
   const demand = await write("/demands", {
     operation_id: operation.id,
     problem_description: "生产包临时隔离验收事实",
