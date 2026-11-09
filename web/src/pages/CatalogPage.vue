@@ -393,6 +393,7 @@ function display(field: Row, value: unknown) {
   if (value == null || value === "") return "—";
   if (field.type === "money") return "¥" + money(value as number);
   if (field.type === "quantity") return quantity(value as number);
+  if (field.type === "length_m") return Number(value) / 1000;
   if (field.type === "ref")
     return detail.value?.reference_names?.[field.key] || "历史关联对象";
   if (field.type === "boolean") return value ? "是" : "否";

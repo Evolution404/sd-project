@@ -146,6 +146,7 @@ export const fieldNames: Record<string, string> = {
   entry_hint: "录入提示",
   default_target_object: "默认处理部位",
   default_quantity_scaled: "建议工作量",
+  transmission_center_length_mm: "输电中心管辖长度（米）",
 };
 
 const actorFields = new Set([
@@ -194,6 +195,8 @@ export function factText(
 ): string {
   if (value == null || value === "") return "未填写";
   if (actorFields.has(field)) return actors[String(value)] || "历史账户";
+  if (field === "transmission_center_length_mm" && typeof value === "number")
+    return (value / 1000).toString() + " 米";
   if (field.endsWith("_fen") && typeof value === "number")
     return money(value) + " 元";
   if (field.endsWith("_scaled") && typeof value === "number")

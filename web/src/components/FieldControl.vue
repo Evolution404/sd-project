@@ -34,7 +34,9 @@ const numeric = computed({
           ? 100
           : props.field.type === "quantity"
             ? 10000
-            : 1),
+            : props.field.type === "length_m"
+              ? 1000
+              : 1),
   set: (v) =>
     emit(
       "update:modelValue",
@@ -48,7 +50,9 @@ const numeric = computed({
                   ? 100
                   : props.field.type === "quantity"
                     ? 10000
-                    : 1),
+                    : props.field.type === "length_m"
+                      ? 1000
+                      : 1),
             ),
     ),
 });
@@ -148,18 +152,21 @@ onUnmounted(() => {
     :disabled="disabled"
   />
   <ElInputNumber
-    v-else-if="['money', 'quantity', 'integer', 'decimal'].includes(field.type)"
+    v-else-if="['money', 'quantity', 'integer', 'decimal', 'length_m'].includes(field.type)"
     v-model="numeric"
     :precision="
       field.type === 'money'
         ? 2
         : field.type === 'quantity'
           ? 4
-          : field.type === 'decimal'
-            ? 6
-            : 0
+          : field.type === 'length_m'
+            ? 3
+            : field.type === 'decimal'
+              ? 6
+              : 0
     "
     :disabled="disabled"
+    :min="field.type === 'length_m' ? 0 : undefined"
     :controls="false"
   />
   <ElInput

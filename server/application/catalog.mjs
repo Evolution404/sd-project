@@ -293,7 +293,7 @@ export const catalogDefinitions = {
       ref("line_id", "所属线路", "lines", true),
       ref("start_tower_id", "起点杆塔", "towers", true),
       ref("end_tower_id", "终点杆塔", "towers", true),
-      field("transmission_center_length_mm", "输电中心管辖毫米数", "integer"),
+      field("transmission_center_length_mm", "输电中心管辖长度（米）", "length_m"),
       field("status", "状态", "select", {
         options: ["draft", "active", "retired"],
         default: "draft",
@@ -674,7 +674,7 @@ export function createCatalog(repo) {
           );
         if (
           value !== null &&
-          ["money", "quantity", "integer", "boolean"].includes(f.type)
+          ["money", "quantity", "integer", "boolean", "length_m"].includes(f.type)
         )
           integer(value, f.label);
         if (f.type === "json") {

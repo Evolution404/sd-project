@@ -2,7 +2,9 @@
 // SQL stays in the Repository layer; client-controlled identifiers are never interpolated.
 function searchableColumn(key) {
   const column = JSON.stringify(key);
-  return key === "tower_nature"
+  return key === "transmission_center_length_mm"
+    ? `(CASE WHEN ${column} IS NULL THEN '' ELSE printf('%.3f', ${column} / 1000.0) END)`
+    : key === "tower_nature"
     ? `(${column} || ' ' || CASE ${column} WHEN 'straight' THEN '直线' WHEN 'tension' THEN '耐张' ELSE '' END)`
     : column;
 }
