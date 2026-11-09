@@ -23,8 +23,8 @@ export const documentCode = (prefix) =>
 export function passwordHash(password) {
   text(password, "密码");
   requireValue(
-    password.length >= 12 && password.length <= 256,
-    "密码长度须为12至256位",
+    password.length <= 256,
+    "密码长度不能超过256位",
   );
   const salt = randomBytes(16).toString("hex");
   return `${salt}:${scryptSync(password, salt, 64).toString("hex")}`;

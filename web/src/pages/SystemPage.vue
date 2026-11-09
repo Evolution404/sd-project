@@ -114,7 +114,7 @@ onMounted(load);
       ><template v-if="tab === 'users'"
         ><ElFormItem label="用户名" required
           ><ElInput v-model="form.username" /></ElFormItem
-        ><ElFormItem label="密码（至少12位，编辑留空保持）" :required="!editing"
+        ><ElFormItem label="密码（编辑留空保持）" :required="!editing"
           ><ElInput v-model="form.password" type="password" /></ElFormItem
         ><ElFormItem label="角色" required
           ><ElSelect v-model="form.role"
