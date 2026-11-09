@@ -1,3 +1,4 @@
+import { columnIndex } from "../workbook-helpers.mjs";
 import ExcelJS from "exceljs";
 import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
@@ -81,9 +82,7 @@ try {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(exported);
   const positions = workbook.getWorksheet("作业位置");
-  const quantityColumn = positions
-    .getRow(1)
-    .values.findIndex((value) => String(value).endsWith("|quantity"));
+  const quantityColumn = columnIndex(positions, "quantity_scaled");
   assert.ok(quantityColumn > 0);
   positions.getRow(2).getCell(quantityColumn).value = "2.5";
   await page.locator(".el-upload input[type=file]").setInputFiles({

@@ -1062,8 +1062,8 @@ blocked("equipment history cannot be deleted",
     "DELETE FROM physical_tower_history WHERE physical_tower_id='pt' AND version=1")
 blocked("cannot forge an unbacked line-history row",
     "INSERT INTO line_history(line_id,version,name,voltage_level_id,status,"
-    "line_kind,setup_status,erection_type,actor_id,reason,recorded_at) "
-    "VALUES('line',3,'假版本','vol','active','main','ready','','u','伪造',"
+    "line_kind,setup_status,actor_id,reason,recorded_at) "
+    "VALUES('line',3,'假版本','vol','active','main','ready','u','伪造',"
     "'2026-11-07T20:00:00.000Z')")
 blocked("a line cannot contain two active logical towers with identical number",
     "INSERT INTO logical_towers(id,logical_code,line_id,physical_tower_id,"
@@ -4961,6 +4961,17 @@ try:
 finally:
     db.execute("ROLLBACK TO r16_full_price_architecture")
     db.execute("RELEASE r16_full_price_architecture")
+
+ok("retired line attribute is absent from both current and history definitions",
+   "erection_type" not in {item[1] for item in db.execute("PRAGMA table_info(transmission_lines)")}
+   and "erection_type" not in {item[1] for item in db.execute("PRAGMA table_info(line_history)")})
+add("physical_towers",id="nature_contract",tower_code="NATURE-CONTRACT",tower_nature="straight",created_by="u")
+db.execute("UPDATE physical_towers SET tower_nature='tension',version=2,updated_by='u',"
+    "updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 day') WHERE id='nature_contract'")
+ok("tower nature change keeps both immutable physical definitions",
+   [item[0] for item in db.execute("SELECT tower_nature FROM physical_tower_history WHERE physical_tower_id='nature_contract' ORDER BY version")]==["straight","tension"])
+blocked("tower nature rejects undeclared values",
+    "INSERT INTO physical_towers(id,tower_code,tower_nature,created_by) VALUES('invalid_nature','INVALID-NATURE','other','u')")
 
 ok("current SQLite integrity",row("PRAGMA integrity_check")[0]=="ok")
 ok("current SQLite FK integrity",not db.execute("PRAGMA foreign_key_check").fetchall())

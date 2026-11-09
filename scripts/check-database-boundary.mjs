@@ -19,7 +19,7 @@ function filesUnder(dir) {
   }
   return result;
 }
-const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs"];
+const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs", "scripts/upgrade-equipment-fields.mjs"];
 const sources = [
   ...protectedDirectories.flatMap(filesUnder),
   ...protectedScripts,

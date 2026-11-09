@@ -3,9 +3,6 @@ export function businessRepository(store) {
   return {
     ...store,
     searchEquipment: (kind, options) => searchEquipment(store, kind, options),
-    where(table, values) {
-      return store.where(table, values);
-    },
     latest(table, key, value, sequence = "version_no") {
       return store.where(table, { [key]: value }, sequence, 1)[0];
     },

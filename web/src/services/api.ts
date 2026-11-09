@@ -32,13 +32,14 @@ export async function api<T = Row>(
   }
   return result;
 }
-export async function download(path: string, filename: string) {
+export async function download(path: string, filename?: string) {
   const response = await fetch("/api" + path, { credentials: "same-origin" });
   if (!response.ok) throw new Error((await response.json()).message);
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  const encodedName = response.headers.get("Content-Disposition")?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  link.download = encodedName ? decodeURIComponent(encodedName) : filename || "下载文件";
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
@@ -60,6 +61,8 @@ export const money = (value: number | null | undefined) =>
 export const quantity = (value: number | undefined) =>
   displayFixed(value || 0, 4, true);
 export const statusText: Row = {
+  straight: "直线",
+  tension: "耐张",
   create: "新增",
   new: "新建实物",
   shared: "共用已有实物",

@@ -41,18 +41,16 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
     () => s.catalog.save(user, "towers", { line_id: line.id, tower_no: "#1" }),
     /已有该杆塔号/,
   );
-  assert.throws(
-    () =>
-      s.catalog.save(user, "towers", { line_id: second.id, tower_no: "#1" }),
-    /明确选择/,
-  );
+  const independent = s.catalog.save(user, "towers", { line_id: second.id, tower_no: "#1" });
+  assert.notEqual(independent.physical_tower_id, tower.physical_tower_id);
+  const third = s.catalog.save(user, "lines", { name: "明确共塔线", voltage_level_id: voltage.id });
   const shared = s.catalog.save(user, "towers", {
-    line_id: second.id,
+    line_id: third.id,
     tower_no: "#1",
     physical_tower_id: tower.physical_tower_id,
   });
   assert.equal(shared.physical_tower_id, tower.physical_tower_id);
-  assert.equal(s.repo.list("physical_towers").length, before + 1);
+  assert.equal(s.repo.list("physical_towers").length, before + 2);
   assert.throws(() =>
     s.catalog.save(user, "towers", {
       line_id: line.id,
@@ -60,11 +58,10 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
       status: "invalid",
     }),
   );
-  assert.equal(s.repo.list("physical_towers").length, before + 1);
+  assert.equal(s.repo.list("physical_towers").length, before + 2);
   const another = s.catalog.save(user, "towers", {
     line_id: second.id,
     tower_no: "#2",
-    confirm_distinct: true,
   });
   assert.equal(another.sort_rank, 2);
   const spoofed = s.catalog.save(user, "lines", {
@@ -142,7 +139,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
   );
 });
 
-test("automatic identity governance preserves the exact existing Schema113 object fingerprint", () => {
+test("approved equipment adjustment changes only four tables and their exact history guards", () => {
   const original = spawnSync(
     "git",
     ["show", "1e0cc62:server/database/schema/schema113.sql"],
@@ -162,8 +159,12 @@ test("automatic identity governance preserves the exact existing Schema113 objec
       db.close();
     }
   }
-  assert.deepEqual(
-    fingerprint(readFileSync("server/database/schema/schema113.sql", "utf8")),
-    fingerprint(original.stdout),
-  );
+  const before = fingerprint(original.stdout), after = fingerprint(readFileSync("server/database/schema/schema113.sql", "utf8"));
+  assert.deepEqual(after.map(item => item.name), before.map(item => item.name));
+  const changed = after.filter(item => before.find(old => old.name === item.name).sql !== item.sql).map(item => item.name).sort();
+  const expected = ["transmission_lines", "line_history", "physical_towers", "physical_tower_history"];
+  for (const prefix of ["line_history", "physical_tower_history"])
+    for (const suffix of ["initial", "version_guard", "append", "identity_insert"]) expected.push(prefix + "_" + suffix);
+  assert.deepEqual(changed, expected.sort());
+  assert.ok(after.every(item => !item.sql.includes("erection_type")));
 });

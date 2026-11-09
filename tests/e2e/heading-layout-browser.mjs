@@ -153,7 +153,7 @@ try {
         })
         .waitFor();
       await page.getByRole("button", { name: "关闭", exact: true }).click();
-      await page.getByRole("dialog").waitFor({ state: "hidden" });
+      await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
     }
   }
   assert.deepEqual(errors, []);

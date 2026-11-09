@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
+import { useEntityDialog } from "../services/entity-dialog";
+import { useDescriptionColumns } from "../services/responsive-descriptions";
+const descriptionColumns = useDescriptionColumns();
 import { useRoute, useRouter } from "vue-router";
-import { useListRoute, useEntityRoute } from "../services/page-navigation";
+import { useListRoute } from "../services/page-navigation";
 const route = useRoute(), router = useRouter();
 import RowActions from "../components/RowActions.vue";
 import { factText } from "../services/display";
@@ -31,12 +35,12 @@ const definitions = ref<Row>({}),
   deleted = ref(false),
   dialog = ref(false),
   loading = ref(false),
+  saving = ref(false),
   editing = ref<Row | null>(null),
   form = ref<Row>({}),
   errors = ref<Row>({}),
   formRef = ref(),
   detail = ref<Row | null>(null),
-  referenceNames = ref<Row>({}),
   businessLabels = ref<Row>({}),
   history = ref<Row | null>(null),
   tab = ref("basic");
@@ -66,7 +70,7 @@ async function saveReplacement() {
     });
     replacing.value = false;
     await load();
-    detail.value = await api(`/catalog/physical/${detail.value!.id}`);
+    await refreshDetail();
     ElMessage.success("整基更换已记录，原实体及关联历史已归档");
   } catch (error) {
     ElMessage.error((error as Error).message);
@@ -163,6 +167,7 @@ function visible(f: Row) {
     );
   return true;
 }
+const towerNatureField = computed(() => definitions.value.physical?.fields.find((field: Row) => field.key === "tower_nature"));
 const physicalAttributeFields = computed<Row[]>(() => (definitions.value.physical?.fields || []).filter((field: Row) => !["status", "asset_no"].includes(field.key)));
 function dependentFilter(f: Row): Record<string, string> {
   if (kind.value === "lines" && f.key === "parent_line_id") return { line_kind: "main" };
@@ -188,6 +193,7 @@ function fieldChanged(key: string) {
     if (key === "end_tower_id" && form.value.start_tower_id === form.value.end_tower_id) form.value.start_tower_id = null;
   }
 }
+const optionalPhysicalFields = computed(() => physicalAttributeFields.value.filter(field => field.key !== "tower_nature"));
 const physicalBindingColumns: TableColumn[] = [
   { key: "line_name", label: "线路", minWidth: 170 },
   { key: "voltage_name", label: "电压等级" },
@@ -205,12 +211,12 @@ const tableColumns = computed<TableColumn[]>(() => {
       { key: "line_kind", label: "线路类型" },
       { key: "parent_line_name", label: "所属主线", minWidth: 150 },
       { key: "junction_tower_no", label: "接入杆塔" },
-      { key: "erection_type", label: "架设方式" },
       { key: "status", label: "状态" },
     ],
     physical: [
       { key: "tower_code", label: "系统编号", minWidth: 220 },
       { key: "tower_type", label: "塔型" },
+      { key: "tower_nature", label: "杆塔性质" },
       { key: "model", label: "型号" },
       { key: "height_scaled", label: "高度（米）" },
       { key: "commissioned_on", label: "投运日期" },
@@ -223,6 +229,7 @@ const tableColumns = computed<TableColumn[]>(() => {
       { key: "line_name", label: "所属线路", minWidth: 170 },
       { key: "voltage_level_name", label: "电压等级" },
       { key: "tower_no", label: "杆塔号" },
+      { key: "tower_nature", label: "杆塔性质" },
       { key: "operations_team", label: "运维班组" },
       { key: "management_department", label: "管辖部门" },
       { key: "status", label: "状态" },
@@ -248,7 +255,7 @@ function tableCell(row: Row, column: TableColumn) {
   if (key === "height_scaled" || key === "transmission_center_length_mm")
     return Number(value) / (key === "height_scaled" ? 10000 : 1000);
   if (typeof value === "boolean") return value ? "是" : "否";
-  if (key === "status" || key === "line_kind" || key === "pricing_mode" || key === "pricing_scope")
+  if (key === "tower_nature" || key === "status" || key === "line_kind" || key === "pricing_mode" || key === "pricing_scope")
     return statusText[String(value)] || value;
   const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: Row) => f.key === key);
   if (f?.type === "ref") return value ? "已关联（查看详情）" : "—";
@@ -282,9 +289,10 @@ function group(f: Row) {
   return "basic";
 }
 async function save() {
-  if (!(await formRef.value?.validate().catch(() => false))) return;
-  loading.value = true;
+  if (saving.value) return;
+  saving.value = true;
   try {
+    if (!(await formRef.value?.validate().catch(() => false))) return;
     const c = definitions.value[kind.value];
     if (
       kind.value === "towers" &&
@@ -297,6 +305,7 @@ async function save() {
       "POST",
       {
         ...form.value,
+        ...(kind.value === "towers" && form.value.physical_mode === "shared" ? { physical_properties: {} } : {}),
         ...(kind.value === "prices"
           ? {
               base_fee_fen:
@@ -327,52 +336,29 @@ async function save() {
     dialog.value = false;
     ElMessage.success("已保存正式版本");
     await load();
-    if (detail.value)
-      detail.value = await api(
-        `/catalog/${kind.value}/${detail.value.id}?deleted=true`,
-      );
+    await refreshDetail();
   } catch (e) {
     errors.value = (e as Row).fields || {};
-    if (errors.value.physical_candidates && !form.value.physical_tower_id) {
-      try {
-        await ElMessageBox.confirm(
-          "已有同号杆塔。请核对 " +
-            errors.value.physical_candidates
-              .map((row: Row) => row.label)
-              .join("、") +
-            "。确认本次是不同实物才继续新建，共塔请取消并选择已有实体。",
-          "确认实际杆塔关系",
-        );
-        form.value.confirm_distinct = true;
-        await save();
-        return;
-      } catch {
-        return;
-      }
-    }
     ElMessage.error((e as Error).message);
   } finally {
-    loading.value = false;
+    saving.value = false;
   }
 }
 async function remove(row: Row) {
-  await ElMessageBox.confirm(
-    "删除后从正常列表与新增选择中移除，正式历史和已有引用保留。",
-    "确认删除",
-    { type: "warning" },
-  );
-  const c = definitions.value[kind.value];
   try {
+    await ElMessageBox.confirm(
+      "删除后从正常列表与新增选择中移除，正式历史和已有引用保留。",
+      "确认删除",
+      { type: "warning" },
+    );
+    const c = definitions.value[kind.value];
     await api("/catalog/" + kind.value + "/" + row.id, "DELETE", {
       expected_version: row[c.sequence || "version_no"] || row.version || 1,
     });
     await load();
-    if (detail.value)
-      detail.value = await api(
-        `/catalog/${kind.value}/${detail.value.id}?deleted=true`,
-      );
+    await refreshDetail();
   } catch (e) {
-    ElMessage.error((e as Error).message);
+    if (e instanceof Error) ElMessage.error(e.message);
   }
 }
 async function hydrateDetail(id: string) {
@@ -393,25 +379,31 @@ async function hydrateDetail(id: string) {
       names[field.key] = "历史关联对象";
     }
   }
-  if (route.params.id === id && kind.value === requestedKind) {
-    referenceNames.value = names;
-    if (route.query.history === '1') history.value = await api(`/catalog/${requestedKind}/history/${id}`);
-  }
-  return row;
+  return { ...row, reference_names: names };
 }
-function openDetail(row: Row) { return navigation.open(row.id); }
+
+async function refreshDetail() {
+  const id = detail.value?.id;
+  if (!id) return;
+  const value = await hydrateDetail(id);
+  if (detail.value?.id === id) detail.value = value;
+}
+function openDetail(row: Row) { return detailDialog.open(row.id); }
 function display(field: Row, value: unknown) {
   if (value == null || value === "") return "—";
   if (field.type === "money") return "¥" + money(value as number);
   if (field.type === "quantity") return quantity(value as number);
   if (field.type === "ref")
-    return referenceNames.value[field.key] || "历史关联对象";
+    return detail.value?.reference_names?.[field.key] || "历史关联对象";
   if (field.type === "boolean") return value ? "是" : "否";
-  if (field.key === "status") return statusText[String(value)] || value;
+  if (["status", "tower_nature"].includes(field.key)) return statusText[String(value)] || value;
   return value;
 }
 async function viewHistory(row: Row) {
-  await navigation.open(row.id, { history: '1' });
+  if (detail.value?.id !== row.id) await detailDialog.open(row.id);
+  if (detail.value?.id !== row.id) return;
+  const value = await api(`/catalog/${kind.value}/history/${row.id}`);
+  if (detail.value?.id === row.id) history.value = value;
 }
 function selectRows(selected: Row[]) {
   selectedIds.value = selected.map((row) => String(row.id));
@@ -423,22 +415,18 @@ watch(kind, () => {
   void load();
 });
 useListRoute({ q: query, page, deleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
-const navigation = useEntityRoute(detail, hydrateDetail);
-const { routeError, routeLoading } = navigation;
+const detailDialog = useEntityDialog(detail, hydrateDetail, () => { dialog.value = false; replacing.value = false; history.value = null; });
+const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   [definitions.value, businessLabels.value] = await Promise.all([
     api("/catalogs"),
     api("/display-labels"),
   ]);
   await load();
-  await navigation.syncDetail();
 });
 </script>
 <template>
-  <ElAlert v-if="routeError" :title="routeError" type="error" :closable="false" class="error-banner" />
-  <ElSkeleton v-if="routeLoading" :rows="5" animated />
-  <template v-else-if="!detail">
-    <div class="page-heading">
+  <div class="page-heading">
       <div>
         <div class="section-caption">基础数据管理</div>
         <h1>{{ title }}</h1>
@@ -484,20 +472,6 @@ onMounted(async () => {
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         :selectable="['lines','physical','towers','spans'].includes(kind)" :actions-width="180"
         @selection-change="selectRows" @sort-change="tableSort" @filter-change="tableFilter">
-        <template v-if="kind === 'physical'" #expand="{ row }">
-          <div class="physical-circuits">
-            <div class="subheading">关联回路明细（{{ row.bindings?.length || 0 }}）</div>
-            <BusinessTable client-side :table-key="'physical:bindings'" :rows="row.bindings || []"
-              :columns="physicalBindingColumns">
-              <template #cell="{ row: link, column }">
-                <ElTag v-if="column.key === 'logical_status'" effect="plain">
-                  {{ link.logical_deleted ? '已删除' : statusText[link.logical_status] || link.logical_status }}
-                </ElTag>
-                <span v-else>{{ link[column.key] ?? '—' }}</span>
-              </template>
-            </BusinessTable>
-          </div>
-        </template>
         <template #cell="{ row, column }">
           <ElTag v-if="column.key === 'status'" :type="row.deleted ? 'danger' : row.status === 'active' ? 'success' : 'info'" effect="plain">{{ row.deleted ? "已删除" : tableCell(row, column) }}</ElTag>
           <span v-else>{{ tableCell(row, column) }}</span>
@@ -520,15 +494,10 @@ onMounted(async () => {
         @current-change="load"
       />
     </div>
-  </template>
-  <template v-else
-    ><div class="detail-header">
-      <ElButton
-        @click="
-          navigation.close();
-        "
-        >返回列表</ElButton
-      >
+
+  <BusinessDetailDialog :open="detailOpen" :title="(definitions[kind]?.title || '业务') + '详情'" :loading="detailLoading" :error="detailError"
+    @close="detailDialog.close" @retry="detailDialog.reload">
+    <template v-if="detail"><div class="detail-header">
       <h1>
         {{ detail.label || detail.name || detail.title }}
       </h1>
@@ -558,12 +527,12 @@ onMounted(async () => {
     </div>
     <div class="panel">
       <h2>正式定义</h2>
-      <ElDescriptions :column="2" border
+      <ElDescriptions :column="descriptionColumns" border
         ><ElDescriptionsItem
           v-for="field in fields()"
           :key="field.key"
           :label="field.label"
-          :span="field.type === 'json' ? 2 : 1"
+          :span="field.type === 'json' ? descriptionColumns : 1"
         >
           <span v-if="field.type === 'json'">{{
             factText(detail[field.key], field.key, businessLabels)
@@ -571,9 +540,22 @@ onMounted(async () => {
           <span v-else>{{
             display(field, detail[field.key])
           }}</span></ElDescriptionsItem
-        ></ElDescriptions
+        ><ElDescriptionsItem v-if="kind === 'towers'" label="杆塔性质">{{ statusText[detail.tower_nature] || '未填写' }}</ElDescriptionsItem></ElDescriptions
       >
     </div>
+          <div v-if="kind === 'physical'" class="panel">
+            <div class="subheading">关联逻辑杆塔（{{ detail.bindings?.length || 0 }}）</div>
+            <BusinessTable client-side :table-key="'physical:bindings'" :rows="detail.bindings || []"
+              :columns="physicalBindingColumns">
+              <template #cell="{ row: link, column }">
+                <ElTag v-if="column.key === 'logical_status'" effect="plain">
+                  {{ link.logical_deleted ? '已删除' : statusText[link.logical_status] || link.logical_status }}
+                </ElTag>
+                <span v-else>{{ link[column.key] ?? '—' }}</span>
+              </template>
+            </BusinessTable>
+          </div>
+
     <BusinessHistory
       v-if="detail.identity_decisions?.length"
       :value="{ identity_decisions: detail.identity_decisions }" />
@@ -584,7 +566,8 @@ onMounted(async () => {
       <h2>完整版本与审计历史</h2>
       <BusinessHistory :value="history" /></div
   ></template>
-  <ElDialog
+  </BusinessDetailDialog>
+  <ElDialog append-to-body
     v-model="replacing"
     title="整基杆塔更换"
     width="850px"
@@ -609,28 +592,18 @@ onMounted(async () => {
       ></template
     ></ElDialog
   >
-  <ElDialog
+  <ElDialog append-to-body
     v-model="dialog"
     :title="(editing ? '编辑' : '新增') + (definitions[kind]?.title || '')"
     width="800px"
     :close-on-click-modal="false"
   >
     <ElForm ref="formRef" :model="form" label-position="top" novalidate>
-      <ElTabs v-model="tab"
-        ><ElTabPane label="基本定义" name="basic" /><ElTabPane
-          v-if="kind === 'operations'"
-          label="录入模板"
-          name="template" /><ElTabPane
-          v-if="kind === 'operations'"
-          label="附加字段"
-          name="extra" /><ElTabPane label="影响与预览" name="impact"
-      /></ElTabs>
-      <ElAlert
-        v-if="tab === 'impact'"
-        title="提交会生成新定义版本。已签署需求、批准范围、费用与结算继续引用原正式版本。"
-        type="info"
-        :closable="false"
-      />
+      <ElTabs v-if="kind === 'operations'" v-model="tab">
+        <ElTabPane label="基本定义" name="basic" />
+        <ElTabPane label="录入模板" name="template" />
+        <ElTabPane label="附加字段" name="extra" />
+      </ElTabs>
       <template v-if="kind === 'towers' && !editing"
         ><ElFormItem label="实际杆塔关系"
           ><ElRadioGroup v-model="form.physical_mode"
@@ -640,11 +613,14 @@ onMounted(async () => {
             ></ElRadioGroup
           ></ElFormItem
         >
+        <ElFormItem v-if="form.physical_mode === 'new' && towerNatureField" label="杆塔性质">
+          <FieldControl v-model="form.physical_properties.tower_nature" :field="towerNatureField" />
+        </ElFormItem>
         <ElCollapse v-if="form.physical_mode === 'new'"
           ><ElCollapseItem title="实物属性（按需填写）" name="physical"
             ><div class="form-grid">
               <ElFormItem
-                v-for="f in physicalAttributeFields"
+                v-for="f in optionalPhysicalFields"
                 :key="f.key"
                 :label="f.label"
                 ><FieldControl
@@ -705,7 +681,7 @@ onMounted(async () => {
       ><ElButton
         :disabled="!can(catalogPermission)"
         type="primary"
-        :loading="loading"
+        :loading="saving"
         @click="save"
         >保存</ElButton
       ></template

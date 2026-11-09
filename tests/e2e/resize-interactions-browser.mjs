@@ -20,6 +20,21 @@ const page = await context.newPage(), errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113");
 mkdirSync(output, { recursive: true });
+async function stableTableLayout(table) {
+  await table.evaluate(async element => {
+    await document.fonts.ready;
+    let previous = '', stable = 0;
+    while (stable < 5) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const geometry = JSON.stringify([...element.querySelectorAll('th')].map(header => {
+        const rect = header.getBoundingClientRect();
+        return [rect.x, rect.y, rect.width];
+      }));
+      stable = geometry === previous ? stable + 1 : 0;
+      previous = geometry;
+    }
+  });
+}
 async function sidebarWidth() {
   return (await page.locator(".navigation").boundingBox()).width;
 }
@@ -71,6 +86,7 @@ try {
   await table.locator(".el-loading-mask").waitFor({ state: "hidden" });
   await table.locator(".el-table__body-wrapper .el-table__row").first().waitFor();
   const name = table.getByRole("columnheader", { name: /线路名称/ });
+  await stableTableLayout(table);
   const initial = await name.boundingBox();
   const headers = await table.locator(".el-table__header-wrapper th .business-column-title").evaluateAll(items =>
     items.map(el => ({
@@ -85,6 +101,7 @@ try {
   const x = initial.x + initial.width - 2;
   const y = initial.y + initial.height / 2;
   await page.mouse.move(x, y);
+  await page.waitForFunction(() => document.body.style.cursor === "col-resize");
   await page.mouse.down();
   await page.mouse.move(x + 84, y, { steps: 12 });
   await page.mouse.up();
@@ -104,10 +121,12 @@ try {
   const lastTable = page.locator(".business-table-grid").first();
   await lastTable.locator(".el-loading-mask").waitFor({ state: "hidden" });
   const actionsHeader = lastTable.getByRole("columnheader", { name: "操作", exact: true });
+  await stableTableLayout(lastTable);
   const actionsBefore = await actionsHeader.boundingBox();
   const ax = actionsBefore.x + actionsBefore.width - 2;
   const ay = actionsBefore.y + actionsBefore.height / 2;
   await page.mouse.move(ax, ay);
+  await page.waitForFunction(() => document.body.style.cursor === "col-resize");
   await page.mouse.down();
   await page.mouse.move(ax - 46, ay, { steps: 8 });
   await page.mouse.up();

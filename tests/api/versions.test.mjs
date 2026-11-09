@@ -321,3 +321,22 @@ test("adopted material definitions survive unrelated revisions after current mat
   assert.equal(demand.materials[0].model, "A");
   assert.equal(s.demands.history(demand.id).versions.length, 2);
 });
+
+test('voltage update and its audit share the same operation timestamp across a millisecond boundary', t => {
+  const { s, user, save } = fixture(t);
+  const OriginalDate = Date;
+  let clock = OriginalDate.now() + 1000;
+  globalThis.Date = class extends OriginalDate {
+    constructor(...args) {
+      if (args.length) super(...args);
+      else super(clock++);
+    }
+  };
+  try {
+    const voltage = save('voltages', { name: '时间核验电压' });
+    const changed = s.catalog.save(user, 'voltages', { name: '时间核验电压更名', expected_version: 1 }, voltage.id);
+    const event = s.repo.auditFor('voltages', voltage.id).find(event => event.action === 'revise');
+    assert.equal(event.created_at, changed.updated_at);
+    assert.equal(changed.version, 2);
+  } finally { globalThis.Date = OriginalDate; }
+});

@@ -57,3 +57,18 @@ test("column ordering uses SortableJS and a keyboard alternative", () => {
   assert.match(source, /aria-live="polite"/);
   assert.match(source, /onUnmounted\(stopColumnDrag\)/);
 });
+
+test("sparse tables use flexible minimum widths and detail viewing stays in one modal adapter", () => {
+  const table = readFileSync(resolve("web/src/components/BusinessTable.vue"), "utf8");
+  assert.match(table, /:min-width="columnMinWidth\(col\)"/);
+  assert.match(table, /const stretchColumn = computed/);
+  assert.doesNotMatch(table, /type="expand"/);
+  for (const name of ["DemandPage", "ProjectPage", "CatalogPage"]) {
+    const source = readFileSync(resolve(`web/src/pages/${name}.vue`), "utf8");
+    assert.match(source, /<BusinessDetailDialog\b/);
+    assert.match(source, /useEntityDialog\(/);
+    assert.doesNotMatch(source, /useEntityRoute|#expand/);
+  }
+  const dialog = readFileSync(resolve("web/src/services/entity-dialog.ts"), "utf8");
+  assert.doesNotMatch(dialog, /router\.push|router\.replace/);
+});

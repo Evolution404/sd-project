@@ -34,7 +34,7 @@ const output = join(process.cwd(), "test-results", "schema113");
 mkdirSync(output, { recursive: true });
 async function select(label, option) {
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel(label, { exact: true })
     .press("ArrowDown");
   await page.getByRole("option", { name: option, exact: true }).last().click();
@@ -58,10 +58,10 @@ try {
   await page.getByLabel("项目名称", { exact: true }).fill("浏览器完整流程项目");
   await select("年度框架", "浏览器验收框架 · 2026");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page
     .getByRole("row")
     .filter({ hasText: "浏览器完整流程项目" })
@@ -72,23 +72,23 @@ try {
   await page.getByRole("button", { name: "关联需求", exact: true }).click();
   await select("专业需求", demand.demand_no + " · 防鸟设施缺失");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "编制立项范围", exact: true }).click();
   await page.getByLabel("批准预算（元）", { exact: true }).fill("1200");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("row")
     .filter({ hasText: "T17" })
     .locator(".el-checkbox")
     .click();
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page
     .getByRole("button", { name: "按承接范围核价", exact: true })
     .click();
@@ -96,30 +96,30 @@ try {
   await page.getByRole("button", { name: "确认正式报价", exact: true }).click();
   await page.getByText("已保存正式参考报价", { exact: true }).waitFor();
   await page.getByRole("button", { name: "关闭报价", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "正式批准", exact: true }).click();
   await confirm();
   await page.getByRole("tab", { name: "费用与结算", exact: true }).click();
   await page.getByRole("button", { name: "新增科目", exact: true }).click();
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel("名称", { exact: true })
     .fill("人工费");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "核定费用", exact: true }).click();
   await page.getByLabel("费用事项", { exact: true }).fill("浏览器真实费用");
   await select("末级费用科目", "人工费");
   await page.getByLabel("实际金额（元）", { exact: true }).fill("1400");
   await page.getByLabel("费用凭据", { exact: true }).fill("合成验收发票记录");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   const generatedBills = [];
   for (const [index, resolved] of [2, 3, 0].entries()) {
     await page
@@ -137,10 +137,10 @@ try {
       .getByLabel("本次新增解决量", { exact: true })
       .fill(String(resolved));
     await page
-      .getByRole("dialog")
+      .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
       .getByRole("button", { name: "保存草稿", exact: true })
       .click();
-    await page.getByRole("dialog").waitFor({ state: "hidden" });
+    await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
     const createdBill = s.finance
       .allSettlements()
       .find(
@@ -161,10 +161,10 @@ try {
   await page.getByLabel("核定结算额（元）", { exact: true }).fill("400");
   await page.getByLabel("核对依据", { exact: true }).fill("浏览器核对原始依据");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   const reconciliation = page
     .getByRole("row")
     .filter({ hasText: "浏览器核对原始依据" });
@@ -173,10 +173,10 @@ try {
     .click();
   await page.getByLabel("费用份额（元）", { exact: true }).fill("200");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await reconciliation.getByRole("button", { name: "更多操作" }).click();
   await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await confirm();

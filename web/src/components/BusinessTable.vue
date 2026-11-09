@@ -75,10 +75,20 @@ function defaultColumnWidth(col: TableColumn) {
     + (col.filterable === false ? 0 : 28);
   return Math.ceil(Math.max(col.minWidth ?? 130, textWidth + controls + 28));
 }
-function columnWidth(col: TableColumn) {
+function savedColumnWidth(col: TableColumn) {
   const saved = pref.value.widths[col.key];
   return Number.isFinite(saved) && saved >= 80 && saved <= 1200
-    ? saved : defaultColumnWidth(col);
+    ? saved : undefined;
+}
+// Let Element Plus distribute spare space. If every data column has a saved
+// width, the last one remains flexible so the table never leaves a blank area.
+const stretchColumn = computed(() => shownColumns.value.every(col => savedColumnWidth(col) !== undefined)
+  ? shownColumns.value.at(-1)?.key : undefined);
+function columnWidth(col: TableColumn) {
+  return col.key === stretchColumn.value ? undefined : savedColumnWidth(col);
+}
+function columnMinWidth(col: TableColumn) {
+  return columnWidth(col) === undefined ? savedColumnWidth(col) ?? defaultColumnWidth(col) : 80;
 }
 
 const toolHint = computed(() => {
@@ -176,7 +186,7 @@ function handleSort(value: { prop?: string | null; order?: string | null }) {
   else if (sort.key !== props.sortState?.prop || sort.order !== (props.sortState?.order || "")) emit("sort-change", sort);
 }
 onMounted(() => { pref.value = readPref(); });
-watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {}; localSort.value = { key: "", order: "" }; });
+watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = { ...props.filterState }; localSort.value = { key: "", order: "" }; });
 </script>
 <template>
   <div class="business-table">
@@ -190,12 +200,9 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
       @sort-change="handleSort"
       @header-dragend="resize">
       <ElTableColumn v-if="selectable" type="selection" width="48" fixed="left" />
-      <ElTableColumn v-if="$slots.expand" type="expand" width="50">
-        <template #default="{ row }"><slot name="expand" :row="row" /></template>
-      </ElTableColumn>
       <ElTableColumn v-for="col in shownColumns" :key="col.key" :prop="col.key" :label="col.label"
-        :min-width="80" :width="columnWidth(col)"
-        :sortable="col.sortable === false ? false : 'custom'"
+        :min-width="columnMinWidth(col)" :width="columnWidth(col)"
+        :sortable="col.sortable === false ? false : 'custom'" :sort-orders="['ascending', 'descending']"
         :fixed="pref.fixed.includes(col.key) ? 'left' : false" resizable show-overflow-tooltip>
         <template #header>
           <span class="business-column-title">{{ col.label }}</span>

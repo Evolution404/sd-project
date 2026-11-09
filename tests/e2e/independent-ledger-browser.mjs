@@ -66,24 +66,24 @@ const output = join(process.cwd(), "test-results/schema113");
 mkdirSync(output, { recursive: true });
 async function select(label, option) {
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel(label, { exact: true })
     .press("ArrowDown");
   await page.getByRole("option", { name: option, exact: true }).last().click();
 }
 async function save() {
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
 }
 async function line(name) {
   await page.getByRole("tab", { name: "线路", exact: true }).click();
   await page.getByRole("button", { name: "新增线路", exact: true }).click();
   assert.equal(
     await page
-      .getByRole("dialog")
+      .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
       .locator(".el-form-item.is-required:visible")
       .count(),
     2,
@@ -120,14 +120,14 @@ try {
   await tower("最少录入甲线", "#15");
   assert.equal(
     await page
-      .getByRole("dialog")
+      .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
       .locator(".el-form-item.is-required:visible")
       .count(),
     2,
   );
   assert.equal(
     await page
-      .getByRole("dialog")
+      .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
       .getByLabel("物理杆塔", { exact: true })
       .isVisible(),
     false,
@@ -153,36 +153,17 @@ try {
   );
   await tower("最少录入甲线", "#15");
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await page.getByText("本线路杆塔号重复", { exact: true }).waitFor();
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "取消", exact: true })
     .click();
   await tower("最少录入丙线", "#15");
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "保存", exact: true })
-    .click();
-  await page.locator(".el-message-box").waitFor();
-  await page
-    .locator(".el-message-box")
-    .getByRole("button", { name: "取消", exact: true })
-    .click();
-  assert.equal(s.catalog.list("physical").length, originalPhysicalCount + 1);
-  await page
-    .getByRole("dialog")
-    .getByRole("button", { name: "保存", exact: true })
-    .click();
-  await page
-    .locator(".el-message-box")
-    .getByRole("button", { name: "确定", exact: true })
-    .click();
-  await page
-    .getByRole("dialog", { name: "新增逻辑杆塔", exact: true })
-    .waitFor({ state: "hidden" });
+  await save();
+  assert.equal(await page.locator('.el-message-box:visible').count(), 0);
   assert.equal(s.catalog.list("physical").length, originalPhysicalCount + 2);
   await page.getByRole("tab", { name: "物理杆塔", exact: true }).click();
   await page
@@ -194,7 +175,7 @@ try {
   await page.getByRole("button", { name: "整基更换", exact: true }).click();
   await page.getByLabel("新杆塔杆塔高度（米）", { exact: true }).fill("25");
   await page.getByRole("button", { name: "确认整基更换", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   assert.equal(
     s.catalog.get("physical", first.physical_tower_id).status,
     "retired",
@@ -220,7 +201,7 @@ try {
       fullPage: true,
     });
   }
-  await page.getByRole("button", { name: "返回列表", exact: true }).click();
+  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page.getByRole("tab", { name: "线路", exact: true }).click();
   await page
     .getByRole("button", { name: "Excel 批量处理", exact: true })
@@ -253,6 +234,7 @@ try {
     .getByRole("button", { name: "查看", exact: true })
     .click();
   await page.getByText("正式塔型 · angle", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   assert.ok(!(await page.locator("body").innerText()).includes(factor.code));
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
@@ -265,7 +247,7 @@ try {
     })
     .waitFor();
   await page
-    .getByRole("dialog")
+    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "取消", exact: true })
     .click();
   for (const body of submitted)
@@ -273,7 +255,7 @@ try {
       assert.equal(body[key], undefined);
   assert.deepEqual(errors, []);
   console.log(
-    "INDEPENDENT_LEDGER_BROWSER_OK no code input, 2-field line/tower, shared physical, explicit ambiguity decision, whole replacement, business-only Excel",
+    "INDEPENDENT_LEDGER_BROWSER_OK no code input, 2-field line/tower, shared physical, same-line duplicates only, whole replacement, business-only Excel",
   );
 } catch (error) {
   await page.screenshot({

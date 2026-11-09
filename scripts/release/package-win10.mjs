@@ -87,6 +87,7 @@ for (const [src, dest] of [
   ["scripts/init-admin.mjs", "scripts/init-admin.mjs"],
   ["scripts/backup.mjs", "scripts/backup.mjs"],
   ["scripts/restore.mjs", "scripts/restore.mjs"],
+  ["scripts/upgrade-equipment-fields.mjs", "scripts/upgrade-equipment-fields.mjs"],
   ["scripts/first-run.ps1", "scripts/first-run.ps1"],
   ["scripts/windows/启动服务.cmd", "启动服务.cmd"],
   ["scripts/windows/备份数据库.cmd", "备份数据库.cmd"],

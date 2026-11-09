@@ -1,5 +1,11 @@
 // Indexed, parameterized pagination for the high-volume equipment catalogs.
 // SQL stays in the Repository layer; client-controlled identifiers are never interpolated.
+function searchableColumn(key) {
+  const column = JSON.stringify(key);
+  return key === "tower_nature"
+    ? `(${column} || ' ' || CASE ${column} WHEN 'straight' THEN '直线' WHEN 'tension' THEN '耐张' ELSE '' END)`
+    : column;
+}
 const sources = {
   lines: {
     sql: "SELECT c.*, v.name AS voltage_level_name, p.name AS parent_line_name, "
@@ -8,7 +14,7 @@ const sources = {
       + "LEFT JOIN transmission_lines p ON p.id=c.parent_line_id "
       + "LEFT JOIN logical_towers junction ON junction.id=c.junction_tower_id",
     columns: ["name", "voltage_level_name", "line_kind", "parent_line_name",
-      "junction_tower_no", "erection_type", "status", "line_code"],
+      "junction_tower_no", "status", "line_code"],
   },
   physical: {
     sql: "SELECT c.*, COALESCE(rel.related_lines,'') AS related_lines, "
@@ -23,16 +29,17 @@ const sources = {
       + " AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='towers' "
       + " AND a.entity_id=t.id AND a.action='delete') "
       + " GROUP BY t.physical_tower_id) rel ON rel.physical_tower_id=c.id",
-    columns: ["tower_code", "asset_no", "tower_type", "model", "height_scaled",
+    columns: ["tower_code", "asset_no", "tower_type", "tower_nature", "model", "height_scaled",
       "commissioned_on", "related_lines", "related_towers", "current_circuits",
       "purpose", "status"],
   },
   towers: {
-    sql: "SELECT c.*, l.name AS line_name, v.name AS voltage_level_name "
+    sql: "SELECT c.*, p.tower_nature, l.name AS line_name, v.name AS voltage_level_name "
       + "FROM logical_towers c JOIN transmission_lines l ON l.id=c.line_id "
+      + "LEFT JOIN physical_towers p ON p.id=c.physical_tower_id "
       + "LEFT JOIN voltage_levels v ON v.id=l.voltage_level_id",
     columns: ["line_name", "voltage_level_name", "tower_no", "operations_team",
-      "management_department", "status", "logical_code"],
+      "management_department", "tower_nature", "status", "logical_code"],
   },
   spans: {
     sql: "SELECT c.*, l.name AS line_name, start.tower_no AS start_tower_no, "
@@ -60,7 +67,7 @@ export function searchEquipment(store, kind, options = {}) {
   const q = String(options.q || "").slice(0, 160).trim();
   if (q) {
     where.push("(" + definition.columns.map(
-      key => "instr(lower(COALESCE(CAST(" + JSON.stringify(key) + " AS TEXT),'')),lower(?))>0",
+      key => "instr(lower(COALESCE(CAST(" + searchableColumn(key) + " AS TEXT),'')),lower(?))>0",
     ).join(" OR ") + ")");
     parameters.push(...definition.columns.map(() => q));
   }
@@ -73,7 +80,7 @@ export function searchEquipment(store, kind, options = {}) {
   } catch { /* malformed client filter is not a query modifier */ }
   for (const [key, value] of Object.entries(filters).slice(0, 20)) {
     if (!allowed.has(key) || typeof value !== "string") continue;
-    where.push("instr(lower(COALESCE(CAST(" + JSON.stringify(key)
+    where.push("instr(lower(COALESCE(CAST(" + searchableColumn(key)
       + " AS TEXT),'')),lower(?))>0");
     parameters.push(value.slice(0, 128));
   }

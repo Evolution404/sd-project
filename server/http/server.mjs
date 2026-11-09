@@ -102,7 +102,7 @@ export function httpServer(
     response.writeHead(200, {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${filename}.xlsx"`,
+      "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(filename + '.xlsx')}`,
       "Cache-Control": "no-store",
     });
     response.end(buffer);
@@ -429,7 +429,7 @@ export function httpServer(
             await workbook(
               res,
               exchange.template(actor, key, url.searchParams.get("project_id")),
-              `${key}-template`,
+              ({ assets: "设备台账", demands: "需求", settlements: "结算" })[key] + "模板",
             );
             return;
           }
@@ -442,7 +442,7 @@ export function httpServer(
                 query: url.searchParams.get("q") || "",
                 report: url.searchParams.get("report") === "true",
               }),
-              `${key}-export`,
+              ({ assets: "设备台账", demands: "需求", settlements: "结算" })[key] + (url.searchParams.get("report") === "true" ? "报表" : "数据维护"),
             );
             return;
           }
@@ -455,10 +455,10 @@ export function httpServer(
           } else if (sub === "commit")
             result = exchange.commit(actor, key, input);
           else if (sub === "results" && read) {
-            await workbook(res, exchange.results(actor, key), "import-results");
+            await workbook(res, exchange.results(actor, key), "导入结果");
             return;
           } else if (sub === "errors") {
-            await workbook(res, exchange.errors(actor, key), "issues");
+            await workbook(res, exchange.errors(actor, key), "导入问题");
             return;
           } else requireValue(false, "交换动作不存在", 404);
           break;

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, ref, onUnmounted } from "vue";
+import type { DropdownInstance } from "element-plus";
 import { MoreFilled } from "@element-plus/icons-vue";
 import { ElMessage } from "element-plus";
 
@@ -12,6 +13,18 @@ export type RowAction = {
 };
 const props = defineProps<{ actions: RowAction[] }>();
 const busy = ref(false);
+const dropdown = ref<DropdownInstance>();
+function closeMenuOnEscape(event: KeyboardEvent) {
+  if (event.key !== "Escape") return;
+  event.preventDefault();
+  event.stopPropagation();
+  dropdown.value?.handleClose();
+}
+function menuVisibilityChanged(visible: boolean) {
+  if (visible) window.addEventListener("keydown", closeMenuOnEscape, true);
+  else window.removeEventListener("keydown", closeMenuOnEscape, true);
+}
+onUnmounted(() => window.removeEventListener("keydown", closeMenuOnEscape, true));
 const primary = computed(() =>
   props.actions.find(action => action.primary && !action.disabled && !action.danger)
     || props.actions.find(action => !action.disabled && !action.danger)
@@ -34,8 +47,8 @@ async function invoke(action: RowAction) {
   <div class="row-actions">
     <ElButton v-if="primary" size="small" :disabled="primary.disabled" :loading="busy"
       :type="primary.danger ? 'danger' : undefined" @click="invoke(primary)">{{ primary.label }}</ElButton>
-    <ElDropdown v-if="secondary.length" trigger="click" placement="bottom-end"
-      @command="invoke">
+    <ElDropdown v-if="secondary.length" ref="dropdown" trigger="click" placement="bottom-end"
+      @command="invoke" @visible-change="menuVisibilityChanged">
       <ElButton text size="small" :disabled="busy" aria-label="更多操作">
         更多<ElIcon><MoreFilled /></ElIcon>
       </ElButton>

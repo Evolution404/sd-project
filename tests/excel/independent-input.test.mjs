@@ -1,3 +1,4 @@
+import { columnIndex } from "../workbook-helpers.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
@@ -39,16 +40,12 @@ test("new demands use business names and worksheet rows, with protected identity
   );
   const root = workbook.getWorksheet("需求清单");
   for (const key of ["id", "demand_no", "expected_version", "operation_id"]) {
-    const column = root
-      .getRow(1)
-      .values.findIndex((value) => String(value).endsWith("|" + key));
+    const column = columnIndex(root, key);
     assert.ok(column > 0);
     assert.equal(root.getColumn(column).hidden, true);
   }
   const positions = workbook.getWorksheet("作业位置");
-  const quantity = positions
-    .getRow(1)
-    .values.findIndex((value) => String(value).endsWith("|quantity"));
+  const quantity = columnIndex(positions, "quantity_scaled");
   positions.getRow(2).getCell(quantity).value = "3.5";
   const revision = await exchange.preview(
     user,
@@ -118,11 +115,7 @@ test("asset workbook creates complete lines and towers, reuses explicit physical
   const exported = new ExcelJS.Workbook();
   await exported.xlsx.load(await exchange.exportData(user, "assets"));
   const sheet = exported.getWorksheet("杆塔"),
-    teamColumn = sheet
-      .getRow(1)
-      .values.findIndex((value) =>
-        String(value) === "运维班组" ||
-        String(value).endsWith("|operations_team"));
+    teamColumn = columnIndex(sheet, "operations_team");
   sheet.getRow(2).getCell(teamColumn).value = "独立运维班组";
   preview = await exchange.preview(
     user,
@@ -192,11 +185,7 @@ test("new settlement workbook needs business descriptions only and maintenance e
   );
   for (const name of ["费用明细", "需求解决明细"]) {
     const sheet = workbook.getWorksheet(name);
-    const column = sheet
-      .getRow(1)
-      .values.findIndex((value) =>
-        String(value).endsWith("|demand_description"),
-      );
+    const column = columnIndex(sheet, "demand_description");
     assert.equal(
       sheet.getRow(2).getCell(column).value,
       demand.problem_description,
@@ -253,4 +242,43 @@ test("asset preflight identifies every duplicated new tower and commit failure r
   }
   assert.equal(s.catalog.list("physical").length, before);
   assert.ok(!s.catalog.list("lines").some((row) => row.name === "须整批回滚"));
+});
+
+test("workbooks allow selecting complete rows and editing headers while retaining field bindings", async (t) => {
+  const { s, user } = fixture(t), exchange = createExchange(s);
+  s.catalog.save(user, "voltages", { name: "220kV" });
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await makeWorkbook("assets", { documents: [{ name: "改表头线路", voltage_name: "220kV" }] }));
+  for (const title of ["线路", "物理杆塔", "杆塔", "档距"]) {
+    const sheet = book.getWorksheet(title);
+    assert.notEqual(sheet.sheetProtection.selectLockedCells, false);
+    sheet.getRow(1).eachCell(cell => assert.equal(cell.protection.locked, false));
+    for (const column of sheet.columns.filter(column => column.hidden))
+      assert.notEqual(column.style.protection?.locked, false);
+  }
+  const sheet = book.getWorksheet("线路");
+  const column = columnIndex(sheet, "name");
+  assert.ok(column > 0);
+  sheet.getCell(1, column).value = "我的线路名称";
+  const preview = await exchange.preview(user, "assets", Buffer.from(await book.xlsx.writeBuffer()));
+  assert.deepEqual(preview.issues, []);
+  exchange.commit(user, preview.token, { request_key: "edited-header-import", atomic: true });
+  assert.ok(s.catalog.list("lines").some(row => row.name === "改表头线路"));
+});
+
+test("identical tower numbers on different lines create independent physical towers in one atomic workbook", async (t) => {
+  const { s, user } = fixture(t), exchange = createExchange(s);
+  s.catalog.save(user, "voltages", { name: "500kV" });
+  const buffer = await makeWorkbook("assets", {
+    documents: [{ name: "金龙5603线", voltage_name: "500kV" }, { name: "金王5604线", voltage_name: "500kV" }],
+    towers: [{ line_name: "金龙5603线", tower_no: "#001" }, { line_name: "金王5604线", tower_no: "#001" }],
+  });
+  const preview = await exchange.preview(user, "assets", buffer);
+  assert.deepEqual(preview.issues, []);
+  exchange.commit(user, preview.token, { request_key: "cross-line-same-number", atomic: true });
+  const towers = s.catalog.list("towers");
+  assert.equal(towers.length, 2);
+  assert.notEqual(towers[0].physical_tower_id, towers[1].physical_tower_id);
+  const duplicate = await exchange.preview(user, "assets", await makeWorkbook("assets", { towers: [{ line_name: "金龙5603线", tower_no: "#001" }] }));
+  assert.ok(duplicate.issues.some(issue => issue.reason.includes("本线路已有该杆塔号")));
 });

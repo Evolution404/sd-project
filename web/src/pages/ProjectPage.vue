@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { useListRoute, useEntityRoute } from "../services/page-navigation";
+import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
+import { useEntityDialog } from "../services/entity-dialog";
+import { useDescriptionColumns } from "../services/responsive-descriptions";
+const descriptionColumns = useDescriptionColumns();
+import { useListRoute } from "../services/page-navigation";
 import RowActions from "../components/RowActions.vue";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
@@ -15,6 +19,7 @@ const formRef = ref(),
   actors = ref<Row[]>([]);
 const props = defineProps<{ financeOnly?: boolean }>();
 const rows = ref<Row[]>([]),
+  listLoading = ref(false),
   total = ref(0),
   page = ref(1),
   query = ref(""),
@@ -76,17 +81,30 @@ function filterTable(value: Record<string, string>) {
   page.value = 1;
   load();
 }
+let loadSequence = 0;
 async function load() {
-  const value = await api(
-    `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
-  );
-  rows.value = value.items;
-  total.value = value.total;
-  if (detail.value)
-    detail.value = await api("/projects/" + detail.value.id + "?deleted=true");
+  const sequence = ++loadSequence;
+  listLoading.value = true;
+  try {
+    const value = await api(
+      `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
+    );
+    if (sequence !== loadSequence) return;
+    rows.value = value.items;
+    total.value = value.total;
+    const id = detail.value?.id;
+    if (id) {
+      const updated = await api("/projects/" + id + "?deleted=true");
+      if (sequence === loadSequence && detail.value?.id === id) detail.value = updated;
+    }
+  } catch (error) {
+    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+  } finally {
+    if (sequence === loadSequence) listLoading.value = false;
+  }
 }
 async function open(row: Row) {
-  await navigation.open(row.id);
+  await detailDialog.open(row.id);
 }
 function editProject(row?: Row) {
   editing.value = row || null;
@@ -141,9 +159,10 @@ async function openDialog(type: string) {
   }
 }
 async function save() {
-  if (!(await formRef.value?.validate().catch(() => false))) return;
+  if (busy.value) return;
   busy.value = true;
   try {
+    if (!(await formRef.value?.validate().catch(() => false))) return;
     if (dialog.value === "project")
       await api(
         "/projects" + (editing.value ? "/" + editing.value.id : ""),
@@ -267,7 +286,7 @@ async function removeProject() {
     await api(`/projects/${detail.value!.id}`, "DELETE", {
       expected_version: detail.value!.version,
     });
-    await navigation.close();
+    await detailDialog.close();
     await load();
     ElMessage.success("项目已删除，可在包含已删除中查询");
   } catch (error) {
@@ -278,19 +297,15 @@ async function showHistory() {
   history.value = await api(`/projects/${detail.value!.id}/history`);
 }
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters, tab }, load);
-const navigation = useEntityRoute(detail, id => api('/projects/' + id + '?deleted=true'));
-const { routeError, routeLoading } = navigation;
+const detailDialog = useEntityDialog(detail, id => api('/projects/' + id + '?deleted=true'), () => { dialog.value = ''; history.value = null; quoteOpen.value = false; });
+const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   actors.value = await api("/actors");
   await load();
-  await navigation.syncDetail();
 });
 </script>
 <template>
-  <ElAlert v-if="routeError" :title="routeError" type="error" :closable="false" class="error-banner" />
-  <ElSkeleton v-if="routeLoading" :rows="5" animated />
-  <template v-else-if="!detail"
-    ><div class="page-heading">
+  <div class="page-heading">
       <div>
         <div class="section-caption">
           {{ financeOnly ? "实际费用与结算" : "项目管理" }}
@@ -325,7 +340,7 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <BusinessTable :rows="rows" :columns="projectColumns" table-key="project:list" :filter-state="columnFilters"
+      <BusinessTable :loading="listLoading" :rows="rows" :columns="projectColumns" table-key="project:list" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
@@ -345,10 +360,10 @@ onMounted(async () => {
         layout="prev,pager,next,total"
         @current-change="load"
       /></div
-  ></template>
-  <template v-else
-    ><div class="detail-header">
-      <ElButton @click="navigation.close()">返回项目列表</ElButton>
+  >
+  <BusinessDetailDialog :open="detailOpen" title="子项目详情" :loading="detailLoading" :error="detailError"
+    @close="detailDialog.close" @retry="detailDialog.reload">
+    <template v-if="detail"><div class="detail-header">
       <h1>{{ detail.name }}</h1>
       <ElTag>{{ statusText[detail.status] }}</ElTag
       ><span class="muted">{{ detail.code }}</span>
@@ -381,7 +396,7 @@ onMounted(async () => {
       >
     </div>
     <div class="panel">
-      <ElDescriptions :column="2" border
+      <ElDescriptions :column="descriptionColumns" border
         ><ElDescriptionsItem label="项目类别">{{
           detail.category_name || "未指定"
         }}</ElDescriptionsItem
@@ -470,7 +485,7 @@ onMounted(async () => {
             >删除草稿</ElButton
           >
         </div>
-        <ElDescriptions :column="2" border
+        <ElDescriptions :column="descriptionColumns" border
           ><ElDescriptionsItem label="批准预算"
             >¥{{ money(approval.approved_budget_fen) }}</ElDescriptionsItem
           ><ElDescriptionsItem label="参考价格">{{
@@ -517,7 +532,8 @@ onMounted(async () => {
       @changed="load"
     />
   </template>
-  <ElDialog
+  </BusinessDetailDialog>
+  <ElDialog append-to-body
     :model-value="!!dialog"
     :title="
       {
@@ -710,7 +726,7 @@ onMounted(async () => {
       ></template
     ></ElDialog
   >
-  <ElDialog
+  <ElDialog append-to-body
     :model-value="!!history"
     title="项目正式历史"
     width="950px"

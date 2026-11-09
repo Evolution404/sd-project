@@ -69,14 +69,14 @@ try {
   assert.notEqual(draggedOrder[0], "name");
   await handle.press("ArrowDown");
   await dialog.locator('.column-setting-item').filter({ hasText: "线路名称" }).getByRole("button", { name: "固定列", exact: true }).click();
-  await dialog.getByText("架设方式", { exact: true }).click();
+  await dialog.getByText("接入杆塔", { exact: true }).click();
   await dialog.getByRole("button", { name: "完成", exact: true }).click();
-  assert.equal(await page.getByRole("columnheader", { name: "架设方式" }).count(), 0);
+  assert.equal(await page.getByRole("columnheader", { name: "接入杆塔" }).count(), 0);
   assert.ok(await page.getByRole("columnheader", { name: /线路名称/ }).count());
   await page.reload();
   await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
   await page.getByRole("heading", { name: "输电设备台账" }).waitFor();
-  assert.equal(await page.getByRole("columnheader", { name: "架设方式" }).count(), 0);
+  assert.equal(await page.getByRole("columnheader", { name: "接入杆塔" }).count(), 0);
   const restored = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")));
   assert.equal(restored.order[1], "name");
   assert.ok(restored.fixed.includes("name"));

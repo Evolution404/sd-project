@@ -55,7 +55,7 @@ try {
   await page.getByRole("spinbutton").nth(2).fill("4");
   await page.getByLabel("来源说明", { exact: true }).fill("现场巡视记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page
     .getByRole("row")
     .filter({ hasText: "三基塔防鸟装置缺失" })
@@ -71,7 +71,7 @@ try {
   await page
     .getByRole("dialog", { name: "参考价格" })
     .waitFor({ state: "hidden" });
-  await page.locator(".el-overlay:visible").waitFor({ state: "hidden" });
+  await page.locator(".el-overlay:not(.business-detail-overlay):visible").waitFor({ state: "hidden" });
   await page.screenshot({
     path: join(output, "demand-detail-1500.png"),
     fullPage: true,
@@ -95,7 +95,7 @@ try {
       `horizontal overflow ${width}`,
     );
   }
-  await page.getByRole("button", { name: "返回需求列表", exact: true }).click();
+  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page
     .getByRole("button", { name: "Excel 批量处理", exact: true })
     .click();

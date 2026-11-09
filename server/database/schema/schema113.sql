@@ -37,7 +37,7 @@ CREATE TABLE transmission_lines (
     created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
     change_reason TEXT NOT NULL DEFAULT ''
-, line_kind TEXT NOT NULL DEFAULT 'main' CHECK(line_kind IN ('main','branch')), parent_line_id TEXT REFERENCES transmission_lines(id) ON DELETE RESTRICT, junction_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT, setup_status TEXT NOT NULL DEFAULT 'ready' CHECK(setup_status IN ('draft','ready')), erection_type TEXT NOT NULL DEFAULT '') STRICT;
+, line_kind TEXT NOT NULL DEFAULT 'main' CHECK(line_kind IN ('main','branch')), parent_line_id TEXT REFERENCES transmission_lines(id) ON DELETE RESTRICT, junction_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT, setup_status TEXT NOT NULL DEFAULT 'ready' CHECK(setup_status IN ('draft','ready'))) STRICT;
 
 
 CREATE TABLE physical_towers (
@@ -45,6 +45,7 @@ CREATE TABLE physical_towers (
     tower_code TEXT NOT NULL UNIQUE CHECK (length(trim(tower_code)) > 0),
     asset_no TEXT,
     tower_type TEXT,
+    tower_nature TEXT CHECK(tower_nature IS NULL OR tower_nature IN ('straight','tension')),
     longitude REAL,
     latitude REAL,
     commissioned_on TEXT CHECK(commissioned_on IS NULL OR (length(commissioned_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(commissioned_on))=commissioned_on,0))),
@@ -101,7 +102,6 @@ CREATE TABLE line_history (
  parent_line_id TEXT REFERENCES transmission_lines(id) ON DELETE RESTRICT,
  junction_tower_id TEXT REFERENCES logical_towers(id) ON DELETE RESTRICT,
  setup_status TEXT NOT NULL,
- erection_type TEXT NOT NULL,
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  reason TEXT NOT NULL DEFAULT '',
  recorded_at TEXT NOT NULL,
@@ -111,7 +111,7 @@ CREATE TABLE line_history (
 CREATE TABLE physical_tower_history (
  physical_tower_id TEXT NOT NULL REFERENCES physical_towers(id) ON DELETE RESTRICT,
  version INTEGER NOT NULL CHECK(version>=1),
- asset_no TEXT,tower_type TEXT,longitude REAL,latitude REAL,
+ asset_no TEXT,tower_type TEXT,tower_nature TEXT CHECK(tower_nature IS NULL OR tower_nature IN ('straight','tension')),longitude REAL,latitude REAL,
  commissioned_on TEXT,model TEXT,height_scaled INTEGER,purpose TEXT,
  status TEXT NOT NULL,
  actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
@@ -3351,21 +3351,21 @@ BEGIN
 END;
 
 CREATE TRIGGER line_history_initial AFTER INSERT ON transmission_lines
-BEGIN INSERT INTO line_history(line_id,version,name,voltage_level_id,status,line_kind,parent_line_id,junction_tower_id,setup_status,erection_type,actor_id,reason,recorded_at)
- VALUES(NEW.id,NEW.version,NEW.name,NEW.voltage_level_id,NEW.status,NEW.line_kind,NEW.parent_line_id,NEW.junction_tower_id,NEW.setup_status,NEW.erection_type,NEW.created_by,'首次建档',NEW.created_at); END;
+BEGIN INSERT INTO line_history(line_id,version,name,voltage_level_id,status,line_kind,parent_line_id,junction_tower_id,setup_status,actor_id,reason,recorded_at)
+ VALUES(NEW.id,NEW.version,NEW.name,NEW.voltage_level_id,NEW.status,NEW.line_kind,NEW.parent_line_id,NEW.junction_tower_id,NEW.setup_status,NEW.created_by,'首次建档',NEW.created_at); END;
 CREATE TRIGGER line_history_version_guard BEFORE UPDATE ON transmission_lines
-WHEN (NEW.name IS NOT OLD.name OR NEW.voltage_level_id IS NOT OLD.voltage_level_id OR NEW.status IS NOT OLD.status OR NEW.line_kind IS NOT OLD.line_kind OR NEW.parent_line_id IS NOT OLD.parent_line_id OR NEW.junction_tower_id IS NOT OLD.junction_tower_id OR NEW.setup_status IS NOT OLD.setup_status OR NEW.erection_type IS NOT OLD.erection_type) OR NEW.version<>OLD.version
+WHEN (NEW.name IS NOT OLD.name OR NEW.voltage_level_id IS NOT OLD.voltage_level_id OR NEW.status IS NOT OLD.status OR NEW.line_kind IS NOT OLD.line_kind OR NEW.parent_line_id IS NOT OLD.parent_line_id OR NEW.junction_tower_id IS NOT OLD.junction_tower_id OR NEW.setup_status IS NOT OLD.setup_status) OR NEW.version<>OLD.version
 BEGIN
  SELECT CASE WHEN NEW.version<>OLD.version+1
- OR (NEW.name IS OLD.name AND NEW.voltage_level_id IS OLD.voltage_level_id AND NEW.status IS OLD.status AND NEW.line_kind IS OLD.line_kind AND NEW.parent_line_id IS OLD.parent_line_id AND NEW.junction_tower_id IS OLD.junction_tower_id AND NEW.setup_status IS OLD.setup_status AND NEW.erection_type IS OLD.erection_type)
+ OR (NEW.name IS OLD.name AND NEW.voltage_level_id IS OLD.voltage_level_id AND NEW.status IS OLD.status AND NEW.line_kind IS OLD.line_kind AND NEW.parent_line_id IS OLD.parent_line_id AND NEW.junction_tower_id IS OLD.junction_tower_id AND NEW.setup_status IS OLD.setup_status)
  OR NEW.updated_by IS NULL
  OR NEW.updated_at<=OLD.updated_at
  THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人和连续新版本') END;
 END;
 CREATE TRIGGER line_history_append AFTER UPDATE ON transmission_lines
-WHEN (NEW.name IS NOT OLD.name OR NEW.voltage_level_id IS NOT OLD.voltage_level_id OR NEW.status IS NOT OLD.status OR NEW.line_kind IS NOT OLD.line_kind OR NEW.parent_line_id IS NOT OLD.parent_line_id OR NEW.junction_tower_id IS NOT OLD.junction_tower_id OR NEW.setup_status IS NOT OLD.setup_status OR NEW.erection_type IS NOT OLD.erection_type)
-BEGIN INSERT INTO line_history(line_id,version,name,voltage_level_id,status,line_kind,parent_line_id,junction_tower_id,setup_status,erection_type,actor_id,reason,recorded_at)
- VALUES(NEW.id,NEW.version,NEW.name,NEW.voltage_level_id,NEW.status,NEW.line_kind,NEW.parent_line_id,NEW.junction_tower_id,NEW.setup_status,NEW.erection_type,NEW.updated_by,NEW.change_reason,NEW.updated_at); END;
+WHEN (NEW.name IS NOT OLD.name OR NEW.voltage_level_id IS NOT OLD.voltage_level_id OR NEW.status IS NOT OLD.status OR NEW.line_kind IS NOT OLD.line_kind OR NEW.parent_line_id IS NOT OLD.parent_line_id OR NEW.junction_tower_id IS NOT OLD.junction_tower_id OR NEW.setup_status IS NOT OLD.setup_status)
+BEGIN INSERT INTO line_history(line_id,version,name,voltage_level_id,status,line_kind,parent_line_id,junction_tower_id,setup_status,actor_id,reason,recorded_at)
+ VALUES(NEW.id,NEW.version,NEW.name,NEW.voltage_level_id,NEW.status,NEW.line_kind,NEW.parent_line_id,NEW.junction_tower_id,NEW.setup_status,NEW.updated_by,NEW.change_reason,NEW.updated_at); END;
 CREATE TRIGGER line_history_immutable_update BEFORE UPDATE ON line_history
 BEGIN SELECT RAISE(ABORT,'设备完整历史不可覆盖'); END;
 CREATE TRIGGER line_history_immutable_delete BEFORE DELETE ON line_history
@@ -3376,28 +3376,28 @@ BEGIN
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM transmission_lines a WHERE a.id=NEW.line_id
  AND a.version=NEW.version
- AND NEW.name IS a.name AND NEW.voltage_level_id IS a.voltage_level_id AND NEW.status IS a.status AND NEW.line_kind IS a.line_kind AND NEW.parent_line_id IS a.parent_line_id AND NEW.junction_tower_id IS a.junction_tower_id AND NEW.setup_status IS a.setup_status AND NEW.erection_type IS a.erection_type
+ AND NEW.name IS a.name AND NEW.voltage_level_id IS a.voltage_level_id AND NEW.status IS a.status AND NEW.line_kind IS a.line_kind AND NEW.parent_line_id IS a.parent_line_id AND NEW.junction_tower_id IS a.junction_tower_id AND NEW.setup_status IS a.setup_status
  AND (a.created_at=NEW.recorded_at OR a.updated_at=NEW.recorded_at)
  )
  THEN RAISE(ABORT,'设备历史必须来自已保存的真实台账完整版本') END;
 END;
 
 CREATE TRIGGER physical_tower_history_initial AFTER INSERT ON physical_towers
-BEGIN INSERT INTO physical_tower_history(physical_tower_id,version,asset_no,tower_type,longitude,latitude,commissioned_on,model,height_scaled,purpose,status,actor_id,reason,recorded_at)
- VALUES(NEW.id,NEW.version,NEW.asset_no,NEW.tower_type,NEW.longitude,NEW.latitude,NEW.commissioned_on,NEW.model,NEW.height_scaled,NEW.purpose,NEW.status,NEW.created_by,'首次建档',NEW.created_at); END;
+BEGIN INSERT INTO physical_tower_history(physical_tower_id,version,asset_no,tower_type,tower_nature,longitude,latitude,commissioned_on,model,height_scaled,purpose,status,actor_id,reason,recorded_at)
+ VALUES(NEW.id,NEW.version,NEW.asset_no,NEW.tower_type,NEW.tower_nature,NEW.longitude,NEW.latitude,NEW.commissioned_on,NEW.model,NEW.height_scaled,NEW.purpose,NEW.status,NEW.created_by,'首次建档',NEW.created_at); END;
 CREATE TRIGGER physical_tower_history_version_guard BEFORE UPDATE ON physical_towers
-WHEN (NEW.asset_no IS NOT OLD.asset_no OR NEW.tower_type IS NOT OLD.tower_type OR NEW.longitude IS NOT OLD.longitude OR NEW.latitude IS NOT OLD.latitude OR NEW.commissioned_on IS NOT OLD.commissioned_on OR NEW.model IS NOT OLD.model OR NEW.height_scaled IS NOT OLD.height_scaled OR NEW.purpose IS NOT OLD.purpose OR NEW.status IS NOT OLD.status) OR NEW.version<>OLD.version
+WHEN (NEW.asset_no IS NOT OLD.asset_no OR NEW.tower_type IS NOT OLD.tower_type OR NEW.tower_nature IS NOT OLD.tower_nature OR NEW.longitude IS NOT OLD.longitude OR NEW.latitude IS NOT OLD.latitude OR NEW.commissioned_on IS NOT OLD.commissioned_on OR NEW.model IS NOT OLD.model OR NEW.height_scaled IS NOT OLD.height_scaled OR NEW.purpose IS NOT OLD.purpose OR NEW.status IS NOT OLD.status) OR NEW.version<>OLD.version
 BEGIN
  SELECT CASE WHEN NEW.version<>OLD.version+1
- OR (NEW.asset_no IS OLD.asset_no AND NEW.tower_type IS OLD.tower_type AND NEW.longitude IS OLD.longitude AND NEW.latitude IS OLD.latitude AND NEW.commissioned_on IS OLD.commissioned_on AND NEW.model IS OLD.model AND NEW.height_scaled IS OLD.height_scaled AND NEW.purpose IS OLD.purpose AND NEW.status IS OLD.status)
+ OR (NEW.asset_no IS OLD.asset_no AND NEW.tower_type IS OLD.tower_type AND NEW.tower_nature IS OLD.tower_nature AND NEW.longitude IS OLD.longitude AND NEW.latitude IS OLD.latitude AND NEW.commissioned_on IS OLD.commissioned_on AND NEW.model IS OLD.model AND NEW.height_scaled IS OLD.height_scaled AND NEW.purpose IS OLD.purpose AND NEW.status IS OLD.status)
  OR NEW.updated_by IS NULL
  OR NEW.updated_at<=OLD.updated_at
  THEN RAISE(ABORT,'设备台账变更必须有真实属性变化、责任人和连续新版本') END;
 END;
 CREATE TRIGGER physical_tower_history_append AFTER UPDATE ON physical_towers
-WHEN (NEW.asset_no IS NOT OLD.asset_no OR NEW.tower_type IS NOT OLD.tower_type OR NEW.longitude IS NOT OLD.longitude OR NEW.latitude IS NOT OLD.latitude OR NEW.commissioned_on IS NOT OLD.commissioned_on OR NEW.model IS NOT OLD.model OR NEW.height_scaled IS NOT OLD.height_scaled OR NEW.purpose IS NOT OLD.purpose OR NEW.status IS NOT OLD.status)
-BEGIN INSERT INTO physical_tower_history(physical_tower_id,version,asset_no,tower_type,longitude,latitude,commissioned_on,model,height_scaled,purpose,status,actor_id,reason,recorded_at)
- VALUES(NEW.id,NEW.version,NEW.asset_no,NEW.tower_type,NEW.longitude,NEW.latitude,NEW.commissioned_on,NEW.model,NEW.height_scaled,NEW.purpose,NEW.status,NEW.updated_by,NEW.change_reason,NEW.updated_at); END;
+WHEN (NEW.asset_no IS NOT OLD.asset_no OR NEW.tower_type IS NOT OLD.tower_type OR NEW.tower_nature IS NOT OLD.tower_nature OR NEW.longitude IS NOT OLD.longitude OR NEW.latitude IS NOT OLD.latitude OR NEW.commissioned_on IS NOT OLD.commissioned_on OR NEW.model IS NOT OLD.model OR NEW.height_scaled IS NOT OLD.height_scaled OR NEW.purpose IS NOT OLD.purpose OR NEW.status IS NOT OLD.status)
+BEGIN INSERT INTO physical_tower_history(physical_tower_id,version,asset_no,tower_type,tower_nature,longitude,latitude,commissioned_on,model,height_scaled,purpose,status,actor_id,reason,recorded_at)
+ VALUES(NEW.id,NEW.version,NEW.asset_no,NEW.tower_type,NEW.tower_nature,NEW.longitude,NEW.latitude,NEW.commissioned_on,NEW.model,NEW.height_scaled,NEW.purpose,NEW.status,NEW.updated_by,NEW.change_reason,NEW.updated_at); END;
 CREATE TRIGGER physical_tower_history_immutable_update BEFORE UPDATE ON physical_tower_history
 BEGIN SELECT RAISE(ABORT,'设备完整历史不可覆盖'); END;
 CREATE TRIGGER physical_tower_history_immutable_delete BEFORE DELETE ON physical_tower_history
@@ -3408,7 +3408,7 @@ BEGIN
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM physical_towers a WHERE a.id=NEW.physical_tower_id
  AND a.version=NEW.version
- AND NEW.asset_no IS a.asset_no AND NEW.tower_type IS a.tower_type AND NEW.longitude IS a.longitude AND NEW.latitude IS a.latitude AND NEW.commissioned_on IS a.commissioned_on AND NEW.model IS a.model AND NEW.height_scaled IS a.height_scaled AND NEW.purpose IS a.purpose AND NEW.status IS a.status
+ AND NEW.asset_no IS a.asset_no AND NEW.tower_type IS a.tower_type AND NEW.tower_nature IS a.tower_nature AND NEW.longitude IS a.longitude AND NEW.latitude IS a.latitude AND NEW.commissioned_on IS a.commissioned_on AND NEW.model IS a.model AND NEW.height_scaled IS a.height_scaled AND NEW.purpose IS a.purpose AND NEW.status IS a.status
  AND (a.created_at=NEW.recorded_at OR a.updated_at=NEW.recorded_at)
  )
  THEN RAISE(ABORT,'设备历史必须来自已保存的真实台账完整版本') END;

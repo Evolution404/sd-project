@@ -1,3 +1,4 @@
+import { columnIndex } from "../workbook-helpers.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
@@ -5,17 +6,7 @@ import { fixture } from "../helpers.mjs";
 import { createExchange } from "../../server/exchange/service.mjs";
 import { makeWorkbook } from "../../server/exchange/workbook.mjs";
 
-const equipmentLabels = {
-  tower_type: "塔型",
-  parent_line_name: "所属主线名称（支线填写）",
-  junction_tower_no: "主线接入杆塔号（支线填写）",
-  start_line_name: "起点所属线路（支线接入时填写）",
-  management_length: "输电中心管辖长度（米）",
-};
-const headerIndex = (sheet, name) => sheet.getRow(1).values
-  .findIndex((cell) =>
-    String(cell).endsWith("|" + name) ||
-    String(cell) === equipmentLabels[name]);
+const headerIndex = columnIndex;
 
 test("single workbook creates main line, junction tower, branch, both circuits and explicit spans in dependency order", async (t) => {
   const { s, user } = fixture(t), exchange = createExchange(s);
@@ -84,7 +75,7 @@ test("single workbook creates main line, junction tower, branch, both circuits a
   assert.equal(lineSheet.getRow(2).getCell(headerIndex(lineSheet, "parent_line_name")).value, main.name);
   assert.equal(lineSheet.getRow(2).getCell(headerIndex(lineSheet, "junction_tower_no")).value, "#2");
   assert.equal(spanSheet.getRow(2).getCell(headerIndex(spanSheet, "start_line_name")).value, main.name);
-  assert.equal(Number(spanSheet.getRow(2).getCell(headerIndex(spanSheet, "management_length")).value), 1255);
+  assert.equal(Number(spanSheet.getRow(2).getCell(headerIndex(spanSheet, "transmission_center_length_mm")).value), 1255);
   for (const column of ["id", "expected_version", "start_tower_id", "end_tower_id"]) {
     assert.equal(spanSheet.getColumn(headerIndex(spanSheet, column)).hidden, true);
   }
@@ -99,7 +90,7 @@ test("single workbook creates main line, junction tower, branch, both circuits a
   });
   assert.equal(s.catalog.get("spans", branchSpan.id).version, branchSpan.version);
 
-  spanSheet.getRow(2).getCell(headerIndex(spanSheet, "management_length")).value = 1300.25;
+  spanSheet.getRow(2).getCell(headerIndex(spanSheet, "transmission_center_length_mm")).value = 1300.25;
   recheck = await exchange.preview(user, "assets",
     Buffer.from(await exported.xlsx.writeBuffer()), { mode: "update" });
   assert.deepEqual(recheck.issues, []);
@@ -153,7 +144,7 @@ test("span preflight refuses cross-line topology unrelated to the configured bra
     line_id: main.id, tower_no: "#1",
   });
   s.catalog.save(user, "towers", {
-    line_id: other.id, tower_no: "#1", confirm_distinct: true,
+    line_id: other.id, tower_no: "#1",
   });
   const branch = s.catalog.save(user, "lines", {
     name: "被核查支线", voltage_level_id: voltage.id,

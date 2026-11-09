@@ -226,7 +226,6 @@ export const catalogDefinitions = {
       }),
       ref("parent_line_id", "主线路", "lines"),
       ref("junction_tower_id", "分支接入塔", "towers"),
-      field("erection_type", "架设方式"),
     ],
     equipment: true,
     history: "line_history",
@@ -244,6 +243,7 @@ export const catalogDefinitions = {
     fields: [
       field("asset_no", "现场铭牌号（已有资料）", "text", { nullable: true }),
       field("tower_type", "塔型", "text", { nullable: true }),
+      field("tower_nature", "杆塔性质", "select", { options: ["straight", "tension"], nullable: true }),
       field("model", "型号"),
       field("height_scaled", "杆塔高度（米）", "quantity"),
       field("purpose", "用途"),
@@ -425,6 +425,7 @@ export function createCatalog(repo) {
     if (kind === "towers") {
       const line = repo.find("transmission_lines", "id", row.line_id);
       return {
+        tower_nature: repo.find("physical_towers", "id", row.physical_tower_id)?.tower_nature ?? null,
         line_name: line?.name || "",
         voltage_level_name: line ? repo.find("voltage_levels", "id", line.voltage_level_id)?.name || "" : "",
       };
@@ -538,7 +539,7 @@ export function createCatalog(repo) {
         : {}),
     };
   }
-  function audit(actor, entity, entityId, action, before, after) {
+  function audit(actor, entity, entityId, action, before, after, recordedAt = now()) {
     repo.insert("audit_events", {
       id: id(),
       actor_id: actor.id,
@@ -547,7 +548,7 @@ export function createCatalog(repo) {
       action,
       before_json: before ? JSON.stringify(before) : null,
       after_json: after ? JSON.stringify(after) : null,
-      created_at: now(),
+      created_at: recordedAt,
     });
   }
   function save(actor, kind, input, key) {
@@ -598,11 +599,7 @@ export function createCatalog(repo) {
       if (kind === "towers" && input.tower_no !== undefined)
         input.tower_no = String(input.tower_no).trim();
       if (kind === "towers" && !previous) {
-        physicalDecision = input.physical_tower_id
-          ? "shared"
-          : input.confirm_distinct
-            ? "distinct"
-            : "new";
+        physicalDecision = input.physical_tower_id ? "shared" : "new";
         const line = get("lines", input.line_id);
         requireValue(line.status === "active", "请选择在运线路");
         const siblings = repo.where("logical_towers", { line_id: line.id });
@@ -627,22 +624,6 @@ export function createCatalog(repo) {
           { physical_tower_id: "共塔必须明确选择已有实物" },
         );
         if (!input.physical_tower_id) {
-          const candidates = repo
-            .where("logical_towers", { tower_no: input.tower_no })
-            .filter(
-              (tower) => tower.physical_tower_id && tower.status !== "retired",
-            );
-          requireValue(
-            !candidates.length || input.confirm_distinct === true,
-            "已有相同杆塔号，须明确选择共用已有实体或确认是不同实物",
-            409,
-            {
-              physical_candidates: candidates.map((tower) => ({
-                id: tower.physical_tower_id,
-                label: label("towers", tower),
-              })),
-            },
-          );
           input.physical_tower_id = save(
             actor,
             "physical",
@@ -873,7 +854,7 @@ export function createCatalog(repo) {
           audit(actor, kind, keyId, "revise", previous, {
             ...previous,
             ...values,
-          });
+          }, timestamp);
         }
         if (c.equipment)
           Object.assign(values, {

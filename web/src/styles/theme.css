@@ -173,6 +173,8 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 .toolbar .el-input {
   max-width: 280px;
 }
+.toolbar .el-button + .el-button {margin-left:0}
+.toolbar h2 {margin:0}
 .panel {
   padding: 22px;
   background: var(--surface);
@@ -273,11 +275,17 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 .el-dialog {
   max-width: calc(100vw - 28px);
   border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  margin: min(8vh, 64px) auto;
+  max-height: calc(100dvh - min(16vh, 128px));
 }
 .el-dialog__body {
-  max-height: 72vh;
+  min-height: 0;
   overflow: auto;
 }
+.el-dialog__header, .el-dialog__footer {flex-shrink:0}
+.el-descriptions__content, .el-descriptions__label {overflow-wrap:anywhere}
 .el-upload__input {
   display: none !important;
 }
@@ -320,7 +328,6 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   .panel {padding:14px}
   .metric {padding:17px}
   .el-pagination {justify-content:flex-start;flex-wrap:wrap}
-  .el-dialog__body {max-height:68vh}
   .toolbar {gap:8px}
 }
 @media (prefers-reduced-motion: reduce) {

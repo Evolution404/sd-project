@@ -1,5 +1,9 @@
 <script setup lang="ts">
-import { useListRoute, useEntityRoute } from "../services/page-navigation";
+import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
+import { useEntityDialog } from "../services/entity-dialog";
+import { useDescriptionColumns } from "../services/responsive-descriptions";
+const descriptionColumns = useDescriptionColumns();
+import { useListRoute } from "../services/page-navigation";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
@@ -16,6 +20,7 @@ const adoptedOperation = ref<Row | null>(null),
   lastOperationId = ref("");
 const props = defineProps<{ user: Row }>();
 const rows = ref<Row[]>([]),
+  listLoading = ref(false),
   total = ref(0),
   page = ref(1),
   query = ref(""),
@@ -100,14 +105,27 @@ function filterTable(value: Record<string, string>) {
   page.value = 1;
   load();
 }
+let loadSequence = 0;
 async function load() {
-  const result = await api(
-    `/demands?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
-  );
-  rows.value = result.items;
-  total.value = result.total;
-  if (detail.value)
-    detail.value = await api("/demands/" + detail.value.id + "?deleted=true");
+  const sequence = ++loadSequence;
+  listLoading.value = true;
+  try {
+    const result = await api(
+      `/demands?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
+    );
+    if (sequence !== loadSequence) return;
+    rows.value = result.items;
+    total.value = result.total;
+    const id = detail.value?.id;
+    if (id) {
+      const updated = await api("/demands/" + id + "?deleted=true");
+      if (sequence === loadSequence && detail.value?.id === id) detail.value = updated;
+    }
+  } catch (error) {
+    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+  } finally {
+    if (sequence === loadSequence) listLoading.value = false;
+  }
 }
 async function edit(row?: Row) {
   editing.value = row || null;
@@ -210,9 +228,10 @@ function addLocation() {
   });
 }
 async function save() {
-  if (!(await formRef.value?.validate().catch(() => false))) return;
+  if (loading.value) return;
   loading.value = true;
   try {
+    if (!(await formRef.value?.validate().catch(() => false))) return;
     const input = {
       ...Object.fromEntries(
         [
@@ -255,6 +274,7 @@ async function save() {
         );
         form.value.duplicate_decision = "separate";
         form.value.duplicate_matches = errors.value.duplicates;
+        loading.value = false;
         await save();
       } catch {}
     } else ElMessage.error((e as Error).message);
@@ -303,27 +323,23 @@ async function remove(row: Row) {
     await api("/demands/" + row.id, "DELETE", {
       expected_version: row.current_version,
     });
-    await navigation.close();
+    await detailDialog.close();
     await load();
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
-const navigation = useEntityRoute(detail, id => api('/demands/' + id + '?deleted=true'));
-const { routeError, routeLoading } = navigation;
+const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = null; quoteOpen.value = false; });
+const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   operations.value = (await api("/catalog/operations?page_size=200")).items;
   businessLabels.value = await api("/display-labels");
   await load();
-  await navigation.syncDetail();
 });
 </script>
 <template>
-  <ElAlert v-if="routeError" :title="routeError" type="error" :closable="false" class="error-banner" />
-  <ElSkeleton v-if="routeLoading" :rows="5" animated />
-  <template v-else-if="!detail"
-    ><div class="page-heading">
+  <div class="page-heading">
       <div>
         <div class="section-caption">专业需求管理</div>
         <h1>专业需求</h1>
@@ -351,7 +367,7 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <BusinessTable :rows="rows" :columns="demandColumns" table-key="demand:list" selectable :filter-state="columnFilters"
+      <BusinessTable :loading="listLoading" :rows="rows" :columns="demandColumns" table-key="demand:list" selectable :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @selection-change="selected = $event" @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
@@ -362,7 +378,7 @@ onMounted(async () => {
           <span v-else>{{ row[column.key] ?? '—' }}</span>
         </template>
         <template #actions="{ row }">
-          <ElButton size="small" @click="navigation.open(row.id)">查看</ElButton>
+          <ElButton size="small" @click="detailDialog.open(row.id)">查看</ElButton>
         </template>
       </BusinessTable>
       <ElPagination
@@ -372,10 +388,10 @@ onMounted(async () => {
         layout="prev, pager, next, total"
         @current-change="load"
       /></div
-  ></template>
-  <template v-else
-    ><div class="detail-header">
-      <ElButton @click="navigation.close()">返回需求列表</ElButton>
+  >
+  <BusinessDetailDialog :open="detailOpen" title="需求详情" :loading="detailLoading" :error="detailError"
+    @close="detailDialog.close" @retry="detailDialog.reload">
+    <template v-if="detail"><div class="detail-header">
       <h1>{{ detail.demand_no }} · {{ detail.operation_snapshot }}</h1>
       <ElTag
         >{{ statusText[detail.status] }} · 第 {{ detail.current_version }} 版</ElTag
@@ -414,7 +430,7 @@ onMounted(async () => {
     </div>
     <div class="panel">
       <h2>需求定义</h2>
-      <ElDescriptions :column="2" border
+      <ElDescriptions :column="descriptionColumns" border
         ><ElDescriptionsItem label="问题描述">{{
           detail.problem_description
         }}</ElDescriptionsItem
@@ -477,7 +493,8 @@ onMounted(async () => {
       owner-kind="demand_id"
       :owner-id="detail.id"
   /></template>
-  <ElDialog
+  </BusinessDetailDialog>
+  <ElDialog append-to-body
     v-model="dialog"
     :title="editing ? '修订需求' : '新增专业需求'"
     width="1000px"
@@ -686,7 +703,7 @@ onMounted(async () => {
     :expected-version="detail.current_version"
     @confirmed="load"
   />
-  <ElDialog
+  <ElDialog append-to-body
     :model-value="!!history"
     title="需求完整历史"
     width="900px"

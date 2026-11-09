@@ -13,12 +13,14 @@ const tab = computed({
 });
 const
   rows = ref<Row[]>([]),
+  listLoading = ref(false),
   total = ref(0),
   page = ref(1),
   sortKey = ref(""),
   sortDirection = ref("desc"),
   columnFilters = ref<Record<string, string>>({}),
   dialog = ref(false),
+  saving = ref(false),
   form = ref<Row>({}),
   editing = ref<Row | null>(null);
 const tableColumns = computed<TableColumn[]>(() => {
@@ -52,15 +54,25 @@ function tableFilter(value: Record<string, string>) {
   page.value = 1;
   load();
 }
+let loadSequence = 0;
 async function load() {
-  const q = new URLSearchParams({
-    page_size: "30", page: String(page.value),
-    sort: sortKey.value || "created_at", direction: sortDirection.value,
-    filters: JSON.stringify(columnFilters.value),
-  });
-  const response = await api("/" + tab.value + "?" + q.toString());
-  rows.value = response.items;
-  total.value = response.total;
+  const sequence = ++loadSequence;
+  listLoading.value = true;
+  try {
+    const q = new URLSearchParams({
+      page_size: "30", page: String(page.value),
+      sort: sortKey.value || "created_at", direction: sortDirection.value,
+      filters: JSON.stringify(columnFilters.value),
+    });
+    const response = await api("/" + tab.value + "?" + q.toString());
+    if (sequence !== loadSequence) return;
+    rows.value = response.items;
+    total.value = response.total;
+  } catch (error) {
+    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+  } finally {
+    if (sequence === loadSequence) listLoading.value = false;
+  }
 }
 function edit(row?: Row) {
   editing.value = row || null;
@@ -77,6 +89,8 @@ function edit(row?: Row) {
   dialog.value = true;
 }
 async function save() {
+  if (saving.value) return;
+  saving.value = true;
   try {
     await api(
       "/" + tab.value + (editing.value ? "/" + editing.value.id : ""),
@@ -87,6 +101,8 @@ async function save() {
     await load();
   } catch (e) {
     ElMessage.error((e as Error).message);
+  } finally {
+    saving.value = false;
   }
 }
 async function remove(row: Row) {
@@ -121,7 +137,7 @@ onMounted(load);
       name="ips" /><ElTabPane label="操作审计" name="audit"
   /></ElTabs>
   <div class="panel">
-    <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
+    <BusinessTable :loading="listLoading" :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">
       <template #cell="{ row, column }">
@@ -138,7 +154,7 @@ onMounted(load);
     <ElPagination v-model:current-page="page" :page-size="30" :total="total"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
-  <ElDialog
+  <ElDialog append-to-body
     v-model="dialog"
     :title="
       tab === 'users' ? '用户账号' : tab === 'ips' ? 'IP授权' : '审计说明'
@@ -176,7 +192,7 @@ onMounted(load);
             type="textarea" /></ElFormItem></template></ElForm
     ><template #footer
       ><ElButton @click="dialog = false">取消</ElButton
-      ><ElButton type="primary" @click="save">保存</ElButton></template
+      ><ElButton type="primary" :loading="saving" @click="save">保存</ElButton></template
     ></ElDialog
   >
 </template>

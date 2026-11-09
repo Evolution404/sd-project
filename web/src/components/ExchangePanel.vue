@@ -125,7 +125,6 @@ async function exportFile(report = false, selected = false) {
     for (const id of props.selectedIds || []) query.append("id", id);
   await download(
     `/exchange/${props.kind}/export?${query}`,
-    `${props.kind}-${report ? "报表" : "数据维护"}.xlsx`,
   );
 }
 async function upload(file: Row) {
@@ -186,7 +185,7 @@ async function commit() {
 </script>
 <template>
   <ElButton @click="dialog = true">Excel 批量处理</ElButton>
-  <ElDialog
+  <ElDialog append-to-body
     v-model="dialog"
     :title="kind === 'assets' ? '设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）' : 'Excel 数据交换'"
     width="1060px"
@@ -217,7 +216,6 @@ async function commit() {
         @click="
           download(
             `/exchange/${kind}/template?project_id=${projectId || ''}`,
-            `${kind}-模板.xlsx`,
           )
         "
         >空白模板</ElButton

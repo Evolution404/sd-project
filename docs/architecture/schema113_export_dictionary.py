@@ -95,7 +95,6 @@ entity|审计事件对应的业务实体类型
 entity_id|审计事件对应实体的稳定身份字符串
 entry_hint|操作类型的录入指引文字
 entry_id|实际费用稳定身份
-erection_type|线路/杆塔架设类型
 event_seq|同一业务对象生命周期或项目需求关联/解绑事件的严格连续序号
 evidence|现场实际或成本确认的书面依据
 expected_on|专业需求期望办理日期
@@ -263,6 +262,7 @@ tower_code|物理杆塔业务编码
 tower_no|线路内的逻辑杆塔编号
 tower_no_snapshot|需求首次登记时的杆塔编号
 tower_type|杆塔类型
+tower_nature|杆塔性质（直线或耐张，可留空待核实）
 transmission_center_length_mm|输电中心管辖的该档距长度，毫米整数，NULL表示尚未核定，0表示明确无管辖长度
 type_id|数据字典分类身份
 type_snapshot|业务确认时的来源类别文字

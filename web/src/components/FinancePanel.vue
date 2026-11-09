@@ -50,6 +50,7 @@ const displayedNodes = computed(() =>
 );
 const emit = defineEmits(["changed"]);
 const costs = ref<Row[]>([]),
+  listLoading = ref(false),
   bills = ref<Row[]>([]),
   summary = ref<Row>({}),
   dialog = ref(""),
@@ -114,23 +115,30 @@ const costPage = ref(1),
   costTotal = ref(0),
   billTotal = ref(0),
   reconTotal = ref(0);
+let loadSequence = 0;
 async function load() {
-  const costResult = await api(
-      `/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`,
-    ),
-    billResult = await api(
-      `/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30&sort=${encodeURIComponent(financeSort.value.bills || "created_at")}&direction=${financeDirection.value.bills}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.bills))}`,
-    );
-  costs.value = costResult.items;
-  costTotal.value = costResult.total;
-  bills.value = billResult.items;
-  billTotal.value = billResult.total;
-  summary.value = await api(`/projects/${props.project.id}/summary`);
-  const reconResult = await api(
-      `/reconciliations?page=${reconPage.value}&page_size=30&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}&sort=${encodeURIComponent(financeSort.value.reconciliations || "created_at")}&direction=${financeDirection.value.reconciliations}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.reconciliations))}`,
-    );
-  reconciliations.value = reconResult.items;
-  reconTotal.value = reconResult.total;
+  const sequence = ++loadSequence;
+  listLoading.value = true;
+  try {
+    const [costResult, billResult, summaryResult, reconResult] = await Promise.all([
+      api(`/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`),
+      api(`/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30&sort=${encodeURIComponent(financeSort.value.bills || "created_at")}&direction=${financeDirection.value.bills}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.bills))}`),
+      api(`/projects/${props.project.id}/summary`),
+      api(`/reconciliations?page=${reconPage.value}&page_size=30&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}&sort=${encodeURIComponent(financeSort.value.reconciliations || "created_at")}&direction=${financeDirection.value.reconciliations}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.reconciliations))}`),
+    ]);
+    if (sequence !== loadSequence) return;
+    costs.value = costResult.items;
+    costTotal.value = costResult.total;
+    bills.value = billResult.items;
+    billTotal.value = billResult.total;
+    summary.value = summaryResult;
+    reconciliations.value = reconResult.items;
+    reconTotal.value = reconResult.total;
+  } catch (error) {
+    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+  } finally {
+    if (sequence === loadSequence) listLoading.value = false;
+  }
 }
 function edit(type: string, row?: Row) {
   editing.value = row || null;
@@ -193,9 +201,10 @@ function edit(type: string, row?: Row) {
         };
 }
 async function save() {
-  if (!(await formRef.value?.validate().catch(() => false))) return;
+  if (busy.value) return;
   busy.value = true;
   try {
+    if (!(await formRef.value?.validate().catch(() => false))) return;
     if (dialog.value === "node")
       await api(
         `/projects/${props.project.id}/nodes${editing.value ? "/" + editing.value.id : ""}`,
@@ -390,7 +399,7 @@ watch(() => props.project.id, load, { immediate: true });
         >核定费用</ElButton
       >
     </div>
-    <BusinessTable table-key="finance:costs" :filter-state="financeFilters.costs"
+    <BusinessTable table-key="finance:costs" :loading="listLoading" :filter-state="financeFilters.costs"
       :sort-state="{ prop: financeSort.costs, order: financeSort.costs ? (financeDirection.costs === 'asc' ? 'ascending' : 'descending') : null }" :rows="costs" :columns="financeColumns.costs" :actions-width="190"
       @sort-change="financeTableSort('costs', $event)" @filter-change="financeTableFilter('costs', $event)">
       <template #cell="{ row, column }">
@@ -425,7 +434,7 @@ watch(() => props.project.id, load, { immediate: true });
         @changed="load"
       />
     </div>
-    <BusinessTable table-key="finance:bills" :filter-state="financeFilters.bills"
+    <BusinessTable table-key="finance:bills" :loading="listLoading" :filter-state="financeFilters.bills"
       :sort-state="{ prop: financeSort.bills, order: financeSort.bills ? (financeDirection.bills === 'asc' ? 'ascending' : 'descending') : null }" :rows="bills" :columns="financeColumns.bills" selectable :actions-width="190"
       @selection-change="selected = $event" @sort-change="financeTableSort('bills', $event)"
       @filter-change="financeTableFilter('bills', $event)">
@@ -460,7 +469,7 @@ watch(() => props.project.id, load, { immediate: true });
         >新增正式核对</ElButton
       >
     </div>
-    <BusinessTable table-key="finance:reconciliations" :filter-state="financeFilters.reconciliations"
+    <BusinessTable table-key="finance:reconciliations" :loading="listLoading" :filter-state="financeFilters.reconciliations"
       :sort-state="{ prop: financeSort.reconciliations, order: financeSort.reconciliations ? (financeDirection.reconciliations === 'asc' ? 'ascending' : 'descending') : null }" :rows="reconciliations"
       :columns="financeColumns.reconciliations" :actions-width="190"
       @sort-change="financeTableSort('reconciliations', $event)"
@@ -491,7 +500,7 @@ watch(() => props.project.id, load, { immediate: true });
       </template>
     </BusinessTable>
   </div>
-  <ElDialog
+  <ElDialog append-to-body
     :model-value="!!dialog"
     :title="
       {
@@ -750,7 +759,7 @@ watch(() => props.project.id, load, { immediate: true });
       ></template
     ></ElDialog
   >
-  <ElDialog
+  <ElDialog append-to-body
     :model-value="!!history"
     title="正式版本历史"
     width="950px"

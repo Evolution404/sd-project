@@ -1,0 +1,99 @@
+import { DatabaseSync, backup } from "node:sqlite";
+import { createHash } from "node:crypto";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, cpSync, mkdtempSync, rmSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
+import { tmpdir } from "node:os";
+import { restoreBackup } from "./restore.mjs";
+
+const previousStructure = "40d3e66bafacce2385c5a1f6e211e90d1810796cf8e736e0ff1cfd82ee108b13";
+const equipmentTables = new Set(["transmission_lines", "line_history", "physical_towers", "physical_tower_history"]);
+const quote = name => '"' + name.replaceAll('"', '""') + '"';
+const digest = value => createHash("sha256").update(value).digest("hex");
+function inventory(db) {
+  return db.prepare("SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL ORDER BY type,name").all();
+}
+function checkIntegrity(db) {
+  if (db.prepare("PRAGMA integrity_check").get().integrity_check !== "ok" || db.prepare("PRAGMA foreign_key_check").all().length)
+    throw Error("数据库完整性校验失败，升级已停止");
+}
+function facts(db, columns) {
+  return Object.fromEntries([...columns].map(([table, fields]) => {
+    const rows = db.prepare(`SELECT ${fields.map(quote).join(",")} FROM ${quote(table)}`).all().map(row => JSON.stringify(row)).sort();
+    return [table, { count: rows.length, sha256: digest(JSON.stringify(rows)) }];
+  }));
+}
+function rebuild(db, target, columns, expectedFacts) {
+  db.exec("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE");
+  try {
+    if (digest(JSON.stringify(inventory(db))) !== previousStructure || JSON.stringify(facts(db, columns)) !== JSON.stringify(expectedFacts))
+      throw Error("备份后数据库发生变化，请停止服务后重新执行升级");
+    for (const item of inventory(db).filter(item => item.type !== "table"))
+      db.exec(`DROP ${item.type.toUpperCase()} ${quote(item.name)}`);
+    for (const table of equipmentTables) {
+      const fields = columns.get(table).map(quote).join(",");
+      db.exec(`CREATE TEMP TABLE ${quote("upgrade_" + table)} AS SELECT ${fields} FROM ${quote(table)}`);
+      db.exec(`DROP TABLE ${quote(table)}`);
+      db.exec(target.find(item => item.type === "table" && item.name === table).sql);
+      db.exec(`INSERT INTO ${quote(table)} (${fields}) SELECT ${fields} FROM ${quote("upgrade_" + table)}`);
+      db.exec(`DROP TABLE temp.${quote("upgrade_" + table)}`);
+    }
+    for (const type of ["view", "index", "trigger"])
+      for (const item of target.filter(item => item.type === type)) db.exec(item.sql);
+    if (JSON.stringify(inventory(db)) !== JSON.stringify(target)) throw Error("升级结构与唯一权威SQL不一致");
+    if (JSON.stringify(facts(db, columns)) !== JSON.stringify(expectedFacts)) throw Error("升级事实复核失败");
+    checkIntegrity(db);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  } finally {
+    db.exec("PRAGMA foreign_keys=ON");
+  }
+}
+
+// Explicit, fingerprint-bound maintenance action. The normal startup path
+// continues to reject unmatched structures and never invokes this operation.
+export async function upgradeEquipmentFields(dataDirectory, backupDirectory) {
+  const directory = resolve(dataDirectory), destination = resolve(backupDirectory);
+  if (!existsSync(join(directory, "schema113.sqlite"))) throw Error("现有数据库不存在");
+  if (destination === directory || destination === join(directory, "objects") || destination.startsWith(join(directory, "objects") + sep) || existsSync(destination))
+    throw Error("备份目标必须是新的独立目录");
+  const db = new DatabaseSync(join(directory, "schema113.sqlite"));
+  const reference = new DatabaseSync(":memory:");
+  let temporary;
+  try {
+    reference.exec(readFileSync(new URL("./schema/schema113.sql", import.meta.url), "utf8"));
+    const target = inventory(reference), current = inventory(db);
+    if (JSON.stringify(current) === JSON.stringify(target)) return { status: "already_current" };
+    if (digest(JSON.stringify(current)) !== previousStructure) throw Error("数据库不匹配本次已批准的升级基线");
+    checkIntegrity(db);
+    const columns = new Map(target.filter(item => item.type === "table").map(item => {
+      const oldFields = new Set(db.prepare(`PRAGMA table_info(${quote(item.name)})`).all().map(field => field.name));
+      const shared = reference.prepare(`PRAGMA table_info(${quote(item.name)})`).all().map(field => field.name).filter(name => oldFields.has(name));
+      return [item.name, shared];
+    }));
+    const expectedFacts = facts(db, columns);
+    mkdirSync(destination, { recursive: true });
+    await backup(db, join(destination, "schema113.sqlite"));
+    if (existsSync(join(directory, "objects"))) cpSync(join(directory, "objects"), join(destination, "objects"), { recursive: true });
+    temporary = mkdtempSync(join(tmpdir(), "sd-equipment-upgrade-"));
+    const rehearsalDirectory = join(temporary, "data");
+    restoreBackup(destination, rehearsalDirectory);
+    const rehearsal = new DatabaseSync(join(rehearsalDirectory, "schema113.sqlite"));
+    try { rebuild(rehearsal, target, columns, expectedFacts); }
+    finally { rehearsal.close(); }
+    rebuild(db, target, columns, expectedFacts);
+    const receipt = {
+      status: "completed", completed_at: new Date().toISOString(), database: directory, backup: destination,
+      previous_structure_sha256: previousStructure, structure_sha256: digest(JSON.stringify(target)),
+      tables: expectedFacts, preserved_facts_sha256: digest(JSON.stringify(expectedFacts)),
+      backup_sha256: digest(readFileSync(join(destination, "schema113.sqlite"))),
+    };
+    writeFileSync(join(destination, "UPGRADE-RECEIPT.json"), JSON.stringify(receipt, null, 2) + "\n");
+    return receipt;
+  } finally {
+    if (temporary) rmSync(temporary, { recursive: true, force: true });
+    reference.close();
+    db.close();
+  }
+}

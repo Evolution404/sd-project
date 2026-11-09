@@ -97,8 +97,6 @@ export function createAssetExchange(system) {
         requireValue(shared.physical_tower_id, "选定回路尚无实物关联");
         values.physical_tower_id = shared.physical_tower_id;
       }
-      values.confirm_distinct =
-        row.distinct_physical === true || row.distinct_physical === "是";
       values.physical_properties = Object.fromEntries(
         physicalKeys.filter(
           (key) => row[key] !== undefined,
@@ -263,17 +261,6 @@ export function createAssetExchange(system) {
               row.sharing_tower_no, "共塔",
             );
           }
-          const potentialShared = savedTowers.some((tower) =>
-            tower.tower_no === String(row.tower_no) &&
-            tower.physical_tower_id && tower.status !== "retired" &&
-            tower.id !== row.id) || towers.some((tower) =>
-              tower !== row && tower.tower_no === String(row.tower_no) &&
-              tower.line_name !== row.line_name);
-          requireValue(
-            existing || row.sharing_line_name || row.physical_tower_id ||
-              !potentialShared || row.distinct_physical === true,
-            "已有同号杆塔，请填写共塔关系或明确确认不同实物",
-          );
         } else {
           requireValue(row.line_name && row.start_tower_no &&
             row.end_tower_no, "档距须填写所属线路、起点和终点杆塔号");

@@ -1,6 +1,5 @@
-import { ref, watch, onUnmounted, type Ref } from "vue";
+import { watch, type Ref } from "vue";
 import { useRoute, useRouter, type LocationQueryRaw } from "vue-router";
-import type { Row } from "./api";
 
 type QueryState = Record<string, Ref<string | number | boolean | Record<string, string>>>;
 // URL query holds view state only. Mutation forms remain local until saved.
@@ -45,34 +44,4 @@ export function useListRoute(state: QueryState, refresh: () => unknown) {
     }
     void router.replace({ query });
   }, { deep: true, flush: "sync" });
-}
-
-export function useEntityRoute(detail: Ref<Row | null>, fetchEntity: (id: string) => Promise<Row>) {
-  const route = useRoute(), router = useRouter();
-  const routeError = ref(""), routeLoading = ref(false);
-  let sequence = 0;
-  async function syncDetail() {
-    const current = ++sequence, id = String(route.params.id || "");
-    detail.value = null;
-    routeError.value = "";
-    routeLoading.value = Boolean(id);
-    if (!id) return;
-    try {
-      const value = await fetchEntity(id);
-      if (current === sequence) detail.value = value;
-    } catch (error) {
-      if (current === sequence) routeError.value = (error as Error).message;
-    } finally {
-      if (current === sequence) routeLoading.value = false;
-    }
-  }
-  watch([() => route.params.id, () => route.params.kind, () => route.query.history], syncDetail);
-  onUnmounted(() => { sequence++; });
-  function open(id: string, extra: LocationQueryRaw = {}) {
-    return router.push({ name: route.name!, params: { ...route.params, id }, query: { ...route.query, history: undefined, ...extra } });
-  }
-  function close() {
-    return router.push({ name: route.name!, params: { ...route.params, id: undefined }, query: { ...route.query, history: undefined } });
-  }
-  return { routeError, routeLoading, syncDetail, open, close };
 }

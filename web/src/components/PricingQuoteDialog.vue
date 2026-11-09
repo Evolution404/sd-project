@@ -63,7 +63,7 @@ watch(
 );
 </script>
 <template>
-  <ElDialog
+  <ElDialog append-to-body
     :model-value="modelValue"
     title="参考价格"
     width="900px"

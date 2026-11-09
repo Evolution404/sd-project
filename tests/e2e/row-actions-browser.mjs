@@ -76,6 +76,8 @@ try {
   await page.getByRole("menuitem", { name: "退回", exact: true }).waitFor();
   await page.screenshot({ path: join(output, "settlement-pending.png"), fullPage: true });
   await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await page.locator(".business-detail-overlay:visible").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "退出登录" }).click();
   await login("reader", "Reader-test-password");
   await navigate("输电设备台账");
