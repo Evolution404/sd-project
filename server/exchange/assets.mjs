@@ -368,7 +368,7 @@ export function createAssetExchange(system) {
           number: kind === "lines"
             ? row.name
             : kind === "physical"
-              ? (row.tower_code || row.tower_type || row.model || "独立物理杆塔")
+              ? (row.asset_no || row.tower_type || row.model || "独立物理杆塔")
             : kind === "towers"
               ? row.line_name + " · " + row.tower_no
               : row.line_name + " · " + row.start_tower_no +
@@ -413,7 +413,7 @@ export function createAssetExchange(system) {
           kind: "physical", id: physicalId,
           payload: { id: physicalId, expected_version: existingPhysical.version },
           sheet: logicalDocument.sheet, row: logicalDocument.row,
-          number: existingPhysical.tower_code, action: "update", changes: [],
+          number: existingPhysical.asset_no || existingPhysical.tower_type || "物理杆塔", action: "update", changes: [],
         };
         documents.splice(documents.indexOf(logicalDocument), 0, physicalDoc);
         physicalUpdates.set(physicalId, physicalDoc);
@@ -696,7 +696,7 @@ export function createAssetExchange(system) {
           接入杆塔: row.junction_tower_no || "",
         })),
         ...rows.physical.map((row) => ({
-          对象: "物理杆塔", 名称: row.tower_code, 塔型: row.tower_type, 型号: row.model,
+          对象: "物理杆塔", 名称: row.label || row.asset_no || "物理杆塔", 塔型: row.tower_type, 型号: row.model,
           关联线路: row.related_lines, 关联杆塔号: row.related_towers,
         })),
         ...rows.towers.map((row) => ({

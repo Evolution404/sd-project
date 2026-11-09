@@ -6,6 +6,7 @@ import { ElMessage } from "element-plus";
 import { api, download, type Row } from "../services/api";
 import { newClientId } from "../services/id";
 import { fieldName, factText, visibleFact } from "../services/display";
+import BusinessTable, { type TableColumn } from "./BusinessTable.vue";
 const props = defineProps<{
   kind: "demands" | "settlements" | "assets";
   selectedIds?: string[];
@@ -54,19 +55,66 @@ onUnmounted(() => {
 });
 const documentPage = ref(1),
   issuePage = ref(1);
-const displayedDocuments = computed(
-  () =>
-    preview.value?.documents.slice(
-      (documentPage.value - 1) * 30,
-      documentPage.value * 30,
-    ) || [],
-);
-const allIssues = computed(
-  () => result.value?.issues || preview.value?.issues || [],
-);
-const displayedIssues = computed(() =>
-  allIssues.value.slice((issuePage.value - 1) * 30, issuePage.value * 30),
-);
+const documentColumns: TableColumn[] = [
+  { key: "number", label: "业务编号", minWidth: 155 },
+  { key: "action", label: "动作", minWidth: 105 },
+  { key: "expectedResult", label: "预计结果", minWidth: 150, sortable: false, filterable: false },
+  { key: "changes", label: "逐字段变化", minWidth: 335, sortable: false, filterable: false },
+];
+const issueColumns: TableColumn[] = [
+  { key: "sheet", label: "工作表", minWidth: 120 },
+  { key: "row", label: "行号", minWidth: 95 },
+  { key: "field", label: "字段", minWidth: 155, sortable: false, filterable: false },
+  { key: "raw_value", label: "原始值", minWidth: 175, sortable: false, filterable: false },
+  { key: "reason", label: "问题", minWidth: 220 },
+  { key: "suggestion", label: "建议", minWidth: 220 },
+];
+const documentFilters = ref<Record<string, string>>({}),
+  issueFilters = ref<Record<string, string>>({}),
+  documentSort = ref({ key: "", order: "" }),
+  issueSort = ref({ key: "", order: "" });
+function filteredSorted(items: Row[], filters: Record<string, string>, sort: { key: string; order: string }) {
+  const active = Object.entries(filters).filter(([, value]) => value.trim());
+  const result = items.filter(item => active.every(([key, value]) =>
+    String(item[key] ?? "").toLocaleLowerCase("zh-CN").includes(value.trim().toLocaleLowerCase("zh-CN"))));
+  if (sort.key && sort.order) result.sort((left, right) => {
+    const a = left[sort.key], b = right[sort.key];
+    const diff = typeof a === "number" && typeof b === "number"
+      ? a - b : String(a ?? "").localeCompare(String(b ?? ""), "zh-CN", { numeric: true });
+    return sort.order === "ascending" ? diff : -diff;
+  });
+  return result;
+}
+const allDocuments = computed<Row[]>(() => preview.value?.documents || []);
+const allIssues = computed<Row[]>(() => result.value?.issues || preview.value?.issues || []);
+const filteredDocuments = computed(() =>
+  filteredSorted(allDocuments.value, documentFilters.value, documentSort.value));
+const filteredIssues = computed(() =>
+  filteredSorted(allIssues.value, issueFilters.value, issueSort.value));
+const displayedDocuments = computed(() => filteredDocuments.value.slice((documentPage.value - 1) * 30, documentPage.value * 30));
+const displayedIssues = computed(() => filteredIssues.value.slice((issuePage.value - 1) * 30, issuePage.value * 30));
+function onDocumentsSort(value: { key: string; order: string }) {
+  documentSort.value = value;
+  documentPage.value = 1;
+}
+function onIssuesSort(value: { key: string; order: string }) {
+  issueSort.value = value;
+  issuePage.value = 1;
+}
+function onDocumentsFilter(value: Record<string, string>) {
+  documentFilters.value = value;
+  documentPage.value = 1;
+}
+function onIssuesFilter(value: Record<string, string>) {
+  issueFilters.value = value;
+  issuePage.value = 1;
+}
+function predictedResult(row: Row) {
+  if (row.action === "unchanged") return "保持原值";
+  if (props.kind === "assets") return "保存完整台账";
+  if (props.kind === "settlements") return "保存结算草稿";
+  return "需求第 " + ((row.payload?.expected_version || 0) + 1) + " 版";
+}
 async function exportFile(report = false, selected = false) {
   const query = new URLSearchParams({
     q: props.query || "",
@@ -88,6 +136,10 @@ async function upload(file: Row) {
   result.value = null;
   documentPage.value = 1;
   issuePage.value = 1;
+  documentFilters.value = {};
+  issueFilters.value = {};
+  documentSort.value = { key: "", order: "" };
+  issueSort.value = { key: "", order: "" };
   try {
     const response = await fetch(
       `/api/exchange/${props.kind}/preview?mode=${mode.value}&project_id=${props.projectId || ""}`,
@@ -229,71 +281,38 @@ async function commit() {
       </div>
       <ElTabs
         ><ElTabPane label="单据与逐字段变化"
-          ><ElTable :data="displayedDocuments" max-height="380"
-            ><ElTableColumn
-              prop="number"
-              label="业务编号"
-              width="140"
-            /><ElTableColumn label="动作" width="100"
-              ><template #default="{ row }">{{
-                row.action === "create"
-                  ? "新增"
-                  : row.action === "update"
-                    ? "修改"
-                    : "保持原值"
-              }}</template></ElTableColumn
-            ><ElTableColumn label="预计结果" width="120"
-              ><template #default="{ row }">{{
-                row.action === "unchanged"
-                  ? "保持原值"
-                  : kind === "assets"
-                    ? "保存完整台账"
-                    : kind === "settlements"
-                      ? "保存结算草稿"
-                      : "需求 V" + ((row.payload.expected_version || 0) + 1)
-              }}</template></ElTableColumn
-            ><ElTableColumn label="变化"
-              ><template #default="{ row }"
-                ><div
-                  v-for="change in row.changes.filter((item: Row) =>
-                    visibleFact(item.field),
-                  )"
-                  :key="change.field"
-                >
-                  <strong>{{ fieldName(change.field) }}</strong>
-                  {{ factText(change.before, change.field) }} →
-                  {{ factText(change.after, change.field) }}
-                </div></template
-              ></ElTableColumn
-            ></ElTable
-          ><ElPagination
+          ><BusinessTable :key="requestKey + ':documents'" :table-key="'exchange:' + kind + ':documents'"
+              :rows="displayedDocuments" :columns="documentColumns" :max-height="380" compact
+              @sort-change="onDocumentsSort" @filter-change="onDocumentsFilter">
+              <template #cell="{ row, column }">
+                <span v-if="column.key === 'action'">{{ row.action === 'create' ? '新增' : row.action === 'update' ? '修改' : '保持原值' }}</span>
+                <span v-else-if="column.key === 'expectedResult'">{{ predictedResult(row) }}</span>
+                <div v-else-if="column.key === 'changes'">
+                  <div v-for="change in (row.changes || []).filter((item: Row) => visibleFact(item.field))" :key="change.field">
+                    <strong>{{ fieldName(change.field) }}</strong>
+                    {{ factText(change.before, change.field) }} → {{ factText(change.after, change.field) }}
+                  </div>
+                </div>
+                <span v-else>{{ row[column.key] ?? '—' }}</span>
+              </template>
+            </BusinessTable><ElPagination
             v-model:current-page="documentPage"
-            :total="preview.documents.length"
+            :total="filteredDocuments.length"
             :page-size="30"
             layout="prev,pager,next,total"
           /> </ElTabPane
         ><ElTabPane label="问题清单"
-          ><ElTable :data="displayedIssues" max-height="380"
-            ><ElTableColumn prop="sheet" label="工作表" /><ElTableColumn
-              prop="row"
-              label="行号"
-              width="70" /><ElTableColumn label="字段"
-              ><template #default="{ row }">{{
-                fieldName(row.field)
-              }}</template></ElTableColumn
-            ><ElTableColumn prop="raw_value" label="原始值" min-width="180"
-              ><template #default="{ row }">{{
-                factText(row.raw_value, row.field)
-              }}</template></ElTableColumn
-            ><ElTableColumn
-              prop="reason"
-              label="问题"
-              min-width="220" /><ElTableColumn
-              prop="suggestion"
-              label="建议" /></ElTable
-          ><ElPagination
+          ><BusinessTable :key="requestKey + ':issues'" :table-key="'exchange:' + kind + ':issues'"
+              :rows="displayedIssues" :columns="issueColumns" :max-height="380" compact
+              @sort-change="onIssuesSort" @filter-change="onIssuesFilter">
+              <template #cell="{ row, column }">
+                <span v-if="column.key === 'field'">{{ fieldName(row.field) }}</span>
+                <span v-else-if="column.key === 'raw_value'">{{ factText(row.raw_value, row.field) }}</span>
+                <span v-else>{{ row[column.key] ?? '—' }}</span>
+              </template>
+            </BusinessTable><ElPagination
             v-model:current-page="issuePage"
-            :total="allIssues.length"
+            :total="filteredIssues.length"
             :page-size="30"
             layout="prev,pager,next,total" /></ElTabPane></ElTabs
     ></template>

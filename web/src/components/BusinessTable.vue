@@ -2,11 +2,11 @@
 import { computed, ref, watch, onMounted } from "vue";
 import { Setting, Filter } from "@element-plus/icons-vue";
 import type { Row } from "../services/api";
-export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean };
+export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean };
 const props = withDefaults(defineProps<{
   rows: Row[]; columns: TableColumn[]; tableKey: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
-  clientSide?: boolean;
+  clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
 }>(), { selectable: false, loading: false, actionsWidth: 260 });
 const emit = defineEmits<{
   (e: "selection-change", rows: Row[]): void;
@@ -50,11 +50,20 @@ const orderedColumns = computed(() => {
   const keys = [...new Set([...pref.value.order, ...props.columns.map(c => c.key)])];
   return keys.map(key => props.columns.find(c => c.key === key)).filter((v): v is TableColumn => !!v);
 });
-const shownColumns = computed(() => orderedColumns.value.filter(c => !pref.value.hidden.includes(c.key)));
+const shownColumns = computed(() => orderedColumns.value.filter(c => c.hideable === false || !pref.value.hidden.includes(c.key)));
+const toolHint = computed(() => {
+  const sort = props.columns.some(c => c.sortable !== false);
+  const filter = props.columns.some(c => c.filterable !== false);
+  if (sort && filter) return "点击表头排序，按列筛选";
+  if (sort) return "点击表头排序，列设置可调整布局";
+  if (filter) return "按列筛选，列设置可调整布局";
+  return "可调整列宽和显示顺序";
+});
 function persist() {
   localStorage.setItem("sd-columns:" + props.tableKey, JSON.stringify(pref.value));
 }
 function show(key: string, value: boolean) {
+  if (props.columns.find(c => c.key === key)?.hideable === false) return;
   pref.value.hidden = value ? pref.value.hidden.filter(k => k !== key) : [...pref.value.hidden, key];
   persist();
 }
@@ -99,11 +108,11 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
 <template>
   <div class="business-table">
     <div class="business-table-tools">
-      <span class="business-table-hint">点击表头排序，按列筛选</span>
+      <span class="business-table-hint">{{ toolHint }}</span>
       <ElButton size="small" text @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
-    <ElTable :data="tableRows" :row-key="(row: Row) => String(row.id || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
-      table-layout="fixed" class="business-table-grid"
+    <ElTable :data="tableRows" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
+      :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
       @selection-change="emit('selection-change', $event)"
       @sort-change="handleSort"
       @header-dragend="resize">
@@ -131,7 +140,7 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
     <ElDialog v-model="settings" title="自定义表格列" width="500px" append-to-body>
       <p class="muted">选择显示列、固定列和调整顺序；拖动表头边界调整列宽，所有设置自动保存。</p>
       <div v-for="(col, i) in orderedColumns" :key="col.key" class="column-setting-item">
-        <ElCheckbox :model-value="!pref.hidden.includes(col.key)" :disabled="shownColumns.length === 1 && !pref.hidden.includes(col.key)"
+        <ElCheckbox :model-value="col.hideable === false || !pref.hidden.includes(col.key)" :disabled="col.hideable === false || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
           @change="show(col.key, Boolean($event))">{{ col.label }}</ElCheckbox>
         <div class="column-setting-actions"><ElButton text size="small" @click="toggleFixed(col.key)">{{ pref.fixed.includes(col.key) ? '取消固定' : '固定列' }}</ElButton><ElButton text size="small" :disabled="i === 0" @click="move(col.key, -1)">上移</ElButton><ElButton text size="small" :disabled="i === orderedColumns.length - 1" @click="move(col.key, 1)">下移</ElButton></div>
       </div>

@@ -1,17 +1,27 @@
 <script setup lang="ts">
 import { useAccess } from "../services/access";
 const can = useAccess();
-import { ref, onMounted } from "vue";
+import { ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, download, type Row } from "../services/api";
+import BusinessTable, { type TableColumn } from "./BusinessTable.vue";
 const props = defineProps<{ ownerKind: string; ownerId: string }>();
 const includeDeleted = ref(false);
 const rows = ref<Row[]>([]),
   busy = ref(false);
+const evidenceColumns: TableColumn[] = [
+  { key: "filename", label: "文件名称", minWidth: 220 },
+  { key: "bytes", label: "大小", minWidth: 115 },
+  { key: "note", label: "附件说明", minWidth: 180 },
+  { key: "deleted", label: "归档状态", minWidth: 115 },
+];
+let requestSequence = 0;
 async function load() {
-  rows.value = await api(
+  const sequence = ++requestSequence;
+  const response = await api<Row[]>(
     `/evidence?owner_kind=${props.ownerKind}&owner_id=${props.ownerId}&deleted=${includeDeleted.value}`,
   );
+  if (sequence === requestSequence) rows.value = response;
 }
 async function upload(file: Row) {
   busy.value = true;
@@ -56,13 +66,13 @@ async function revise(row: Row) {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-onMounted(load);
+watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void load(), { immediate: true });
 </script>
 <template>
   <div class="panel">
     <div class="toolbar">
       <h2>证据附件</h2>
-      <ElCheckbox v-model="includeDeleted" @change="load"
+      <ElCheckbox v-model="includeDeleted"
         >包含已删除</ElCheckbox
       >
       <ElUpload
@@ -75,27 +85,20 @@ onMounted(load);
         ></ElUpload
       >
     </div>
-    <ElTable :data="rows"
-      ><ElTableColumn prop="filename" label="文件" /><ElTableColumn
-        prop="bytes"
-        label="字节数"
-        width="120"
-      /><ElTableColumn label="操作" min-width="260"
-        ><template #default="{ row }"
-          ><ElButton @click="download('/evidence/' + row.id, row.filename)"
-            >下载</ElButton
-          ><ElButton
-            :disabled="!can('write') || row.deleted"
-            @click="revise(row)"
-            >修改说明</ElButton
-          ><ElButton
-            :disabled="!can('admin') || row.deleted"
-            type="danger"
-            @click="remove(row)"
-            >删除</ElButton
-          ></template
-        ></ElTableColumn
-      ></ElTable
-    >
+        <BusinessTable client-side :table-key="'evidence:' + ownerKind"
+      :rows="rows" :columns="evidenceColumns" :actions-width="295" compact>
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'bytes'">{{ row.bytes == null ? '—' : Number(row.bytes).toLocaleString('zh-CN') + ' 字节' }}</span>
+        <ElTag v-else-if="column.key === 'deleted'" :type="row.deleted ? 'info' : 'success'" effect="plain">
+          {{ row.deleted ? '已删除' : '有效' }}
+        </ElTag>
+        <span v-else>{{ row[column.key] || '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <ElButton size="small" @click="download('/evidence/' + row.id, row.filename)">下载</ElButton>
+        <ElButton size="small" :disabled="!can('write') || row.deleted" @click="revise(row)">修改说明</ElButton>
+        <ElButton size="small" :disabled="!can('admin') || row.deleted" type="danger" @click="remove(row)">删除</ElButton>
+      </template>
+    </BusinessTable>
   </div>
 </template>

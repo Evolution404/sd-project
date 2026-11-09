@@ -258,3 +258,40 @@ test("independent physical workbook creates an unlinked entity with automatic id
   assert.equal(s.catalog.list("physical").length, beforeCount + 1);
   assert.ok(s.catalog.list("physical").find(row => row.model === "GG-2")?.tower_code);
 });
+
+
+test("conflicting physical-attribute revisions from two shared logical circuits reject atomic Excel commit", async (t) => {
+  const { s, user } = fixture(t), exchange = createExchange(s);
+  const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
+  const main = s.catalog.save(user, "lines", { name: "共享甲线", voltage_level_id: voltage.id });
+  const second = s.catalog.save(user, "lines", { name: "共享乙线", voltage_level_id: voltage.id });
+  const physical = s.catalog.save(user, "physical", { tower_type: "耐张塔", model: "ZM-1" });
+  const first = s.catalog.save(user, "towers", {
+    line_id: main.id, tower_no: "#18", physical_mode: "shared", physical_tower_id: physical.id,
+  });
+  const sibling = s.catalog.save(user, "towers", {
+    line_id: second.id, tower_no: "#19", physical_mode: "shared", physical_tower_id: physical.id,
+  });
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await exchange.exportData(user, "assets", { ids: [main.id, second.id] }));
+  const towers = workbook.getWorksheet("杆塔");
+  assert.equal(towers.rowCount, 3);
+  const typeColumn = headerIndex(towers, "tower_type");
+  assert.ok(typeColumn > 0);
+  towers.getRow(2).getCell(typeColumn).value = "直线塔";
+  towers.getRow(3).getCell(typeColumn).value = "钢管杆";
+  const before = s.catalog.get("physical", physical.id);
+  const preview = await exchange.preview(user, "assets",
+    Buffer.from(await workbook.xlsx.writeBuffer()), { mode: "update" });
+  assert.ok(preview.issues.some(problem =>
+    problem.reason.includes("同一物理杆塔存在互相矛盾")));
+  assert.throws(() =>
+    exchange.commit(user, preview.token, {
+      request_key: "conflicting-shared-physical-excel", atomic: true,
+    }), /整批提交包含预检错误/);
+  assert.equal(s.catalog.get("physical", physical.id).tower_type, before.tower_type);
+  assert.equal(s.catalog.get("physical", physical.id).version, before.version);
+  assert.equal(s.catalog.get("towers", first.id).physical_tower_id, physical.id);
+  assert.equal(s.catalog.get("towers", sibling.id).physical_tower_id, physical.id);
+  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+});

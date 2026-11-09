@@ -366,7 +366,7 @@ onMounted(async () => {
       <ElButton @click="detail = null">返回需求列表</ElButton>
       <h1>{{ detail.demand_no }} · {{ detail.operation_snapshot }}</h1>
       <ElTag
-        >{{ statusText[detail.status] }} · V{{ detail.current_version }}</ElTag
+        >{{ statusText[detail.status] }} · 第 {{ detail.current_version }} 版</ElTag
       >
     </div>
     <div class="toolbar">

@@ -9,7 +9,7 @@ import {
   provide,
 } from "vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { House, Document, FolderOpened, Wallet, Coin, Connection, Collection, Setting, Fold, Expand, Operation, Menu as MenuIcon } from "@element-plus/icons-vue";
+import { House, Document, FolderOpened, Wallet, Coin, Connection, Collection, Setting, Fold, Expand, Operation, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
 import { api, type Row } from "./services/api";
 const DashboardPage = defineAsyncComponent(
   () => import("./pages/DashboardPage.vue"),
@@ -39,6 +39,27 @@ const menu = [
   { key: "standards", title: "作业标准与参考价格", icon: Collection },
   { key: "system", title: "系统管理", icon: Setting },
 ];
+type Appearance = "system" | "light" | "dark";
+const initialAppearance = localStorage.getItem("sd-appearance");
+const appearance = ref<Appearance>(
+  initialAppearance === "light" || initialAppearance === "dark"
+    ? initialAppearance : "system",
+);
+const appearanceMedia = window.matchMedia("(prefers-color-scheme: dark)");
+const systemDark = ref(appearanceMedia.matches);
+const darkAppearance = computed(() =>
+  appearance.value === "dark" || (appearance.value === "system" && systemDark.value),
+);
+function systemAppearanceChanged(event: MediaQueryListEvent) {
+  systemDark.value = event.matches;
+}
+watch([appearance, systemDark], () => {
+  document.documentElement.classList.toggle("dark", darkAppearance.value);
+  document.documentElement.style.colorScheme = darkAppearance.value ? "dark" : "light";
+  localStorage.setItem("sd-appearance", appearance.value);
+}, { immediate: true });
+onMounted(() => appearanceMedia.addEventListener("change", systemAppearanceChanged));
+onUnmounted(() => appearanceMedia.removeEventListener("change", systemAppearanceChanged));
 const sidebarCollapsed = ref(localStorage.getItem("sd-sidebar-collapsed") === "true");
 const sidebarWidth = ref(Math.min(320, Math.max(208, Number(localStorage.getItem("sd-sidebar-width")) || 240)));
 const mobileNavigation = ref(false);
@@ -132,7 +153,20 @@ onMounted(async () => {
       <main class="workspace">
         <header class="topbar">
           <div class="topbar-heading"><ElButton class="mobile-menu" text circle aria-label="打开导航" @click="mobileNavigation = true"><ElIcon><MenuIcon /></ElIcon></ElButton><p>{{ menu.find(item => item.key === active)?.title || "输电项目管理" }}</p></div>
-          <div>
+          <div class="account-actions">
+            <ElPopover placement="bottom-end" trigger="click" :width="245">
+              <div class="appearance-heading">界面外观</div>
+              <ElRadioGroup v-model="appearance" size="small">
+                <ElRadioButton value="system">跟随系统</ElRadioButton>
+                <ElRadioButton value="light">浅色</ElRadioButton>
+                <ElRadioButton value="dark">深色</ElRadioButton>
+              </ElRadioGroup>
+              <template #reference>
+                <ElButton text circle aria-label="外观设置">
+                  <ElIcon><Moon v-if="darkAppearance" /><Sunny v-else /></ElIcon>
+                </ElButton>
+              </template>
+            </ElPopover>
             <ElTag type="info">{{ user.username }}</ElTag
             ><ElButton text @click="logout">退出登录</ElButton>
           </div>

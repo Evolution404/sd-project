@@ -13,11 +13,45 @@
   --surface: #fff;
   --edge: #e7ebf2;
   --shadow-soft: 0 8px 30px rgba(27, 50, 91, .045);
+  --page-background: #f5f7fb;
+  --navigation-background: #fbfcff;
+  --menu-foreground: #697890;
+  --menu-hover: #f0f4fa;
+  --table-heading: #f8faff;
+  --login-glow: radial-gradient(ellipse at 20% 5%, #e8f1ff, #f4f7fc 55%, #eaf0fa);
+  --login-shadow: 0 24px 65px rgba(31, 55, 104, .09);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
   color: var(--ink);
-  background: #f5f7fb;
+  background: var(--page-background);
   font-synthesis: none;
 }
+html.dark {
+  color-scheme: dark;
+  --el-color-primary: #77aaff;
+  --el-color-success: #58bd9c;
+  --el-color-warning: #d5a25c;
+  --el-bg-color-page: #111927;
+  --brand-primary: #77aaff;
+  --brand-hover: #9cc3ff;
+  --brand-soft: rgba(104, 159, 249, .16);
+  --ink: #eef3fc;
+  --muted: #abbad2;
+  --surface: #1d283a;
+  --edge: #344158;
+  --shadow-soft: 0 12px 36px rgba(0, 0, 0, .14);
+  --page-background: #111927;
+  --navigation-background: #182337;
+  --menu-foreground: #bcc8de;
+  --menu-hover: #273650;
+  --table-heading: #233149;
+  --login-glow: radial-gradient(ellipse at 20% 5%, #263959, #111927 65%, #162234);
+  --login-shadow: 0 24px 65px rgba(0, 0, 0, .27);
+}
+html.dark,
+html.dark body {
+  background: var(--page-background);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -31,7 +65,7 @@ body {
   min-height: 100vh;
 }
 .navigation {
-  background: #fbfcff;
+  background: var(--navigation-background);
   color: var(--ink);
   padding: 20px 12px;
   position: sticky;
@@ -51,15 +85,17 @@ body {
 .navigation.is-collapsed {padding:20px 6px}
 .navigation.is-collapsed .navigation-top {flex-direction:column;gap:12px}
 .navigation .el-menu {width:100%;border:0;background:transparent;--el-menu-item-height:44px}
-.navigation .el-menu-item {display:flex;gap:10px;margin:3px 0;padding:0 12px !important;border-radius:10px;color:#697890;transition:background 150ms,color 150ms}
+.navigation .el-menu-item {display:flex;gap:10px;margin:3px 0;padding:0 12px !important;border-radius:10px;color:var(--menu-foreground);transition:background 150ms,color 150ms}
 .navigation .el-menu-item .el-icon {font-size:18px}
 .navigation .el-menu-item.is-active {background:var(--brand-soft);color:var(--brand-primary);font-weight:650}
-.navigation .el-menu-item:hover {background:#f0f4fa;color:var(--ink)}
+.navigation .el-menu-item:hover {background:var(--menu-hover);color:var(--ink)}
 .navigation .el-menu--collapse {width:100%}
 .navigation.is-collapsed .el-menu-item {justify-content:center;padding:0 !important}
 .sidebar-settings {margin-top:auto;justify-content:flex-start !important;color:var(--muted) !important;width:100%}
 .sidebar-size-label {font-size:12px;color:var(--muted);margin-bottom:12px}
 .topbar-heading {display:flex;align-items:center;gap:8px}
+.account-actions {display:flex;align-items:center;gap:8px}
+.appearance-heading {font-size:13px;font-weight:600;color:var(--ink);margin-bottom:12px}
 .mobile-menu {display:none !important}
 .workspace {
   padding: 0 32px 42px;
@@ -141,7 +177,7 @@ body {
   gap: 18px;
 }
 .metric {
-  background: #fff;
+  background: var(--surface);
   border: 1px solid var(--edge);
   border-radius: 16px;
   box-shadow: var(--shadow-soft);
@@ -158,7 +194,7 @@ body {
   font-weight: 600;
 }
 .el-table {
-  --el-table-header-bg-color: #f8faff;
+  --el-table-header-bg-color: var(--table-heading);
   --el-table-border-color: var(--edge);
 }
 .el-pagination {
@@ -200,14 +236,14 @@ body {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: radial-gradient(ellipse at 20% 5%, #e8f1ff, #f4f7fc 55%, #eaf0fa);
+  background: var(--login-glow);
 }
 .login-card {
   width: min(440px, 92vw);
-  background: #fff;
+  background: var(--surface);
   border-radius: 22px;
   padding: 40px;
-  box-shadow: 0 24px 65px rgba(31,55,104,.09);
+  box-shadow: var(--login-shadow);
 }
 .login-card h1 {
   font-size: 23px;
@@ -241,7 +277,7 @@ body {
   margin: 12px 0;
 }
 .section-caption {
-  color: #7485a4;
+  color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .8px;
@@ -259,6 +295,9 @@ body {
   .mobile-navigation-drawer .el-menu {border:0}
   .workspace {padding:0 14px 24px}
   .topbar {height:58px;margin-bottom:22px}
+  .account-actions {gap:3px}
+  .account-actions .el-tag {max-width:90px}
+  .account-actions .el-tag__content {overflow:hidden;text-overflow:ellipsis}
   .page-heading {flex-direction:column}
   .page-heading-actions {justify-content:flex-start}
   .page-heading h1 {font-size:23px}

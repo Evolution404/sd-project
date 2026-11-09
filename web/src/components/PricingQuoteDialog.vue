@@ -4,6 +4,7 @@ const can = useAccess();
 import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import FieldControl from "./FieldControl.vue";
+import BusinessTable, { type TableColumn } from "./BusinessTable.vue";
 import { api, today, type Row, money, quantity } from "../services/api";
 const props = defineProps<{
   modelValue: boolean;
@@ -12,6 +13,11 @@ const props = defineProps<{
   scopeId?: string;
 }>();
 const emit = defineEmits(["update:modelValue", "confirmed"]);
+const priceColumns: TableColumn[] = [
+  { key: "location_item_no", label: "位置序号", minWidth: 130 },
+  { key: "quantity_scaled", label: "计价数量", minWidth: 150 },
+  { key: "amount_fen", label: "金额", minWidth: 160 },
+];
 const quote = ref<Row | null>(null),
   busy = ref(false),
   selections = ref<Row>({}),
@@ -74,20 +80,14 @@ watch(
               : '未完整计价，已计价小计 ¥' + money(quote.subtotal_fen)
           "
           :type="quote.complete ? 'success' : 'warning'"
-          :closable="false" /><ElTable :data="quote.lines"
-          ><ElTableColumn
-            prop="location_item_no"
-            label="位置序号"
-          /><ElTableColumn label="计价数量"
-            ><template #default="{ row }">{{
-              quantity(row.quantity_scaled)
-            }}</template></ElTableColumn
-          ><ElTableColumn label="金额"
-            ><template #default="{ row }"
-              >¥{{ money(row.amount_fen) }}</template
-            ></ElTableColumn
-          ></ElTable
-        >
+          :closable="false" /><BusinessTable client-side table-key="quote:locations" :rows="quote.lines || []"
+            :columns="priceColumns" compact>
+            <template #cell="{ row, column }">
+              <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+              <span v-else-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
+              <span v-else>{{ row[column.key] ?? '—' }}</span>
+            </template>
+          </BusinessTable>
         <div
           v-for="missing in quote.missing"
           :key="missing.location_item_no"

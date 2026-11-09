@@ -409,7 +409,7 @@ watch(() => props.project.id, load, { immediate: true });
       @selection-change="selected = $event" @sort-change="financeTableSort('bills', $event)"
       @filter-change="financeTableFilter('bills', $event)">
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'review'">V{{ row.version?.version_no || 0 }} · {{ row.draft ? '有草稿' : statusText[row.review?.action] || '待编制' }}</span>
+        <span v-if="column.key === 'review'">第 {{ row.version?.version_no || 0 }} 版 · {{ row.draft ? '有草稿' : statusText[row.review?.action] || '待编制' }}</span>
         <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item: Row) => sum + item.amount_fen, 0)) }}</span>
         <span v-else>{{ row[column.key] ?? '—' }}</span>
       </template>
@@ -564,7 +564,7 @@ watch(() => props.project.id, load, { immediate: true });
                 )"
                 :key="ap.id"
                 :value="ap.id"
-                :label="'批准 V' + ap.version_no" /></ElSelect></ElFormItem
+                :label="'批准第' + ap.version_no" /></ElSelect></ElFormItem
           ><ElFormItem label="结算依据"
             ><ElInput v-model="form.basis" /></ElFormItem
           ><ElFormItem v-if="editing?.version" label="修订动作"

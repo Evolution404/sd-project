@@ -32,6 +32,13 @@ const rows = ref<Row[]>([]),
   quoteOpen = ref(false);
 const editingCharge = ref<Row | null>(null);
 const showDeleted = ref(false);
+// Approval decision fields must remain visible: column customization cannot
+// hide a selected scope or its approved quantity during a formal submission.
+const approvalEditorColumns: TableColumn[] = [
+  { key: "selected", label: "纳入批准", minWidth: 125, sortable: false, filterable: false, hideable: false },
+  { key: "label", label: "作业位置", minWidth: 190, sortable: false, filterable: false, hideable: false },
+  { key: "approved_quantity_scaled", label: "批准数量", minWidth: 180, sortable: false, filterable: false, hideable: false },
+];
 const projectScopeColumns: TableColumn[] = [
   { key: "demand_no", label: "需求编号", minWidth: 215 },
   { key: "binding", label: "状态", sortable: false, filterable: false },
@@ -429,7 +436,7 @@ onMounted(async () => {
         class="panel"
       >
         <div class="toolbar">
-          <h2>批准 V{{ approval.version_no }}</h2>
+          <h2>第 {{ approval.version_no }} 次批准</h2>
           <ElTag>{{ statusText[approval.status] }}</ElTag
           ><ElButton
             :disabled="
@@ -648,17 +655,15 @@ onMounted(async () => {
           class="panel"
         >
           <ElCheckbox v-model="scope.selected">{{ scope.demand_no }}</ElCheckbox
-          ><ElTable :data="scope.locations"
-            ><ElTableColumn label="纳入批准" width="110"
-              ><template #default="{ row }"
-                ><ElCheckbox v-model="row.selected" /></template></ElTableColumn
-            ><ElTableColumn prop="label" label="作业位置" /><ElTableColumn
-              label="批准数量"
-              ><template #default="{ row }"
-                ><FieldControl
-                  v-model="row.approved_quantity_scaled"
-                  :field="{ type: 'quantity' }" /></template></ElTableColumn
-          ></ElTable>
+          ><BusinessTable :table-key="'project:approval-editor:' + scope.project_scope_id"
+            :rows="scope.locations" :columns="approvalEditorColumns" compact>
+            <template #cell="{ row, column }">
+              <ElCheckbox v-if="column.key === 'selected'" v-model="row.selected" />
+              <FieldControl v-else-if="column.key === 'approved_quantity_scaled'"
+                v-model="row.approved_quantity_scaled" :field="{ type: 'quantity' }" />
+              <span v-else>{{ row[column.key] ?? '—' }}</span>
+            </template>
+          </BusinessTable>
           <h3 class="subheading">批准物资（按承接范围明确数量）</h3>
           <div
             v-for="(item, index) in scope.materials"
