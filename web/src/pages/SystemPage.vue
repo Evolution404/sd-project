@@ -34,6 +34,7 @@ watch(tab, () => {
   page.value = 1;
   sortKey.value = "";
   columnFilters.value = {};
+  void load();
 });
 function tableSort(value: { key: string; order: string }) {
   sortKey.value = value.key;
@@ -108,7 +109,7 @@ onMounted(load);
       <ElButton v-if="tab !== 'audit'" type="primary" @click="edit()">新增</ElButton>
     </div>
   </div>
-  <ElTabs v-model="tab" @tab-change="load"
+  <ElTabs v-model="tab"
     ><ElTabPane label="用户与角色" name="users" /><ElTabPane
       label="IP白名单"
       name="ips" /><ElTabPane label="操作审计" name="audit"

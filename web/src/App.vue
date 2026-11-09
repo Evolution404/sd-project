@@ -9,7 +9,7 @@ import {
   provide,
 } from "vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
-import { House, Document, FolderOpened, Wallet, Coin, Connection, Collection, Setting, Fold, Expand, Operation, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
+import { House, Document, FolderOpened, Wallet, Coin, Connection, Collection, Setting, Fold, Expand, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
 import { api, type Row } from "./services/api";
 const DashboardPage = defineAsyncComponent(
   () => import("./pages/DashboardPage.vue"),
@@ -60,12 +60,70 @@ watch([appearance, systemDark], () => {
 }, { immediate: true });
 onMounted(() => appearanceMedia.addEventListener("change", systemAppearanceChanged));
 onUnmounted(() => appearanceMedia.removeEventListener("change", systemAppearanceChanged));
+const MIN_SIDEBAR_WIDTH = 208;
+const MAX_SIDEBAR_WIDTH = 400;
+const DEFAULT_SIDEBAR_WIDTH = 240;
+function constrainSidebarWidth(value: number) {
+  return Math.round(Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, value)));
+}
 const sidebarCollapsed = ref(localStorage.getItem("sd-sidebar-collapsed") === "true");
-const sidebarWidth = ref(Math.min(320, Math.max(208, Number(localStorage.getItem("sd-sidebar-width")) || 240)));
+const storedSidebarWidth = Number(localStorage.getItem("sd-sidebar-width"));
+const sidebarWidth = ref(constrainSidebarWidth(
+  Number.isFinite(storedSidebarWidth) && storedSidebarWidth > 0
+    ? storedSidebarWidth : DEFAULT_SIDEBAR_WIDTH,
+));
+const sidebarResizing = ref(false);
 const mobileNavigation = ref(false);
 const sidebarSize = computed(() => sidebarCollapsed.value ? "68px" : sidebarWidth.value + "px");
-watch(sidebarCollapsed, value => localStorage.setItem("sd-sidebar-collapsed", String(value)));
+watch(sidebarCollapsed, value => {
+  localStorage.setItem("sd-sidebar-collapsed", String(value));
+  if (value) endSidebarResize();
+});
 watch(sidebarWidth, value => localStorage.setItem("sd-sidebar-width", String(value)));
+let resizingPointerId: number | null = null;
+let initialResizeX = 0;
+let initialResizeWidth = DEFAULT_SIDEBAR_WIDTH;
+function moveSidebarResize(event: PointerEvent) {
+  if (event.pointerId !== resizingPointerId) return;
+  sidebarWidth.value = constrainSidebarWidth(initialResizeWidth + event.clientX - initialResizeX);
+}
+function endSidebarResize(event?: PointerEvent) {
+  if (event && event.pointerId !== resizingPointerId) return;
+  if (resizingPointerId === null) return;
+  resizingPointerId = null;
+  sidebarResizing.value = false;
+  document.documentElement.classList.remove("sidebar-is-resizing");
+  window.removeEventListener("pointermove", moveSidebarResize);
+  window.removeEventListener("pointerup", endSidebarResize);
+  window.removeEventListener("pointercancel", endSidebarResize);
+  window.removeEventListener("blur", cancelSidebarResize);
+}
+function cancelSidebarResize() {
+  endSidebarResize();
+}
+function startSidebarResize(event: PointerEvent) {
+  if (sidebarCollapsed.value || event.button !== 0 || resizingPointerId !== null) return;
+  event.preventDefault();
+  resizingPointerId = event.pointerId;
+  initialResizeX = event.clientX;
+  initialResizeWidth = sidebarWidth.value;
+  sidebarResizing.value = true;
+  document.documentElement.classList.add("sidebar-is-resizing");
+  window.addEventListener("pointermove", moveSidebarResize);
+  window.addEventListener("pointerup", endSidebarResize);
+  window.addEventListener("pointercancel", endSidebarResize);
+  window.addEventListener("blur", cancelSidebarResize);
+}
+function resizeSidebarByKeyboard(event: KeyboardEvent) {
+  const next = event.key === "ArrowLeft" ? sidebarWidth.value - (event.shiftKey ? 32 : 8)
+    : event.key === "ArrowRight" ? sidebarWidth.value + (event.shiftKey ? 32 : 8)
+    : event.key === "Home" ? MIN_SIDEBAR_WIDTH
+    : event.key === "End" ? MAX_SIDEBAR_WIDTH : null;
+  if (next === null) return;
+  event.preventDefault();
+  sidebarWidth.value = constrainSidebarWidth(next);
+}
+onUnmounted(() => endSidebarResize());
 function selectMenu(key: string) { active.value = key; mobileNavigation.value = false; }
 async function signIn() {
   busy.value = true;
@@ -132,7 +190,8 @@ onMounted(async () => {
         >
       </div>
     </div>
-    <div v-else-if="user" class="shell" :style="{ '--sidebar-width': sidebarSize }">
+    <div v-else-if="user" class="shell" :class="{ 'is-resizing-sidebar': sidebarResizing }"
+      :style="{ '--sidebar-width': sidebarSize }">
       <aside class="navigation" :class="{ 'is-collapsed': sidebarCollapsed }">
         <div class="navigation-top">
           <div class="brand"><div class="brand-mark">电</div><div v-if="!sidebarCollapsed" class="brand-name">输电项目管理<small>全流程业务工作区</small></div></div>
@@ -145,10 +204,13 @@ onMounted(async () => {
             <ElIcon><component :is="item.icon" /></ElIcon><template #title>{{ item.title }}</template>
           </ElMenuItem>
         </ElMenu>
-        <ElPopover v-if="!sidebarCollapsed" placement="right-end" width="240" trigger="click">
-          <div class="sidebar-size-label">导航宽度 {{ sidebarWidth }}px</div><ElSlider v-model="sidebarWidth" :min="208" :max="320" :step="8" :show-tooltip="false" />
-          <template #reference><ElButton class="sidebar-settings" text><ElIcon><Operation /></ElIcon>调整侧栏宽度</ElButton></template>
-        </ElPopover>
+        <div v-if="!sidebarCollapsed" class="sidebar-resize-grip" role="separator"
+          tabindex="0" aria-label="拖动调整侧栏宽度"
+          aria-orientation="vertical" :aria-valuemin="MIN_SIDEBAR_WIDTH"
+          :aria-valuemax="MAX_SIDEBAR_WIDTH" :aria-valuenow="sidebarWidth"
+          title="拖动侧栏边缘调整宽度；方向键微调，双击恢复默认"
+          @pointerdown="startSidebarResize" @keydown="resizeSidebarByKeyboard"
+          @dblclick="sidebarWidth = DEFAULT_SIDEBAR_WIDTH" />
       </aside>
       <main class="workspace">
         <header class="topbar">

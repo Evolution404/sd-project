@@ -467,7 +467,7 @@ onMounted(async () => {
             page = 1;
             load();
           "
-        /><ElCheckbox v-model="deleted" @change="load">包含已删除</ElCheckbox
+        /><ElCheckbox v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton
         ><span class="muted">共 {{ total }} 项</span>
       </div>

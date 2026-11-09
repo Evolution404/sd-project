@@ -74,6 +74,10 @@ const demandMaterialColumns: TableColumn[] = [
   { key: "specification", label: "规格", minWidth: 145 },
   { key: "quantity_scaled", label: "预计数量", minWidth: 165 },
 ];
+function resetListPage() {
+  page.value = 1;
+  void load();
+}
 const demandColumns: TableColumn[] = [
   { key: "demand_no", label: "需求编号", minWidth: 150 },
   { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
@@ -335,8 +339,8 @@ onMounted(async () => {
           v-model="query"
           placeholder="需求编号、问题或位置"
           clearable
-          @change="load"
-        /><ElCheckbox v-model="showDeleted" @change="load"
+          @change="resetListPage"
+        /><ElCheckbox v-model="showDeleted" @change="resetListPage"
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>

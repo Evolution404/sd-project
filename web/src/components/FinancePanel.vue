@@ -363,7 +363,7 @@ watch(() => props.project.id, load, { immediate: true });
   <div class="panel">
     <div class="toolbar">
       <h2>实际费用</h2>
-      <ElCheckbox v-model="showDeletedCosts" @change="load"
+      <ElCheckbox v-model="showDeletedCosts" @change="costPage = 1; load()"
         >包含已删除费用</ElCheckbox
       >
       <ElButton
@@ -429,7 +429,7 @@ watch(() => props.project.id, load, { immediate: true });
   <div class="panel">
     <div class="toolbar">
       <h2>费用与结算核对</h2>
-      <ElCheckbox v-model="showDeletedReconciliations" @change="load"
+      <ElCheckbox v-model="showDeletedReconciliations" @change="reconPage = 1; load()"
         >包含已删除核对</ElCheckbox
       ><ElButton :disabled="!can('cost.confirm')" @click="edit('reconcile')"
         >新增正式核对</ElButton

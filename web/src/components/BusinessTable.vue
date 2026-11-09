@@ -51,6 +51,22 @@ const orderedColumns = computed(() => {
   return keys.map(key => props.columns.find(c => c.key === key)).filter((v): v is TableColumn => !!v);
 });
 const shownColumns = computed(() => orderedColumns.value.filter(c => c.hideable === false || !pref.value.hidden.includes(c.key)));
+// Element Plus requires a bordered table for its native column resize handler.
+function defaultColumnWidth(col: TableColumn) {
+  // Chinese characters occupy approximately one full 14px em; use extra
+  // room for sortable arrows, filter actions and header cell padding.
+  const textWidth = [...col.label].reduce((sum, char) =>
+    sum + (/[^\x00-\x7f]/.test(char) ? 14.5 : 8), 0);
+  const controls = (col.sortable === false ? 0 : 20)
+    + (col.filterable === false ? 0 : 28);
+  return Math.ceil(Math.max(col.minWidth ?? 130, textWidth + controls + 28));
+}
+function columnWidth(col: TableColumn) {
+  const saved = pref.value.widths[col.key];
+  return Number.isFinite(saved) && saved >= 80 && saved <= 1200
+    ? saved : defaultColumnWidth(col);
+}
+
 const toolHint = computed(() => {
   const sort = props.columns.some(c => c.sortable !== false);
   const filter = props.columns.some(c => c.filterable !== false);
@@ -81,9 +97,10 @@ function move(key: string, delta: number) {
   pref.value.order = keys;
   persist();
 }
-function resize(newWidth: number, _oldWidth: number, column: { property?: string }) {
-  if (!column.property) return;
-  pref.value.widths = { ...pref.value.widths, [column.property]: newWidth };
+function resize(newWidth: number, _oldWidth: number, column: { property?: string; label?: string }) {
+  const key = column.property || (column.label === "操作" ? "__actions" : null);
+  if (!key || !Number.isFinite(newWidth)) return;
+  pref.value.widths = { ...pref.value.widths, [key]: Math.round(newWidth) };
   persist();
 }
 function reset() {
@@ -111,7 +128,7 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
       <span class="business-table-hint">{{ toolHint }}</span>
       <ElButton size="small" text @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
-    <ElTable :data="tableRows" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
+    <ElTable border allow-drag-last-column :data="tableRows" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
       :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
       @selection-change="emit('selection-change', $event)"
       @sort-change="handleSort"
@@ -121,7 +138,7 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
         <template #default="{ row }"><slot name="expand" :row="row" /></template>
       </ElTableColumn>
       <ElTableColumn v-for="col in shownColumns" :key="col.key" :prop="col.key" :label="col.label"
-        :min-width="col.minWidth || 130" :width="pref.widths[col.key] || undefined"
+        :min-width="80" :width="columnWidth(col)"
         :sortable="col.sortable === false ? false : 'custom'"
         :fixed="pref.fixed.includes(col.key) ? 'left' : false" resizable show-overflow-tooltip>
         <template #header>
@@ -133,12 +150,13 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
         </template>
         <template #default="{ row }"><slot name="cell" :row="row" :column="col">{{ row[col.key] ?? "—" }}</slot></template>
       </ElTableColumn>
-      <ElTableColumn v-if="$slots.actions" label="操作" fixed="right" :min-width="actionsWidth">
+      <ElTableColumn v-if="$slots.actions" label="操作" fixed="right" :min-width="80"
+        :width="pref.widths.__actions || actionsWidth" resizable>
         <template #default="{ row }"><slot name="actions" :row="row" /></template>
       </ElTableColumn>
     </ElTable>
     <ElDialog v-model="settings" title="自定义表格列" width="500px" append-to-body>
-      <p class="muted">选择显示列、固定列和调整顺序；拖动表头边界调整列宽，所有设置自动保存。</p>
+      <p class="muted">拖动表头边界调整列宽；这里可设置显示、固定与列顺序，设置自动保存。</p>
       <div v-for="(col, i) in orderedColumns" :key="col.key" class="column-setting-item">
         <ElCheckbox :model-value="col.hideable === false || !pref.hidden.includes(col.key)" :disabled="col.hideable === false || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
           @change="show(col.key, Boolean($event))">{{ col.label }}</ElCheckbox>
@@ -151,7 +169,12 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
 <style scoped>
 .business-table-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
 .business-table-hint{color:var(--muted);font-size:12px}
-.business-column-title{font-weight:600}
+.business-column-title{font-weight:600;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+.business-table-grid :deep(.el-table__header-wrapper th .cell) {
+  white-space:nowrap;display:flex;align-items:center;flex-wrap:nowrap;min-width:0;
+}
+.business-table-grid :deep(.el-table__header-wrapper th .caret-wrapper) {flex:none}
+.business-table-grid :deep(.el-table__header-wrapper th .cell .business-filter-button) {flex:none}
 .business-filter-button{padding:2px 5px;margin-left:4px;vertical-align:middle;color:var(--muted)}
 .column-setting-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--edge)}
 .column-setting-actions{display:flex}

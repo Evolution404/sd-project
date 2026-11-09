@@ -22,6 +22,15 @@ test("all business data tables use the single customizable BusinessTable adapter
   }
   const shared = readFileSync(join(root, "components/BusinessTable.vue"), "utf8");
   assert.match(shared, /hideable\?: boolean/);
+  assert.match(shared, /<ElTable border allow-drag-last-column\b/, "Element Plus drag also needs the last-column flag");
+  assert.match(shared, /@header-dragend="resize"/);
+  assert.match(shared, /:width="columnWidth\(col\)"/);
+  const app = readFileSync(join(root, "App.vue"), "utf8");
+  assert.doesNotMatch(app, /调整侧栏宽度<\/ElButton|sidebar-settings|<ElSlider\s+v-model="sidebarWidth"/);
+  assert.match(app, /class="sidebar-resize-grip"/);
+  assert.match(app, /@pointerdown="startSidebarResize"/);
+  assert.match(app, /@keydown="resizeSidebarByKeyboard"/);
+
   assert.match(shared, /c\.hideable === false/);
   const project = readFileSync(join(root, "pages/ProjectPage.vue"), "utf8");
   const block = project.split("const approvalEditorColumns")[1].split("const projectScopeColumns")[0];

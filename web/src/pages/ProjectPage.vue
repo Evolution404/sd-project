@@ -52,6 +52,10 @@ const projectChargeColumns: TableColumn[] = [
   { key: "rule_title", label: "批次或项目参考费用", minWidth: 210 },
   { key: "amount_fen", label: "金额", minWidth: 140 },
 ];
+function resetListPage() {
+  page.value = 1;
+  void load();
+}
 const projectColumns: TableColumn[] = [
   { key: "code", label: "项目编号", minWidth: 150 },
   { key: "name", label: "项目名称", minWidth: 220 },
@@ -309,8 +313,8 @@ onMounted(async () => {
           v-model="query"
           clearable
           placeholder="搜索项目编号或名称"
-          @change="load"
-        /><ElCheckbox v-model="showDeleted" @change="load"
+          @change="resetListPage"
+        /><ElCheckbox v-model="showDeleted" @change="resetListPage"
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
