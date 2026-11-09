@@ -65,6 +65,23 @@ export function inspectUiContract(source,filename='component.vue',styles=''){
    const component=imports.get(node.tag)||(/^el-/.test(node.tag)?'El'+node.tag.slice(3).split('-').map(s=>s[0].toUpperCase()+s.slice(1)).join(''):node.tag);
    if(/^El[A-Z]/.test(component))components.add(component);
    const attribute=name=>node.props.find(p=>p.type===6&&p.name===name);
+   const classes = attribute('class')?.value?.content?.split(/\s+/) || [];
+   if (classes.includes('page-heading')) {
+    const sections = node.children.filter(child =>
+     child.type === 1 || child.type === 5 || child.type === 2 && child.content.trim()
+    );
+    if (sections.length > 2) {
+     add('heading-sections', '页面标题只能有标题区和操作区，禁止把多个操作分散为独立布局项', node.loc.start.line);
+    }
+    for (const section of sections.slice(1)) {
+     const sectionClasses = section.props
+      ?.find(prop => prop.type === 6 && prop.name === 'class')
+      ?.value?.content?.split(/\s+/) || [];
+     if (!sectionClasses.includes('page-heading-actions') && !['ElTag', 'el-tag'].includes(section.tag)) {
+      add('heading-action-group', '页面标题中的操作必须集中在page-heading-actions容器，由统一gap与换行规则布局', section.loc.start.line);
+     }
+    }
+   }
    if(component==='ElForm'&&!attribute('novalidate'))add('native-form-validation','ElForm必须声明novalidate，错误由Element Plus字段校验展示',node.loc.start.line);
    if(component==='ElInput'){
     const type=node.props.find(p=>p.type===6&&p.name==='type'||p.type===7&&p.name==='bind'&&p.arg?.content==='type');

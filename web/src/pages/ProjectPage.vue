@@ -251,13 +251,15 @@ onMounted(async () => {
           }}
         </p>
       </div>
-      <ElButton
-        :disabled="!can('write')"
-        v-if="!financeOnly"
-        type="primary"
-        @click="editProject()"
-        >新增子项目</ElButton
-      >
+      <div class="page-heading-actions">
+        <ElButton
+          :disabled="!can('write')"
+          v-if="!financeOnly"
+          type="primary"
+          @click="editProject()"
+          >新增子项目</ElButton
+        >
+      </div>
     </div>
     <div class="panel">
       <div class="toolbar">

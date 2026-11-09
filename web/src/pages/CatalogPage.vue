@@ -315,17 +315,19 @@ onMounted(async () => {
         <h1>{{ title }}</h1>
         <p>统一维护业务定义，正式变更保留版本与关联历史。</p>
       </div>
-      <ElButton
-        :disabled="!can(catalogPermission)"
-        type="primary"
-        @click="edit()"
-        >新增{{ definitions[kind]?.title }}</ElButton
-      ><ExchangePanel
-        v-if="['lines', 'towers', 'physical', 'spans'].includes(kind)"
-        kind="assets"
-        :query="query"
-        @changed="load"
-      />
+      <div class="page-heading-actions">
+        <ElButton
+          :disabled="!can(catalogPermission)"
+          type="primary"
+          @click="edit()"
+          >新增{{ definitions[kind]?.title }}</ElButton
+        ><ExchangePanel
+          v-if="['lines', 'towers', 'physical', 'spans'].includes(kind)"
+          kind="assets"
+          :query="query"
+          @changed="load"
+        />
+      </div>
     </div>
     <ElTabs v-model="kind"
       ><ElTabPane

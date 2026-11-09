@@ -82,10 +82,27 @@ body {
 }
 .page-heading {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 24px;
+}
+.page-heading > :first-child {
+  min-width: 0;
+  flex: 1;
+}
+.page-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  flex: 0 0 auto;
+  max-width: 100%;
+  gap: 10px;
+}
+.page-heading .page-heading-actions > .el-button {
+  margin-left: 0;
 }
 .page-heading h1 {
   font-size: 26px;
@@ -280,6 +297,9 @@ body {
   }
   .page-heading {
     flex-direction: column;
+  }
+  .page-heading-actions {
+    justify-content: flex-start;
   }
   .page-heading h1 {
     font-size: 23px;

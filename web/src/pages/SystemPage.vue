@@ -58,7 +58,9 @@ onMounted(load);
       <h1>系统管理</h1>
       <p>账号角色、内网访问与操作审计。</p>
     </div>
-    <ElButton type="primary" @click="edit()">新增</ElButton>
+    <div class="page-heading-actions">
+      <ElButton type="primary" @click="edit()">新增</ElButton>
+    </div>
   </div>
   <ElTabs v-model="tab" @tab-change="load"
     ><ElTabPane label="用户与角色" name="users" /><ElTabPane

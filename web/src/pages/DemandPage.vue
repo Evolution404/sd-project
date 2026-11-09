@@ -243,7 +243,7 @@ onMounted(async () => {
         <h1>专业需求</h1>
         <p>一种操作，多处作业位置。数量、现场条件与来源分别留存。</p>
       </div>
-      <div>
+      <div class="page-heading-actions">
         <ExchangePanel
           kind="demands"
           :selected-ids="selected.map((x) => x.id)"
