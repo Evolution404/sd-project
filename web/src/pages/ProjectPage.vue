@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RowActions from "../components/RowActions.vue";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
@@ -490,8 +491,10 @@ onMounted(async () => {
             <span v-else>{{ row[column.key] ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
-            <ElButton :disabled="!can('write')" size="small" @click="editCharge(row)">更正</ElButton>
-            <ElButton :disabled="!can('write')" type="danger" size="small" @click="removeCharge(row)">删除</ElButton>
+            <RowActions :actions="[
+              { label: '更正', disabled: !can('write'), run: () => editCharge(row) },
+              { label: '删除', danger: true, disabled: !can('write'), run: () => removeCharge(row) },
+            ]" />
           </template>
         </BusinessTable>
       </div></template

@@ -1,0 +1,58 @@
+<script setup lang="ts">
+import { computed, ref } from "vue";
+import { MoreFilled } from "@element-plus/icons-vue";
+import { ElMessage } from "element-plus";
+
+export type RowAction = {
+  label: string;
+  run: () => unknown;
+  disabled?: boolean;
+  danger?: boolean;
+  primary?: boolean;
+};
+const props = defineProps<{ actions: RowAction[] }>();
+const busy = ref(false);
+const primary = computed(() =>
+  props.actions.find(action => action.primary && !action.disabled && !action.danger)
+    || props.actions.find(action => !action.disabled && !action.danger)
+    || props.actions[0],
+);
+const secondary = computed(() => props.actions.filter(action => action !== primary.value));
+async function invoke(action: RowAction) {
+  if (action.disabled || busy.value) return;
+  busy.value = true;
+  try {
+    await action.run();
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
+  } finally {
+    busy.value = false;
+  }
+}
+</script>
+<template>
+  <div class="row-actions">
+    <ElButton v-if="primary" size="small" :disabled="primary.disabled" :loading="busy"
+      :type="primary.danger ? 'danger' : undefined" @click="invoke(primary)">{{ primary.label }}</ElButton>
+    <ElDropdown v-if="secondary.length" trigger="click" placement="bottom-end"
+      @command="invoke">
+      <ElButton text size="small" :disabled="busy" aria-label="更多操作">
+        更多<ElIcon><MoreFilled /></ElIcon>
+      </ElButton>
+      <template #dropdown>
+        <ElDropdownMenu>
+          <ElDropdownItem v-for="(action, index) in secondary" :key="action.label"
+            :command="action" :disabled="action.disabled || busy"
+            :divided="action.danger && !secondary[index - 1]?.danger"
+            :class="{ 'row-action-danger': action.danger }">{{ action.label }}</ElDropdownItem>
+        </ElDropdownMenu>
+      </template>
+    </ElDropdown>
+  </div>
+</template>
+<style scoped>
+.row-actions{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.row-actions .el-button+.el-button{margin-left:0}
+.row-actions .el-icon{margin-left:4px}
+.row-action-danger:not(.is-disabled){color:var(--el-color-danger)}
+</style>

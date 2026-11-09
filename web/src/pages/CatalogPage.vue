@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RowActions from "../components/RowActions.vue";
 import { factText } from "../services/display";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
@@ -472,7 +473,7 @@ onMounted(async () => {
         ><span class="muted">共 {{ total }} 项</span>
       </div>
       <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'catalog:' + kind" :loading="loading"
-        :selectable="['lines','physical','towers','spans'].includes(kind)" :actions-width="295"
+        :selectable="['lines','physical','towers','spans'].includes(kind)" :actions-width="180"
         @selection-change="selectRows" @sort-change="tableSort" @filter-change="tableFilter">
         <template v-if="kind === 'physical'" #expand="{ row }">
           <div class="physical-circuits">
@@ -493,11 +494,13 @@ onMounted(async () => {
           <span v-else>{{ tableCell(row, column) }}</span>
         </template>
         <template #actions="{ row }">
-          <ElButton size="small" @click="openDetail(row)">查看</ElButton>
-          <ElButton size="small" :disabled="!can(catalogPermission) || row.deleted" @click="edit(row)">编辑</ElButton>
-          <ElButton v-if="row.deleted && definitions[kind]?.equipment" size="small" :disabled="!can('admin')" @click="edit(row, true)">更正历史</ElButton>
-          <ElButton size="small" @click="viewHistory(row)">历史</ElButton>
-          <ElButton size="small" type="danger" :disabled="!can('admin') || row.deleted" @click="remove(row)">删除</ElButton>
+          <RowActions :actions="[
+            { label: '查看', run: () => openDetail(row) },
+            { label: '编辑', disabled: !can(catalogPermission) || row.deleted, run: () => edit(row) },
+            ...(row.deleted && definitions[kind]?.equipment ? [{ label: '更正历史', disabled: !can('admin'), run: () => edit(row, true) }] : []),
+            { label: '历史', run: () => viewHistory(row) },
+            { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => remove(row) },
+          ]" />
         </template>
       </BusinessTable>
       <ElPagination

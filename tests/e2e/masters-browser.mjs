@@ -84,11 +84,9 @@ try {
     fullPage: true,
   });
   await page.getByRole("button", { name: "返回列表", exact: true }).click();
-  await page
-    .getByRole("row")
-    .filter({ hasText: "110千伏" })
-    .getByRole("button", { name: "删除", exact: true })
-    .click();
+  await page.getByRole("row").filter({ hasText: "110千伏" })
+    .getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await page.getByText("暂无数据", { exact: true }).waitFor();
   await page

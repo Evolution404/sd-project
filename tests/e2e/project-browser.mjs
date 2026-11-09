@@ -177,9 +177,8 @@ try {
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await page.getByRole("dialog").waitFor({ state: "hidden" });
-  await reconciliation
-    .getByRole("button", { name: "删除", exact: true })
-    .click();
+  await reconciliation.getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await confirm();
   const project = s.projects
     .list()

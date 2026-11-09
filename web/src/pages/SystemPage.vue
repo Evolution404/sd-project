@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RowActions from "../components/RowActions.vue";
 import { ref, onMounted, computed, watch } from "vue";
 import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -122,8 +123,10 @@ onMounted(load);
         <span v-else>{{ row[column.key] ?? '—' }}</span>
       </template>
       <template v-if="tab !== 'audit'" #actions="{ row }">
-        <ElButton size="small" @click="edit(row)">编辑</ElButton>
-        <ElButton size="small" type="danger" @click="remove(row)">删除</ElButton>
+        <RowActions :actions="[
+          { label: '编辑', run: () => edit(row) },
+          { label: '删除', danger: true, run: () => remove(row) },
+        ]" />
       </template>
     </BusinessTable>
     <ElPagination v-model:current-page="page" :page-size="30" :total="total"

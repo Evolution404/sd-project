@@ -7,7 +7,7 @@ const props = withDefaults(defineProps<{
   rows: Row[]; columns: TableColumn[]; tableKey: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
-}>(), { selectable: false, loading: false, actionsWidth: 260 });
+}>(), { selectable: false, loading: false, actionsWidth: 190 });
 const emit = defineEmits<{
   (e: "selection-change", rows: Row[]): void;
   (e: "sort-change", value: { key: string; order: string }): void;

@@ -37,3 +37,15 @@ test("all business data tables use the single customizable BusinessTable adapter
   assert.equal((block.match(/hideable: false/g) || []).length, 3,
     "all formal approval decision input columns must be permanently visible");
 });
+
+test("multi-action rows use one primary action and an accessible shared menu", () => {
+  for (const name of ["pages/CatalogPage.vue", "pages/SystemPage.vue", "pages/ProjectPage.vue", "components/FinancePanel.vue", "components/EvidencePanel.vue"]) {
+    const source = readFileSync(resolve("web/src", name), "utf8");
+    assert.match(source, /<RowActions\b/);
+    assert.doesNotMatch(source, /:actions-width="(?:295|300|530)"/);
+  }
+  const source = readFileSync(resolve("web/src/components/RowActions.vue"), "utf8");
+  assert.match(source, /placement="bottom-end"/);
+  assert.match(source, /action.disabled \|\| busy.value/);
+  assert.match(source, /aria-label="更多操作"/);
+});

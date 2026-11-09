@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import RowActions from "./RowActions.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
 import { ref, watch } from "vue";
@@ -86,7 +87,7 @@ watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void l
       >
     </div>
         <BusinessTable client-side :table-key="'evidence:' + ownerKind"
-      :rows="rows" :columns="evidenceColumns" :actions-width="295" compact>
+      :rows="rows" :columns="evidenceColumns" :actions-width="180" compact>
       <template #cell="{ row, column }">
         <span v-if="column.key === 'bytes'">{{ row.bytes == null ? '—' : Number(row.bytes).toLocaleString('zh-CN') + ' 字节' }}</span>
         <ElTag v-else-if="column.key === 'deleted'" :type="row.deleted ? 'info' : 'success'" effect="plain">
@@ -95,9 +96,11 @@ watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void l
         <span v-else>{{ row[column.key] || '—' }}</span>
       </template>
       <template #actions="{ row }">
-        <ElButton size="small" @click="download('/evidence/' + row.id, row.filename)">下载</ElButton>
-        <ElButton size="small" :disabled="!can('write') || row.deleted" @click="revise(row)">修改说明</ElButton>
-        <ElButton size="small" :disabled="!can('admin') || row.deleted" type="danger" @click="remove(row)">删除</ElButton>
+        <RowActions :actions="[
+          { label: '下载', run: () => download('/evidence/' + row.id, row.filename) },
+          { label: '修改说明', disabled: !can('write') || row.deleted, run: () => revise(row) },
+          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => remove(row) },
+        ]" />
       </template>
     </BusinessTable>
   </div>
