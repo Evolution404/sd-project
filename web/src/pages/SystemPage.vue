@@ -1,10 +1,17 @@
 <script setup lang="ts">
+import { useRoute, useRouter } from "vue-router";
+import { useListRoute } from "../services/page-navigation";
+const route = useRoute(), router = useRouter();
 import RowActions from "../components/RowActions.vue";
 import { ref, onMounted, computed, watch } from "vue";
 import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, statusText, type Row } from "../services/api";
-const tab = ref("users"),
+const tab = computed({
+  get: () => String(route.params.tab || 'users'),
+  set: value => { void router.push({ name: 'system', params: { tab: value }, query: {} }); },
+});
+const
   rows = ref<Row[]>([]),
   total = ref(0),
   page = ref(1),
@@ -32,9 +39,6 @@ const tableColumns = computed<TableColumn[]>(() => {
   ];
 });
 watch(tab, () => {
-  page.value = 1;
-  sortKey.value = "";
-  columnFilters.value = {};
   void load();
 });
 function tableSort(value: { key: string; order: string }) {
@@ -97,6 +101,7 @@ async function remove(row: Row) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
+useListRoute({ page, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
 onMounted(load);
 </script>
 <template>
@@ -116,7 +121,8 @@ onMounted(load);
       name="ips" /><ElTabPane label="操作审计" name="audit"
   /></ElTabs>
   <div class="panel">
-    <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'system:' + tab"
+    <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
+        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">
       <template #cell="{ row, column }">
         <span v-if="['role','status','action'].includes(column.key)">{{ statusText[row[column.key]] || row[column.key] || '—' }}</span>

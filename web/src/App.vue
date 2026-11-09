@@ -5,26 +5,16 @@ import {
   onUnmounted,
   watch,
   computed,
-  defineAsyncComponent,
   provide,
 } from "vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { House, Document, FolderOpened, Wallet, Coin, Connection, Collection, Setting, Fold, Expand, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
 import { api, type Row } from "./services/api";
-const DashboardPage = defineAsyncComponent(
-  () => import("./pages/DashboardPage.vue"),
-);
-const DemandPage = defineAsyncComponent(() => import("./pages/DemandPage.vue"));
-const ProjectPage = defineAsyncComponent(
-  () => import("./pages/ProjectPage.vue"),
-);
-const CatalogPage = defineAsyncComponent(
-  () => import("./pages/CatalogPage.vue"),
-);
-const SystemPage = defineAsyncComponent(() => import("./pages/SystemPage.vue"));
+import { useRoute, useRouter } from "vue-router";
+const route = useRoute(), router = useRouter();
+const active = computed(() => String(route.name || "dashboard"));
 const user = ref<Row | null>(null),
   ready = ref(false),
-  active = ref("dashboard"),
   login = ref({ username: "", password: "" }),
   error = ref(""),
   busy = ref(false);
@@ -124,7 +114,14 @@ function resizeSidebarByKeyboard(event: KeyboardEvent) {
   sidebarWidth.value = constrainSidebarWidth(next);
 }
 onUnmounted(() => endSidebarResize());
-function selectMenu(key: string) { active.value = key; mobileNavigation.value = false; }
+function selectMenu(key: string) {
+  void router.push({ name: key });
+  mobileNavigation.value = false;
+}
+watch([user, () => route.name], () => {
+  if (user.value && route.name === "system" && user.value.role !== "admin")
+    void router.replace({ name: "dashboard" });
+});
 async function signIn() {
   busy.value = true;
   error.value = "";
@@ -233,37 +230,9 @@ onMounted(async () => {
             ><ElButton text @click="logout">退出登录</ElButton>
           </div>
         </header>
-        <DashboardPage v-if="active === 'dashboard'" /><DemandPage
-          v-else-if="active === 'demands'"
-          :user="user"
-        /><ProjectPage
-          v-else-if="active === 'projects' || active === 'finance'"
-          :key="active"
-          :finance-only="active === 'finance'"
-        /><CatalogPage
-          v-else-if="active === 'funding'"
-          :key="active"
-          title="年度框架、协议与组织"
-          :kinds="['frameworks', 'agreements', 'organizations', 'categories']"
-        /><CatalogPage
-          v-else-if="active === 'ledger'"
-          :key="active"
-          title="输电设备台账"
-          :kinds="['lines', 'physical', 'towers', 'spans', 'voltages']"
-        /><CatalogPage
-          v-else-if="active === 'standards'"
-          :key="active"
-          title="作业标准与参考价格"
-          :kinds="[
-            'operations',
-            'objects',
-            'materials',
-            'prices',
-            'units',
-            'factors',
-            'priorities',
-          ]"
-        /><SystemPage v-else-if="active === 'system'" />
+        <RouterView v-if="active !== 'system' || user.role === 'admin'" v-slot="{ Component }">
+          <component :is="Component" :key="active" v-bind="active === 'demands' ? { user } : {}" />
+        </RouterView>
       </main>
       <ElDrawer v-model="mobileNavigation" title="业务导航" direction="ltr" size="min(320px, 90vw)" class="mobile-navigation-drawer">
         <ElMenu :default-active="active" @select="selectMenu"><ElMenuItem v-for="item in menu.filter(x => x.key !== 'system' || user?.role === 'admin')" :key="item.key" :index="item.key"><ElIcon><component :is="item.icon" /></ElIcon>{{ item.title }}</ElMenuItem></ElMenu>

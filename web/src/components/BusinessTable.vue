@@ -2,12 +2,15 @@
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Setting, Filter, Rank } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
+import type { TableInstance } from "element-plus";
 import type { Row } from "../services/api";
 export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean };
 const props = withDefaults(defineProps<{
   rows: Row[]; columns: TableColumn[]; tableKey: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
+  filterState?: Record<string, string>;
+  sortState?: { prop: string; order: "ascending" | "descending" | null };
 }>(), { selectable: false, loading: false, actionsWidth: 190 });
 const emit = defineEmits<{
   (e: "selection-change", rows: Row[]): void;
@@ -28,6 +31,13 @@ function readPref(): Pref {
 }
 const pref = ref<Pref>({ order: [], hidden: [], fixed: [], widths: {} });
 const filters = ref<Record<string, string>>({});
+const table = ref<TableInstance>();
+watch(() => props.filterState, value => { if (value) filters.value = { ...value }; }, { immediate: true, deep: true });
+watch(() => props.sortState, async value => {
+  await nextTick();
+  if (value?.prop && value.order) table.value?.sort(value.prop, value.order);
+  else table.value?.clearSort();
+}, { deep: true });
 const localSort = ref({ key: "", order: "" });
 const tableRows = computed(() => {
   if (!props.clientSide) return props.rows;
@@ -149,8 +159,12 @@ function reset() {
   pref.value = { order: [], hidden: [], fixed: [], widths: {} };
   filters.value = {};
   localSort.value = { key: "", order: "" };
+  table.value?.clearSort();
   persist();
-  if (!props.clientSide) emit("filter-change", {});
+  if (!props.clientSide) {
+    emit("filter-change", {});
+    emit("sort-change", { key: "", order: "" });
+  }
 }
 function filter() {
   if (!props.clientSide)
@@ -159,7 +173,7 @@ function filter() {
 function handleSort(value: { prop?: string | null; order?: string | null }) {
   const sort = { key: value.prop || "", order: value.order || "" };
   if (props.clientSide) localSort.value = sort;
-  else emit("sort-change", sort);
+  else if (sort.key !== props.sortState?.prop || sort.order !== (props.sortState?.order || "")) emit("sort-change", sort);
 }
 onMounted(() => { pref.value = readPref(); });
 watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {}; localSort.value = { key: "", order: "" }; });
@@ -170,7 +184,7 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
       <span class="business-table-hint">{{ toolHint }}</span>
       <ElButton size="small" text @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
-    <ElTable border allow-drag-last-column :data="tableRows" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
+    <ElTable border allow-drag-last-column ref="table" :data="tableRows" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
       :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
       @selection-change="emit('selection-change', $event)"
       @sort-change="handleSort"

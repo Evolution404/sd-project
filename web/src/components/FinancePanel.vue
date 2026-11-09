@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useListRoute } from "../services/page-navigation";
 import RowActions from "./RowActions.vue";
 import BusinessHistory from "./BusinessHistory.vue";
 import { useAccess } from "../services/access";
@@ -314,6 +315,19 @@ async function reconciliationHistory(row: Row) {
 async function showHistory(row: Row) {
   history.value = await api("/settlements/" + row.id + "/history");
 }
+useListRoute({
+  costPage, billPage, reconPage,
+  deletedNodes: showDeletedNodes, deletedCosts: showDeletedCosts, deletedReconciliations: showDeletedReconciliations,
+  costsSort: computed({ get: () => financeSort.value.costs, set: value => { financeSort.value.costs = value; } }),
+  costsDirection: computed({ get: () => financeDirection.value.costs, set: value => { financeDirection.value.costs = value; } }),
+  costsFilters: computed({ get: () => financeFilters.value.costs, set: value => { financeFilters.value.costs = value; } }),
+  billsSort: computed({ get: () => financeSort.value.bills, set: value => { financeSort.value.bills = value; } }),
+  billsDirection: computed({ get: () => financeDirection.value.bills, set: value => { financeDirection.value.bills = value; } }),
+  billsFilters: computed({ get: () => financeFilters.value.bills, set: value => { financeFilters.value.bills = value; } }),
+  reconciliationsSort: computed({ get: () => financeSort.value.reconciliations, set: value => { financeSort.value.reconciliations = value; } }),
+  reconciliationsDirection: computed({ get: () => financeDirection.value.reconciliations, set: value => { financeDirection.value.reconciliations = value; } }),
+  reconciliationsFilters: computed({ get: () => financeFilters.value.reconciliations, set: value => { financeFilters.value.reconciliations = value; } }),
+}, load);
 watch(() => props.project.id, load, { immediate: true });
 </script>
 <template>
@@ -376,7 +390,8 @@ watch(() => props.project.id, load, { immediate: true });
         >核定费用</ElButton
       >
     </div>
-    <BusinessTable table-key="finance:costs" :rows="costs" :columns="financeColumns.costs" :actions-width="190"
+    <BusinessTable table-key="finance:costs" :filter-state="financeFilters.costs"
+      :sort-state="{ prop: financeSort.costs, order: financeSort.costs ? (financeDirection.costs === 'asc' ? 'ascending' : 'descending') : null }" :rows="costs" :columns="financeColumns.costs" :actions-width="190"
       @sort-change="financeTableSort('costs', $event)" @filter-change="financeTableFilter('costs', $event)">
       <template #cell="{ row, column }">
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
@@ -410,7 +425,8 @@ watch(() => props.project.id, load, { immediate: true });
         @changed="load"
       />
     </div>
-    <BusinessTable table-key="finance:bills" :rows="bills" :columns="financeColumns.bills" selectable :actions-width="190"
+    <BusinessTable table-key="finance:bills" :filter-state="financeFilters.bills"
+      :sort-state="{ prop: financeSort.bills, order: financeSort.bills ? (financeDirection.bills === 'asc' ? 'ascending' : 'descending') : null }" :rows="bills" :columns="financeColumns.bills" selectable :actions-width="190"
       @selection-change="selected = $event" @sort-change="financeTableSort('bills', $event)"
       @filter-change="financeTableFilter('bills', $event)">
       <template #cell="{ row, column }">
@@ -444,7 +460,8 @@ watch(() => props.project.id, load, { immediate: true });
         >新增正式核对</ElButton
       >
     </div>
-    <BusinessTable table-key="finance:reconciliations" :rows="reconciliations"
+    <BusinessTable table-key="finance:reconciliations" :filter-state="financeFilters.reconciliations"
+      :sort-state="{ prop: financeSort.reconciliations, order: financeSort.reconciliations ? (financeDirection.reconciliations === 'asc' ? 'ascending' : 'descending') : null }" :rows="reconciliations"
       :columns="financeColumns.reconciliations" :actions-width="190"
       @sort-change="financeTableSort('reconciliations', $event)"
       @filter-change="financeTableFilter('reconciliations', $event)">

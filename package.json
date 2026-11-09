@@ -15,7 +15,7 @@
     "check:ui:strict": "node scripts/check-native-ui.mjs --strict",
     "backup": "node scripts/backup.mjs",
     "test:performance": "node --test tests/performance/equipment-pagination.bench.mjs",
-    "test:browser": "npm run build && node tests/e2e/browser.mjs && node tests/e2e/project-browser.mjs && node tests/e2e/masters-browser.mjs && node tests/e2e/lan-http-compat-browser.mjs && node tests/e2e/independent-ledger-browser.mjs && node tests/e2e/heading-layout-browser.mjs && node tests/e2e/table-preferences-browser.mjs && node tests/e2e/appearance-and-exchange-browser.mjs && node tests/e2e/resize-interactions-browser.mjs && node tests/e2e/row-actions-browser.mjs",
+    "test:browser": "npm run build && node tests/e2e/browser.mjs && node tests/e2e/project-browser.mjs && node tests/e2e/masters-browser.mjs && node tests/e2e/lan-http-compat-browser.mjs && node tests/e2e/independent-ledger-browser.mjs && node tests/e2e/heading-layout-browser.mjs && node tests/e2e/table-preferences-browser.mjs && node tests/e2e/appearance-and-exchange-browser.mjs && node tests/e2e/resize-interactions-browser.mjs && node tests/e2e/row-actions-browser.mjs && node tests/e2e/navigation-browser.mjs",
     "package:win": "npm run check:ui:strict && npm run check:no-tax && npm run check:independent-input && npm run build && node scripts/release/package-win10.mjs",
     "check:database-boundary": "node scripts/check-database-boundary.mjs",
     "check:schema": "python3 -B docs/architecture/schema113_database_acceptance.py && python3 -B docs/architecture/schema113_export_dictionary.py && python3 -B docs/architecture/schema113_structure_audit.py",
@@ -28,7 +28,8 @@
     "element-plus": "^2.14.7",
     "exceljs": "^4.4.0",
     "sortablejs": "1.15.7",
-    "vue": "^3.5.0"
+    "vue": "^3.5.0",
+    "vue-router": "4.6.4"
   },
   "devDependencies": {
     "@types/sortablejs": "1.15.9",

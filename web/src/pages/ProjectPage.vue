@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useListRoute, useEntityRoute } from "../services/page-navigation";
 import RowActions from "../components/RowActions.vue";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
@@ -27,7 +28,7 @@ const rows = ref<Row[]>([]),
   busy = ref(false),
   demands = ref<Row[]>([]),
   history = ref<Row | null>(null),
-  tab = ref("scope"),
+  tab = ref(props.financeOnly ? "finance" : "scope"),
   approvalRows = ref<Row[]>([]),
   priceScopeContext = ref<Row | null>(null),
   quoteOpen = ref(false);
@@ -85,8 +86,7 @@ async function load() {
     detail.value = await api("/projects/" + detail.value.id + "?deleted=true");
 }
 async function open(row: Row) {
-  detail.value = await api("/projects/" + row.id + "?deleted=true");
-  tab.value = props.financeOnly ? "finance" : "scope";
+  await navigation.open(row.id);
 }
 function editProject(row?: Row) {
   editing.value = row || null;
@@ -267,7 +267,7 @@ async function removeProject() {
     await api(`/projects/${detail.value!.id}`, "DELETE", {
       expected_version: detail.value!.version,
     });
-    detail.value = null;
+    await navigation.close();
     await load();
     ElMessage.success("项目已删除，可在包含已删除中查询");
   } catch (error) {
@@ -277,13 +277,19 @@ async function removeProject() {
 async function showHistory() {
   history.value = await api(`/projects/${detail.value!.id}/history`);
 }
+useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters, tab }, load);
+const navigation = useEntityRoute(detail, id => api('/projects/' + id + '?deleted=true'));
+const { routeError, routeLoading } = navigation;
 onMounted(async () => {
   actors.value = await api("/actors");
   await load();
+  await navigation.syncDetail();
 });
 </script>
 <template>
-  <template v-if="!detail"
+  <ElAlert v-if="routeError" :title="routeError" type="error" :closable="false" class="error-banner" />
+  <ElSkeleton v-if="routeLoading" :rows="5" animated />
+  <template v-else-if="!detail"
     ><div class="page-heading">
       <div>
         <div class="section-caption">
@@ -319,7 +325,8 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <BusinessTable :rows="rows" :columns="projectColumns" table-key="project:list"
+      <BusinessTable :rows="rows" :columns="projectColumns" table-key="project:list" :filter-state="columnFilters"
+        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
           <ElTag v-if="column.key === 'status'" effect="plain">{{ statusText[row.status] }}</ElTag>
@@ -341,7 +348,7 @@ onMounted(async () => {
   ></template>
   <template v-else
     ><div class="detail-header">
-      <ElButton @click="detail = null">返回项目列表</ElButton>
+      <ElButton @click="navigation.close()">返回项目列表</ElButton>
       <h1>{{ detail.name }}</h1>
       <ElTag>{{ statusText[detail.status] }}</ElTag
       ><span class="muted">{{ detail.code }}</span>

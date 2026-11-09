@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useRoute, useRouter } from "vue-router";
+import { useListRoute, useEntityRoute } from "../services/page-navigation";
+const route = useRoute(), router = useRouter();
 import RowActions from "../components/RowActions.vue";
 import { factText } from "../services/display";
 import BusinessHistory from "../components/BusinessHistory.vue";
@@ -17,7 +20,6 @@ import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue
 import { api, type Row, statusText, money, quantity } from "../services/api";
 const props = defineProps<{ kinds: string[]; title: string }>();
 const definitions = ref<Row>({}),
-  kind = ref(props.kinds[0]!),
   rows = ref<Row[]>([]),
   selectedIds = ref<string[]>([]),
   total = ref(0),
@@ -38,6 +40,10 @@ const definitions = ref<Row>({}),
   businessLabels = ref<Row>({}),
   history = ref<Row | null>(null),
   tab = ref("basic");
+const kind = computed({
+  get: () => String(route.params.kind || props.kinds[0]),
+  set: value => { void router.push({ name: route.name!, params: { kind: value }, query: {} }); },
+});
 const replacing = ref(false),
   replacement = ref<Row | null>(null),
   replacementForm = ref<Row>({});
@@ -369,10 +375,11 @@ async function remove(row: Row) {
     ElMessage.error((e as Error).message);
   }
 }
-async function openDetail(row: Row) {
-  detail.value = row;
+async function hydrateDetail(id: string) {
+  const requestedKind = kind.value;
+  const row = await api(`/catalog/${requestedKind}/${id}?deleted=true`);
   history.value = null;
-  referenceNames.value = {};
+  const names: Row = {};
   for (const field of fields().filter(
     (field) => field.type === "ref" && row[field.key],
   )) {
@@ -380,13 +387,19 @@ async function openDetail(row: Row) {
       const record = await api(
         `/catalog/${field.reference}/${row[field.key]}?deleted=true`,
       );
-      referenceNames.value[field.key] =
+      names[field.key] =
         record.label || record.name || record.tower_no || "历史关联对象";
     } catch {
-      referenceNames.value[field.key] = "历史关联对象";
+      names[field.key] = "历史关联对象";
     }
   }
+  if (route.params.id === id && kind.value === requestedKind) {
+    referenceNames.value = names;
+    if (route.query.history === '1') history.value = await api(`/catalog/${requestedKind}/history/${id}`);
+  }
+  return row;
 }
+function openDetail(row: Row) { return navigation.open(row.id); }
 function display(field: Row, value: unknown) {
   if (value == null || value === "") return "—";
   if (field.type === "money") return "¥" + money(value as number);
@@ -398,38 +411,33 @@ function display(field: Row, value: unknown) {
   return value;
 }
 async function viewHistory(row: Row) {
-  await openDetail(row);
-  history.value = await api(`/catalog/${kind.value}/history/${row.id}`);
+  await navigation.open(row.id, { history: '1' });
 }
 function selectRows(selected: Row[]) {
   selectedIds.value = selected.map((row) => String(row.id));
 }
 watch(kind, () => {
   selectedIds.value = [];
-  sortKey.value = "";
-  columnFilters.value = {};
   rows.value = [];
-  detail.value = null;
   history.value = null;
-  page.value = 1;
-  load();
+  void load();
 });
-watch(
-  () => props.kinds,
-  () => {
-    kind.value = props.kinds[0]!;
-  },
-);
+useListRoute({ q: query, page, deleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
+const navigation = useEntityRoute(detail, hydrateDetail);
+const { routeError, routeLoading } = navigation;
 onMounted(async () => {
   [definitions.value, businessLabels.value] = await Promise.all([
     api("/catalogs"),
     api("/display-labels"),
   ]);
   await load();
+  await navigation.syncDetail();
 });
 </script>
 <template>
-  <template v-if="!detail">
+  <ElAlert v-if="routeError" :title="routeError" type="error" :closable="false" class="error-banner" />
+  <ElSkeleton v-if="routeLoading" :rows="5" animated />
+  <template v-else-if="!detail">
     <div class="page-heading">
       <div>
         <div class="section-caption">基础数据管理</div>
@@ -472,7 +480,8 @@ onMounted(async () => {
         ><ElButton @click="load">刷新</ElButton
         ><span class="muted">共 {{ total }} 项</span>
       </div>
-      <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'catalog:' + kind" :loading="loading"
+      <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'catalog:' + kind" :loading="loading" :filter-state="columnFilters"
+        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         :selectable="['lines','physical','towers','spans'].includes(kind)" :actions-width="180"
         @selection-change="selectRows" @sort-change="tableSort" @filter-change="tableFilter">
         <template v-if="kind === 'physical'" #expand="{ row }">
@@ -516,8 +525,7 @@ onMounted(async () => {
     ><div class="detail-header">
       <ElButton
         @click="
-          detail = null;
-          history = null;
+          navigation.close();
         "
         >返回列表</ElButton
       >

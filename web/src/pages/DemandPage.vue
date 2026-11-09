@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useListRoute, useEntityRoute } from "../services/page-navigation";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
@@ -302,20 +303,26 @@ async function remove(row: Row) {
     await api("/demands/" + row.id, "DELETE", {
       expected_version: row.current_version,
     });
-    detail.value = null;
+    await navigation.close();
     await load();
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
+useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
+const navigation = useEntityRoute(detail, id => api('/demands/' + id + '?deleted=true'));
+const { routeError, routeLoading } = navigation;
 onMounted(async () => {
   operations.value = (await api("/catalog/operations?page_size=200")).items;
   businessLabels.value = await api("/display-labels");
   await load();
+  await navigation.syncDetail();
 });
 </script>
 <template>
-  <template v-if="!detail"
+  <ElAlert v-if="routeError" :title="routeError" type="error" :closable="false" class="error-banner" />
+  <ElSkeleton v-if="routeLoading" :rows="5" animated />
+  <template v-else-if="!detail"
     ><div class="page-heading">
       <div>
         <div class="section-caption">专业需求管理</div>
@@ -344,7 +351,8 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <BusinessTable :rows="rows" :columns="demandColumns" table-key="demand:list" selectable
+      <BusinessTable :rows="rows" :columns="demandColumns" table-key="demand:list" selectable :filter-state="columnFilters"
+        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @selection-change="selected = $event" @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
           <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
@@ -354,7 +362,7 @@ onMounted(async () => {
           <span v-else>{{ row[column.key] ?? '—' }}</span>
         </template>
         <template #actions="{ row }">
-          <ElButton size="small" @click="api('/demands/' + row.id + '?deleted=true').then(value => (detail = value))">查看</ElButton>
+          <ElButton size="small" @click="navigation.open(row.id)">查看</ElButton>
         </template>
       </BusinessTable>
       <ElPagination
@@ -367,7 +375,7 @@ onMounted(async () => {
   ></template>
   <template v-else
     ><div class="detail-header">
-      <ElButton @click="detail = null">返回需求列表</ElButton>
+      <ElButton @click="navigation.close()">返回需求列表</ElButton>
       <h1>{{ detail.demand_no }} · {{ detail.operation_snapshot }}</h1>
       <ElTag
         >{{ statusText[detail.status] }} · 第 {{ detail.current_version }} 版</ElTag

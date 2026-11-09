@@ -57,6 +57,8 @@ try {
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({ path: join(output, `ledger-${theme}-${width}.png`), fullPage: true });
       await page.keyboard.press("Escape");
+      await menu.waitFor({ state: "hidden" });
+      await page.waitForTimeout(200);
     }
   }
   await row.getByRole("button", { name: "更多操作" }).click();
