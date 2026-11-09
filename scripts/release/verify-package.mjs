@@ -79,6 +79,7 @@ const shipped = spawnSync(
     "scripts/backup.mjs",
     "scripts/restore.mjs",
     "scripts/upgrade-equipment-fields.mjs",
+    "scripts/upgrade-schema113.mjs",
     "package.json",
     "package-lock.json",
   ],

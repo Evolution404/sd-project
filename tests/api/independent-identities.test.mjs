@@ -139,7 +139,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
   );
 });
 
-test("approved equipment adjustment changes only four tables and their exact history guards", () => {
+test("schema adjustments are limited to approved equipment facts and the work-object archival guard", () => {
   const original = spawnSync(
     "git",
     ["show", "1e0cc62:server/database/schema/schema113.sql"],
@@ -165,6 +165,9 @@ test("approved equipment adjustment changes only four tables and their exact his
   const expected = ["transmission_lines", "line_history", "physical_towers", "physical_tower_history"];
   for (const prefix of ["line_history", "physical_tower_history"])
     for (const suffix of ["initial", "version_guard", "append", "identity_insert"]) expected.push(prefix + "_" + suffix);
+  // The separate work-object archive fix changes exactly this one trigger;
+  // all equipment changes must remain limited to their audited table set.
+  expected.push("object_type_guard_insert");
   assert.deepEqual(changed, expected.sort());
   assert.ok(after.every(item => !item.sql.includes("erection_type")));
 });

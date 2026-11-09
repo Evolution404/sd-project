@@ -5,7 +5,11 @@ import { join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 import { restoreBackup } from "./restore.mjs";
 
-const previousStructure = "40d3e66bafacce2385c5a1f6e211e90d1810796cf8e736e0ff1cfd82ee108b13";
+const previousEquipmentStructure = "40d3e66bafacce2385c5a1f6e211e90d1810796cf8e736e0ff1cfd82ee108b13";
+// Strict fingerprint of Schema113 before the archived work-object guard fix.
+// Existing data never changes automatically on startup; explicit maintenance
+// only accepts this exact source structure and makes a verified backup first.
+const previousObjectGuardStructure = "8e71a39712302e90d5d6248ffda7f7816a8aaf5cf146b42fb78d9b799ceec5e5";
 const equipmentTables = new Set(["transmission_lines", "line_history", "physical_towers", "physical_tower_history"]);
 const quote = name => '"' + name.replaceAll('"', '""') + '"';
 const digest = value => createHash("sha256").update(value).digest("hex");
@@ -66,7 +70,7 @@ function rebuild(db, target, columns, expectedFacts, sourceStructure) {
       throw Error("备份后数据库发生变化，请停止服务后重新执行升级");
     for (const item of inventory(db).filter(item => item.type !== "table"))
       db.exec(`DROP ${item.type.toUpperCase()} ${quote(item.name)}`);
-    for (const table of sourceStructure === previousStructure ? equipmentTables : []) {
+    for (const table of sourceStructure === previousEquipmentStructure ? equipmentTables : []) {
       const fields = columns.get(table).map(quote).join(",");
       db.exec(`CREATE TEMP TABLE ${quote("upgrade_" + table)} AS SELECT ${fields} FROM ${quote(table)}`);
       db.exec(`DROP TABLE ${quote(table)}`);
@@ -74,7 +78,8 @@ function rebuild(db, target, columns, expectedFacts, sourceStructure) {
       db.exec(`INSERT INTO ${quote(table)} (${fields}) SELECT ${fields} FROM ${quote("upgrade_" + table)}`);
       db.exec(`DROP TABLE temp.${quote("upgrade_" + table)}`);
     }
-    const cleanedJsonFields = cleanStoredJson(db, columns, true);
+    const cleanedJsonFields = sourceStructure === previousObjectGuardStructure
+      ? 0 : cleanStoredJson(db, columns, true);
     for (const type of ["view", "index", "trigger"])
       for (const item of target.filter(item => item.type === type)) db.exec(item.sql);
     if (JSON.stringify(inventory(db)) !== JSON.stringify(target)) throw Error("升级结构与唯一权威SQL不一致");
@@ -92,7 +97,7 @@ function rebuild(db, target, columns, expectedFacts, sourceStructure) {
 
 // Explicit, fingerprint-bound maintenance action. The normal startup path
 // continues to reject unmatched structures and never invokes this operation.
-export async function upgradeEquipmentFields(dataDirectory, backupDirectory) {
+export async function upgradeSchema113(dataDirectory, backupDirectory) {
   const directory = resolve(dataDirectory), destination = resolve(backupDirectory);
   if (!existsSync(join(directory, "schema113.sqlite"))) throw Error("现有数据库不存在");
   if (destination === directory || destination === join(directory, "objects") || destination.startsWith(join(directory, "objects") + sep) || existsSync(destination))
@@ -104,7 +109,9 @@ export async function upgradeEquipmentFields(dataDirectory, backupDirectory) {
     reference.exec(readFileSync(new URL("./schema/schema113.sql", import.meta.url), "utf8"));
     const target = inventory(reference), current = inventory(db);
     const sourceStructure = digest(JSON.stringify(current)), targetStructure = digest(JSON.stringify(target));
-    if (sourceStructure !== targetStructure && sourceStructure !== previousStructure) throw Error("数据库不匹配本次已批准的升级基线");
+    if (sourceStructure !== targetStructure &&
+      ![previousEquipmentStructure, previousObjectGuardStructure].includes(sourceStructure))
+      throw Error("数据库不匹配本次已批准的升级基线");
     checkIntegrity(db);
     const columns = new Map(target.filter(item => item.type === "table").map(item => {
       const oldFields = new Set(db.prepare(`PRAGMA table_info(${quote(item.name)})`).all().map(field => field.name));
@@ -137,3 +144,6 @@ export async function upgradeEquipmentFields(dataDirectory, backupDirectory) {
     db.close();
   }
 }
+
+// Preserve the documented earlier entrypoint for the equipment cleanup release.
+export const upgradeEquipmentFields = upgradeSchema113;

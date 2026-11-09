@@ -647,11 +647,20 @@ export function createCatalog(repo) {
           previous[sequence] || previous.version || 1,
           input.expected_version,
         );
-      if (kind === "operations" && input.work_object_id) {
-        input.work_target_type = get(
-          "objects",
-          input.work_object_id,
-        ).work_target_type;
+      if (kind === "operations" && (input.work_object_id ?? previous?.work_object_id)) {
+        const workObjectId = input.work_object_id ?? previous.work_object_id;
+        const existingBinding = previous?.work_object_id === workObjectId;
+        const workObject = get("objects", workObjectId, existingBinding);
+        const status = input.status ?? previous?.status ?? "active";
+        // A historic association can be retired after its master is deleted.
+        // New or changed associations still require a live master.
+        requireValue(
+          status === "inactive" || workObject.status === "active",
+          "作业对象已停用，请更换关联对象或停用操作类型",
+          409,
+        );
+        input.work_target_type = status === "inactive" && existingBinding
+          ? previous.work_target_type : workObject.work_target_type;
         if (input.work_target_type === "physical")
           Object.assign(input, {
             allow_tower: 1,
@@ -812,10 +821,20 @@ export function createCatalog(repo) {
             : get("units", values.default_unit_id).version;
       if (kind === "prices") {
         validatePricingRule(values);
-        const op = get("operations", values.operation_id);
-        values.operation_version = op.version;
-        values.unit_id = op.default_unit_id;
-        values.unit_version = op.default_unit_version;
+        const existingBinding = previous?.operation_id === values.operation_id;
+        const op = get("operations", values.operation_id, existingBinding);
+        requireValue(
+          values.status === "inactive" || op.status === "active",
+          "操作类型已停用，请更换操作类型或停用参考价格规则",
+          409,
+        );
+        // Retiring a rule must not silently adopt a newer operation or unit.
+        const retiringExisting = values.status === "inactive" && existingBinding;
+        values.operation_version = retiringExisting
+          ? previous.operation_version : op.version;
+        values.unit_id = retiringExisting ? previous.unit_id : op.default_unit_id;
+        values.unit_version = retiringExisting
+          ? previous.unit_version : op.default_unit_version;
         if (values.tower_type === "") values.tower_type = null;
       }
       if (c.versions) {

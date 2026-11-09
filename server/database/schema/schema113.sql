@@ -1404,13 +1404,25 @@ JOIN v_effective_settlement_items i
 WHERE r.status='active' AND current_cost.status='active';
 
 
--- TYPE CONSISTENCY: the work object is fixed on the operation template.
+-- TYPE CONSISTENCY: active operation versions must use an active master.
+-- When an already-bound work object was retired/deleted, allow ONLY a matching
+-- historic association to be archived as inactive. No new binding or active
+-- operation version may bypass the current-object guard.
 CREATE TRIGGER object_type_guard_insert BEFORE INSERT ON operation_versions
 BEGIN
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM v_work_object_current o WHERE o.id=NEW.work_object_id
  AND o.status='active'
  AND o.work_target_type IN ('both',NEW.work_target_type))
+ AND NOT (
+  NEW.status='inactive' AND EXISTS(
+   SELECT 1 FROM operation_versions old
+   WHERE old.operation_id=NEW.operation_id
+   AND old.version=NEW.version-1
+   AND old.work_object_id=NEW.work_object_id
+   AND old.work_target_type=NEW.work_target_type
+  )
+ )
  THEN RAISE(ABORT,'标准作业对象不适用于当前操作类型') END;
 END;
 -- The unit is governed once in the unified master, not copied on every demand.
