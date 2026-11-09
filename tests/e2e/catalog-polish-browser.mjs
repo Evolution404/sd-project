@@ -58,7 +58,7 @@ try {
   await page.getByRole('cell', { name: '耐张', exact: true }).waitFor();
   await page.getByRole('menuitem', { name: '作业标准与参考价格', exact: true }).click();
   await page.getByRole('button', { name: '新增操作类型', exact: true }).click();
-  assert.equal(await editor.getByRole('tab').count(), 3);
+  assert.equal(await editor.getByRole('tab').count(), 4);
   assert.equal(await editor.getByText('影响与预览', { exact: true }).count(), 0);
   await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('menuitem', { name: '专业需求', exact: true }).click();

@@ -92,13 +92,17 @@ try {
   await page
     .getByRole("menuitem", { name: "作业标准与参考价格", exact: true })
     .click();
-  await page.getByRole("tab", { name: "标准作业对象", exact: true }).click();
+  await page.getByRole("tab", { name: "作业对象", exact: true }).click();
   await page
-    .getByRole("button", { name: "新增标准作业对象", exact: true })
+    .getByRole("button", { name: "新增作业对象", exact: true })
     .click();
   await page.getByLabel("名称", { exact: true }).fill("浏览器专用对象");
-  await select("设备对象", "共用物理杆塔");
+  await page.getByLabel("归属范围", { exact: true }).press("ArrowDown");
+  await page.getByRole("option", { name: "线路", exact: true }).last().waitFor();
+  await page.getByRole("option", { name: "杆塔", exact: true }).last().click();
   await save();
+  await page.getByRole("row").filter({ hasText: "浏览器专用对象" })
+    .getByText("杆塔", { exact: true }).waitFor();
   await page.getByRole("tab", { name: "计量单位", exact: true }).click();
   await page.getByRole("button", { name: "新增计量单位", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("件");
@@ -106,7 +110,7 @@ try {
   await page.getByRole("tab", { name: "操作类型", exact: true }).click();
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("浏览器安装");
-  await select("标准作业对象", "浏览器专用对象");
+  await select("作业对象", "浏览器专用对象");
   await select("固定计量单位", "件");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
@@ -140,6 +144,61 @@ try {
   assert.equal(Object.values(s.demands.get(demand.id).custom_fields)[0], 12.5);
   assert.equal(s.catalog.list("voltages").length, 0);
   assert.equal(s.catalog.list("voltages", true)[0].name, "110千伏");
+  // New extra price factors have constrained enum/integer editors.
+  await page.getByRole("menuitem", { name: "作业标准与参考价格", exact: true }).click();
+  await page.getByRole("tab", { name: "价格特征", exact: true }).click();
+  await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
+  const factorEditor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+  await factorEditor.getByLabel("名称", { exact: true }).fill("施工难度");
+  assert.equal(await factorEditor.getByText("可自动取得的台账事实").count(), 0);
+  for (const item of ["普通", "困难"]) {
+    await factorEditor.getByPlaceholder("输入选项名称").fill(item);
+    await factorEditor.getByRole("button", { name: "添加选项" }).click();
+  }
+  await save();
+  const difficulty = s.catalog.list("factors").find((item) => item.name === "施工难度");
+  assert.deepEqual(JSON.parse(difficulty.fields_json).values, ["普通", "困难"]);
+
+  await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
+  await factorEditor.getByLabel("名称", { exact: true }).fill("施工高度");
+  await factorEditor.getByText("整数", { exact: true }).click();
+  await select("计量单位（选填）", "件");
+  await factorEditor.getByLabel("最小允许值（选填）").fill("0");
+  await factorEditor.getByLabel("最大允许值（选填）").fill("100");
+  await save();
+  const height = s.catalog.list("factors").find((item) => item.name === "施工高度");
+  const heightDefinition = JSON.parse(height.fields_json);
+  assert.equal(heightDefinition.min, 0);
+  assert.equal(heightDefinition.max, 100);
+  assert.ok(heightDefinition.unit_id);
+
+  await page.getByRole("tab", { name: "操作类型", exact: true }).click();
+  await page.getByRole("row").filter({ hasText: "浏览器安装" })
+    .getByRole("button", { name: "更多操作" }).click();
+  await page.getByRole("menuitem", { name: "编辑", exact: true }).last().click();
+  assert.equal(await factorEditor.getByRole("tab").count(), 4);
+  await factorEditor.getByRole("tab", { name: "计价所需信息" }).click();
+  await factorEditor.getByRole("button", { name: "添加计价信息" }).click();
+  await select("额外价格特征", "施工难度");
+  await factorEditor.locator(".el-switch:visible").last().click();
+  await save();
+  assert.equal(s.catalog.get("operations", s.catalog.list("operations").find(
+    (item) => item.name === "浏览器安装").id).version, 2);
+
+  await page.getByRole("tab", { name: "参考价格规则", exact: true }).click();
+  await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
+  assert.deepEqual(await factorEditor.getByRole("tab").allTextContents(),
+    ["基本信息", "适用条件", "计价方式"]);
+  await factorEditor.getByRole("tab", { name: "适用条件" }).click();
+  assert.equal(await factorEditor.getByLabel("适用电压").isVisible(), true);
+  await factorEditor.getByRole("tab", { name: "计价方式" }).click();
+  assert.equal(await factorEditor.getByLabel("计价模型").isVisible(), true);
+  await page.screenshot({
+    path: join(output, "price-features-settings-browser.png"),
+    fullPage: true,
+  });
+  await factorEditor.getByRole("button", { name: "取消" }).click();
+
   assert.deepEqual(errors, []);
   console.log(
     "SCHEMA113_MASTERS_BROWSER_OK master CRUD, inline equipment detail, audited voltage correction, custom operation fields, decimal fact and automatic demand numbering",

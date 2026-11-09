@@ -147,46 +147,46 @@ export function calculate(rule, quantityScaled, bases = {}) {
   trace.amount_fen = safeAmount(amount);
   return { amount_fen: trace.amount_fen, trace };
 }
-export function matches(rule, operation, location, date) {
-  if (
-    rule.status !== "active" ||
-    rule.operation_id !== operation.operation_id ||
-    rule.operation_version !== operation.operation_version ||
-    rule.unit_id !== operation.unit_id ||
-    rule.unit_version !== operation.unit_version ||
-    rule.effective_on > date
-  )
-    return false;
-  const snapshot =
-    typeof location.location_snapshot_json === "string"
-      ? JSON.parse(location.location_snapshot_json)
-      : location.location_snapshot_json;
-  if (
-    rule.voltage_level_id &&
-    rule.voltage_level_id !== snapshot.voltage_level_id
-  )
-    return false;
-  if (rule.tower_type && rule.tower_type !== snapshot.tower_type) return false;
+// One evaluator drives matching and user-facing mismatch explanations.
+export function explainMismatch(rule, operation, location, date) {
+  const reasons = [];
+  if (rule.status !== "active") reasons.push("价格规则已停用");
+  if (rule.operation_id !== operation.operation_id) reasons.push("操作类型不同");
+  if (rule.operation_version !== operation.operation_version) reasons.push("操作类型正式版本不同");
+  if (rule.unit_id !== operation.unit_id || rule.unit_version !== operation.unit_version)
+    reasons.push("固定计量单位版本不同");
+  if (rule.effective_on > date) reasons.push("价格规则尚未生效");
+  const snapshot = typeof location.location_snapshot_json === "string"
+    ? JSON.parse(location.location_snapshot_json) : (location.location_snapshot_json || {});
+  if (rule.voltage_level_id && rule.voltage_level_id !== snapshot.voltage_level_id)
+    reasons.push("线路电压等级不符合");
+  if (rule.tower_type && rule.tower_type !== snapshot.tower_type)
+    reasons.push("杆塔塔型不符合");
   if (rule.specification && rule.specification !== snapshot.specification)
-    return false;
+    reasons.push("作业规格不符合");
   if (rule.work_mode !== "both" && rule.work_mode !== location.work_mode)
-    return false;
-  const actual =
-    typeof location.site_features_json === "string"
-      ? JSON.parse(location.site_features_json)
-      : location.site_features_json;
-  const conditions = JSON.parse(rule.additional_conditions_json || "{}");
-  return Object.entries(conditions).every(([key, condition]) => {
+    reasons.push("停电方式不符合");
+  const actual = typeof location.site_features_json === "string"
+    ? JSON.parse(location.site_features_json) : (location.site_features_json || {});
+  const conditions = typeof rule.additional_conditions_json === "string"
+    ? JSON.parse(rule.additional_conditions_json || "{}") : (rule.additional_conditions_json || {});
+  for (const [key, condition] of Object.entries(conditions)) {
     const feature = actual[key];
-    if (!feature || feature.factor_version !== condition.factor_version)
-      return false;
-    return condition.op === "eq"
-      ? feature.value === condition.value
-      : condition.op === "range" &&
-          Number.isSafeInteger(feature.value) &&
-          feature.value >= condition.min &&
-          feature.value <= condition.max;
-  });
+    if (!feature || feature.factor_version !== condition.factor_version) {
+      reasons.push("现场特征缺失或正式版本不同：" + key);
+    } else if (condition.op === "eq" && feature.value !== condition.value) {
+      reasons.push("现场特征取值不符合：" + key);
+    } else if (condition.op === "range" && (!Number.isSafeInteger(feature.value) ||
+        feature.value < condition.min || feature.value > condition.max)) {
+      reasons.push("现场特征超出适用范围：" + key);
+    } else if (!["eq", "range"].includes(condition.op)) {
+      reasons.push("现场特征匹配方式无效：" + key);
+    }
+  }
+  return reasons;
+}
+export function matches(rule, operation, location, date) {
+  return explainMismatch(rule, operation, location, date).length === 0;
 }
 
 export function validatePricingRule(rule) {

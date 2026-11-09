@@ -3,6 +3,7 @@ import { requireValue, expectedVersion } from "../domain/errors.mjs";
 import {
   calculate,
   matches,
+  explainMismatch,
   ENGINE_VERSION,
   safeAmount,
 } from "../domain/pricing.mjs";
@@ -59,6 +60,10 @@ export function createPricing(repo, catalog, demands) {
       )
       .filter((rule) => rule && rule.pricing_scope === "work_location")
       .map((rule) => ({ ...rule, current_version_id: rule.id }));
+    const diagnosticRules = catalogs
+      .map((c) => repo.latest("reference_price_versions", "catalog_id", c.id, "version_no"))
+      .filter((rule) => rule?.pricing_scope === "work_location");
+    const factorLabels = catalog.displayLabels();
     const operation = repo.where("operation_versions", {
       operation_id: demand.operation_id,
       version: demand.operation_version,
@@ -72,17 +77,23 @@ export function createPricing(repo, catalog, demands) {
           : location.site_features_json;
       const missingFeatures = declarations
         .filter((feature) => feature.required)
-        .filter((feature) => {
+        .map((feature) => {
           const factor = repo.find("dictionary_items", "id", feature.factor_id);
-          return (
-            !actual[factor.code] ||
-            actual[factor.code].factor_version !== feature.factor_version
-          );
-        });
+          const version = repo.where("dictionary_item_versions", {
+            item_id: factor.id, version: feature.factor_version,
+          })[0];
+          return {
+            ...feature,
+            code: factor.code,
+            name: version?.name || factor.code,
+            supplied: actual[factor.code]?.factor_version === feature.factor_version,
+          };
+        })
+        .filter((feature) => !feature.supplied);
       if (missingFeatures.length) {
         missing.push({
           location_item_no: itemNo,
-          reason: "缺少操作定义要求的现场价格特征",
+          reason: "缺少计价必需信息：" + missingFeatures.map((feature) => feature.name).join("、"),
           candidates: [],
         });
         continue;
@@ -105,6 +116,16 @@ export function createPricing(repo, catalog, demands) {
           reason: selected.length
             ? "存在重叠规则，请明确选择并记录依据"
             : "无适用价格",
+          diagnostics: selected.length ? [] : diagnosticRules
+            .filter((rule) => rule.operation_id === demand.operation_id)
+            .map((rule) => ({
+              title: rule.title,
+              reasons: explainMismatch(rule, demand, location, date).map((reason) =>
+                reason.replace(/：([^：]+)$/, (_match, code) =>
+                  "：" + (factorLabels[code] || "未识别的价格特征"))),
+            }))
+            .sort((a, b) => a.reasons.length - b.reasons.length)
+            .slice(0, 5),
           candidates: matched.map((x) => ({
             id: x.current_version_id,
             title: x.title,
@@ -144,6 +165,9 @@ export function createPricing(repo, catalog, demands) {
         location_item_no: itemNo,
         coverage_key: "main",
         reference_price_version_id: rule.id,
+        rule_title: rule.title,
+        rule_version_no: rule.version_no,
+        pricing_mode: rule.pricing_mode,
         quantity_scaled: location.quantity_scaled,
         amount_fen: result.amount_fen,
         calculation_inputs_json: JSON.stringify({
@@ -187,12 +211,16 @@ export function createPricing(repo, catalog, demands) {
         created_by: actor.id,
         created_at: timestamp,
       });
-      for (const line of lines)
+      for (const line of lines) {
+        // Presentation labels are derived from the immutable rule version,
+        // never duplicated into formal calculation-line facts.
+        const { rule_title, rule_version_no, pricing_mode, ...formalLine } = line;
         repo.insert("reference_price_evaluation_lines", {
           id: id(),
           evaluation_id: evaluationId,
-          ...line,
+          ...formalLine,
         });
+      }
       repo.update("reference_price_evaluations", "id", evaluationId, {
         status: "final",
         finalized_by: actor.id,

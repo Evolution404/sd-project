@@ -6,7 +6,7 @@ import {
   integer,
 } from "../domain/errors.mjs";
 import { safeAmount } from "../domain/pricing.mjs";
-export function createFinance(repo, catalog, projects) {
+export function createFinance(repo, catalog, projects, pricing) {
   function activeLeaf(project, nodeId) {
     const node = project.cost_nodes.find((item) => item.id === nodeId);
     requireValue(
@@ -392,7 +392,16 @@ export function createFinance(repo, catalog, projects) {
     const actual = sum(costs, "amount_fen"),
       settled = sum(items, "amount_fen"),
       reconciled = sum(reconciliations, "reconciled_cost_fen");
+    const reference = project.approval ? pricing.summary(project.approval.id) : null;
+    const referenceTotal = reference?.total_fen ?? null;
     return {
+      reference_total_fen: referenceTotal,
+      reference_complete: reference?.complete || false,
+      reference_subtotal_fen: reference?.subtotal_fen ?? null,
+      reference_budget_difference_fen: referenceTotal !== null && project.approval
+        ? referenceTotal - project.approval.approved_budget_fen : null,
+      actual_reference_difference_fen: referenceTotal !== null
+        ? actual - referenceTotal : null,
       approved_budget_fen: project.approval?.approved_budget_fen ?? null,
       actual_cost_fen: actual,
       settlement_fen: settled,
@@ -643,6 +652,9 @@ export function createFinance(repo, catalog, projects) {
             {
               ...current,
               status: "voided",
+              // Deletion is a new formal revision; the previous version's
+              // unique idempotency receipt must never be copied forward.
+              request_key: undefined,
               expected_version: current.version_no,
             },
             key,

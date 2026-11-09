@@ -349,20 +349,27 @@ watch(() => props.project.id, load, { immediate: true });
   /></template>
   <div class="metric-grid">
     <div class="metric">
-      <span>批准预算</span
-      ><strong>{{ money(summary.approved_budget_fen) }}</strong>
+      <span>正式参考价格</span>
+      <strong>{{ summary.reference_total_fen == null ? '未完整计价' : '¥' + money(summary.reference_total_fen) }}</strong>
     </div>
     <div class="metric">
-      <span>真实费用</span><strong>{{ money(summary.actual_cost_fen) }}</strong>
+      <span>批准预算</span>
+      <strong>{{ summary.approved_budget_fen == null ? '尚未批准' : '¥' + money(summary.approved_budget_fen) }}</strong>
     </div>
     <div class="metric">
-      <span>已批准结算</span
-      ><strong>{{ money(summary.settlement_fen) }}</strong>
+      <span>真实费用</span><strong>¥{{ money(summary.actual_cost_fen) }}</strong>
     </div>
     <div class="metric">
-      <span>待核对费用</span
-      ><strong>{{ money(summary.unreconciled_cost_fen) }}</strong>
+      <span>已批准结算</span><strong>¥{{ money(summary.settlement_fen) }}</strong>
     </div>
+  </div>
+  <div class="panel">
+    <div class="toolbar" style="flex-wrap:wrap">
+      <span>参考价与批准预算差额：<strong>{{ summary.reference_budget_difference_fen == null ? '未具备比较条件' : '¥' + money(summary.reference_budget_difference_fen) }}</strong></span>
+      <span>实际费用与参考价差额：<strong>{{ summary.actual_reference_difference_fen == null ? '未具备比较条件' : '¥' + money(summary.actual_reference_difference_fen) }}</strong></span>
+      <span>待核对费用：<strong>¥{{ money(summary.unreconciled_cost_fen) }}</strong></span>
+    </div>
+    <p class="muted">参考价格、批准预算、真实费用和分期结算是不同业务事实，不要求相等。缺少任何需求报价时不显示完整参考总价。</p>
   </div>
   <div class="panel">
     <div class="toolbar">

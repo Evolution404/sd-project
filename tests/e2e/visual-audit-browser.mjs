@@ -98,10 +98,19 @@ try {
       await visit(path);
       for (const width of widths) {
         await auditLayout(`${theme}-${name}-detail`, width);
-        const columns = await page.locator('.el-descriptions__body tr').first().locator('td').count();
-        assert.equal(columns, width < 1100 ? 2 : 4, `${name} description columns ${width}`);
+        if (name === 'project') {
+          await page.getByText('项目档案尚未完善', { exact: false }).waitFor();
+        } else {
+          const columns = await page.locator('.el-descriptions__body tr').first().locator('td').count();
+          assert.equal(columns, width < 1100 ? 2 : 4, `${name} description columns ${width}`);
+        }
       }
     }
+    // Inspect the full finance tab as well as the default project scope tab.
+    await visit(`projects/${project.id}`);
+    await page.locator('.business-detail-dialog').getByRole('tab', { name: '费用与结算' }).click();
+    await page.waitForLoadState('networkidle');
+    for (const width of widths) await auditLayout(`${theme}-project-finance-detail`, width);
     for (const [name, path, button] of [
       ['line', 'ledger', '新增线路'], ['tower', 'ledger/towers', '新增逻辑杆塔'],
       ['operation', 'standards', '新增操作类型'], ['demand', 'demands', '新增需求'],

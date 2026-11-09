@@ -3,6 +3,12 @@ import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../services/entity-dialog";
 import { useDescriptionColumns } from "../services/responsive-descriptions";
 const descriptionColumns = useDescriptionColumns();
+function hasProjectProfile(project: Row) {
+  return Boolean(project.category_name || project.managing_unit_name ||
+    project.owner_username || project.manager_username ||
+    project.planned_start_on || project.planned_end_on ||
+    project.preliminary_estimate_fen);
+}
 import { useListRoute } from "../services/page-navigation";
 import RowActions from "../components/RowActions.vue";
 import BusinessHistory from "../components/BusinessHistory.vue";
@@ -366,7 +372,9 @@ onMounted(async () => {
     <template v-if="detail"><div class="detail-header">
       <h1>{{ detail.name }}</h1>
       <ElTag>{{ statusText[detail.status] }}</ElTag
-      ><span class="muted">{{ detail.code }}</span>
+      ><ElTooltip :content="detail.code" placement="top">
+         <span class="muted project-code">{{ detail.code }}</span>
+       </ElTooltip>
     </div>
     <div class="toolbar">
       <ElButton
@@ -395,7 +403,7 @@ onMounted(async () => {
         >审核结项</ElButton
       >
     </div>
-    <div class="panel">
+    <div v-if="hasProjectProfile(detail)" class="panel">
       <ElDescriptions :column="descriptionColumns" border
         ><ElDescriptionsItem label="项目类别">{{
           detail.category_name || "未指定"
@@ -416,6 +424,13 @@ onMounted(async () => {
           money(detail.preliminary_estimate_fen)
         }}</ElDescriptionsItem></ElDescriptions
       >
+    </div>
+    <div v-else class="panel">
+      <div class="toolbar" style="flex-wrap:wrap">
+        <span class="muted">项目档案尚未完善，可补充项目类别、归口单位、负责人和计划期间。</span>
+        <ElButton :disabled="!can('write') || detail.deleted"
+          @click="editProject(detail)">完善档案</ElButton>
+      </div>
     </div>
     <ElTabs v-model="tab"
       ><ElTabPane name="scope" label="需求与批准范围" /><ElTabPane
@@ -743,3 +758,13 @@ onMounted(async () => {
     @confirmed="load"
   />
 </template>
+<style scoped>
+.project-code {
+  display: inline-block;
+  max-width: min(260px, 37vw);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+</style>

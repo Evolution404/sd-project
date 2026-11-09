@@ -5,7 +5,7 @@ import { ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import FieldControl from "./FieldControl.vue";
 import BusinessTable, { type TableColumn } from "./BusinessTable.vue";
-import { api, today, type Row, money, quantity } from "../services/api";
+import { api, today, statusText, type Row, money, quantity } from "../services/api";
 const props = defineProps<{
   modelValue: boolean;
   demandId: string;
@@ -13,10 +13,29 @@ const props = defineProps<{
   scopeId?: string;
 }>();
 const emit = defineEmits(["update:modelValue", "confirmed"]);
+function traceText(line: Row) {
+  const trace = typeof line.calculation_trace_json === "string"
+    ? JSON.parse(line.calculation_trace_json) : line.calculation_trace_json || {};
+  const pieces: string[] = [statusText[line.pricing_mode] || "正式计价"];
+  if (line.pricing_mode === "fixed") pieces.push("按位置固定收费");
+  if (line.pricing_mode === "per_unit") pieces.push("实际数量 × 单价");
+  if (line.pricing_mode === "base_plus_unit") pieces.push("每个位置基础费 + 实际数量 × 单价");
+  if (line.pricing_mode === "quantity_bracket") pieces.push("按数量所在的整批档位计价");
+  if (line.pricing_mode === "progressive_bracket") pieces.push("各累进档分别计算后汇总");
+  if (line.pricing_mode === "group") pieces.push("数量按组向上取整计价");
+  if (line.pricing_mode === "rate") pieces.push("经核实的费用基数 × 费率");
+  if (line.pricing_mode === "composite") pieces.push("组合费用项分别计算后汇总");
+  pieces.push("金额以分为单位按四舍五入计算");
+  if (trace.bracket) pieces.push("使用数量分档");
+  return pieces.join(" · ");
+}
+
 const priceColumns: TableColumn[] = [
-  { key: "location_item_no", label: "位置序号", minWidth: 130 },
-  { key: "quantity_scaled", label: "计价数量", minWidth: 150 },
-  { key: "amount_fen", label: "金额", minWidth: 160 },
+  { key: "location_item_no", label: "位置序号", minWidth: 115 },
+  { key: "rule_title", label: "匹配价格规则", minWidth: 190 },
+  { key: "rule_version_no", label: "规则版本", minWidth: 105 },
+  { key: "quantity_scaled", label: "计价数量", minWidth: 125 },
+  { key: "amount_fen", label: "金额", minWidth: 145 },
 ];
 const quote = ref<Row | null>(null),
   busy = ref(false),
@@ -88,12 +107,36 @@ watch(
               <span v-else>{{ row[column.key] ?? '—' }}</span>
             </template>
           </BusinessTable>
+          <ElCollapse v-if="quote.lines?.length" class="pricing-trace">
+            <ElCollapseItem v-for="line in quote.lines" :key="line.location_item_no"
+              :name="line.location_item_no"
+              :title="'位置 ' + line.location_item_no + ' · ' + line.rule_title + '（V' + line.rule_version_no + '）'">
+              <ElDescriptions :column="1" border>
+                <ElDescriptionsItem label="参考价格规则">{{ line.rule_title }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="正式版本">V{{ line.rule_version_no }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="计价方式">{{ statusText[line.pricing_mode] || line.pricing_mode }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="计算依据">{{ traceText(line) }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="计价数量">{{ quantity(line.quantity_scaled) }}</ElDescriptionsItem>
+                <ElDescriptionsItem label="本位置金额">¥{{ money(line.amount_fen) }}</ElDescriptionsItem>
+              </ElDescriptions>
+            </ElCollapseItem>
+          </ElCollapse>
         <div
           v-for="missing in quote.missing"
           :key="missing.location_item_no"
           class="panel"
         >
           <p>位置 {{ missing.location_item_no }} · {{ missing.reason }}</p>
+          <ElCollapse v-if="missing.diagnostics?.length">
+            <ElCollapseItem title="查看其他价格规则为什么不适用" name="reasons">
+              <div v-for="(candidate, index) in missing.diagnostics" :key="index" class="panel">
+                <strong>{{ candidate.title }}</strong>
+                <div class="toolbar" style="flex-wrap:wrap;margin-top:6px">
+                  <ElTag v-for="reason in candidate.reasons" :key="reason" type="info" effect="plain">{{ reason }}</ElTag>
+                </div>
+              </div>
+            </ElCollapseItem>
+          </ElCollapse>
           <template v-if="missing.candidates?.length > 1"
             ><ElFormItem label="正式规则选择"
               ><ElSelect v-model="selections[missing.location_item_no]"

@@ -11,7 +11,7 @@ import { factText } from "../services/display";
 import BusinessHistory from "../components/BusinessHistory.vue";
 import { useAccess } from "../services/access";
 const can = useAccess();
-import { ref, watch, onMounted, computed } from "vue";
+import { ref, watch, onMounted, computed, nextTick } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import ExtraFieldsEditor from "../components/ExtraFieldsEditor.vue";
 import FactorDefinitionEditor from "../components/FactorDefinitionEditor.vue";
@@ -43,7 +43,13 @@ const definitions = ref<Row>({}),
   detail = ref<Row | null>(null),
   businessLabels = ref<Row>({}),
   history = ref<Row | null>(null),
-  tab = ref("basic");
+  tab = ref("basic"),
+  priceCheck = ref<Row | null>(null),
+  priceCheckError = ref(""),
+  priceChecking = ref(false),
+  priceCheckPanel = ref<HTMLElement | null>(null),
+  sampleQuantity = ref(10000),
+  latestOperationVersion = ref<number | null>(null);
 const kind = computed({
   get: () => String(route.params.kind || props.kinds[0]),
   set: value => { void router.push({ name: route.name!, params: { kind: value }, query: {} }); },
@@ -118,7 +124,64 @@ function edit(row?: Row, historical = false) {
         : value;
   }
   tab.value = "basic";
+  priceCheck.value = null;
+  priceCheckError.value = "";
+  latestOperationVersion.value = null;
+  sampleQuantity.value = 10000;
+  if (kind.value === "prices") {
+    form.value.operation_version = row?.operation_version ?? null;
+    form.value.adopt_latest_operation_version = false;
+    void loadLatestOperationVersion();
+  }
   dialog.value = true;
+}
+function copyPrice(row: Row) {
+  edit(row);
+  editing.value = null;
+  form.value.title = row.title + "（副本）";
+  form.value.operation_version = null;
+  form.value.adopt_latest_operation_version = false;
+  priceCheck.value = null;
+}
+async function loadLatestOperationVersion() {
+  const id = form.value.operation_id;
+  latestOperationVersion.value = null;
+  if (!id) return;
+  try {
+    const operation = await api("/catalog/operations/" + id);
+    if (form.value.operation_id === id) latestOperationVersion.value = operation.version;
+  } catch {
+    latestOperationVersion.value = null;
+  }
+}
+function adoptLatestOperationVersion() {
+  if (!latestOperationVersion.value) return;
+  form.value.adopt_latest_operation_version = true;
+  form.value.operation_version = latestOperationVersion.value;
+  priceCheck.value = null;
+}
+async function previewPrice() {
+  if (priceChecking.value) return;
+  priceChecking.value = true;
+  priceCheck.value = null;
+  priceCheckError.value = "";
+  try {
+    if (form.value.price_features_load_error || form.value.price_features_loading)
+      throw new Error(form.value.price_features_load_error || "请先完成价格特征加载");
+    priceCheck.value = await api("/catalog/prices/preview", "POST", {
+      ...form.value,
+      sample_quantity_scaled: sampleQuantity.value,
+      existing_id: editing.value?.id,
+    });
+  } catch (error) {
+    priceCheckError.value = (error as Error).message;
+  } finally {
+    priceChecking.value = false;
+    if (priceCheck.value || priceCheckError.value) {
+      await nextTick();
+      priceCheckPanel.value?.scrollIntoView({ behavior: "smooth", block: "end" });
+    }
+  }
 }
 function fields() {
   const c = definitions.value[kind.value];
@@ -181,6 +244,14 @@ function dependentDisabled(f: Row) {
     || (kind.value === "spans" && ["start_tower_id", "end_tower_id"].includes(f.key) && !form.value.line_id);
 }
 function fieldChanged(key: string) {
+  if (kind.value === "prices") {
+    priceCheck.value = null;
+    if (key === "operation_id") {
+      form.value.operation_version = null;
+      form.value.adopt_latest_operation_version = false;
+      void loadLatestOperationVersion();
+    }
+  }
   if (kind.value === "lines") {
     if (key === "line_kind" && form.value.line_kind !== "branch") {
       form.value.parent_line_id = null; form.value.junction_tower_id = null;
@@ -246,7 +317,7 @@ const tableColumns = computed<TableColumn[]>(() => {
   const c = definitions.value[kind.value];
   if (!c) return [];
   return [...c.rootFields, ...c.fields]
-    .filter((f: Row) => !f.systemManaged && f.type !== "json" && f.key !== "work_target_type")
+    .filter((f: Row) => !f.systemManaged && f.type !== "json" && (kind.value === "objects" || f.key !== "work_target_type"))
     .map((f: Row) => ({ key: f.key, label: f.label, minWidth: ["name", "title"].includes(f.key) ? 190 : 130 }));
 });
 function tableCell(row: Row, column: TableColumn) {
@@ -255,7 +326,7 @@ function tableCell(row: Row, column: TableColumn) {
   if (key === "height_scaled" || key === "transmission_center_length_mm")
     return Number(value) / (key === "height_scaled" ? 10000 : 1000);
   if (typeof value === "boolean") return value ? "是" : "否";
-  if (key === "tower_nature" || key === "status" || key === "line_kind" || key === "pricing_mode" || key === "pricing_scope")
+  if (key === "tower_nature" || key === "status" || key === "line_kind" || key === "work_target_type" || key === "pricing_mode" || key === "pricing_scope")
     return statusText[String(value)] || value;
   const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: Row) => f.key === key);
   if (f?.type === "ref") return value ? "已关联（查看详情）" : "—";
@@ -275,8 +346,17 @@ function tableFilter(values: Record<string, string>) {
   load();
 }
 function group(f: Row) {
+  if (kind.value === "prices") {
+    if (["voltage_level_id", "tower_type", "work_mode", "specification",
+      "additional_conditions_json"].includes(f.key)) return "conditions";
+    if (["pricing_scope", "pricing_mode", "base_fee_fen", "unit_price_fen",
+      "quantity_brackets_json", "calculation_params_json",
+      "fee_components_json"].includes(f.key)) return "pricing";
+    return "basic";
+  }
   if (kind.value !== "operations") return "basic";
-  if (["fields_json", "pricing_features_json"].includes(f.key)) return "extra";
+  if (f.key === "pricing_features_json") return "pricingInfo";
+  if (f.key === "fields_json") return "extra";
   if (
     [
       "completion_standard",
@@ -293,6 +373,18 @@ async function save() {
   saving.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
+    if (kind.value === "operations" &&
+      (form.value.price_features_load_error || form.value.price_features_loading)) {
+      ElMessage.error(form.value.price_features_load_error || "计价所需信息尚未加载完毕");
+      return;
+    }
+    if (kind.value === "prices") {
+      await previewPrice();
+      if (!priceCheck.value?.valid) {
+        ElMessage.error(priceCheckError.value || "价格规则预检查未通过");
+        return;
+      }
+    }
     const c = definitions.value[kind.value];
     if (
       kind.value === "towers" &&
@@ -300,7 +392,7 @@ async function save() {
       form.value.physical_mode === "new"
     )
       delete form.value.physical_tower_id;
-    await api(
+    const saved = await api(
       "/catalog/" + kind.value + (editing.value ? "/" + editing.value.id : ""),
       "POST",
       {
@@ -335,6 +427,7 @@ async function save() {
     );
     dialog.value = false;
     ElMessage.success("已保存正式版本");
+    for (const warning of saved.warnings || []) ElMessage.warning({ message: warning, duration: 8000 });
     await load();
     await refreshDetail();
   } catch (e) {
@@ -397,7 +490,7 @@ function display(field: Row, value: unknown) {
   if (field.type === "ref")
     return detail.value?.reference_names?.[field.key] || "历史关联对象";
   if (field.type === "boolean") return value ? "是" : "否";
-  if (["status", "tower_nature"].includes(field.key)) return statusText[String(value)] || value;
+  if (["status", "tower_nature", "work_target_type"].includes(field.key)) return statusText[String(value)] || value;
   return value;
 }
 async function viewHistory(row: Row) {
@@ -481,6 +574,7 @@ onMounted(async () => {
           <RowActions :actions="[
             { label: '查看', run: () => openDetail(row) },
             { label: '编辑', disabled: !can(catalogPermission) || row.deleted, run: () => edit(row) },
+            ...(kind === 'prices' ? [{ label: '复制规则', disabled: !can(catalogPermission) || row.deleted, run: () => copyPrice(row) }] : []),
             ...(row.deleted && definitions[kind]?.equipment ? [{ label: '更正历史', disabled: !can('admin'), run: () => edit(row, true) }] : []),
             { label: '历史', run: () => viewHistory(row) },
             { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => remove(row) },
@@ -511,7 +605,8 @@ onMounted(async () => {
         :disabled="!can(catalogPermission) || detail.deleted"
         @click="edit(detail)"
         >编辑</ElButton
-      ><ElButton @click="viewHistory(detail)">完整历史</ElButton
+      ><ElButton v-if="kind === 'prices'" :disabled="!can(catalogPermission) || detail.deleted" @click="copyPrice(detail)">复制规则</ElButton
+       ><ElButton @click="viewHistory(detail)">完整历史</ElButton
       ><ElButton
         v-if="
           kind === 'physical' && detail.status !== 'retired' && !detail.deleted
@@ -600,11 +695,33 @@ onMounted(async () => {
     :close-on-click-modal="false"
   >
     <ElForm ref="formRef" :model="form" label-position="top" novalidate>
-      <ElTabs v-if="kind === 'operations'" v-model="tab">
-        <ElTabPane label="基本定义" name="basic" />
-        <ElTabPane label="录入模板" name="template" />
-        <ElTabPane label="附加字段" name="extra" />
+      <ElTabs v-if="kind === 'operations' || kind === 'prices'" v-model="tab">
+        <template v-if="kind === 'operations'">
+          <ElTabPane label="基本定义" name="basic" />
+          <ElTabPane label="录入模板" name="template" />
+          <ElTabPane label="附加字段" name="extra" />
+          <ElTabPane label="计价所需信息" name="pricingInfo" />
+        </template>
+        <template v-else>
+          <ElTabPane label="基本信息" name="basic" />
+          <ElTabPane label="适用条件" name="conditions" />
+          <ElTabPane label="计价方式" name="pricing" />
+        </template>
       </ElTabs>
+      <div v-if="kind === 'prices' && tab === 'basic'" class="panel">
+        <div class="toolbar" style="flex-wrap:wrap">
+          <span class="muted">操作类型正式版本：{{ form.adopt_latest_operation_version
+            ? latestOperationVersion : (editing?.operation_version || latestOperationVersion || '待选择') }}</span>
+          <ElButton v-if="editing && latestOperationVersion &&
+            editing.operation_id === form.operation_id &&
+            latestOperationVersion !== editing.operation_version &&
+            !form.adopt_latest_operation_version" type="warning" plain
+            @click="adoptLatestOperationVersion">采用最新 V{{ latestOperationVersion }} 作业标准</ElButton>
+        </div>
+        <p v-if="form.adopt_latest_operation_version" class="muted">
+          将采用新的操作类型定义版本；请在“适用条件”中重新核对特征。
+        </p>
+      </div>
       <template v-if="kind === 'towers' && !editing"
         ><ElFormItem label="实际杆塔关系"
           ><ElRadioGroup v-model="form.physical_mode"
@@ -666,19 +783,40 @@ onMounted(async () => {
         :factor="form"
       />
       <PriceConditionsEditor
-        v-if="kind === 'prices' && tab === 'basic'"
+        v-if="kind === 'prices' && tab === 'conditions'"
         :rule="form"
       />
       <OperationFeaturesEditor
-        v-if="kind === 'operations' && tab === 'extra'"
+        v-if="kind === 'operations' && tab === 'pricingInfo'"
         :operation="form"
       />
       <PricingModelEditor
-        v-if="kind === 'prices' && tab === 'basic'"
+        v-if="kind === 'prices' && tab === 'pricing'"
         :rule="form"
-      /> </ElForm
+      />
+      <div v-if="kind === 'prices'" ref="priceCheckPanel" class="panel" style="margin-top:12px">
+        <div class="form-grid">
+          <ElFormItem label="示例工作量（用于检查计算结果）">
+            <FieldControl v-model="sampleQuantity" :field="{ type: 'quantity' }" />
+          </ElFormItem>
+        </div>
+        <ElAlert v-if="priceCheckError" type="error" :closable="false" :title="'规则检查未通过：' + priceCheckError" />
+        <template v-if="priceCheck">
+          <ElAlert :type="priceCheck.overlaps?.length ? 'warning' : 'success'" :closable="false"
+            :title="priceCheck.overlaps?.length ? '存在可能重叠的参考价格规则' : '规则完整性检查通过'" />
+          <div v-if="priceCheck.overlaps?.length" class="toolbar" style="margin-top:8px;flex-wrap:wrap">
+            <ElTag v-for="item in priceCheck.overlaps" :key="item.id" type="warning">{{ item.title }}</ElTag>
+          </div>
+          <p class="muted">所采用操作类型版本：V{{ priceCheck.operation_version }}。检查不会写入数据；冲突规则须在正式报价时明确选择依据。</p>
+          <p v-if="priceCheck.sample"><strong>试算金额：¥{{ money(priceCheck.sample.amount_fen) }}</strong>
+            <span class="muted">（工作量 {{ quantity(priceCheck.sample.quantity_scaled) }}，仅供核对计算模型）</span></p>
+          <p v-else-if="priceCheck.sample_error" class="muted">
+            暂不能试算：{{ priceCheck.sample_error }}。需先提供真实费用基数或选择有效的数量分档。</p>
+        </template>
+      </div></ElForm
     ><template #footer
       ><ElButton @click="dialog = false">取消</ElButton
+      ><ElButton v-if="kind === 'prices'" :loading="priceChecking" @click="previewPrice">保存前检查</ElButton
       ><ElButton
         :disabled="!can(catalogPermission)"
         type="primary"

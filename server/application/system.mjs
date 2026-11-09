@@ -22,7 +22,7 @@ export function createSystem(dataDir) {
     demands = createDemands(repo, catalog),
     pricing = createPricing(repo, catalog, demands),
     projects = createProjects(repo, catalog, demands, pricing),
-    finance = createFinance(repo, catalog, projects);
+    finance = createFinance(repo, catalog, projects, pricing);
   const reporting = createReporting(repo, catalog, demands, projects, finance);
   return {
     database,

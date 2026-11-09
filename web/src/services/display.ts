@@ -85,7 +85,7 @@ export const fieldNames: Record<string, string> = {
   model: "型号",
   unit_snapshot: "计量单位",
   operation_snapshot: "操作类型",
-  work_object_snapshot: "标准作业对象",
+  work_object_snapshot: "作业对象",
   approved_budget_fen: "批准预算",
   preliminary_estimate_fen: "初步估算",
   limit_fen: "框架额度",

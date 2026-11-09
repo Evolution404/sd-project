@@ -9,6 +9,7 @@ import {
 import { createAssetExchange } from "./assets.mjs";
 import { createReferences } from "./references.mjs";
 import { decimalText } from "../domain/decimal.mjs";
+import { validateFeatureValue } from "../domain/price-features.mjs";
 import { authorize, id, now, digest } from "../application/auth.mjs";
 import { requireValue, expectedVersion } from "../domain/errors.mjs";
 const clean = (row) =>
@@ -395,12 +396,14 @@ export function createExchange(system) {
               else {
                 let value = row.value;
                 if (definition.kind === "number") {
-                  value = Number(value);
                   requireValue(
-                    Number.isSafeInteger(value),
-                    "价格特征实际值须为整数",
+                    typeof value === "number" ||
+                      (typeof value === "string" && value.trim()),
+                    "整数现场特征不能为空",
                   );
+                  value = Number(value);
                 } else value = String(value);
+                validateFeatureValue(definition, value, version.name);
                 actual[factorCode] = {
                   factor_version: declared.factor_version,
                   value,

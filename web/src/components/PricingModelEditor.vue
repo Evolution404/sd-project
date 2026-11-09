@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import FormulaParameters from "./FormulaParameters.vue";
-import type { Row } from "../services/api";
+import { statusText, type Row } from "../services/api";
 const props = defineProps<{ rule: Row }>();
 const parameters = ref<Row>({}),
   components = ref<Row[]>([]);
@@ -67,7 +67,7 @@ watch(
                 ]"
                 :key="mode"
                 :value="mode"
-                :label="mode" /></ElSelect
+                :label="statusText[mode] || mode" /></ElSelect
           ></ElFormItem>
         </div>
         <FormulaParameters

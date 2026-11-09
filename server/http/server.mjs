@@ -223,6 +223,17 @@ export function httpServer(
           result = system.catalog.definitions;
           break;
         case "catalog":
+          if (key === "operations" && subKey === "pricing-definitions") {
+            requireValue(read, "价格特征定义只允许查询", 405);
+            const adoptedVersion = Number(url.searchParams.get("version")) || undefined;
+            result = system.catalog.operationPriceFeatures(sub, adoptedVersion);
+            break;
+          }
+          if (key === "prices" && sub === "preview") {
+            requireValue(method === "POST", "仅支持规则预检查", 405);
+            result = system.catalog.previewPrice(actor, input);
+            break;
+          }
           if (key === "physical" && subKey === "replacement") {
             result = read
               ? system.catalog.replacementPreview(sub)

@@ -1,4 +1,5 @@
-import { validatePricingRule } from "../domain/pricing.mjs";
+import { calculate, validatePricingRule } from "../domain/pricing.mjs";
+import { validateFactorDefinition, validateFactorCondition, priceRulesMayOverlap } from "../domain/price-features.mjs";
 import { authorize, id, now } from "./auth.mjs";
 import {
   requireValue,
@@ -86,7 +87,7 @@ export const catalogDefinitions = {
     ...rootTime,
   },
   objects: {
-    title: "标准作业对象",
+    title: "作业对象",
     root: "work_objects",
     view: "v_work_object_current",
     versions: "work_object_versions",
@@ -95,7 +96,7 @@ export const catalogDefinitions = {
     fields: [
       name,
       status,
-      field("work_target_type", "设备对象", "select", {
+      field("work_target_type", "归属范围", "select", {
         options: ["line", "physical"],
         default: "line",
         required: true,
@@ -114,9 +115,9 @@ export const catalogDefinitions = {
     fields: [
       name,
       status,
-      ref("work_object_id", "标准作业对象", "objects", true),
+      ref("work_object_id", "作业对象", "objects", true),
       ref("default_unit_id", "固定计量单位", "units", true),
-      field("work_target_type", "设备对象", "select", {
+      field("work_target_type", "归属范围", "select", {
         options: ["line", "physical"],
         default: "line",
         required: true,
@@ -721,22 +722,32 @@ export function createCatalog(repo) {
       }
       if (kind === "factors") {
         const definition = JSON.parse(values.fields_json);
-        requireValue(
-          definition && ["enum", "number"].includes(definition.kind),
-          "价格特征须选择文字枚举或整数类型",
-        );
-        if (definition.values !== undefined)
-          requireValue(
-            Array.isArray(definition.values) &&
-              definition.values.every(
-                (value) =>
-                  typeof value === "string" ||
-                  (value &&
-                    typeof value.value === "string" &&
-                    typeof value.label === "string"),
-              ),
-            "特征枚举值格式错误",
-          );
+        // Existing formal definitions remain readable; new versions may not
+        // introduce a second copy of equipment/ledger pricing attributes.
+        const unchangedLegacy = previous?.fields_json === values.fields_json;
+        validateFactorDefinition(definition, { allowLegacyAsset: unchangedLegacy });
+        const builtIn = new Set(["电压等级", "线路电压等级", "塔型",
+          "物理杆塔塔型", "停电方式", "作业方式", "作业位置", "归属范围",
+          "工作量", "数量", "规格", "作业规格", "操作类型"]);
+        requireValue(!builtIn.has(String(values.name).trim()),
+          "该条件已有正式业务字段，请在参考价格适用条件中直接配置");
+        if (definition.unit_id) {
+          const identity = repo.find("dictionary_items", "id", definition.unit_id);
+          const adopted = repo.where("dictionary_item_versions", {
+            item_id: definition.unit_id, version: definition.unit_version,
+          })[0];
+          requireValue(identity?.type_id === "unit" && adopted,
+            "整数计量单位版本不存在或不是正式计量单位");
+          const old = previous && JSON.parse(previous.fields_json);
+          const unchangedUnit = old?.unit_id === definition.unit_id &&
+            old?.unit_version === definition.unit_version;
+          if (!unchangedUnit) {
+            const current = get("units", definition.unit_id);
+            requireValue(current.status === "active" &&
+              current.version === definition.unit_version,
+              "整数计量单位已更新或停用，请重新选择", 409);
+          }
+        }
       }
       if (kind === "operations") {
         const oldFields = previous ? JSON.parse(previous.fields_json) : [];
@@ -775,21 +786,44 @@ export function createCatalog(repo) {
             "请完整填写附加字段名称、类型及可选内容",
           );
       }
-      if (kind === "operations")
-        for (const declared of JSON.parse(values.pricing_features_json))
-          if (declared.source === "asset") {
-            const version = repo.where("dictionary_item_versions", {
-              item_id: declared.factor_id,
-              version: declared.factor_version,
-            })[0];
-            requireValue(
-              version &&
-                ["tower_type", "voltage_code"].includes(
-                  JSON.parse(version.fields_json).asset_field,
-                ),
-              "请先为台账来源的价格特征配置可自动取得的台账事实",
-            );
+      if (kind === "operations") {
+        const features = JSON.parse(values.pricing_features_json);
+        requireValue(Array.isArray(features), "计价所需信息须为完整特征清单");
+        const originals = JSON.parse(previous?.pricing_features_json || "[]");
+        const used = new Set();
+        for (const declared of features) {
+          requireValue(
+            declared && typeof declared.factor_id === "string" &&
+              Number.isSafeInteger(declared.factor_version) &&
+              typeof declared.required === "boolean",
+            "请选择正式价格特征并明确是否计价必需",
+          );
+          requireValue(!used.has(declared.factor_id), "同一操作不能重复声明价格特征");
+          used.add(declared.factor_id);
+          const factor = repo.find("dictionary_items", "id", declared.factor_id);
+          const version = repo.where("dictionary_item_versions", {
+            item_id: declared.factor_id,
+            version: declared.factor_version,
+          })[0];
+          requireValue(factor?.type_id === "price_factor" && version,
+            "计价所需信息必须引用有效的价格特征");
+          const previousSame = originals.some((old) =>
+            old.factor_id === declared.factor_id &&
+            old.factor_version === declared.factor_version &&
+            old.source === declared.source &&
+            old.required === declared.required);
+          requireValue(
+            declared.source === "manual" || previousSame,
+            "新增计价所需信息只能使用现场填写，台账属性请在价格适用条件中配置",
+          );
+          if (!previousSame) {
+            const current = get("factors", declared.factor_id);
+            requireValue(current.status === "active" &&
+              current.version === declared.factor_version,
+              "价格特征已更新或停用，请刷新后重新选择", 409);
           }
+        }
+      }
       const timestamp =
         c.equipment && previous
           ? new Date(
@@ -819,6 +853,7 @@ export function createCatalog(repo) {
           previous?.default_unit_id === values.default_unit_id
             ? previous.default_unit_version
             : get("units", values.default_unit_id).version;
+      let overlappingPrices = [];
       if (kind === "prices") {
         validatePricingRule(values);
         const existingBinding = previous?.operation_id === values.operation_id;
@@ -829,13 +864,47 @@ export function createCatalog(repo) {
           409,
         );
         // Retiring a rule must not silently adopt a newer operation or unit.
-        const retiringExisting = values.status === "inactive" && existingBinding;
-        values.operation_version = retiringExisting
+        // Editing an existing rule must not silently adopt a newer operation
+        // version. Explicit adoption is an authorized, deliberate action.
+        const keepAdopted = existingBinding && !input.adopt_latest_operation_version;
+        values.operation_version = keepAdopted
           ? previous.operation_version : op.version;
-        values.unit_id = retiringExisting ? previous.unit_id : op.default_unit_id;
-        values.unit_version = retiringExisting
+        values.unit_id = keepAdopted ? previous.unit_id : op.default_unit_id;
+        values.unit_version = keepAdopted
           ? previous.unit_version : op.default_unit_version;
         if (values.tower_type === "") values.tower_type = null;
+        const adoptedVersion = repo.where("operation_versions", {
+          operation_id: values.operation_id, version: values.operation_version,
+        })[0];
+        const declarations = JSON.parse(adoptedVersion.pricing_features_json);
+        for (const [code, condition] of Object.entries(JSON.parse(values.additional_conditions_json))) {
+          const factor = repo.where("dictionary_items", {
+            type_id: "price_factor", code,
+          })[0];
+          const declared = declarations.find((f) =>
+            f.factor_id === factor?.id && f.factor_version === condition.factor_version);
+          requireValue(declared, "价格适用条件必须由所选操作类型的正式版本声明");
+          const definitionVersion = repo.where("dictionary_item_versions", {
+            item_id: factor.id, version: declared.factor_version,
+          })[0];
+          requireValue(definitionVersion, "价格特征定义版本不存在");
+          validateFactorCondition(JSON.parse(definitionVersion.fields_json), condition, code);
+          const latestFactor = repo.latest("dictionary_item_versions",
+            "item_id", factor.id, "version");
+          requireValue(
+            latestFactor?.version === declared.factor_version && latestFactor.status === "active",
+            "价格特征「" + (latestFactor?.name || code) +
+              "」已更新或停用；原价格规则历史不变，请升级操作类型和适用条件后创建新版本",
+            409,
+          );
+        }
+        if (values.status === "active") {
+          const deletedPrices = repo.deleted("prices");
+          overlappingPrices = repo.list("v_reference_price_current")
+            .filter((rule) => rule.id !== keyId && !deletedPrices.has(rule.id))
+            .filter((rule) => priceRulesMayOverlap(values, rule))
+            .map((rule) => rule.title);
+        }
       }
       if (c.versions) {
         const timestampKey = [
@@ -900,11 +969,125 @@ export function createCatalog(repo) {
           physical_tower_id: result.physical_tower_id,
           label: result.label,
         });
-      return result;
+      return overlappingPrices.length
+        ? { ...result, warnings: [`可能与以下参考价格规则重叠：${overlappingPrices.join("、")}；正式报价须明确选择及依据`] }
+        : result;
     });
   }
   return {
     definitions,
+    operationPriceFeatures(key, version) {
+      const selected = version
+        ? repo.where("operation_versions", {
+            operation_id: key, version,
+          })[0]
+        : repo.latest("operation_versions", "operation_id", key, "version");
+      requireValue(selected, "操作类型正式版本不存在", 404);
+      const items = JSON.parse(selected.pricing_features_json).map((feature) => {
+        const identity = repo.find("dictionary_items", "id", feature.factor_id);
+        const adopted = repo.where("dictionary_item_versions", {
+          item_id: feature.factor_id, version: feature.factor_version,
+        })[0];
+        requireValue(identity?.type_id === "price_factor" && adopted,
+          "价格特征正式定义不存在", 409);
+        const definition = JSON.parse(adopted.fields_json);
+        const unit = definition.unit_id
+          ? repo.where("dictionary_item_versions", {
+              item_id: definition.unit_id, version: definition.unit_version,
+            })[0]
+          : null;
+        return {
+          ...feature, code: identity.code, name: adopted.name, definition,
+          unit: unit?.name || "",
+        };
+      });
+      return { operation_id: key, operation_version: selected.version, items };
+    },
+    previewPrice(actor, input) {
+      authorize(actor, "admin");
+      const previous = input.existing_id
+        ? get("prices", input.existing_id) : null;
+      const op = get("operations", input.operation_id);
+      const keepAdopted = previous &&
+        previous.operation_id === input.operation_id &&
+        !input.adopt_latest_operation_version;
+      const rule = {
+        ...input,
+        operation_version: keepAdopted ? previous.operation_version : op.version,
+        unit_id: keepAdopted ? previous.unit_id : op.default_unit_id,
+        unit_version: keepAdopted ? previous.unit_version : op.default_unit_version,
+        status: input.status || "active",
+      };
+      for (const [key, label] of [
+        ["title", "规则名称"], ["price_source", "价格来源"],
+        ["price_date", "价格日期"], ["effective_on", "生效日期"],
+        ["basis", "计价依据"],
+      ])
+        requireValue(typeof rule[key] === "string" && rule[key].trim(),
+          "请填写" + label);
+      validatePricingRule(rule);
+      const adopted = repo.where("operation_versions", {
+        operation_id: rule.operation_id,
+        version: rule.operation_version,
+      })[0];
+      requireValue(adopted, "操作类型采用的正式版本不存在");
+      const declarations = JSON.parse(adopted.pricing_features_json);
+      const conditions = typeof rule.additional_conditions_json === "string"
+        ? JSON.parse(rule.additional_conditions_json) :
+        (rule.additional_conditions_json || {});
+      for (const [code, condition] of Object.entries(conditions)) {
+        const factor = repo.where("dictionary_items", {
+          type_id: "price_factor", code,
+        })[0];
+        const declared = declarations.find((item) =>
+          item.factor_id === factor?.id &&
+          item.factor_version === condition.factor_version);
+        requireValue(declared, "适用条件不属于所采用操作类型的正式版本：" + code);
+        const version = repo.where("dictionary_item_versions", {
+          item_id: factor.id, version: declared.factor_version,
+        })[0];
+        validateFactorCondition(JSON.parse(version.fields_json), condition, code);
+        const latestFactor = repo.latest("dictionary_item_versions",
+          "item_id", factor.id, "version");
+        requireValue(
+          latestFactor?.version === declared.factor_version && latestFactor.status === "active",
+          "价格特征「" + (latestFactor?.name || code) +
+            "」已更新或停用；请显式升级操作类型及适用条件，原有正式价格规则历史仍保留",
+          409,
+        );
+      }
+      const overlaps = rule.status === "active"
+        ? list("prices").filter((other) => other.id !== previous?.id)
+          .filter((other) => priceRulesMayOverlap(rule, other))
+          .map((other) => ({
+            id: other.id,
+            title: other.title,
+            effective_on: other.effective_on,
+          }))
+        : [];
+      const sampleQuantity = input.sample_quantity_scaled === undefined
+        ? 10000 : input.sample_quantity_scaled;
+      let sample = null, sampleError = null;
+      try {
+        const result = calculate(rule, sampleQuantity, input.sample_bases || {});
+        sample = {
+          quantity_scaled: sampleQuantity, amount_fen: result.amount_fen,
+          calculation_trace: result.trace,
+        };
+      } catch (error) {
+        if (!error.status) throw error;
+        sampleError = error.message;
+      }
+      return {
+        valid: true,
+        operation_version: rule.operation_version,
+        unit_version: rule.unit_version,
+        sample,
+        sample_error: sampleError,
+        overlaps,
+        warning: overlaps.length ? "规则适用范围可能重叠，正式报价须人工选择并记录依据" : null,
+      };
+    },
     displayLabels() {
       const labels = {},
         factors = new Map(

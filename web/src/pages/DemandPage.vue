@@ -232,6 +232,13 @@ async function save() {
   loading.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
+    const unavailable = (form.value.work_locations || []).find((location: Row) =>
+      location.price_features_load_error || location.price_features_loading);
+    if (unavailable) {
+      ElMessage.error(unavailable.price_features_load_error ||
+        "现场计价信息尚未加载完毕，请稍后保存");
+      return;
+    }
     const input = {
       ...Object.fromEntries(
         [

@@ -1,4 +1,5 @@
 import { currentSources, reviseSource } from "./sources.mjs";
+import { validateFeatureValue } from "../domain/price-features.mjs";
 import { authorize, documentCode, id, now } from "./auth.mjs";
 import {
   requireValue,
@@ -318,22 +319,10 @@ export function createDemands(repo, catalog) {
           version: feature.factor_version,
         })[0];
         requireValue(version, "现场特征定义版本不存在");
-        const definition = JSON.parse(version.fields_json);
-        requireValue(
-          definition.kind === "number"
-            ? Number.isSafeInteger(feature.value)
-            : typeof feature.value === "string" && feature.value.trim(),
-          "现场特征实际值类型错误",
-        );
-        if (definition.kind === "enum" && definition.values?.length)
-          requireValue(
-            definition.values.some(
-              (option) =>
-                (typeof option === "object" ? option.value : option) ===
-                feature.value,
-            ),
-            "现场特征实际值不在正式字典选项中",
-          );
+        const declared = JSON.parse(op.pricing_features_json).find((item) =>
+          item.factor_id === factor.id && item.factor_version === feature.factor_version);
+        requireValue(declared, "现场价格特征不属于本操作类型的正式定义");
+        validateFeatureValue(JSON.parse(version.fields_json), feature.value, version.name);
       }
       return {
         item_no: index + 1,

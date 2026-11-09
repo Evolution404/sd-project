@@ -129,59 +129,50 @@ test("deleting referenced equipment preserves real operating status while exclud
     /已删除/,
   );
 });
-test("versioned price features are inferred from declared asset sources and checked against shared dictionary values", (t) => {
+test("versioned extra price features retain exact names and reject undeclared equipment duplicates", (t) => {
   const { s, user, save, operation, demandInput } = fixture(t);
+  assert.throws(() => save("factors", {
+    name: "重复塔型属性",
+    fields_json: { kind: "enum", values: ["angle"], asset_field: "tower_type" },
+  }), /台账属性应直接作为价格适用条件/);
   const factor = save("factors", {
-    code: "tower-type",
-    name: "塔型条件",
-    fields_json: {
-      kind: "enum",
-      values: ["angle", "suspension"],
-      asset_field: "tower_type",
-    },
+    code: "terrain",
+    name: "施工环境",
+    fields_json: { kind: "enum", values: ["山地", "平地"] },
   });
-  s.catalog.save(
-    user,
-    "operations",
-    {
-      ...operation,
-      expected_version: 1,
-      pricing_features_json: [
-        {
-          factor_id: factor.id,
-          factor_version: 1,
-          source: "asset",
-          required: true,
-        },
-      ],
-    },
-    operation.id,
-  );
-  const demand = s.demands.save(user, demandInput);
-  assert.equal(
-    demand.work_locations[0].site_features_json[factor.code].value,
-    "angle",
-  );
-  const wrong = {
+  s.catalog.save(user, "operations", {
+    ...operation,
+    expected_version: 1,
+    pricing_features_json: [{
+      factor_id: factor.id, factor_version: 1, source: "manual", required: true,
+    }],
+  }, operation.id);
+  const demand = s.demands.save(user, {
+    ...demandInput,
+    work_locations: demandInput.work_locations.map((loc) => ({
+      ...loc,
+      site_features_json: {
+        [factor.code]: { factor_version: 1, value: "山地" },
+      },
+    })),
+  });
+  assert.equal(demand.work_locations[0].site_features_json[factor.code].value, "山地");
+  assert.throws(() => s.demands.save(user, {
     ...demandInput,
     demand_no: "WRONG-FACT",
     work_locations: demandInput.work_locations.map((loc) => ({
       ...loc,
       site_features_json: {
-        [factor.code]: { factor_version: 1, value: "suspension" },
+        [factor.code]: { factor_version: 1, value: "不在候选范围" },
       },
     })),
-  };
-  assert.throws(() => s.demands.save(user, wrong), /台账事实不一致/);
-  s.catalog.save(
-    user,
-    "factors",
-    { ...factor, name: "新塔型名称", expected_version: 1 },
-    factor.id,
-  );
+  }), /不在正式选项中/);
+  s.catalog.save(user, "factors", {
+    ...factor, name: "更新后的施工环境名称", expected_version: 1,
+  }, factor.id);
   const labels = s.catalog.displayLabels();
-  assert.equal(labels[factor.code + "@1"], "塔型条件");
-  assert.equal(labels[factor.code + "@2"], "新塔型名称");
+  assert.equal(labels[factor.code + "@1"], "施工环境");
+  assert.equal(labels[factor.code + "@2"], "更新后的施工环境名称");
 });
 test("explicit historical equipment correction preserves deletion and permits real retirement", (t) => {
   const { s, user, towers } = fixture(t);
