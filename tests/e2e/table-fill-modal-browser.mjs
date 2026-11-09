@@ -50,6 +50,12 @@ try {
   await page.reload();
   await page.getByRole('row').filter({ hasText: '500kV' }).waitFor();
   await page.setViewportSize({ width: 1500, height: 900 });
+  await page.waitForFunction(() => {
+    const table = document.querySelector('main .el-table');
+    const body = table?.querySelector('.el-table__body');
+    return !!table && !!body &&
+      body.getBoundingClientRect().width >= table.getBoundingClientRect().width - 3;
+  }, null, { timeout: 4000 });
   const savedLayout = await page.locator('main .el-table').evaluate(table => ({ body: table.querySelector('.el-table__body').getBoundingClientRect().width, table: table.getBoundingClientRect().width }));
   assert.ok(savedLayout.body >= savedLayout.table - 3, JSON.stringify(savedLayout));
   await page.getByRole('tab', { name: '物理杆塔', exact: true }).click();

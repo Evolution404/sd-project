@@ -265,6 +265,8 @@ export function createFinance(repo, catalog, projects, pricing) {
     authorize(actor, "write");
     return repo.transaction(() => {
       const current = settlement(key);
+      requireValue(!repo.isDeleted("settlements", key),
+        "结算单已删除，不可再次提交", 409);
       expectedVersion(current.version?.version_no || 0, input.expected_version);
       requireValue(current.draft, "没有待提交草稿");
       expectedVersion(current.draft.edit_version, input.expected_edit_version);
@@ -448,9 +450,11 @@ export function createFinance(repo, catalog, projects, pricing) {
     costs: (projectId, includeDeleted = false) =>
       repo
         .where("v_cost_current", { project_id: projectId })
-        .filter(
-          (cost) => includeDeleted || !repo.isDeleted("costs", cost.entry_id),
-        ),
+        .map((cost) => ({
+          ...cost,
+          deleted: repo.isDeleted("costs", cost.entry_id),
+        }))
+        .filter((cost) => includeDeleted || !cost.deleted),
     settlements: (projectId) =>
       repo
         .where("settlements", { project_id: projectId })
@@ -468,6 +472,8 @@ export function createFinance(repo, catalog, projects, pricing) {
       authorize(actor, "settlement.approve");
       return repo.transaction(() => {
         const current = settlement(key);
+        requireValue(!repo.isDeleted("settlements", key),
+          "结算单已删除，不可再次审核", 409);
         requireValue(current.version, "无正式版本");
         expectedVersion(current.version.version_no, input.expected_version);
         expectedVersion(
@@ -496,6 +502,8 @@ export function createFinance(repo, catalog, projects, pricing) {
       authorize(actor, "write");
       return repo.transaction(() => {
         const current = settlement(key);
+        requireValue(!repo.isDeleted("settlements", key),
+          "结算单已删除，不可撤销草稿", 409);
         expectedVersion(
           current.draft?.edit_version || 0,
           input.expected_edit_version,
@@ -596,6 +604,8 @@ export function createFinance(repo, catalog, projects, pricing) {
           key,
         );
         requireValue(current, "核对记录不存在", 404);
+        requireValue(!repo.isDeleted("reconciliations", key),
+          "核对记录已删除，不能重复删除", 409);
         expectedVersion(current.version_no, input.expected_version);
         if (current.status === "active")
           this.reconciliation(actor, {
@@ -621,6 +631,8 @@ export function createFinance(repo, catalog, projects, pricing) {
           "费用科目不存在",
           404,
         );
+        requireValue(!repo.isDeleted("cost_nodes", key),
+          "费用科目已删除，不能重复删除", 409);
         expectedVersion(current.version_no, input.expected_version);
         if (current.status === "active")
           node(
@@ -644,6 +656,8 @@ export function createFinance(repo, catalog, projects, pricing) {
       return repo.transaction(() => {
         const current = repo.latest("cost_versions", "entry_id", key);
         requireValue(current, "费用不存在", 404);
+        requireValue(!repo.isDeleted("costs", key),
+          "费用已删除，不能重复删除", 409);
         expectedVersion(current.version_no, input.expected_version);
         if (current.status === "active")
           cost(
@@ -673,6 +687,8 @@ export function createFinance(repo, catalog, projects, pricing) {
       authorize(actor, "admin");
       return repo.transaction(() => {
         let current = settlement(key);
+        requireValue(!repo.isDeleted("settlements", key),
+          "结算单已删除，不能重复删除", 409);
         expectedVersion(
           current.version?.version_no || 0,
           input.expected_version,

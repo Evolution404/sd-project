@@ -1201,7 +1201,12 @@ export function createCatalog(repo) {
           previous[c.sequence || "version_no"] || previous.version || 1,
           version,
         );
-        if (c.versions && previous.status === "active")
+        // A reference-price deletion is an audit-backed logical tombstone,
+        // not a new price definition. Old rules may legitimately reference
+        // an older feature version: re-inserting an inactive version would
+        // violate the current-feature guard and prevent deletion altogether.
+        // All live price selectors exclude catalog audit tombstones.
+        if (c.versions && previous.status === "active" && kind !== "prices")
           save(
             actor,
             kind,

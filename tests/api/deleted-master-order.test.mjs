@@ -53,12 +53,14 @@ test("remove linked work object first, then operation and price without losing i
   assert.equal(priceDeleted.deleted, true);
   assert.equal(s.catalog.list("prices").some(row => row.id === price.id), false);
   const archivedPrice = s.catalog.get("prices", price.id, true);
-  assert.equal(archivedPrice.status, "inactive");
-  assert.equal(archivedPrice.version_no, priceBefore.version_no + 1);
+  assert.equal(archivedPrice.deleted, true);
+  assert.equal(archivedPrice.status, priceBefore.status);
+  assert.equal(archivedPrice.version_no, priceBefore.version_no,
+    "deletion is recorded as a tombstone without forging a price version");
   assert.equal(archivedPrice.operation_id, operation.id);
   assert.equal(archivedPrice.operation_version, oldPriceOperationVersion);
   assert.equal(archivedPrice.unit_version, oldPriceUnitVersion);
-  assert.equal(s.catalog.history("prices", price.id).length, 2);
+  assert.equal(s.catalog.history("prices", price.id).length, 1);
   assert.ok(s.repo.auditFor("prices", price.id).some(event => event.action === "delete"));
   assert.equal(s.repo.integrity().foreignKeys.length, 0);
 });

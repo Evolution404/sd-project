@@ -185,8 +185,23 @@ function handleSort(value: { prop?: string | null; order?: string | null }) {
   if (props.clientSide) localSort.value = sort;
   else if (sort.key !== props.sortState?.prop || sort.order !== (props.sortState?.order || "")) emit("sort-change", sort);
 }
-onMounted(() => { pref.value = readPref(); });
-watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = { ...props.filterState }; localSort.value = { key: "", order: "" }; });
+// Restoring persisted widths changes the Element Plus column layout after
+// the initial table mount. Explicitly recalculate once Vue has applied them
+// so a reloaded table never stays narrower than its available workspace.
+async function restoreColumnLayout() {
+  await nextTick();
+  table.value?.doLayout();
+}
+onMounted(async () => {
+  pref.value = readPref();
+  await restoreColumnLayout();
+});
+watch(() => props.tableKey, async () => {
+  pref.value = readPref();
+  filters.value = { ...props.filterState };
+  localSort.value = { key: "", order: "" };
+  await restoreColumnLayout();
+});
 </script>
 <template>
   <div class="business-table">

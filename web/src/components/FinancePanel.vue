@@ -67,10 +67,12 @@ const financeColumns: Record<string, TableColumn[]> = {
     { key: "status", label: "状态" },
   ],
   costs: [
-    { key: "title", label: "事项", minWidth: 180 },
-    { key: "occurred_on", label: "发生日期" },
-    { key: "amount_fen", label: "实际金额" },
-    { key: "status", label: "状态" },
+    // Keep operational state and amount visible beside the fixed action
+    // column even in a 760px project-detail dialog.
+    { key: "title", label: "事项", minWidth: 165 },
+    { key: "status", label: "状态", minWidth: 105 },
+    { key: "amount_fen", label: "实际金额", minWidth: 125 },
+    { key: "occurred_on", label: "发生日期", minWidth: 115 },
   ],
   bills: [
     { key: "number", label: "结算编号", minWidth: 175 },
@@ -382,13 +384,13 @@ watch(() => props.project.id, load, { immediate: true });
     ><BusinessTable client-side table-key="finance:nodes" :rows="displayedNodes" :columns="financeColumns.nodes" :actions-width="190">
       <template #cell="{ row, column }">
         <span v-if="column.key === 'parent_id'">{{ project.cost_nodes.find((n: Row) => n.id === row.parent_id)?.name || '根科目' }}</span>
-        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ statusText[row.status] || row.status }}</ElTag>
+        <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag>
         <span v-else>{{ row[column.key] ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
-          { label: '编辑版本', disabled: !can('write'), run: () => edit('node', row) },
-          { label: '删除', danger: true, disabled: !can('admin'), run: () => removeFinancial('nodes', row) },
+          { label: '编辑版本', disabled: !can('write') || row.deleted, run: () => edit('node', row) },
+          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeFinancial('nodes', row) },
         ]" />
       </template>
     </BusinessTable>
@@ -407,19 +409,19 @@ watch(() => props.project.id, load, { immediate: true });
       >
     </div>
     <BusinessTable table-key="finance:costs" :loading="listLoading" :filter-state="financeFilters.costs"
-      :sort-state="{ prop: financeSort.costs, order: financeSort.costs ? (financeDirection.costs === 'asc' ? 'ascending' : 'descending') : null }" :rows="costs" :columns="financeColumns.costs" :actions-width="190"
+      :sort-state="{ prop: financeSort.costs, order: financeSort.costs ? (financeDirection.costs === 'asc' ? 'ascending' : 'descending') : null }" :rows="costs" :columns="financeColumns.costs" :actions-width="145"
       @sort-change="financeTableSort('costs', $event)" @filter-change="financeTableFilter('costs', $event)">
       <template #cell="{ row, column }">
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
-        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ statusText[row.status] || row.status }}</ElTag>
+        <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag>
         <span v-else>{{ row[column.key] ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
           { label: '附件', run: () => evidence = { ownerKind: 'cost_version_id', ownerId: row.id } },
-          { label: '更正', disabled: !can('cost.confirm'), run: () => edit('cost', row) },
-          { label: '撤销', danger: true, disabled: !can('cost.confirm'), run: () => voidCost(row) },
-          { label: '删除', danger: true, disabled: !can('admin'), run: () => removeFinancial('costs', row) },
+          { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('cost', row) },
+          { label: '撤销', danger: true, disabled: !can('cost.confirm') || row.deleted, run: () => voidCost(row) },
+          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeFinancial('costs', row) },
         ]" />
       </template>
     </BusinessTable>

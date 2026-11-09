@@ -78,6 +78,10 @@ test("settled amounts, independently reported work, over-completion and reconcil
   });
   assert.equal(s.finance.summary(project.id).reconciled_cost_fen, 0);
   assert.equal(s.finance.reconciliationHistory(record.record_id).length, 3);
+  assert.throws(() => s.finance.removeReconciliation(user, record.record_id,
+    { expected_version: 3 }), /核对记录已删除/);
+  assert.equal(s.repo.auditFor("reconciliations", record.record_id)
+    .filter((item) => item.action === "delete").length, 1);
   assert.equal(s.finance.reconciliations(project.id).length, 0);
   assert.equal(s.finance.reconciliations(project.id, true)[0].deleted, true);
   assert.throws(
