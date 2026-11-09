@@ -146,7 +146,9 @@ try {
         .getByRole("button", { name: "Excel 批量处理", exact: true })
         .click();
       await page
-        .getByRole("dialog", { name: "Excel 数据交换", exact: true })
+        .getByRole("dialog", {
+          name: "设备台账 Excel（线路／杆塔／档距）", exact: true,
+        })
         .waitFor();
       await page.getByRole("button", { name: "关闭", exact: true }).click();
       await page.getByRole("dialog").waitFor({ state: "hidden" });

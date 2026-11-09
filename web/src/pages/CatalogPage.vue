@@ -17,6 +17,7 @@ const props = defineProps<{ kinds: string[]; title: string }>();
 const definitions = ref<Row>({}),
   kind = ref(props.kinds[0]!),
   rows = ref<Row[]>([]),
+  selectedIds = ref<string[]>([]),
   total = ref(0),
   page = ref(1),
   query = ref(""),
@@ -286,7 +287,11 @@ async function viewHistory(row: Row) {
   await openDetail(row);
   history.value = await api(`/catalog/${kind.value}/history/${row.id}`);
 }
+function selectRows(selected: Row[]) {
+  selectedIds.value = selected.map((row) => String(row.id));
+}
 watch(kind, () => {
+  selectedIds.value = [];
   rows.value = [];
   detail.value = null;
   history.value = null;
@@ -325,6 +330,7 @@ onMounted(async () => {
           v-if="['lines', 'towers', 'physical', 'spans'].includes(kind)"
           kind="assets"
           :query="query"
+          :selected-ids="selectedIds"
           @changed="load"
         />
       </div>
@@ -350,8 +356,18 @@ onMounted(async () => {
         ><ElButton @click="load">刷新</ElButton
         ><span class="muted">共 {{ total }} 项</span>
       </div>
-      <ElTable :data="rows" row-key="id" v-loading="loading"
-        ><ElTableColumn label="业务对象" min-width="190"
+      <ElTable
+        :data="rows"
+        row-key="id"
+        v-loading="loading"
+        @selection-change="selectRows"
+      >
+        <ElTableColumn
+          v-if="['lines', 'towers', 'spans'].includes(kind)"
+          type="selection"
+          width="48"
+        />
+        <ElTableColumn label="业务对象" min-width="190"
           ><template #default="{ row }"
             ><strong>{{ row.label || row.name || row.title }}</strong></template
           ></ElTableColumn

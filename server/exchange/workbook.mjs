@@ -8,6 +8,7 @@ export const KEEP = "__KEEP__",
   CLEAR = "__CLEAR__",
   DELETE = "delete";
 const externalScale = {
+  transmission_center_length_mm: ["management_length", 3],
   height_scaled: ["height", 4],
   quantity_scaled: ["quantity", 4],
   resolved_quantity_scaled: ["resolved_quantity", 4],
@@ -23,6 +24,7 @@ const internalScale = Object.fromEntries(
 // Business-readable Excel values; official identity/version columns remain
 // in the workbook (hidden), so maintenance export can roundtrip safely.
 const businessChoices = {
+  line_kind: { main: "主线", branch: "支线" },
   status: { active: "在用", inactive: "停用", retired: "退役", draft: "草稿" },
   distinct_physical: { true: "是", false: "否" },
   location_kind: {
@@ -35,6 +37,12 @@ const businessChoices = {
 };
 const technicalColumns = new Set([
   "id",
+  "line_id",
+  "voltage_level_id",
+  "parent_line_id",
+  "junction_tower_id",
+  "start_tower_id",
+  "end_tower_id",
   "expected_version",
   "expected_edit_version",
   "operation_id",
@@ -75,6 +83,12 @@ export const layouts = {
         "voltage_level_id",
         "name",
         "voltage_name",
+        "line_kind",
+        "parent_line_id",
+        "parent_line_name",
+        "parent_voltage_name",
+        "junction_tower_id",
+        "junction_tower_no",
         "status",
         "erection_type",
       ],
@@ -103,6 +117,27 @@ export const layouts = {
         "latitude",
         "operations_team",
         "management_department",
+      ],
+    },
+    {
+      name: "档距",
+      key: "spans",
+      columns: [
+        "id",
+        "expected_version",
+        "line_id",
+        "start_tower_id",
+        "end_tower_id",
+        "line_name",
+        "voltage_name",
+        "start_tower_no",
+        "start_line_name",
+        "start_voltage_name",
+        "end_tower_no",
+        "end_line_name",
+        "end_voltage_name",
+        "transmission_center_length_mm",
+        "status",
       ],
     },
   ],
@@ -233,6 +268,16 @@ for (const [kind, sheets] of Object.entries(layouts))
     if (kind !== "assets" && sheet.key !== "documents")
       sheet.columns.push("document_row");
 const labels = {
+  line_kind: "线路类型",
+  parent_line_name: "所属主线名称（支线填写）",
+  parent_voltage_name: "所属主线电压等级（重名时填写）",
+  junction_tower_no: "主线接入杆塔号（支线填写）",
+  start_tower_no: "起点杆塔号",
+  start_line_name: "起点所属线路（支线接入时填写）",
+  start_voltage_name: "起点线路电压等级（重名时填写）",
+  end_line_name: "终点所属线路（支线接入时填写）",
+  end_voltage_name: "终点线路电压等级（重名时填写）",
+  transmission_center_length_mm: "输电中心管辖长度（米）",
   sharing_line_name: "共用实物的已有线路",
   sharing_voltage_name: "共塔线路电压等级",
   sharing_tower_no: "共用实物的已有杆塔号",
@@ -304,6 +349,21 @@ const labels = {
   evidence: "事实依据",
   resolved_quantity_scaled: "本次新增解决量（万分之一单位）",
 };
+function businessHeader(key, kind) {
+  // Identity/version columns stay hidden; ordinary equipment users see only
+  // Chinese business fields, never technical implementation keys.
+  if (kind === "assets") {
+    if (key === "voltage_name") return "电压等级";
+    if (key === "tower_no") return "杆塔号";
+    return labels[key] || key;
+  }
+  if (externalScale[key])
+    return key === "amount_fen" ? "本次金额（元）"
+      : key === "unit_price_fen" ? "单价（元）"
+      : key === "resolved_quantity_scaled" ? "本次新增解决数量"
+      : "工作数量";
+  return labels[key] || key;
+}
 export function issue(
   sheet,
   row,
@@ -408,16 +468,20 @@ export async function parseWorkbook(buffer, kind) {
     requireValue(sheet.columnCount <= 80, "工作表列数超出限制");
     const headers = new Map();
     sheet.getRow(1).eachCell((cell, column) => {
-      const header = String(cell.value || "")
-        .split("|")
-        .at(-1)
-        .trim();
+      const visible = String(cell.value || "").trim();
+      const legacyKey = visible.split("|").at(-1).trim();
+      const canonical = definition.columns.find(
+        (columnKey) => visible === businessHeader(columnKey, kind),
+      ) || internalScale[legacyKey]?.[0] || legacyKey;
       requireValue(
-        definition.columns.includes(internalScale[header]?.[0] || header),
-        `未知列 ${definition.name}.${header}`,
+        definition.columns.includes(canonical),
+        "未知列 " + definition.name + "." + visible,
       );
-      requireValue(![...headers.values()].includes(header), `重复列 ${header}`);
-      headers.set(column, header);
+      requireValue(
+        ![...headers.values()].includes(canonical),
+        "重复列 " + businessHeader(canonical, kind),
+      );
+      headers.set(column, canonical);
     });
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
@@ -428,8 +492,8 @@ export async function parseWorkbook(buffer, kind) {
         try {
           const value = cellValue(row.getCell(column));
           if (value !== KEEP && value !== null) {
-            const mapping = internalScale[key];
-            data[mapping?.[0] || key] =
+            const mapping = externalScale[key];
+            data[key] =
               value === CLEAR
                 ? null
                 : mapping
@@ -441,7 +505,7 @@ export async function parseWorkbook(buffer, kind) {
             issue(
               definition.name,
               rowNumber,
-              key,
+              kind === "assets" ? businessHeader(key, kind) : key,
               String(row.getCell(column).value),
               error.message,
             ),
@@ -468,6 +532,8 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
       ? "业务报表，仅供阅读，不可回导"
       : "数据维护工作簿，可离线修改并回导",
     "金额填写人民币元（最多2位小数），工作量填写实际单位数量（最多4位小数）。",
+    "线路、杆塔、档距可在同一份 Excel 内录入，先填线路/主线接入杆塔，再填支线与档距；系统按依赖顺序自动创建。没有真实档距关系时留空档距工作表，系统不会推测连接。",
+    "支线在“线路”填写所属主线和主线接入杆塔号；档距填写所属线路和两端杆塔号。共塔必须明确填写要共享的已有杆塔，不允许猜测实物身份。",
     "系统身份和原版本自动携带。新增填写业务名称、线路杆号及真实属性，单据号由服务端生成。同名歧义须在系统核对后使用维护导出。",
     "一张清单时明细自动归属，多张清单用实际Excel行号关联。行号只表达文件中真实的归属关系。",
     "位置类型、作业方式和明细动作可直接选择中文选项；系统在导入时自动对应正式取值。",
@@ -480,7 +546,9 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
   for (const definition of layouts[kind]) {
     const sheet = workbook.addWorksheet(definition.name);
     sheet.columns = definition.columns.map((key) => ({
-      header: `${externalScale[key] ? (key === "amount_fen" ? "本次金额（元）" : key === "unit_price_fen" ? "单价（元）" : key === "resolved_quantity_scaled" ? "本次新增解决数量" : "工作数量") : labels[key] || key}|${externalScale[key]?.[0] || key}`,
+      header: kind === "assets" && !technicalColumns.has(key)
+        ? businessHeader(key, kind)
+        : businessHeader(key, kind) + "|" + (externalScale[key]?.[0] || key),
       key,
       hidden: technicalColumns.has(key),
       width: [

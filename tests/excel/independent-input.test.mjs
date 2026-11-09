@@ -120,7 +120,9 @@ test("asset workbook creates complete lines and towers, reuses explicit physical
   const sheet = exported.getWorksheet("杆塔"),
     teamColumn = sheet
       .getRow(1)
-      .values.findIndex((value) => String(value).endsWith("|operations_team"));
+      .values.findIndex((value) =>
+        String(value) === "运维班组" ||
+        String(value).endsWith("|operations_team"));
   sheet.getRow(2).getCell(teamColumn).value = "独立运维班组";
   preview = await exchange.preview(
     user,

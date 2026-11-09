@@ -14,21 +14,66 @@ export function createAssetExchange(system) {
   const physicalKeys = catalog.definitions.physical.fields
     .map((field) => field.key)
     .filter((key) => key !== "status");
+  // Resolve human business labels only at execution time. Earlier rows in
+  // the same workbook may create the referenced line or tower transactionally.
   function input(document) {
     const row = document.payload,
       refs = createReferences(system);
     const values = { ...row, expected_version: row.expected_version };
-    if (document.kind === "lines")
+    if (document.kind === "lines") {
       values.voltage_level_id = refs.named(
-        "voltages",
-        row.voltage_name,
-        row.voltage_level_id,
+        "voltages", row.voltage_name, row.voltage_level_id,
       ).id;
-    else {
+      if (row.parent_line_name) {
+        const parent = refs.line(
+          row.parent_line_name, row.parent_voltage_name, row.parent_line_id,
+        );
+        requireValue(parent.line_kind === "main", "支线只能归属于主线");
+        values.parent_line_id = parent.id;
+      }
+      if (row.junction_tower_no) {
+        requireValue(values.parent_line_id, "请先填写支线所属主线");
+        const junction = refs.unique(
+          catalog.list("towers").filter(
+            (tower) => tower.line_id === values.parent_line_id &&
+              tower.tower_no === String(row.junction_tower_no) &&
+              tower.status === "active",
+          ),
+          "主线接入杆塔",
+          row.junction_tower_id,
+        );
+        values.junction_tower_id = junction.id;
+      }
+    } else if (document.kind === "spans") {
+      const line = refs.line(row.line_name, row.voltage_name, row.line_id);
+      values.line_id = line.id;
+      requireValue(row.start_tower_no && row.end_tower_no, "请填写档距两端杆塔号");
+      const endpoint = (number, name, voltage, prior) => {
+        const selectedLine = name
+          ? refs.line(name, voltage)
+          : line;
+        return refs.unique(
+          catalog.list("towers").filter(
+            (tower) => tower.line_id === selectedLine.id &&
+              tower.tower_no === String(number) &&
+              tower.status !== "retired",
+          ),
+          "档距端点杆塔“" + selectedLine.name + " " + number + "”",
+          prior,
+        ).id;
+      };
+      values.start_tower_id = endpoint(
+        row.start_tower_no, row.start_line_name,
+        row.start_voltage_name, row.start_tower_id,
+      );
+      values.end_tower_id = endpoint(
+        row.end_tower_no, row.end_line_name,
+        row.end_voltage_name, row.end_tower_id,
+      );
+      requireValue(values.start_tower_id !== values.end_tower_id, "档距两端杆塔不能相同");
+    } else {
       values.line_id = refs.line(
-        row.line_name,
-        row.voltage_name,
-        row.line_id,
+        row.line_name, row.voltage_name, row.line_id,
       ).id;
       if (row.sharing_line_name || row.sharing_tower_no) {
         requireValue(
@@ -36,17 +81,13 @@ export function createAssetExchange(system) {
           "共塔须填写已有回路的线路及杆塔号",
         );
         const sharedLine = refs.line(
-          row.sharing_line_name,
-          row.sharing_voltage_name,
+          row.sharing_line_name, row.sharing_voltage_name,
         );
         const shared = refs.unique(
-          catalog
-            .list("towers")
-            .filter(
-              (tower) =>
-                tower.line_id === sharedLine.id &&
-                tower.tower_no === String(row.sharing_tower_no),
-            ),
+          catalog.list("towers").filter(
+            (tower) => tower.line_id === sharedLine.id &&
+              tower.tower_no === String(row.sharing_tower_no),
+          ),
           "已有共塔回路",
         );
         requireValue(shared.physical_tower_id, "选定回路尚无实物关联");
@@ -55,190 +96,408 @@ export function createAssetExchange(system) {
       values.confirm_distinct =
         row.distinct_physical === true || row.distinct_physical === "是";
       values.physical_properties = Object.fromEntries(
-        physicalKeys
-          .filter((key) => row[key] !== undefined)
-          .map((key) => [key, row[key]]),
+        physicalKeys.filter(
+          (key) => row[key] !== undefined,
+        ).map((key) => [key, row[key]]),
       );
     }
     return values;
   }
   function prepare(parsed, mode = "mixed") {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
-    const documents = [],
+    const lines = parsed.rows.documents || [],
+      towers = parsed.rows.towers || [],
+      spans = parsed.rows.spans || [],
+      source = [
+        ...lines.map((row) => ({ kind: "lines", row })),
+        ...towers.map((row) => ({ kind: "towers", row })),
+        ...spans.map((row) => ({ kind: "spans", row })),
+      ],
       issues = [...parsed.issues],
-      refs = createReferences(system);
-    const lines = parsed.rows.documents,
-      towers = parsed.rows.towers;
-    requireValue(
-      lines.length + towers.length <= MAX_DOCUMENTS,
-      "单批最多5000条完整台账记录",
+      documents = [];
+    requireValue(source.length <= MAX_DOCUMENTS, "单批最多5000条完整台账记录");
+
+    const savedLines = catalog.list("lines"),
+      savedTowers = catalog.list("towers"),
+      savedSpans = catalog.list("spans");
+    const savedVoltage = (line) => (
+      catalog.get("voltages", line.voltage_level_id, true).name
     );
-    for (const [kind, rows] of [
-      ["lines", lines],
-      ["towers", towers],
-    ])
-      for (const row of rows) {
-        try {
-          const existing = row.id ? catalog.get(kind, row.id) : null;
-          const status = catalog.definitions[kind].fields.find(
-            (field) => field.key === "status",
-          );
+    const candidateLines = (name, voltage) => {
+      const proposed = lines.filter((row) => row.name === name &&
+        (!voltage || row.voltage_name === voltage));
+      const stored = savedLines.filter((row) => row.name === name &&
+        (!voltage || savedVoltage(row) === voltage) &&
+        row.status !== "retired");
+      return { proposed, stored };
+    };
+    const lineExists = (name, voltage, field) => {
+      requireValue(name, "请填写" + field);
+      const { proposed, stored } = candidateLines(name, voltage);
+      const ids = new Set([...proposed.filter((row) => row.id).map((row) => row.id),
+        ...stored.map((row) => row.id)]);
+      // A proposed new row is not the same business identity as a saved row.
+      const creates = proposed.filter((row) => !row.id);
+      requireValue(
+        ids.size + creates.length === 1,
+        ids.size + creates.length > 1
+          ? field + "有重名歧义，请填写电压等级并核对原始台账"
+          : field + "不存在，须在本文件线路表中先定义",
+      );
+      return proposed[0] || stored[0];
+    };
+    const towerExists = (lineName, voltage, towerNo, field) => {
+      const line = lineExists(lineName, voltage, field + "所属线路");
+      requireValue(towerNo, "请填写" + field + "杆塔号");
+      const lineId = line.id;
+      const matchingProposed = towers.filter((row) =>
+        row.line_name === lineName &&
+        (!voltage || !row.voltage_name || row.voltage_name === voltage) &&
+        String(row.tower_no) === String(towerNo));
+      const matchingSaved = lineId ? savedTowers.filter((tower) =>
+        tower.line_id === lineId && tower.tower_no === String(towerNo) &&
+        tower.status !== "retired") : [];
+      const ids = new Set([
+        ...matchingProposed.filter((row) => row.id).map((row) => row.id),
+        ...matchingSaved.map((row) => row.id),
+      ]);
+      const creates = matchingProposed.filter((row) => !row.id);
+      requireValue(ids.size + creates.length === 1,
+        ids.size + creates.length > 1
+          ? field + "对应多个杆塔，需核对具体线路和杆塔号"
+          : field + "未找到杆塔，请先在本文件杆塔表创建");
+      return matchingProposed[0] || matchingSaved[0];
+    };
+    for (const { kind, row } of source) {
+      try {
+        const existing = row.id ? catalog.get(kind, row.id) : null;
+        const status = catalog.definitions[kind].fields.find(
+          (field) => field.key === "status",
+        );
+        requireValue(
+          row.status === undefined || status.options.includes(row.status),
+          "状态未匹配可选业务值",
+          422,
+          { status: "请选择在用、停用、退役或适用的草稿状态" },
+        );
+        if (existing) expectedVersion(existing.version, row.expected_version);
+        requireValue(mode !== "update" || existing,
+          "仅更新模式需要维护导出的隐藏身份");
+        requireValue(mode !== "create" || !existing,
+          "仅新增模式不能修改已有对象");
+
+        if (kind === "lines") {
+          requireValue(String(row.name || "").trim(), "请填写线路名称");
           requireValue(
-            row.status === undefined || status.options.includes(row.status),
-            "状态未匹配可选业务值",
-            422,
-            { status: "请选择在用、停用、退役或适用的草稿状态" },
+            row.voltage_name || row.voltage_level_id || existing?.voltage_level_id,
+            "请选择电压等级",
           );
-          if (existing) expectedVersion(existing.version, row.expected_version);
-          requireValue(
-            mode !== "update" || existing,
-            "仅更新模式需要维护导出的隐藏身份",
-          );
-          requireValue(
-            mode !== "create" || !existing,
-            "仅新增模式不能修改已有对象",
-          );
-          if (kind === "lines") {
-            requireValue(String(row.name || "").trim(), "请填写线路名称");
-            refs.named("voltages", row.voltage_name, row.voltage_level_id);
+          const refs = createReferences(system);
+          refs.named("voltages", row.voltage_name, row.voltage_level_id);
+          if (!existing) {
+            const other = savedLines.filter((item) =>
+              item.name === row.name &&
+              savedVoltage(item) === row.voltage_name &&
+              item.status !== "retired");
+            requireValue(!other.length,
+              "已有同名同电压线路，请使用维护导出更新");
+          }
+          const kindOfLine = row.line_kind || existing?.line_kind || "main";
+          requireValue(["main", "branch"].includes(kindOfLine),
+            "请选择主线或支线");
+          if (kindOfLine === "branch") {
+            requireValue(
+              row.parent_line_name || row.parent_line_id || existing?.parent_line_id,
+              "支线必须指定所属主线",
+            );
+            requireValue(
+              row.junction_tower_no || row.junction_tower_id ||
+                existing?.junction_tower_id,
+              "支线必须指定主线接入杆塔",
+            );
+            if (row.parent_line_name) {
+              const parent = lineExists(
+                row.parent_line_name, row.parent_voltage_name,
+                "支线所属主线",
+              );
+              requireValue((parent.line_kind || "main") === "main",
+                "支线只能关联真实主线，不允许挂接到另一条支线");
+              if (row.junction_tower_no)
+                towerExists(
+                  row.parent_line_name, row.parent_voltage_name,
+                  row.junction_tower_no, "支线接入",
+                );
+            }
           } else {
             requireValue(
-              row.line_name && row.tower_no,
-              "请选择所属线路并填写杆塔号",
+              !row.parent_line_name && !row.junction_tower_no,
+              "主线不能填写所属主线或接入杆塔",
             );
-            const currentLines = catalog
-              .list("lines")
-              .filter((line) => line.name === row.line_name);
-            const proposed = lines.filter(
-              (line) =>
-                line.name === row.line_name &&
-                (!row.voltage_name || line.voltage_name === row.voltage_name),
-            );
-            requireValue(
-              currentLines.length || proposed.length === 1,
-              proposed.length > 1
-                ? "清单内同名线路存在歧义"
-                : "所属线路尚未定义",
-            );
-            if (currentLines.length) {
-              const values = input({ kind, payload: row });
-              const same = catalog
-                .list("towers")
-                .filter(
-                  (tower) =>
-                    tower.line_id === values.line_id &&
-                    tower.tower_no === String(row.tower_no) &&
-                    tower.status !== "retired" &&
-                    tower.id !== row.id,
-                );
-              requireValue(
-                !same.length,
-                "本线路已有该杆塔号，请使用维护导出更新",
-              );
-              const potentialShared = catalog
-                .list("towers")
-                .some(
-                  (tower) =>
-                    tower.tower_no === String(row.tower_no) &&
-                    tower.physical_tower_id &&
-                    tower.status !== "retired" &&
-                    tower.id !== row.id,
-                );
-              requireValue(
-                existing ||
-                  values.physical_tower_id ||
-                  !potentialShared ||
-                  values.confirm_distinct,
-                "已有同号杆塔，请填写共塔关系或明确确认不同实物",
-              );
-            }
           }
-          const payload = { ...row };
-          delete payload._sheet;
-          delete payload._row;
-          const resolved = existing ? input({ kind, payload }) : payload;
-          const changes = existing
-            ? catalog.definitions[kind].fields
-                .filter(
-                  (field) =>
-                    resolved[field.key] !== undefined &&
-                    (field.type === "text"
-                      ? String(resolved[field.key] ?? "") !==
-                        String(existing[field.key] ?? "")
-                      : resolved[field.key] !== existing[field.key]),
-                )
-                .map((field) => ({
-                  field: field.key,
-                  before: existing[field.key],
-                  after: resolved[field.key],
-                }))
-            : [];
-          documents.push({
-            kind,
-            payload,
-            id: row.id || null,
-            number:
-              kind === "lines"
-                ? row.name
-                : row.line_name + " · " + row.tower_no,
-            action: existing
-              ? changes.length
-                ? "update"
-                : "unchanged"
-              : "create",
-            sheet: row._sheet,
-            row: row._row,
-            changes,
-          });
-        } catch (error) {
-          issues.push(
-            issue(
-              row._sheet,
-              row._row,
-              Object.keys(error.fields || {})[0] ||
-                (kind === "lines" ? "name" : "tower_no"),
-              row,
-              error.message,
-            ),
+        } else if (kind === "towers") {
+          requireValue(row.line_name && row.tower_no,
+            "请选择所属线路并填写杆塔号");
+          const line = lineExists(row.line_name, row.voltage_name, "杆塔");
+          const other = savedTowers.filter((tower) =>
+            tower.line_id === line.id &&
+            tower.tower_no === String(row.tower_no) &&
+            tower.status !== "retired" && tower.id !== row.id);
+          requireValue(!other.length,
+            "本线路已有该杆塔号，请使用维护导出更新");
+          if (row.sharing_line_name || row.sharing_tower_no) {
+            requireValue(row.sharing_line_name && row.sharing_tower_no,
+              "共塔须填写已有回路的线路及杆塔号");
+            towerExists(
+              row.sharing_line_name, row.sharing_voltage_name,
+              row.sharing_tower_no, "共塔",
+            );
+          }
+          const potentialShared = savedTowers.some((tower) =>
+            tower.tower_no === String(row.tower_no) &&
+            tower.physical_tower_id && tower.status !== "retired" &&
+            tower.id !== row.id) || towers.some((tower) =>
+              tower !== row && tower.tower_no === String(row.tower_no) &&
+              tower.line_name !== row.line_name);
+          requireValue(
+            existing || row.sharing_line_name || row.physical_tower_id ||
+              !potentialShared || row.distinct_physical === true,
+            "已有同号杆塔，请填写共塔关系或明确确认不同实物",
           );
+        } else {
+          requireValue(row.line_name && row.start_tower_no &&
+            row.end_tower_no, "档距须填写所属线路、起点和终点杆塔号");
+          const line = lineExists(row.line_name, row.voltage_name, "档距");
+          const startLine = row.start_line_name || row.line_name,
+            endLine = row.end_line_name || row.line_name;
+          const start = towerExists(startLine,
+            row.start_line_name ? row.start_voltage_name : row.voltage_name,
+            row.start_tower_no, "起点");
+          const end = towerExists(endLine,
+            row.end_line_name ? row.end_voltage_name : row.voltage_name,
+            row.end_tower_no, "终点");
+          requireValue(start !== end && (
+            start.id !== end.id || !start.id
+          ), "档距起点和终点不能相同");
+          // A span must connect two towers of its own circuit, except for
+          // the single documented main-line junction of a branch circuit.
+          // Never infer topology from tower numbering or row order.
+          const belongs = (name, voltage) =>
+            name === row.line_name &&
+            (!voltage || !row.voltage_name || voltage === row.voltage_name);
+          const startOwn = belongs(startLine, row.start_voltage_name),
+            endOwn = belongs(endLine, row.end_voltage_name);
+          requireValue(startOwn || endOwn,
+            "档距至少一端必须位于所属线路，不能连接两个外部线路的杆塔");
+          if (!startOwn || !endOwn) {
+            requireValue(line.line_kind === "branch",
+              "主线档距不能连接其他线路的杆塔");
+            const parent = line.parent_line_name
+              ? line.parent_line_name
+              : line.parent_line_id
+                ? catalog.get("lines", line.parent_line_id).name : null;
+            const junction = line.junction_tower_no
+              ? String(line.junction_tower_no)
+              : line.junction_tower_id
+                ? String(catalog.get("towers", line.junction_tower_id).tower_no)
+                : null;
+            requireValue(parent && junction &&
+              (startOwn
+                ? endLine === parent && String(row.end_tower_no) === junction
+                : startLine === parent && String(row.start_tower_no) === junction),
+              "支线档距只能通过已指定的主线接入杆塔连接主线");
+          }
+          if (!existing && line.id && start.id && end.id)
+            requireValue(
+              !savedSpans.some((span) => span.line_id === line.id &&
+                span.status !== "retired" &&
+                ((span.start_tower_id === start.id &&
+                  span.end_tower_id === end.id) ||
+                 (span.start_tower_id === end.id &&
+                  span.end_tower_id === start.id))),
+              "两杆塔间已有档距，请使用维护导出更新",
+            );
         }
+        const payload = { ...row };
+        delete payload._sheet;
+        delete payload._row;
+        let changes = [];
+        if (existing) {
+          let resolved, deferred = false;
+          try {
+            resolved = input({ kind, payload });
+          } catch {
+            // A reference can be created by an earlier row of this workbook.
+            // The second, transactional preparation and save will resolve it.
+            resolved = { ...payload };
+            deferred = true;
+          }
+          changes = catalog.definitions[kind].fields
+            .filter((field) => resolved[field.key] !== undefined &&
+              (field.type === "text"
+                ? String(resolved[field.key] ?? "") !==
+                  String(existing[field.key] ?? "")
+                : resolved[field.key] !== existing[field.key]))
+            .map((field) => ({
+              field: field.key,
+              before: existing[field.key],
+              after: resolved[field.key],
+            }));
+          if (!changes.length && deferred && (
+            row.parent_line_name || row.junction_tower_no ||
+            row.start_tower_no || row.end_tower_no
+          )) {
+            // Revalidate explicit business relationships at commit time even
+            // when the stored technical IDs have not changed.
+            changes = [{ field: "relationship", before: null,
+              after: "校验关联" }];
+          }
+        }
+        documents.push({
+          kind, payload, id: row.id || null,
+          number: kind === "lines"
+            ? row.name
+            : kind === "towers"
+              ? row.line_name + " · " + row.tower_no
+              : row.line_name + " · " + row.start_tower_no +
+                "—" + row.end_tower_no,
+          action: existing
+            ? changes.length ? "update" : "unchanged"
+            : "create",
+          sheet: row._sheet, row: row._row, changes,
+        });
+      } catch (error) {
+        issues.push(issue(
+          row._sheet, row._row,
+          Object.keys(error.fields || {})[0] ||
+            (kind === "lines" ? "name" :
+              kind === "towers" ? "tower_no" : "start_tower_no"),
+          row, error.message,
+        ));
       }
-    const grouped = new Map();
-    for (const document of documents.filter(
-      (document) => document.kind === "towers",
-    )) {
-      const key =
-        document.id ||
-        JSON.stringify([
-          document.payload.line_id || document.payload.line_name,
-          document.payload.voltage_name || "",
-          document.payload.tower_no,
-        ]);
-      if (!grouped.has(key)) grouped.set(key, []);
-      grouped.get(key).push(document);
     }
-    for (const group of grouped.values()) {
-      if (group.length < 2) continue;
-      for (const document of group)
-        issues.push(
-          issue(
-            document.sheet,
-            document.row,
-            "tower_no",
-            document.payload.tower_no,
-            "同一线路和杆塔号在文件内重复",
-          ),
-        );
+    // Reject all rows of a duplicated business object, rather than silently
+    // choosing one of the duplicated lines, towers or span endpoints.
+    const duplicates = new Map();
+    for (const doc of documents) {
+      const row = doc.payload;
+      const key = doc.kind === "lines"
+        ? JSON.stringify(["line", row.name, row.voltage_name || ""])
+        : doc.kind === "towers"
+          ? JSON.stringify(["tower", row.line_name, row.voltage_name || "",
+            row.tower_no])
+          : JSON.stringify(["span", row.line_name, row.voltage_name || "",
+            [
+              (row.start_line_name || row.line_name) + "/" + row.start_tower_no,
+              (row.end_line_name || row.line_name) + "/" + row.end_tower_no,
+            ].sort()]);
+      if (!duplicates.has(key)) duplicates.set(key, []);
+      duplicates.get(key).push(doc);
     }
+    for (const group of duplicates.values())
+      if (group.length > 1)
+        for (const doc of group)
+          issues.push(issue(doc.sheet, doc.row, "relationship",
+            doc.number, "当前文件同一业务对象重复，请合并或删除重复行"));
+    // Respect dependencies even when the rows appear in arbitrary worksheet
+    // order: main line -> junction tower -> branch -> branch tower -> spans.
+    const matchLineDocs = (name, voltage) =>
+      documents.filter((doc) => doc.kind === "lines" &&
+        doc.payload.name === name &&
+        (!voltage || doc.payload.voltage_name === voltage));
+    const matchTowerDocs = (line, voltage, towerNo) =>
+      documents.filter((doc) => doc.kind === "towers" &&
+        doc.payload.line_name === line &&
+        (!voltage || !doc.payload.voltage_name ||
+          doc.payload.voltage_name === voltage) &&
+        String(doc.payload.tower_no) === String(towerNo));
+    const dependencyMap = new Map();
+    const dependencyFailures = new Set();
+    for (const doc of documents) {
+      try {
+        const deps = new Set(),
+          row = doc.payload;
+        const lineDependency = (name, voltage, description) => {
+          if (!name) return;
+          const candidates = matchLineDocs(name, voltage);
+          requireValue(candidates.length <= 1,
+            description + "在当前文件中有重名歧义");
+          if (candidates.length) {
+            requireValue(candidates[0] !== doc, "对象不能关联自身");
+            deps.add(candidates[0]);
+          }
+        };
+        const towerDependency = (line, voltage, no, description) => {
+          if (!no) return;
+          const candidates = matchTowerDocs(line, voltage, no);
+          requireValue(candidates.length <= 1,
+            description + "在当前文件中重复");
+          if (candidates.length) {
+            requireValue(candidates[0] !== doc,
+              "对象不能关联自身");
+            deps.add(candidates[0]);
+          }
+          lineDependency(line, voltage, description);
+        };
+        if (doc.kind === "lines" && row.parent_line_name) {
+          lineDependency(row.parent_line_name, row.parent_voltage_name,
+            "所属主线");
+          towerDependency(row.parent_line_name, row.parent_voltage_name,
+            row.junction_tower_no, "主线接入杆塔");
+        }
+        if (doc.kind === "towers") {
+          lineDependency(row.line_name, row.voltage_name, "杆塔所属线路");
+          towerDependency(row.sharing_line_name, row.sharing_voltage_name,
+            row.sharing_tower_no, "共用实物");
+        }
+        if (doc.kind === "spans") {
+          lineDependency(row.line_name, row.voltage_name, "档距所属线路");
+          towerDependency(row.start_line_name || row.line_name,
+            row.start_line_name ? row.start_voltage_name : row.voltage_name,
+            row.start_tower_no, "档距起点");
+          towerDependency(row.end_line_name || row.line_name,
+            row.end_line_name ? row.end_voltage_name : row.voltage_name,
+            row.end_tower_no, "档距终点");
+        }
+        dependencyMap.set(doc, deps);
+      } catch (error) {
+        issues.push(issue(doc.sheet, doc.row, "relationship",
+          doc.number, error.message));
+        dependencyFailures.add(doc);
+      }
+    }
+    const visiting = new Set(), visited = new Set(), ordered = [];
+    function visit(doc) {
+      if (visited.has(doc) || dependencyFailures.has(doc)) return;
+      if (visiting.has(doc)) {
+        dependencyFailures.add(doc);
+        issues.push(issue(doc.sheet, doc.row, "relationship",
+          doc.number, "同一工作簿存在循环依赖，无法确定创建顺序"));
+        return;
+      }
+      visiting.add(doc);
+      for (const dependency of dependencyMap.get(doc) || []) visit(dependency);
+      visiting.delete(doc);
+      if (![...dependencyMap.get(doc) || []].some(
+        (dependency) => dependencyFailures.has(dependency)
+      ) && !dependencyFailures.has(doc)) ordered.push(doc);
+      else dependencyFailures.add(doc);
+      visited.add(doc);
+    }
+    // Deterministic order keeps independently named root records first.
+    for (const doc of documents) visit(doc);
+    for (const doc of dependencyFailures)
+      if (!issues.some((problem) =>
+        problem.sheet === doc.sheet && problem.row === doc.row))
+        issues.push(issue(doc.sheet, doc.row, "relationship", doc.number,
+          "关联对象无效或存在循环依赖，当前行无法提交"));
     const invalidRows = new Set(
-      issues.map((issue) => issue.sheet + "/" + issue.row),
+      issues.map((problem) => problem.sheet + "/" + problem.row),
     );
     return {
-      documents: documents.filter(
-        (document) => !invalidRows.has(document.sheet + "/" + document.row),
-      ),
+      documents: ordered.filter((doc) =>
+        !invalidRows.has(doc.sheet + "/" + doc.row)),
       issues,
-      document_count: lines.length + towers.length,
+      document_count: source.length,
       invalid_document_count: invalidRows.size,
     };
   }
@@ -292,27 +551,66 @@ export function createAssetExchange(system) {
   }
   async function exportData(actor, options = {}) {
     authorize(actor, "read");
-    const rows = { documents: [], towers: [] };
-    for (const kind of ["lines", "towers"])
+    const rows = { documents: [], towers: [], spans: [] },
+      selected = new Set(options.ids || []),
+      selectedLineIds = new Set(
+        catalog.list("lines").filter((row) => selected.has(row.id))
+          .map((row) => row.id),
+      );
+    const accept = (kind, record) => (
+      (!options.query || record.label.includes(options.query) ||
+        (kind !== "lines" && catalog.get("lines", record.line_id).name
+          .includes(options.query))) &&
+      (!selected.size || selected.has(record.id) ||
+        (kind !== "lines" && selectedLineIds.has(record.line_id)))
+    );
+    for (const kind of ["lines", "towers", "spans"])
       for (const record of catalog.list(kind)) {
-        if (options.query && !record.label.includes(options.query)) continue;
-        if (options.ids?.length && !options.ids.includes(record.id)) continue;
+        if (!accept(kind, record)) continue;
         const value = { ...record, expected_version: record.version };
-        if (kind === "lines")
+        if (kind === "lines") {
           value.voltage_name = catalog.get(
-            "voltages",
-            record.voltage_level_id,
-            true,
+            "voltages", record.voltage_level_id, true,
           ).name;
-        else {
-          value.line_name = catalog.get("lines", record.line_id, true).name;
+          if (record.parent_line_id) {
+            const parent = catalog.get("lines", record.parent_line_id, true);
+            value.parent_line_name = parent.name;
+            value.parent_voltage_name = catalog.get(
+              "voltages", parent.voltage_level_id, true,
+            ).name;
+          }
+          if (record.junction_tower_id)
+            value.junction_tower_no = catalog.get(
+              "towers", record.junction_tower_id, true,
+            ).tower_no;
+        } else {
+          const line = catalog.get("lines", record.line_id, true);
+          value.line_name = line.name;
           value.voltage_name = catalog.get(
-            "voltages",
-            catalog.get("lines", record.line_id, true).voltage_level_id,
-            true,
+            "voltages", line.voltage_level_id, true,
           ).name;
+          if (kind === "spans") {
+            const start = catalog.get("towers", record.start_tower_id, true),
+              end = catalog.get("towers", record.end_tower_id, true);
+            value.start_tower_no = start.tower_no;
+            value.end_tower_no = end.tower_no;
+            if (start.line_id !== line.id) {
+              const startLine = catalog.get("lines", start.line_id, true);
+              value.start_line_name = startLine.name;
+              value.start_voltage_name = catalog.get(
+                "voltages", startLine.voltage_level_id, true,
+              ).name;
+            }
+            if (end.line_id !== line.id) {
+              const endLine = catalog.get("lines", end.line_id, true);
+              value.end_line_name = endLine.name;
+              value.end_voltage_name = catalog.get(
+                "voltages", endLine.voltage_level_id, true,
+              ).name;
+            }
+          }
         }
-        rows[kind === "lines" ? "documents" : "towers"].push(value);
+        rows[kind === "lines" ? "documents" : kind].push(value);
       }
     if (options.report)
       return makeBusinessReport("assets", [
@@ -320,11 +618,22 @@ export function createAssetExchange(system) {
           对象: "线路",
           名称: row.name,
           电压等级: row.voltage_name,
+          类型: row.line_kind === "branch" ? "支线" : "主线",
+          所属主线: row.parent_line_name || "",
+          接入杆塔: row.junction_tower_no || "",
         })),
         ...rows.towers.map((row) => ({
           对象: "杆塔",
           线路: row.line_name,
           杆塔号: row.tower_no,
+        })),
+        ...rows.spans.map((row) => ({
+          对象: "档距",
+          线路: row.line_name,
+          起点: row.start_tower_no,
+          终点: row.end_tower_no,
+          管辖长度米: row.transmission_center_length_mm == null
+            ? "" : row.transmission_center_length_mm / 1000,
         })),
       ]);
     return makeWorkbook("assets", rows);
