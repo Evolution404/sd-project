@@ -16,20 +16,57 @@ function checkIntegrity(db) {
   if (db.prepare("PRAGMA integrity_check").get().integrity_check !== "ok" || db.prepare("PRAGMA foreign_key_check").all().length)
     throw Error("数据库完整性校验失败，升级已停止");
 }
+function cleanLineJson(value) {
+  if (typeof value === "string") {
+    if (!/^[\s]*[\[{]/.test(value)) return value;
+    try {
+      const parsed = JSON.parse(value), cleaned = cleanLineJson(parsed);
+      return cleaned === parsed ? value : JSON.stringify(cleaned);
+    } catch { return value; }
+  }
+  if (!value || typeof value !== "object") return value;
+  let changed = false;
+  const line = Object.hasOwn(value, "line_code") && Object.hasOwn(value, "voltage_level_id") && Object.hasOwn(value, "name");
+  const entries = [];
+  for (const [key, item] of Object.entries(value)) {
+    if (line && key === "erection_type") { changed = true; continue; }
+    const cleaned = cleanLineJson(item);
+    if (cleaned !== item) changed = true;
+    entries.push([key, cleaned]);
+  }
+  if (!changed) return value;
+  return Array.isArray(value) ? entries.map(([, item]) => item) : Object.fromEntries(entries);
+}
+function cleanStoredJson(db, columns, apply) {
+  let changedFields = 0;
+  for (const [table, fields] of columns) {
+    const jsonFields = fields.filter(field => field.endsWith("_json"));
+    if (!jsonFields.length) continue;
+    const rows = db.prepare(`SELECT rowid AS __maintenance_row,${jsonFields.map(quote).join(",")} FROM ${quote(table)}`).all();
+    for (const row of rows) {
+      const changes = jsonFields.map(field => [field, cleanLineJson(row[field])]).filter(([field, value]) => value !== row[field]);
+      changedFields += changes.length;
+      if (apply && changes.length) db.prepare(`UPDATE ${quote(table)} SET ${changes.map(([field]) => quote(field) + "=?").join(",")} WHERE rowid=?`)
+        .run(...changes.map(([, value]) => value), row.__maintenance_row);
+    }
+  }
+  return changedFields;
+}
 function facts(db, columns) {
   return Object.fromEntries([...columns].map(([table, fields]) => {
-    const rows = db.prepare(`SELECT ${fields.map(quote).join(",")} FROM ${quote(table)}`).all().map(row => JSON.stringify(row)).sort();
+    const rows = db.prepare(`SELECT ${fields.map(quote).join(",")} FROM ${quote(table)}`).all().map(row =>
+      JSON.stringify(Object.fromEntries(fields.map(field => [field, field.endsWith("_json") ? cleanLineJson(row[field]) : row[field]])))).sort();
     return [table, { count: rows.length, sha256: digest(JSON.stringify(rows)) }];
   }));
 }
-function rebuild(db, target, columns, expectedFacts) {
+function rebuild(db, target, columns, expectedFacts, sourceStructure) {
   db.exec("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE");
   try {
-    if (digest(JSON.stringify(inventory(db))) !== previousStructure || JSON.stringify(facts(db, columns)) !== JSON.stringify(expectedFacts))
+    if (digest(JSON.stringify(inventory(db))) !== sourceStructure || JSON.stringify(facts(db, columns)) !== JSON.stringify(expectedFacts))
       throw Error("备份后数据库发生变化，请停止服务后重新执行升级");
     for (const item of inventory(db).filter(item => item.type !== "table"))
       db.exec(`DROP ${item.type.toUpperCase()} ${quote(item.name)}`);
-    for (const table of equipmentTables) {
+    for (const table of sourceStructure === previousStructure ? equipmentTables : []) {
       const fields = columns.get(table).map(quote).join(",");
       db.exec(`CREATE TEMP TABLE ${quote("upgrade_" + table)} AS SELECT ${fields} FROM ${quote(table)}`);
       db.exec(`DROP TABLE ${quote(table)}`);
@@ -37,12 +74,14 @@ function rebuild(db, target, columns, expectedFacts) {
       db.exec(`INSERT INTO ${quote(table)} (${fields}) SELECT ${fields} FROM ${quote("upgrade_" + table)}`);
       db.exec(`DROP TABLE temp.${quote("upgrade_" + table)}`);
     }
+    const cleanedJsonFields = cleanStoredJson(db, columns, true);
     for (const type of ["view", "index", "trigger"])
       for (const item of target.filter(item => item.type === type)) db.exec(item.sql);
     if (JSON.stringify(inventory(db)) !== JSON.stringify(target)) throw Error("升级结构与唯一权威SQL不一致");
     if (JSON.stringify(facts(db, columns)) !== JSON.stringify(expectedFacts)) throw Error("升级事实复核失败");
     checkIntegrity(db);
     db.exec("COMMIT");
+    return cleanedJsonFields;
   } catch (error) {
     db.exec("ROLLBACK");
     throw error;
@@ -64,14 +103,15 @@ export async function upgradeEquipmentFields(dataDirectory, backupDirectory) {
   try {
     reference.exec(readFileSync(new URL("./schema/schema113.sql", import.meta.url), "utf8"));
     const target = inventory(reference), current = inventory(db);
-    if (JSON.stringify(current) === JSON.stringify(target)) return { status: "already_current" };
-    if (digest(JSON.stringify(current)) !== previousStructure) throw Error("数据库不匹配本次已批准的升级基线");
+    const sourceStructure = digest(JSON.stringify(current)), targetStructure = digest(JSON.stringify(target));
+    if (sourceStructure !== targetStructure && sourceStructure !== previousStructure) throw Error("数据库不匹配本次已批准的升级基线");
     checkIntegrity(db);
     const columns = new Map(target.filter(item => item.type === "table").map(item => {
       const oldFields = new Set(db.prepare(`PRAGMA table_info(${quote(item.name)})`).all().map(field => field.name));
       const shared = reference.prepare(`PRAGMA table_info(${quote(item.name)})`).all().map(field => field.name).filter(name => oldFields.has(name));
       return [item.name, shared];
     }));
+    if (sourceStructure === targetStructure && !cleanStoredJson(db, columns, false)) return { status: "already_current" };
     const expectedFacts = facts(db, columns);
     mkdirSync(destination, { recursive: true });
     await backup(db, join(destination, "schema113.sqlite"));
@@ -80,12 +120,12 @@ export async function upgradeEquipmentFields(dataDirectory, backupDirectory) {
     const rehearsalDirectory = join(temporary, "data");
     restoreBackup(destination, rehearsalDirectory);
     const rehearsal = new DatabaseSync(join(rehearsalDirectory, "schema113.sqlite"));
-    try { rebuild(rehearsal, target, columns, expectedFacts); }
+    try { rebuild(rehearsal, target, columns, expectedFacts, sourceStructure); }
     finally { rehearsal.close(); }
-    rebuild(db, target, columns, expectedFacts);
+    const cleanedJsonFields = rebuild(db, target, columns, expectedFacts, sourceStructure);
     const receipt = {
       status: "completed", completed_at: new Date().toISOString(), database: directory, backup: destination,
-      previous_structure_sha256: previousStructure, structure_sha256: digest(JSON.stringify(target)),
+      previous_structure_sha256: sourceStructure, structure_sha256: targetStructure, cleaned_json_fields: cleanedJsonFields,
       tables: expectedFacts, preserved_facts_sha256: digest(JSON.stringify(expectedFacts)),
       backup_sha256: digest(readFileSync(join(destination, "schema113.sqlite"))),
     };
