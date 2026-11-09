@@ -49,3 +49,11 @@ test("multi-action rows use one primary action and an accessible shared menu", (
   assert.match(source, /action.disabled \|\| busy.value/);
   assert.match(source, /aria-label="更多操作"/);
 });
+
+test("column ordering uses SortableJS and a keyboard alternative", () => {
+  const source = readFileSync(resolve("web/src/components/BusinessTable.vue"), "utf8");
+  assert.match(source, /Sortable.create/);
+  assert.match(source, /@keydown="reorderByKeyboard/);
+  assert.match(source, /aria-live="polite"/);
+  assert.match(source, /onUnmounted\(stopColumnDrag\)/);
+});

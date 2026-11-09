@@ -48,6 +48,27 @@ try {
   await page.getByRole("button", { name: "列设置" }).click();
   const dialog = page.getByRole("dialog", { name: "自定义表格列" });
   await dialog.waitFor();
+  await page.waitForTimeout(350); // Wait for dialog opening and Sortable attachment.
+  const handle = dialog.getByRole("button", { name: "调整线路名称顺序", exact: true });
+  const destination = dialog.locator('.column-setting-item').filter({ hasText: "线路类型" });
+  const from = await handle.boundingBox(), to = await destination.boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + 5, from.y + 12, { steps: 4 });
+  await page.mouse.move(to.x + 40, to.y + to.height - 3, { steps: 16 });
+  await page.waitForTimeout(250);
+  await page.mouse.up();
+  await page.waitForFunction(() => {
+    const pref = JSON.parse(localStorage.getItem("sd-columns:catalog:lines"));
+    return pref.order?.indexOf("name") > 0;
+  });
+  const draggedOrder = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")).order);
+  await handle.focus();
+  await handle.press("Home");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")).order[0] === "name");
+  assert.notEqual(draggedOrder[0], "name");
+  await handle.press("ArrowDown");
+  await dialog.locator('.column-setting-item').filter({ hasText: "线路名称" }).getByRole("button", { name: "固定列", exact: true }).click();
   await dialog.getByText("架设方式", { exact: true }).click();
   await dialog.getByRole("button", { name: "完成", exact: true }).click();
   assert.equal(await page.getByRole("columnheader", { name: "架设方式" }).count(), 0);
@@ -56,6 +77,9 @@ try {
   await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
   await page.getByRole("heading", { name: "输电设备台账" }).waitFor();
   assert.equal(await page.getByRole("columnheader", { name: "架设方式" }).count(), 0);
+  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")));
+  assert.equal(restored.order[1], "name");
+  assert.ok(restored.fixed.includes("name"));
 
   // Filter searches complete SQL dataset, not only the visible page.
   await page.getByRole("button", { name: "筛选线路名称" }).click();

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, watch, onMounted } from "vue";
-import { Setting, Filter } from "@element-plus/icons-vue";
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { Setting, Filter, Rank } from "@element-plus/icons-vue";
+import Sortable from "sortablejs";
 import type { Row } from "../services/api";
 export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean };
 const props = withDefaults(defineProps<{
@@ -46,6 +47,9 @@ const tableRows = computed(() => {
   return result;
 });
 const settings = ref(false);
+const settingsList = ref<HTMLElement>();
+const announcement = ref("");
+let sortable: Sortable | undefined;
 const orderedColumns = computed(() => {
   const keys = [...new Set([...pref.value.order, ...props.columns.map(c => c.key)])];
   return keys.map(key => props.columns.find(c => c.key === key)).filter((v): v is TableColumn => !!v);
@@ -89,14 +93,52 @@ function toggleFixed(key: string) {
     : [...pref.value.fixed, key];
   persist();
 }
-function move(key: string, delta: number) {
+function move(key: string, next: number) {
   const keys = orderedColumns.value.map(c => c.key);
-  const i = keys.indexOf(key), next = i + delta;
-  if (next < 0 || next >= keys.length) return;
-  [keys[i], keys[next]] = [keys[next]!, keys[i]!];
+  const i = keys.indexOf(key);
+  if (i < 0 || next < 0 || next >= keys.length || i === next) return;
+  keys.splice(i, 1);
+  keys.splice(next, 0, key);
   pref.value.order = keys;
+  announcement.value = `${props.columns.find(col => col.key === key)?.label}已移至第${next + 1}列`;
   persist();
 }
+function startColumnDrag() {
+  stopColumnDrag();
+  if (!settingsList.value) return;
+  sortable = Sortable.create(settingsList.value, {
+    handle: ".column-drag-handle",
+    draggable: ".column-setting-item",
+    animation: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 120,
+    ghostClass: "column-drag-ghost",
+    onEnd(event) {
+      const { oldIndex, newIndex, item, from } = event;
+      if (oldIndex == null || newIndex == null || oldIndex === newIndex) return;
+      // Restore the DOM before Vue applies the reordered keyed children.
+      from.removeChild(item);
+      from.insertBefore(item, from.children[oldIndex] || null);
+      move(item.dataset.columnKey!, newIndex);
+    },
+  });
+}
+function stopColumnDrag() {
+  sortable?.destroy();
+  sortable = undefined;
+}
+async function reorderByKeyboard(event: KeyboardEvent, key: string, index: number) {
+  const next = event.key === "ArrowUp" ? index - 1
+    : event.key === "ArrowDown" ? index + 1
+    : event.key === "Home" ? 0
+    : event.key === "End" ? orderedColumns.value.length - 1 : null;
+  if (next === null) return;
+  event.preventDefault();
+  move(key, next);
+  await nextTick();
+  const row = Array.from(settingsList.value?.children || [])
+    .find(element => (element as HTMLElement).dataset.columnKey === key);
+  row?.querySelector<HTMLButtonElement>(".column-drag-handle")?.focus();
+}
+onUnmounted(stopColumnDrag);
 function resize(newWidth: number, _oldWidth: number, column: { property?: string; label?: string }) {
   const key = column.property || (column.label === "操作" ? "__actions" : null);
   if (!key || !Number.isFinite(newWidth)) return;
@@ -155,13 +197,19 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
         <template #default="{ row }"><slot name="actions" :row="row" /></template>
       </ElTableColumn>
     </ElTable>
-    <ElDialog v-model="settings" title="自定义表格列" width="500px" append-to-body>
-      <p class="muted">拖动表头边界调整列宽；这里可设置显示、固定与列顺序，设置自动保存。</p>
-      <div v-for="(col, i) in orderedColumns" :key="col.key" class="column-setting-item">
+    <ElDialog v-model="settings" title="自定义表格列" width="500px" append-to-body
+      @opened="startColumnDrag" @closed="stopColumnDrag">
+      <p class="muted">拖动左侧手柄排序，或聚焦手柄后按上下方向键、Home / End。设置自动保存。</p>
+      <div ref="settingsList" class="column-settings-list">
+      <div v-for="(col, i) in orderedColumns" :key="col.key" :data-column-key="col.key" class="column-setting-item">
+        <ElButton class="column-drag-handle" text size="small" :aria-label="'调整' + col.label + '顺序'"
+          title="拖动排序，或使用上下方向键" @keydown="reorderByKeyboard($event, col.key, i)"><ElIcon><Rank /></ElIcon></ElButton>
         <ElCheckbox :model-value="col.hideable === false || !pref.hidden.includes(col.key)" :disabled="col.hideable === false || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
           @change="show(col.key, Boolean($event))">{{ col.label }}</ElCheckbox>
-        <div class="column-setting-actions"><ElButton text size="small" @click="toggleFixed(col.key)">{{ pref.fixed.includes(col.key) ? '取消固定' : '固定列' }}</ElButton><ElButton text size="small" :disabled="i === 0" @click="move(col.key, -1)">上移</ElButton><ElButton text size="small" :disabled="i === orderedColumns.length - 1" @click="move(col.key, 1)">下移</ElButton></div>
+        <div class="column-setting-actions"><ElButton text size="small" @click="toggleFixed(col.key)">{{ pref.fixed.includes(col.key) ? '取消固定' : '固定列' }}</ElButton></div>
       </div>
+      </div>
+      <p class="column-order-announcement" aria-live="polite">{{ announcement }}</p>
       <template #footer><ElButton @click="reset">恢复默认</ElButton><ElButton type="primary" @click="settings = false">完成</ElButton></template>
     </ElDialog>
   </div>
@@ -176,7 +224,12 @@ watch(() => props.tableKey, () => { pref.value = readPref(); filters.value = {};
 .business-table-grid :deep(.el-table__header-wrapper th .caret-wrapper) {flex:none}
 .business-table-grid :deep(.el-table__header-wrapper th .cell .business-filter-button) {flex:none}
 .business-filter-button{padding:2px 5px;margin-left:4px;vertical-align:middle;color:var(--muted)}
-.column-setting-item{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid var(--edge)}
-.column-setting-actions{display:flex}
+.column-settings-list{max-height:55vh;overflow:auto}
+.column-setting-item{display:flex;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--edge)}
+.column-setting-actions{display:flex;margin-left:auto}
+.column-drag-handle{cursor:grab;touch-action:none}
+.column-drag-handle:active{cursor:grabbing}
+.column-drag-ghost{opacity:.45;background:var(--el-color-primary-light-9)}
+.column-order-announcement{font-size:12px;color:var(--muted);min-height:18px}
 .column-setting-actions .el-button+.el-button{margin-left:0}
 </style>

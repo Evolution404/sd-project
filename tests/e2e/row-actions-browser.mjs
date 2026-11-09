@@ -44,12 +44,13 @@ try {
   for (const theme of ["light", "dark"]) {
     await page.getByRole("button", { name: "外观设置" }).click();
     await page.locator(".el-radio-button").filter({ hasText: theme === "dark" ? "深色" : "浅色" }).click();
-    await page.getByRole("button", { name: "外观设置" }).click();
+    await page.getByRole("heading", { name: "输电设备台账", exact: true }).click();
     for (const width of [1500, 1280, 960, 760]) {
       await page.setViewportSize({ width, height: 1000 });
       await row.getByRole("button", { name: "更多操作" }).click();
       const menu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: "编辑", exact: true }) });
       await menu.waitFor();
+      await page.waitForTimeout(200);
       for (const label of ["编辑", "历史", "删除"]) assert.ok(await menu.getByRole("menuitem", { name: label, exact: true }).isEnabled());
       const box = await menu.boundingBox();
       assert.ok(box.x >= 0 && box.x + box.width <= width + 1);
