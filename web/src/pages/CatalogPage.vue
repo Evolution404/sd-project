@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../services/entity-dialog";
-import { useDescriptionColumns } from "../services/responsive-descriptions";
+import { useDescriptionColumns } from "../services/responsive-descriptions";import { useDialogDraftGuard } from "../services/dialog-draft";
 const descriptionColumns = useDescriptionColumns();
 import { useRoute, useRouter } from "vue-router";
 import { useListRoute } from "../services/page-navigation";
@@ -103,6 +103,9 @@ async function load() {
     if (sequence === loadSequence) loading.value = false;
   }
 }
+const draftGuard = useDialogDraftGuard(() => form.value);
+function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
+function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function edit(row?: Row, historical = false) {
   editing.value = row || null;
   errors.value = {};
@@ -134,6 +137,7 @@ function edit(row?: Row, historical = false) {
     void loadLatestOperationVersion();
   }
   dialog.value = true;
+  draftGuard.capture();
 }
 function copyPrice(row: Row) {
   edit(row);
@@ -142,6 +146,7 @@ function copyPrice(row: Row) {
   form.value.operation_version = null;
   form.value.adopt_latest_operation_version = false;
   priceCheck.value = null;
+  draftGuard.capture();
 }
 async function loadLatestOperationVersion() {
   const id = form.value.operation_id;
@@ -329,7 +334,7 @@ function tableCell(row: Row, column: TableColumn) {
   if (key === "tower_nature" || key === "status" || key === "line_kind" || key === "work_target_type" || key === "pricing_mode" || key === "pricing_scope")
     return statusText[String(value)] || value;
   const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: Row) => f.key === key);
-  if (f?.type === "ref") return value ? "已关联（查看详情）" : "—";
+  if (f?.type === "ref") return value ? row[key + "_label"] || "历史关联记录" : "—";
   if (f?.type === "money") return "¥" + money(value);
   if (f?.type === "quantity") return quantity(value);
   return value;
@@ -372,7 +377,18 @@ async function save() {
   if (saving.value) return;
   saving.value = true;
   try {
-    if (!(await formRef.value?.validate().catch(() => false))) return;
+    if (!(await formRef.value?.validate().catch(() => false))) {
+      const invalid = formRef.value?.fields?.find((item: Row) =>
+        item.validateState === "error");
+      const definition = fields().find((item: Row) => item.key === invalid?.prop);
+      if (definition && ["prices", "operations"].includes(kind.value))
+        tab.value = group(definition);
+      await nextTick();
+      (formRef.value?.$el as HTMLElement | undefined)
+        ?.querySelector<HTMLElement>(".el-form-item.is-error input")?.focus();
+      ElMessage.warning("请完善标红的必填信息后保存");
+      return;
+    }
     if (kind.value === "operations" &&
       (form.value.price_features_load_error || form.value.price_features_loading)) {
       ElMessage.error(form.value.price_features_load_error || "计价所需信息尚未加载完毕");
@@ -425,16 +441,40 @@ async function save() {
           1,
       },
     );
+    // The form stays locked until its list/detail refresh completes. Otherwise
+    // a rapid second creation opens while the previous saving flag is true.
+    await load();
+    await refreshDetail();
     dialog.value = false;
     ElMessage.success("已保存正式版本");
     for (const warning of saved.warnings || []) ElMessage.warning({ message: warning, duration: 8000 });
-    await load();
-    await refreshDetail();
   } catch (e) {
     errors.value = (e as Row).fields || {};
     ElMessage.error((e as Error).message);
   } finally {
     saving.value = false;
+  }
+}
+// One-step price retirement preserves original terms and references. A later
+// reactivation still requires explicit validation of the current definitions.
+async function retirePrice(row: Row) {
+  if (kind.value !== "prices" || row.deleted || row.status !== "active") return;
+  try {
+    await ElMessageBox.confirm(
+      "停用后不再参与新的参考报价；已有报价及历史规则不变。仅记录状态变化，不修改计价条件。",
+      "停用参考价格规则",
+      { type: "warning", confirmButtonText: "确认停用" },
+    );
+    await api("/catalog/prices/" + row.id, "POST", {
+      status: "inactive",
+      expected_version: row.version_no,
+      reason: "正式停用参考价格规则",
+    });
+    ElMessage.success("参考价格规则已停用，正式历史已保留");
+    await load();
+    await refreshDetail();
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
   }
 }
 async function remove(row: Row) {
@@ -575,6 +615,7 @@ onMounted(async () => {
             { label: '查看', run: () => openDetail(row) },
             { label: '编辑', disabled: !can(catalogPermission) || row.deleted, run: () => edit(row) },
             ...(kind === 'prices' ? [{ label: '复制规则', disabled: !can(catalogPermission) || row.deleted, run: () => copyPrice(row) }] : []),
+            ...(kind === 'prices' && row.status === 'active' ? [{ label: '停用', danger: true, disabled: !can('admin') || row.deleted, run: () => retirePrice(row) }] : []),
             ...(row.deleted && definitions[kind]?.equipment ? [{ label: '更正历史', disabled: !can('admin'), run: () => edit(row, true) }] : []),
             { label: '历史', run: () => viewHistory(row) },
             { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => remove(row) },
@@ -606,6 +647,8 @@ onMounted(async () => {
         @click="edit(detail)"
         >编辑</ElButton
       ><ElButton v-if="kind === 'prices'" :disabled="!can(catalogPermission) || detail.deleted" @click="copyPrice(detail)">复制规则</ElButton
+      ><ElButton v-if="kind === 'prices' && detail.status === 'active' && !detail.deleted"
+        :disabled="!can('admin')" @click="retirePrice(detail)">停用规则</ElButton
        ><ElButton @click="viewHistory(detail)">完整历史</ElButton
       ><ElButton
         v-if="
@@ -689,10 +732,12 @@ onMounted(async () => {
     ></ElDialog
   >
   <ElDialog append-to-body
+    :key="kind"
     v-model="dialog"
     :title="(editing ? '编辑' : '新增') + (definitions[kind]?.title || '')"
     width="800px"
     :close-on-click-modal="false"
+    :before-close="beforeEditorClose"
   >
     <ElForm ref="formRef" :model="form" label-position="top" novalidate>
       <ElTabs v-if="kind === 'operations' || kind === 'prices'" v-model="tab">
@@ -815,7 +860,7 @@ onMounted(async () => {
         </template>
       </div></ElForm
     ><template #footer
-      ><ElButton @click="dialog = false">取消</ElButton
+      ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton v-if="kind === 'prices'" :loading="priceChecking" @click="previewPrice">保存前检查</ElButton
       ><ElButton
         :disabled="!can(catalogPermission)"

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch } from "vue";
-import { ElMessage } from "element-plus";
+
 import { api, statusText, type Row } from "../services/api";
 const props = defineProps<{
   field: Row;
@@ -10,6 +10,8 @@ const props = defineProps<{
 }>();
 const emit = defineEmits(["update:modelValue"]);
 const options = ref<Row[]>([]);
+const searchError = ref("");
+let failedQuery = "";
 const optionLabel = (item: Row) =>
   item.label || item.name || item.title || item.tower_no || "业务记录";
 const ambiguous = computed(() => {
@@ -92,8 +94,10 @@ function search(q = "", immediate = false) {
       if (sequence === requestSequence && !controller.signal.aborted)
         options.value = selected ? [selected, ...response.items] : response.items;
     } catch (error) {
-      if (sequence === requestSequence && !controller.signal.aborted)
-        ElMessage.error((error as Error).message);
+      if (sequence === requestSequence && !controller.signal.aborted) {
+        failedQuery = q;
+        searchError.value = (error as Error).message;
+      }
     }
   };
   if (immediate) void execute();
@@ -119,6 +123,7 @@ onUnmounted(() => {
     remote
     :remote-method="search"
     placeholder="搜索并选择"
+    no-data-text="没有匹配记录，请更换关键词"
   >
     <ElOption
       v-for="item in options"
@@ -188,4 +193,8 @@ onUnmounted(() => {
     :closable="false"
     title="存在同名对象，请到台账核对名称和真实属性后再保存。"
   />
+  <div v-if="field.type === 'ref' && searchError" class="reference-search-error">
+    <ElAlert type="error" :closable="false" :title="'关联记录查询失败：' + searchError" />
+    <ElButton size="small" link type="primary" @click="search(failedQuery, true)">重新加载</ElButton>
+  </div>
 </template>

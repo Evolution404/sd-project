@@ -31,6 +31,12 @@ function readPref(): Pref {
 }
 const pref = ref<Pref>({ order: [], hidden: [], fixed: [], widths: {} });
 const filters = ref<Record<string, string>>({});
+const activeFilterCount = computed(() =>
+  Object.values(filters.value).filter(value => String(value ?? "").trim()).length);
+function clearFilters() {
+  filters.value = {};
+  if (!props.clientSide) emit("filter-change", {});
+}
 const table = ref<TableInstance>();
 watch(() => props.filterState, value => { if (value) filters.value = { ...value }; }, { immediate: true, deep: true });
 watch(() => props.sortState, async value => {
@@ -207,6 +213,9 @@ watch(() => props.tableKey, async () => {
   <div class="business-table">
     <div class="business-table-tools">
       <span class="business-table-hint">{{ toolHint }}</span>
+      <ElButton v-if="activeFilterCount" size="small" plain @click="clearFilters">
+        已筛选 {{ activeFilterCount }} 列 · 清除
+      </ElButton>
       <ElButton size="small" text @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
     <ElTable border allow-drag-last-column ref="table" :data="tableRows" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
@@ -232,6 +241,11 @@ watch(() => props.tableKey, async () => {
         :width="pref.widths.__actions || actionsWidth" resizable>
         <template #default="{ row }"><slot name="actions" :row="row" /></template>
       </ElTableColumn>
+      <template #empty>
+        <ElEmpty :description="activeFilterCount ? '没有符合筛选条件的记录' : '暂无记录'" :image-size="76">
+          <ElButton v-if="activeFilterCount" size="small" @click="clearFilters">清除筛选条件</ElButton>
+        </ElEmpty>
+      </template>
     </ElTable>
     <ElDialog v-model="settings" title="自定义表格列" width="500px" append-to-body
       @opened="startColumnDrag" @closed="stopColumnDrag">

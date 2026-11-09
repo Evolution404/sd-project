@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../services/entity-dialog";
-import { useDescriptionColumns } from "../services/responsive-descriptions";
+import { useDescriptionColumns } from "../services/responsive-descriptions";import { useDialogDraftGuard } from "../services/dialog-draft";
 const descriptionColumns = useDescriptionColumns();
 function hasProjectProfile(project: Row) {
   return Boolean(project.category_name || project.managing_unit_name ||
@@ -112,12 +112,20 @@ async function load() {
 async function open(row: Row) {
   await detailDialog.open(row.id);
 }
+const draftGuard = useDialogDraftGuard(() => ({
+  form: form.value,
+  // Approved locations are edited in their own table, not in the header form.
+  approvalRows: dialog.value === "approval" ? approvalRows.value : [],
+}));
+function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
+function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function editProject(row?: Row) {
   editing.value = row || null;
   form.value = row
     ? { ...row, expected_version: row.profile_version }
     : { code: "", name: "", framework_id: "" };
   dialog.value = "project";
+  draftGuard.capture();
 }
 async function searchDemands(q = "") {
   demands.value = (
@@ -163,6 +171,7 @@ async function openDialog(type: string) {
       expected_approval_version_id: detail.value?.approval?.id || null,
     };
   }
+  draftGuard.capture();
 }
 async function save() {
   if (busy.value) return;
@@ -205,8 +214,8 @@ async function save() {
           )?.id,
         },
       );
-    dialog.value = "";
     await load();
+    dialog.value = "";
     ElMessage.success("已保存");
   } catch (e) {
     ElMessage.error((e as Error).message);
@@ -270,6 +279,7 @@ function editCharge(charge: Row) {
     reference_price_catalog_id: charge.reference_price_catalog_id,
   };
   dialog.value = "charge";
+  draftGuard.capture();
 }
 async function removeCharge(charge: Row) {
   try {
@@ -561,6 +571,7 @@ onMounted(async () => {
     "
     width="950px"
     :close-on-click-modal="false"
+    :before-close="beforeEditorClose"
     @close="dialog = ''"
     ><ElForm ref="formRef" :model="form" label-position="top" novalidate
       ><div class="form-grid">
@@ -731,7 +742,7 @@ onMounted(async () => {
         </div></template
       ></ElForm
     ><template #footer
-      ><ElButton @click="dialog = ''">取消</ElButton
+      ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton
         :disabled="!can('write')"
         type="primary"

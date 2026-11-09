@@ -164,6 +164,8 @@ try {
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "取消", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "放弃未保存的修改？" })
+    .getByRole("button", { name: "放弃修改" }).click();
   await tower("最少录入丙线", "#15");
   await save();
   assert.equal(await page.locator('.el-message-box:visible').count(), 0);
@@ -253,6 +255,8 @@ try {
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "取消", exact: true })
     .click();
+  await page.getByRole("dialog", { name: "放弃未保存的修改？" })
+    .getByRole("button", { name: "放弃修改" }).click();
   for (const body of submitted)
     for (const key of ["code", "line_code", "tower_code", "logical_code"])
       assert.equal(body[key], undefined);

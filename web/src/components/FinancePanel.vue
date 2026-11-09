@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { useListRoute } from "../services/page-navigation";
+import { useListRoute } from "../services/page-navigation";import { useDialogDraftGuard } from "../services/dialog-draft";
 import RowActions from "./RowActions.vue";
 import BusinessHistory from "./BusinessHistory.vue";
 import { useAccess } from "../services/access";
@@ -142,6 +142,9 @@ async function load() {
     if (sequence === loadSequence) listLoading.value = false;
   }
 }
+const draftGuard = useDialogDraftGuard(() => form.value);
+function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
+function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function edit(type: string, row?: Row) {
   editing.value = row || null;
   dialog.value = type;
@@ -201,6 +204,7 @@ function edit(type: string, row?: Row) {
           evidence: "",
           is_final: true,
         };
+  draftGuard.capture();
 }
 async function save() {
   if (busy.value) return;
@@ -227,9 +231,9 @@ async function save() {
       );
     if (dialog.value === "reconcile")
       await api("/reconciliations", "POST", form.value);
-    dialog.value = "";
     await load();
     emit("changed");
+    dialog.value = "";
     ElMessage.success("已保存");
   } catch (e) {
     ElMessage.error((e as Error).message);
@@ -521,6 +525,7 @@ watch(() => props.project.id, load, { immediate: true });
     "
     width="1000px"
     :close-on-click-modal="false"
+    :before-close="beforeEditorClose"
     @close="dialog = ''"
     ><ElForm ref="formRef" label-position="top" novalidate :model="form"
       ><div class="form-grid">
@@ -752,7 +757,7 @@ watch(() => props.project.id, load, { immediate: true });
         ></template
       ></ElForm
     ><template #footer
-      ><ElButton @click="dialog = ''">取消</ElButton
+      ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton
         :disabled="
           !can(

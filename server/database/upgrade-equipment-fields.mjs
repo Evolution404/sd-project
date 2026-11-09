@@ -10,6 +10,7 @@ const previousEquipmentStructure = "40d3e66bafacce2385c5a1f6e211e90d1810796cf8e7
 // Existing data never changes automatically on startup; explicit maintenance
 // only accepts this exact source structure and makes a verified backup first.
 const previousObjectGuardStructure = "8e71a39712302e90d5d6248ffda7f7816a8aaf5cf146b42fb78d9b799ceec5e5";
+const previousPriceLifecycleStructure = "c666bc3dbd3392af5bcac585147a9920ed897c0c7ef641ae692815b692d4f044";
 const equipmentTables = new Set(["transmission_lines", "line_history", "physical_towers", "physical_tower_history"]);
 const quote = name => '"' + name.replaceAll('"', '""') + '"';
 const digest = value => createHash("sha256").update(value).digest("hex");
@@ -78,8 +79,8 @@ function rebuild(db, target, columns, expectedFacts, sourceStructure) {
       db.exec(`INSERT INTO ${quote(table)} (${fields}) SELECT ${fields} FROM ${quote("upgrade_" + table)}`);
       db.exec(`DROP TABLE temp.${quote("upgrade_" + table)}`);
     }
-    const cleanedJsonFields = sourceStructure === previousObjectGuardStructure
-      ? 0 : cleanStoredJson(db, columns, true);
+    const cleanedJsonFields = [previousObjectGuardStructure, previousPriceLifecycleStructure]
+      .includes(sourceStructure) ? 0 : cleanStoredJson(db, columns, true);
     for (const type of ["view", "index", "trigger"])
       for (const item of target.filter(item => item.type === type)) db.exec(item.sql);
     if (JSON.stringify(inventory(db)) !== JSON.stringify(target)) throw Error("升级结构与唯一权威SQL不一致");
@@ -110,7 +111,7 @@ export async function upgradeSchema113(dataDirectory, backupDirectory) {
     const target = inventory(reference), current = inventory(db);
     const sourceStructure = digest(JSON.stringify(current)), targetStructure = digest(JSON.stringify(target));
     if (sourceStructure !== targetStructure &&
-      ![previousEquipmentStructure, previousObjectGuardStructure].includes(sourceStructure))
+      ![previousEquipmentStructure, previousObjectGuardStructure, previousPriceLifecycleStructure].includes(sourceStructure))
       throw Error("数据库不匹配本次已批准的升级基线");
     checkIntegrity(db);
     const columns = new Map(target.filter(item => item.type === "table").map(item => {

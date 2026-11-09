@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import BusinessDetailDialog from "../components/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../services/entity-dialog";
-import { useDescriptionColumns } from "../services/responsive-descriptions";
+import { useDescriptionColumns } from "../services/responsive-descriptions";import { useDialogDraftGuard } from "../services/dialog-draft";
 const descriptionColumns = useDescriptionColumns();
 import { useListRoute } from "../services/page-navigation";
 import BusinessHistory from "../components/BusinessHistory.vue";
@@ -127,6 +127,9 @@ async function load() {
     if (sequence === loadSequence) listLoading.value = false;
   }
 }
+const draftGuard = useDialogDraftGuard(() => form.value);
+function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
+function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 async function edit(row?: Row) {
   editing.value = row || null;
   const value = row ? await api("/demands/" + row.id) : null;
@@ -172,6 +175,7 @@ async function edit(row?: Row) {
   lastOperationId.value = form.value.operation_id;
   errors.value = {};
   dialog.value = true;
+  draftGuard.capture();
 }
 async function chooseOperation() {
   const selected = operations.value.find(
@@ -265,8 +269,8 @@ async function save() {
       "POST",
       input,
     );
-    dialog.value = false;
     await load();
+    dialog.value = false;
     ElMessage.success("需求版本已保存");
   } catch (e) {
     errors.value = (e as Row).fields || {};
@@ -505,7 +509,7 @@ onMounted(async () => {
     v-model="dialog"
     :title="editing ? '修订需求' : '新增专业需求'"
     width="1000px"
-    :close-on-click-modal="false"
+    :close-on-click-modal="false" :before-close="beforeEditorClose"
     ><ElForm ref="formRef" :model="form" label-position="top" novalidate
       ><div class="form-grid">
         <ElFormItem
@@ -693,7 +697,7 @@ onMounted(async () => {
         >补充来源</ElButton
       ></ElForm
     ><template #footer
-      ><ElButton @click="dialog = false">取消</ElButton
+      ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton
         :disabled="!can('write')"
         type="primary"

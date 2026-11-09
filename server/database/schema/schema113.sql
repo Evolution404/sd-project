@@ -1867,8 +1867,37 @@ BEGIN
         json_extract(second.value,'$.min_quantity_scaled')
  ) THEN RAISE(ABORT,'计价分档范围必须按数量递增且互不重叠') END;
 END;
+-- A pure active -> inactive version is a formal withdrawal, not a new
+-- price or applicability definition. Preserve the preceding validated
+-- predicate versions unchanged even if a factor has subsequently evolved.
+-- Every other INSERT remains subject to the latest-factor validation.
 CREATE TRIGGER reference_price_factor_definition_guard
  BEFORE INSERT ON reference_price_versions
+ WHEN NOT (NEW.status='inactive' AND EXISTS(
+ SELECT 1 FROM reference_price_versions prev
+ WHERE prev.catalog_id=NEW.catalog_id AND prev.version_no=NEW.version_no-1
+ AND prev.status='active'
+ AND prev.title=NEW.title
+ AND prev.operation_id=NEW.operation_id
+ AND prev.operation_version=NEW.operation_version
+ AND prev.unit_id=NEW.unit_id AND prev.unit_version=NEW.unit_version
+ AND prev.voltage_level_id IS NEW.voltage_level_id
+ AND prev.tower_type IS NEW.tower_type
+ AND prev.work_mode=NEW.work_mode
+ AND prev.specification=NEW.specification
+ AND prev.additional_conditions_json=NEW.additional_conditions_json
+ AND prev.pricing_mode=NEW.pricing_mode
+ AND prev.pricing_scope=NEW.pricing_scope
+ AND prev.calculation_params_json=NEW.calculation_params_json
+ AND prev.fee_components_json=NEW.fee_components_json
+ AND prev.base_fee_fen=NEW.base_fee_fen
+ AND prev.unit_price_fen=NEW.unit_price_fen
+ AND prev.quantity_brackets_json=NEW.quantity_brackets_json
+ AND prev.price_source=NEW.price_source
+ AND prev.price_date=NEW.price_date
+ AND prev.effective_on=NEW.effective_on
+ AND prev.basis=NEW.basis
+ ))
 BEGIN
  SELECT CASE WHEN EXISTS(
   SELECT 1 FROM json_each(NEW.additional_conditions_json) j
@@ -2000,7 +2029,9 @@ SELECT c.id,c.code,c.created_by,c.created_at,
  v.work_mode,v.specification,v.additional_conditions_json,
  v.status,v.pricing_mode,v.pricing_scope,v.calculation_params_json,
  v.fee_components_json,v.base_fee_fen,v.unit_price_fen,
- v.quantity_brackets_json,v.effective_on
+ v.quantity_brackets_json,v.effective_on,
+ v.price_source,v.price_date,v.basis,v.reason AS version_reason,
+ v.created_at AS version_created_at
 FROM reference_price_catalog c
 JOIN reference_price_versions v ON v.catalog_id=c.id
 WHERE v.version_no=(SELECT MAX(x.version_no)

@@ -167,7 +167,7 @@ test("schema adjustments are limited to approved equipment facts and the work-ob
     for (const suffix of ["initial", "version_guard", "append", "identity_insert"]) expected.push(prefix + "_" + suffix);
   // The separate work-object archive fix changes exactly this one trigger;
   // all equipment changes must remain limited to their audited table set.
-  expected.push("object_type_guard_insert");
+  expected.push("object_type_guard_insert", "reference_price_factor_definition_guard", "v_reference_price_current");
   assert.deepEqual(changed, expected.sort());
   assert.ok(after.every(item => !item.sql.includes("erection_type")));
 });

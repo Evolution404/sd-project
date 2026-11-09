@@ -106,7 +106,7 @@ try {
     ["执行协议与资金", "新增年度框架", 1],
     ["实际费用与结算", null, 0],
     ["作业标准与参考价格", "新增操作类型", 1],
-    ["系统管理", "新增", 1],
+    ["系统管理", "新增用户", 1],
   ]) {
     if (await page.getByRole("button", { name: "打开导航" }).isVisible())
       await page.getByRole("button", { name: "打开导航" }).click();

@@ -7,6 +7,23 @@ import {
   text,
   integer,
 } from "../domain/errors.mjs";
+// Deactivation is a formally versioned lifecycle decision, not a new price
+// definition. Every business field must exactly match the published version;
+// changing applicability or prices requires a separate validated revision.
+const priceDefinitionFields = ["title","operation_id","operation_version","unit_id","unit_version","voltage_level_id","tower_type","work_mode","specification","additional_conditions_json","pricing_mode","pricing_scope","calculation_params_json","fee_components_json","base_fee_fen","unit_price_fen","quantity_brackets_json","price_source","price_date","effective_on","basis"];
+function unchangedPriceDefinition(previous, next) {
+  if (!previous || previous.status !== "active" || next.status !== "inactive")
+    return false;
+  const normalized = value => {
+    if (typeof value === "string" && (value.trimStart().startsWith("{") || value.trimStart().startsWith("["))) {
+      try { return JSON.stringify(JSON.parse(value)); } catch { return value; }
+    }
+    if (value && typeof value === "object") return JSON.stringify(value);
+    return value;
+  };
+  return priceDefinitionFields.every(key =>
+    normalized(previous[key]) === normalized(next[key] === undefined ? previous[key] : next[key]));
+}
 const field = (key, label, type = "text", extra = {}) => ({
   key,
   label,
@@ -408,17 +425,32 @@ export function createCatalog(repo) {
   function physicalBindings(id, index) {
     return index ? index.get(id) || [] : repo.physicalRelations().filter(row => row.physical_tower_id === id);
   }
+  function referenceLabels(kind, row) {
+    const descriptions = {};
+    for (const field of [...config(kind).rootFields, ...config(kind).fields]) {
+      if (field.type !== "ref" || !row[field.key]) continue;
+      const reference = config(field.reference);
+      const target = repo.find(reference.view || reference.root, "id", row[field.key]);
+      // Master names are display-only; the canonical record keeps just its ID.
+      descriptions[field.key + "_label"] = target
+        ? label(field.reference, target) : "历史关联记录不存在";
+    }
+    return descriptions;
+  }
   function enriched(kind, row, index) {
+    const references = referenceLabels(kind, row);
     if (kind === "physical") {
       const bindings = physicalBindings(row.id, index);
       const current = bindings.filter(link => link.logical_status !== "retired" && !link.logical_deleted);
       return {
+        ...references,
         bindings, current_circuits: current.length,
         related_lines: [...new Set(current.map(link => link.line_name))].join("、"),
         related_towers: [...new Set(current.map(link => link.tower_no))].join("、"),
       };
     }
     if (kind === "lines") return {
+      ...references,
       voltage_level_name: repo.find("voltage_levels", "id", row.voltage_level_id)?.name || "",
       parent_line_name: row.parent_line_id ? repo.find("transmission_lines", "id", row.parent_line_id)?.name || "" : "",
       junction_tower_no: row.junction_tower_id ? repo.find("logical_towers", "id", row.junction_tower_id)?.tower_no || "" : "",
@@ -426,17 +458,19 @@ export function createCatalog(repo) {
     if (kind === "towers") {
       const line = repo.find("transmission_lines", "id", row.line_id);
       return {
+        ...references,
         tower_nature: repo.find("physical_towers", "id", row.physical_tower_id)?.tower_nature ?? null,
         line_name: line?.name || "",
         voltage_level_name: line ? repo.find("voltage_levels", "id", line.voltage_level_id)?.name || "" : "",
       };
     }
     if (kind === "spans") return {
+      ...references,
       line_name: repo.find("transmission_lines", "id", row.line_id)?.name || "",
       start_tower_no: repo.find("logical_towers", "id", row.start_tower_id)?.tower_no || "",
       end_tower_no: repo.find("logical_towers", "id", row.end_tower_id)?.tower_no || "",
     };
-    return {};
+    return references;
   }
   function list(kind, includeDeleted = false) {
     const c = config(kind),
@@ -873,6 +907,9 @@ export function createCatalog(repo) {
         values.unit_version = keepAdopted
           ? previous.unit_version : op.default_unit_version;
         if (values.tower_type === "") values.tower_type = null;
+        const statusOnlyRetirement = unchangedPriceDefinition(previous, values);
+        // A pure retirement may reference historical feature definitions;
+        // all other revisions still require the current active definition.
         const adoptedVersion = repo.where("operation_versions", {
           operation_id: values.operation_id, version: values.operation_version,
         })[0];
@@ -892,9 +929,10 @@ export function createCatalog(repo) {
           const latestFactor = repo.latest("dictionary_item_versions",
             "item_id", factor.id, "version");
           requireValue(
-            latestFactor?.version === declared.factor_version && latestFactor.status === "active",
+            statusOnlyRetirement ||
+              (latestFactor?.version === declared.factor_version && latestFactor.status === "active"),
             "价格特征「" + (latestFactor?.name || code) +
-              "」已更新或停用；原价格规则历史不变，请升级操作类型和适用条件后创建新版本",
+              "」已更新或停用；仅变更为停用状态可保留原定义，修改价格请升级操作类型及适用条件",
             409,
           );
         }
@@ -1018,6 +1056,7 @@ export function createCatalog(repo) {
         unit_version: keepAdopted ? previous.unit_version : op.default_unit_version,
         status: input.status || "active",
       };
+      const statusOnlyRetirement = unchangedPriceDefinition(previous, rule);
       for (const [key, label] of [
         ["title", "规则名称"], ["price_source", "价格来源"],
         ["price_date", "价格日期"], ["effective_on", "生效日期"],
@@ -1050,9 +1089,10 @@ export function createCatalog(repo) {
         const latestFactor = repo.latest("dictionary_item_versions",
           "item_id", factor.id, "version");
         requireValue(
-          latestFactor?.version === declared.factor_version && latestFactor.status === "active",
+          statusOnlyRetirement ||
+            (latestFactor?.version === declared.factor_version && latestFactor.status === "active"),
           "价格特征「" + (latestFactor?.name || code) +
-            "」已更新或停用；请显式升级操作类型及适用条件，原有正式价格规则历史仍保留",
+            "」已更新或停用；原定义只能原样停用，修改其他内容请升级操作类型及适用条件",
           409,
         );
       }

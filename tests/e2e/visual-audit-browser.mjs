@@ -114,7 +114,7 @@ try {
     for (const [name, path, button] of [
       ['line', 'ledger', '新增线路'], ['tower', 'ledger/towers', '新增逻辑杆塔'],
       ['operation', 'standards', '新增操作类型'], ['demand', 'demands', '新增需求'],
-      ['project', 'projects', '新增子项目'], ['user', 'system', '新增'],
+      ['project', 'projects', '新增子项目'], ['user', 'system', '新增用户'],
       ['cost', `finance/${project.id}`, '核定费用'], ['settlement', `finance/${project.id}`, '新增结算草稿'],
     ]) {
       await visit(path);

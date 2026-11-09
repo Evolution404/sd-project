@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
 import { useListRoute } from "../services/page-navigation";
+import { useDialogDraftGuard } from "../services/dialog-draft";
+import { useAccess } from "../services/access";
 const route = useRoute(), router = useRouter();
 import RowActions from "../components/RowActions.vue";
 import { ref, onMounted, computed, watch } from "vue";
 import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, statusText, type Row } from "../services/api";
+const can = useAccess();
 const tab = computed({
   get: () => String(route.params.tab || 'users'),
   set: value => { void router.push({ name: 'system', params: { tab: value }, query: {} }); },
@@ -74,6 +77,11 @@ async function load() {
     if (sequence === loadSequence) listLoading.value = false;
   }
 }
+const formRef = ref();
+const formErrors = ref<Row>({});
+const draftGuard = useDialogDraftGuard(() => form.value);
+function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
+function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function edit(row?: Row) {
   editing.value = row || null;
   form.value = row
@@ -86,20 +94,27 @@ function edit(row?: Row) {
         ip: "",
         note: "",
       };
+  formErrors.value = {};
   dialog.value = true;
+  draftGuard.capture();
 }
 async function save() {
   if (saving.value) return;
   saving.value = true;
   try {
+    if (!(await formRef.value?.validate().catch(() => false))) {
+      ElMessage.warning("请先完善必填信息");
+      return;
+    }
     await api(
       "/" + tab.value + (editing.value ? "/" + editing.value.id : ""),
       "POST",
       form.value,
     );
-    dialog.value = false;
     await load();
+    dialog.value = false;
   } catch (e) {
+    formErrors.value = (e as Row).fields || {};
     ElMessage.error((e as Error).message);
   } finally {
     saving.value = false;
@@ -128,7 +143,7 @@ onMounted(load);
       <p>账号角色、内网访问与操作审计。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton v-if="tab !== 'audit'" type="primary" @click="edit()">新增</ElButton>
+      <ElButton v-if="tab !== 'audit'" type="primary" :disabled="!can('admin')" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
     </div>
   </div>
   <ElTabs v-model="tab"
@@ -146,8 +161,8 @@ onMounted(load);
       </template>
       <template v-if="tab !== 'audit'" #actions="{ row }">
         <RowActions :actions="[
-          { label: '编辑', run: () => edit(row) },
-          { label: '删除', danger: true, run: () => remove(row) },
+          { label: '编辑', disabled: !can('admin'), run: () => edit(row) },
+          { label: '删除', danger: true, disabled: !can('admin'), run: () => remove(row) },
         ]" />
       </template>
     </BusinessTable>
@@ -156,17 +171,19 @@ onMounted(load);
   </div>
   <ElDialog append-to-body
     v-model="dialog"
-    :title="
-      tab === 'users' ? '用户账号' : tab === 'ips' ? 'IP授权' : '审计说明'
-    "
-    width="620px"
-    ><ElForm :model="form" label-position="top" novalidate
+    :title="(editing ? '编辑' : '新增') + (tab === 'users' ? '用户账号' : 'IP授权')"
+    width="620px" :before-close="beforeEditorClose" :close-on-click-modal="false"
+    ><ElForm ref="formRef" :model="form" label-position="top" novalidate
       ><template v-if="tab === 'users'"
-        ><ElFormItem label="用户名" required
+        ><ElFormItem label="用户名" prop="username" :error="formErrors.username"
+          :rules="[{ required: true, message: '请填写用户名', trigger: 'blur' }]" required
           ><ElInput v-model="form.username" /></ElFormItem
-        ><ElFormItem label="密码（编辑留空保持）" :required="!editing"
+        ><ElFormItem :label="editing ? '新密码（不修改请留空）' : '初始密码'" prop="password"
+          :error="formErrors.password"
+          :rules="editing ? [] : [{ required: true, message: '请填写初始密码', trigger: 'blur' }]"
+          :required="!editing"
           ><ElInput v-model="form.password" type="password" /></ElFormItem
-        ><ElFormItem label="角色" required
+        ><ElFormItem label="角色" prop="role" :rules="[{ required: true, message: '请选择角色' }]" required
           ><ElSelect v-model="form.role"
             ><ElOption label="管理员" value="admin" /><ElOption
               label="编辑人员"
@@ -181,8 +198,9 @@ onMounted(load);
               label="禁用"
               value="disabled" /></ElSelect></ElFormItem></template
       ><template v-else-if="tab === 'ips'"
-        ><ElFormItem label="完整IP地址" required
-          ><ElInput v-model="form.ip" /></ElFormItem
+        ><ElFormItem label="完整IP地址" prop="ip" :error="formErrors.ip"
+          :rules="[{ required: true, message: '请填写IP地址', trigger: 'blur' }]" required
+          ><ElInput v-model="form.ip" placeholder="例如 192.168.1.20（单个IP，不使用网段）" /></ElFormItem
         ><ElFormItem label="说明"
           ><ElInput v-model="form.note" /></ElFormItem></template
       ><template v-else
@@ -191,7 +209,7 @@ onMounted(load);
             v-model="form.message"
             type="textarea" /></ElFormItem></template></ElForm
     ><template #footer
-      ><ElButton @click="dialog = false">取消</ElButton
+      ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton type="primary" :loading="saving" @click="save">保存</ElButton></template
     ></ElDialog
   >
