@@ -108,7 +108,9 @@ try {
     ["作业标准与参考价格", "新增操作类型", 1],
     ["系统管理", "新增", 1],
   ]) {
-    await page.getByRole("menuitem", { name: title, exact: true }).click();
+    if (await page.getByRole("button", { name: "打开导航" }).isVisible())
+      await page.getByRole("button", { name: "打开导航" }).click();
+    await page.getByRole("menuitem", { name: title, exact: true }).last().click();
     await page
       .getByRole("heading", {
         name: title === "执行协议与资金" ? "年度框架、协议与组织" : title,
@@ -147,7 +149,7 @@ try {
         .click();
       await page
         .getByRole("dialog", {
-          name: "设备台账 Excel（线路／杆塔／档距）", exact: true,
+          name: "设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）", exact: true,
         })
         .waitFor();
       await page.getByRole("button", { name: "关闭", exact: true }).click();

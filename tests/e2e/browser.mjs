@@ -113,7 +113,9 @@ try {
     "作业标准与参考价格",
     "系统管理",
   ]) {
-    await page.getByRole("menuitem", { name, exact: true }).click();
+    const mobileMenu = page.getByRole("button", { name: "打开导航" });
+    if (await mobileMenu.isVisible()) await mobileMenu.click();
+    await page.getByRole("menuitem", { name, exact: true }).last().click();
     await page.locator("h1").waitFor();
     assert.ok(
       await page.evaluate(

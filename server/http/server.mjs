@@ -70,8 +70,18 @@ export function httpServer(
     const query = search.get("q") || "",
       sort = search.get("sort") || "created_at",
       direction = search.get("direction") === "asc" ? 1 : -1;
+    let filters = {};
+    try {
+      const parsed = JSON.parse(search.get("filters") || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+        filters = Object.fromEntries(Object.entries(parsed)
+          .filter(([key, value]) => /^[a-z_]{1,60}$/.test(key) && typeof value === "string" && value.length <= 128)
+          .slice(0, 20));
+    } catch { /* malformed column filters are ignored */ }
     const filtered = rows
       .filter((row) => !query || JSON.stringify(row).includes(query))
+      .filter(row => Object.entries(filters).every(([key, value]) =>
+        String(row[key] ?? "").toLocaleLowerCase("zh-CN").includes(value.toLocaleLowerCase("zh-CN"))))
       .sort(
         (a, b) =>
           String(a[sort] ?? "").localeCompare(String(b[sort] ?? ""), "zh-CN", {
@@ -227,7 +237,20 @@ export function httpServer(
                 ? system.catalog.history(key, subKey)
                 : sub
                   ? system.catalog.get(key, sub, deleted)
-                  : page(system.catalog.list(key, deleted), url.searchParams);
+                  : ["lines", "physical", "towers", "spans"].includes(key)
+                    ? system.catalog.search(key, {
+                        page: url.searchParams.get("page"),
+                        page_size: url.searchParams.get("page_size"),
+                        q: url.searchParams.get("q"),
+                        sort: url.searchParams.get("sort"),
+                        direction: url.searchParams.get("direction"),
+                        filters: url.searchParams.get("filters"),
+                        lineId: url.searchParams.get("line_id"),
+                        lineKind: url.searchParams.get("line_kind"),
+                        excludeId: url.searchParams.get("exclude_id"),
+                        deleted,
+                      })
+                    : page(system.catalog.list(key, deleted), url.searchParams);
           else if (method === "DELETE")
             result = mutate("admin", () =>
               system.catalog.remove(actor, key, sub, input.expected_version),

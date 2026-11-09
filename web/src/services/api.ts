@@ -12,8 +12,10 @@ export async function api<T = Row>(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T> {
   const response = await fetch("/api" + path, {
+    signal,
     method,
     credentials: "same-origin",
     headers: {
@@ -79,6 +81,8 @@ export const statusText: Row = {
   verifier: "审核人员",
   viewer: "只读人员",
   disabled: "禁用",
+  main: "主线",
+  branch: "支线",
   line: "线路设备",
   physical: "共用物理杆塔",
   tower: "杆塔",

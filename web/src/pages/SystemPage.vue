@@ -1,14 +1,60 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
+import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, statusText, type Row } from "../services/api";
 const tab = ref("users"),
   rows = ref<Row[]>([]),
+  total = ref(0),
+  page = ref(1),
+  sortKey = ref(""),
+  sortDirection = ref("desc"),
+  columnFilters = ref<Record<string, string>>({}),
   dialog = ref(false),
   form = ref<Row>({}),
   editing = ref<Row | null>(null);
+const tableColumns = computed<TableColumn[]>(() => {
+  if (tab.value === "users") return [
+    { key: "username", label: "账号", minWidth: 170 },
+    { key: "role", label: "角色" },
+    { key: "status", label: "状态" },
+  ];
+  if (tab.value === "ips") return [
+    { key: "ip", label: "IP 地址", minWidth: 180 },
+    { key: "note", label: "说明", minWidth: 220 },
+  ];
+  return [
+    { key: "created_at", label: "登记时间", minWidth: 190 },
+    { key: "entity", label: "业务对象" },
+    { key: "action", label: "动作" },
+    { key: "actor_username", label: "操作人", minWidth: 190 },
+  ];
+});
+watch(tab, () => {
+  page.value = 1;
+  sortKey.value = "";
+  columnFilters.value = {};
+});
+function tableSort(value: { key: string; order: string }) {
+  sortKey.value = value.key;
+  sortDirection.value = value.order === "ascending" ? "asc" : "desc";
+  page.value = 1;
+  load();
+}
+function tableFilter(value: Record<string, string>) {
+  columnFilters.value = value;
+  page.value = 1;
+  load();
+}
 async function load() {
-  rows.value = (await api("/" + tab.value + "?page_size=200")).items;
+  const q = new URLSearchParams({
+    page_size: "30", page: String(page.value),
+    sort: sortKey.value || "created_at", direction: sortDirection.value,
+    filters: JSON.stringify(columnFilters.value),
+  });
+  const response = await api("/" + tab.value + "?" + q.toString());
+  rows.value = response.items;
+  total.value = response.total;
 }
 function edit(row?: Row) {
   editing.value = row || null;
@@ -54,12 +100,12 @@ onMounted(load);
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">System administration</div>
+      <div class="section-caption">系统管理</div>
       <h1>系统管理</h1>
       <p>账号角色、内网访问与操作审计。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" @click="edit()">新增</ElButton>
+      <ElButton v-if="tab !== 'audit'" type="primary" @click="edit()">新增</ElButton>
     </div>
   </div>
   <ElTabs v-model="tab" @tab-change="load"
@@ -68,43 +114,19 @@ onMounted(load);
       name="ips" /><ElTabPane label="操作审计" name="audit"
   /></ElTabs>
   <div class="panel">
-    <ElTable :data="rows"
-      ><template v-if="tab === 'users'"
-        ><ElTableColumn prop="username" label="账号" /><ElTableColumn
-          label="角色"
-          ><template #default="{ row }">{{
-            statusText[row.role] || row.role
-          }}</template></ElTableColumn
-        ><ElTableColumn label="状态"
-          ><template #default="{ row }">{{
-            statusText[row.status] || row.status
-          }}</template></ElTableColumn
-        ></template
-      ><template v-if="tab === 'ips'"
-        ><ElTableColumn prop="ip" label="IP地址" /><ElTableColumn
-          prop="note"
-          label="说明" /></template
-      ><template v-if="tab === 'audit'"
-        ><ElTableColumn
-          prop="created_at"
-          label="登记时间"
-          min-width="190" /><ElTableColumn
-          prop="entity"
-          label="业务对象" /><ElTableColumn
-          prop="action"
-          label="动作" /><ElTableColumn
-          prop="actor_username"
-          label="操作人"
-          min-width="190" /></template
-      ><ElTableColumn label="操作"
-        ><template #default="{ row }"
-          ><ElButton @click="edit(row)">编辑</ElButton
-          ><ElButton type="danger" @click="remove(row)"
-            >删除</ElButton
-          ></template
-        ></ElTableColumn
-      ></ElTable
-    >
+    <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'system:' + tab"
+      @sort-change="tableSort" @filter-change="tableFilter">
+      <template #cell="{ row, column }">
+        <span v-if="['role','status','action'].includes(column.key)">{{ statusText[row[column.key]] || row[column.key] || '—' }}</span>
+        <span v-else>{{ row[column.key] ?? '—' }}</span>
+      </template>
+      <template v-if="tab !== 'audit'" #actions="{ row }">
+        <ElButton size="small" @click="edit(row)">编辑</ElButton>
+        <ElButton size="small" type="danger" @click="remove(row)">删除</ElButton>
+      </template>
+    </BusinessTable>
+    <ElPagination v-model:current-page="page" :page-size="30" :total="total"
+      layout="prev,pager,next,total" @current-change="load" />
   </div>
   <ElDialog
     v-model="dialog"

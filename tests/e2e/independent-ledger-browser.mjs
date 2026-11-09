@@ -244,7 +244,9 @@ try {
     .waitFor();
   assert.ok(s.catalog.list("towers").some((row) => row.tower_no === "#77"));
   await page.getByRole("button", { name: "关闭", exact: true }).click();
-  await page.getByRole("menuitem", { name: "专业需求", exact: true }).click();
+  if (await page.getByRole("button", { name: "打开导航" }).isVisible())
+    await page.getByRole("button", { name: "打开导航" }).click();
+  await page.getByRole("menuitem", { name: "专业需求", exact: true }).last().click();
   await page
     .getByRole("row")
     .filter({ hasText: "中文正式特征历史" })
@@ -252,9 +254,9 @@ try {
     .click();
   await page.getByText("正式塔型 · angle", { exact: true }).waitFor();
   assert.ok(!(await page.locator("body").innerText()).includes(factor.code));
-  await page
-    .getByRole("menuitem", { name: "输电设备台账", exact: true })
-    .click();
+  if (await page.getByRole("button", { name: "打开导航" }).isVisible())
+    await page.getByRole("button", { name: "打开导航" }).click();
+  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).last().click();
   await line("最少录入甲线");
   await tower("最少录入甲线", "#88");
   await page

@@ -242,7 +242,7 @@ export const catalogDefinitions = {
       }),
     ],
     fields: [
-      field("asset_no", "资产编号", "text", { nullable: true }),
+      field("asset_no", "现场铭牌号（已有资料）", "text", { nullable: true }),
       field("tower_type", "塔型", "text", { nullable: true }),
       field("model", "型号"),
       field("height_scaled", "杆塔高度（米）", "quantity"),
@@ -404,9 +404,46 @@ export function createCatalog(repo) {
         repo.find("logical_towers", "id", row.end_tower_id)?.tower_no,
     ].join(" ");
   }
+  function physicalBindings(id, index) {
+    return index ? index.get(id) || [] : repo.physicalRelations().filter(row => row.physical_tower_id === id);
+  }
+  function enriched(kind, row, index) {
+    if (kind === "physical") {
+      const bindings = physicalBindings(row.id, index);
+      const current = bindings.filter(link => link.logical_status !== "retired" && !link.logical_deleted);
+      return {
+        bindings, current_circuits: current.length,
+        related_lines: [...new Set(current.map(link => link.line_name))].join("、"),
+        related_towers: [...new Set(current.map(link => link.tower_no))].join("、"),
+      };
+    }
+    if (kind === "lines") return {
+      voltage_level_name: repo.find("voltage_levels", "id", row.voltage_level_id)?.name || "",
+      parent_line_name: row.parent_line_id ? repo.find("transmission_lines", "id", row.parent_line_id)?.name || "" : "",
+      junction_tower_no: row.junction_tower_id ? repo.find("logical_towers", "id", row.junction_tower_id)?.tower_no || "" : "",
+    };
+    if (kind === "towers") {
+      const line = repo.find("transmission_lines", "id", row.line_id);
+      return {
+        line_name: line?.name || "",
+        voltage_level_name: line ? repo.find("voltage_levels", "id", line.voltage_level_id)?.name || "" : "",
+      };
+    }
+    if (kind === "spans") return {
+      line_name: repo.find("transmission_lines", "id", row.line_id)?.name || "",
+      start_tower_no: repo.find("logical_towers", "id", row.start_tower_id)?.tower_no || "",
+      end_tower_no: repo.find("logical_towers", "id", row.end_tower_id)?.tower_no || "",
+    };
+    return {};
+  }
   function list(kind, includeDeleted = false) {
     const c = config(kind),
-      deleted = repo.deleted(kind);
+      deleted = repo.deleted(kind),
+      index = kind === "physical" ? new Map() : null;
+    if (index) for (const link of repo.physicalRelations()) {
+      if (!index.has(link.physical_tower_id)) index.set(link.physical_tower_id, []);
+      index.get(link.physical_tower_id).push(link);
+    }
     return repo
       .list(c.view || c.root)
       .filter(
@@ -429,6 +466,7 @@ export function createCatalog(repo) {
           id: row.id,
           deleted: deleted.has(row.id),
           label: label(kind, row),
+          ...enriched(kind, row, index),
           ...(c.plain
             ? {
                 version:
@@ -439,6 +477,24 @@ export function createCatalog(repo) {
             : {}),
         };
       });
+  }
+  function search(kind, options = {}) {
+    config(kind);
+    const result = repo.searchEquipment(kind, options);
+    const index = kind === "physical" ? new Map() : null;
+    if (index) for (const link of repo.physicalRelations()) {
+      if (!index.has(link.physical_tower_id)) index.set(link.physical_tower_id, []);
+      index.get(link.physical_tower_id).push(link);
+    }
+    return {
+      ...result,
+      items: result.items.map((row) => ({
+        ...row,
+        deleted: Boolean(row.deleted),
+        label: label(kind, row),
+        ...enriched(kind, row, index),
+      })),
+    };
   }
   function get(kind, key, includeDeleted = false) {
     requireValue(
@@ -465,6 +521,7 @@ export function createCatalog(repo) {
       id: row.id,
       deleted,
       label: label(kind, row),
+      ...enriched(kind, row),
       ...(kind === "towers"
         ? { identity_decisions: repo.auditFor("tower_identity_decisions", key) }
         : {}),
@@ -521,6 +578,22 @@ export function createCatalog(repo) {
         input[f.key] =
           previous?.[f.key] ||
           kind.toUpperCase() + "-" + keyId.replaceAll("-", "");
+      }
+      if (kind === "lines") {
+        const lineKind = input.line_kind ?? previous?.line_kind ?? "main";
+        const parent = input.parent_line_id ?? previous?.parent_line_id ?? null;
+        const junction = input.junction_tower_id ?? previous?.junction_tower_id ?? null;
+        if (lineKind === "main") {
+          requireValue(!parent && !junction, "主线不能关联所属主线或分支接入塔");
+        } else {
+          requireValue(parent && parent !== keyId, "支线必须选择合法所属主线");
+          const parentLine = get("lines", parent);
+          requireValue(parentLine.line_kind === "main", "支线只能归属主线");
+          if (junction) {
+            const entry = get("towers", junction);
+            requireValue(entry.line_id === parent, "接入杆塔必须属于指定主线");
+          }
+        }
       }
       if (kind === "towers" && input.tower_no !== undefined)
         input.tower_no = String(input.tower_no).trim();
@@ -856,6 +929,7 @@ export function createCatalog(repo) {
       return labels;
     },
     list,
+    search,
     get,
     save,
     audit,

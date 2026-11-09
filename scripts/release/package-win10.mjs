@@ -99,6 +99,9 @@ for (const [src, dest] of [
     "docs/architecture/系统开发规范.md",
     "docs/decisions/2026-11-09_系统独立_自动编码_最少录入.md",
     "docs/implementation/2026-11-09_独立业务_自动身份与最少录入_实施验收.md",
+    "docs/implementation/2026-11-09_全系统治理执行与验收状态.md",
+    "docs/implementation/2026-11-09_界面组件评估与迁移路线.md",
+    "docs/implementation/2026-11-09_设备台账Excel治理与验收.md",
   ].map((path) => [path, path]),
   ["package.json", "package.json"],
 ]) {

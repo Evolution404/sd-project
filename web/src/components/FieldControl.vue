@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, watch } from "vue";
+import { computed, ref, onMounted, onUnmounted, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { api, statusText, type Row } from "../services/api";
 const props = defineProps<{
   field: Row;
   modelValue: any;
   disabled?: boolean;
+  filters?: Record<string, string>;
 }>();
 const emit = defineEmits(["update:modelValue"]);
 const options = ref<Row[]>([]);
@@ -52,39 +53,57 @@ const numeric = computed({
     ),
 });
 let requestSequence = 0;
-async function search(q = "") {
+let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let inFlight: AbortController | null = null;
+function search(q = "", immediate = false) {
   if (props.field.type !== "ref") return;
-  const sequence = ++requestSequence,
-    reference = props.field.reference,
-    selectedId = props.modelValue;
-  try {
-    const response = await api(
-      "/catalog/" + reference + "?page_size=200&q=" + encodeURIComponent(q),
-    );
-    let selected = null;
-    if (
-      selectedId &&
-      !response.items.some((item: Row) => item.id === selectedId)
-    ) {
-      try {
-        selected = await api(
-          "/catalog/" + reference + "/" + selectedId + "?deleted=true",
-        );
-      } catch {
-        selected = { id: selectedId, label: "原关联需重新选择" };
+  const sequence = ++requestSequence;
+  if (debounceTimer) clearTimeout(debounceTimer);
+  inFlight?.abort();
+  inFlight = new AbortController();
+  const controller = inFlight;
+  const execute = async () => {
+    const reference = props.field.reference;
+    const selectedId = props.modelValue;
+    try {
+      const searchParams = new URLSearchParams({ page_size: "100", q });
+      for (const [key, item] of Object.entries(props.filters || {}))
+        if (item) searchParams.set(key, item);
+      const response = await api(
+        "/catalog/" + reference + "?" + searchParams.toString(),
+        "GET", undefined, controller.signal,
+      );
+      let selected = null;
+      if (selectedId && !response.items.some((item: Row) => item.id === selectedId)) {
+        try {
+          selected = await api(
+            "/catalog/" + reference + "/" + selectedId + "?deleted=true",
+            "GET", undefined, controller.signal,
+          );
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          selected = { id: selectedId, label: "原关联需重新选择" };
+        }
       }
+      if (sequence === requestSequence && !controller.signal.aborted)
+        options.value = selected ? [selected, ...response.items] : response.items;
+    } catch (error) {
+      if (sequence === requestSequence && !controller.signal.aborted)
+        ElMessage.error((error as Error).message);
     }
-    if (sequence === requestSequence)
-      options.value = selected ? [selected, ...response.items] : response.items;
-  } catch (error) {
-    if (sequence === requestSequence) ElMessage.error((error as Error).message);
-  }
+  };
+  if (immediate) void execute();
+  else debounceTimer = setTimeout(execute, 240);
 }
-onMounted(() => search());
+onMounted(() => search("", true));
 watch(
-  () => [props.field.reference, props.modelValue],
-  () => search(),
+  () => [props.field.reference, props.modelValue, JSON.stringify(props.filters || {})],
+  () => search("", true),
 );
+onUnmounted(() => {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  inFlight?.abort();
+});
 </script>
 <template>
   <ElSelect

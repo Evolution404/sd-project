@@ -6,6 +6,7 @@ import { createExchange } from "../../server/exchange/service.mjs";
 import { makeWorkbook } from "../../server/exchange/workbook.mjs";
 
 const equipmentLabels = {
+  tower_type: "塔型",
   parent_line_name: "所属主线名称（支线填写）",
   junction_tower_no: "主线接入杆塔号（支线填写）",
   start_line_name: "起点所属线路（支线接入时填写）",
@@ -105,7 +106,7 @@ test("single workbook creates main line, junction tower, branch, both circuits a
   const revised = exchange.commit(user, recheck.token, {
     request_key: "topology-length-revision", atomic: true,
   });
-  assert.equal(revised.results.length, 3);
+  assert.equal(revised.results.length, 4);
   const revisedSpan = s.catalog.get("spans", branchSpan.id);
   assert.equal(revisedSpan.transmission_center_length_mm, 1300250);
   assert.equal(revisedSpan.version, branchSpan.version + 1);
@@ -196,4 +197,64 @@ test("cyclic cross-sheet sharing and branch junction is rejected for every depen
   assert.ok(!preview.documents.some((doc) =>
     doc.number === "循环支线" || doc.number.endsWith("· #1")));
   assert.equal(s.catalog.list("towers").length, 0);
+});
+
+test("physical sheet selected export and history revision", async (t) => {
+  const { s, user } = fixture(t), exchange = createExchange(s);
+  const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
+  const line = s.catalog.save(user, "lines", { name: "甲线", voltage_level_id: voltage.id });
+  const tower = s.catalog.save(user, "towers", {
+    line_id: line.id, tower_no: "#7", physical_properties: { tower_type: "耐张塔", model: "JG-1" },
+  });
+  const before = s.catalog.get("physical", tower.physical_tower_id);
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await exchange.exportData(user, "assets", { ids: [before.id] }));
+  const sheet = book.getWorksheet("物理杆塔");
+  assert.equal(sheet.rowCount, 2, "物理杆塔勾选导出不可为空");
+  assert.equal(sheet.getRow(2).getCell(headerIndex(sheet, "tower_type")).value, "耐张塔");
+  const unchanged = await exchange.preview(user, "assets",
+    Buffer.from(await book.xlsx.writeBuffer()), { mode: "update" });
+  assert.deepEqual(unchanged.issues, []);
+  assert.equal(unchanged.documents.find(doc => doc.kind === "physical").action, "unchanged");
+  sheet.getRow(2).getCell(headerIndex(sheet, "tower_type")).value = "直线塔";
+  const preview = await exchange.preview(user, "assets",
+    Buffer.from(await book.xlsx.writeBuffer()), { mode: "update" });
+  assert.deepEqual(preview.issues, []);
+  assert.equal(preview.documents.find(doc => doc.kind === "physical").action, "update");
+  exchange.commit(user, preview.token, { request_key: "physical-sheet-v2", atomic: true });
+  assert.equal(s.catalog.get("physical", before.id).tower_type, "直线塔");
+  assert.equal(s.catalog.get("physical", before.id).version, before.version + 1);
+  assert.equal(s.catalog.get("towers", tower.id).physical_tower_id, before.id);
+});
+test("logical tower Excel physical change is not incorrectly unchanged", async (t) => {
+  const { s, user } = fixture(t), exchange = createExchange(s);
+  const voltage = s.catalog.save(user, "voltages", { name: "110kV" });
+  const line = s.catalog.save(user, "lines", { name: "乙线", voltage_level_id: voltage.id });
+  const tower = s.catalog.save(user, "towers", {
+    line_id: line.id, tower_no: "#12", physical_properties: { tower_type: "直线塔" },
+  });
+  const original = s.catalog.get("physical", tower.physical_tower_id);
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await exchange.exportData(user, "assets", { ids: [line.id] }));
+  const sheet = book.getWorksheet("杆塔");
+  assert.equal(sheet.getRow(2).getCell(headerIndex(sheet, "tower_type")).value, "直线塔");
+  sheet.getRow(2).getCell(headerIndex(sheet, "tower_type")).value = "耐张塔";
+  const preview = await exchange.preview(user, "assets",
+    Buffer.from(await book.xlsx.writeBuffer()), { mode: "update" });
+  assert.deepEqual(preview.issues, []);
+  assert.ok(preview.documents.some(doc => doc.kind === "physical" && doc.action === "update"));
+  exchange.commit(user, preview.token, { request_key: "logical-physical-v2", atomic: true });
+  assert.equal(s.catalog.get("physical", original.id).tower_type, "耐张塔");
+  assert.equal(s.catalog.get("physical", original.id).version, original.version + 1);
+});
+test("independent physical workbook creates an unlinked entity with automatic identity", async (t) => {
+  const { s, user } = fixture(t), exchange = createExchange(s);
+  const beforeCount = s.catalog.list("physical").length;
+  const preview = await exchange.preview(user, "assets",
+    await makeWorkbook("assets", { physical: [{ tower_type: "钢管杆", model: "GG-2" }] }));
+  assert.deepEqual(preview.issues, []);
+  assert.equal(preview.documents[0].kind, "physical");
+  exchange.commit(user, preview.token, { request_key: "physical-new", atomic: true });
+  assert.equal(s.catalog.list("physical").length, beforeCount + 1);
+  assert.ok(s.catalog.list("physical").find(row => row.model === "GG-2")?.tower_code);
 });

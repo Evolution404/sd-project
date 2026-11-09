@@ -5,6 +5,7 @@ const can = useAccess();
 import { ref, onMounted, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../components/FieldControl.vue";
+import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import PricingQuoteDialog from "../components/PricingQuoteDialog.vue";
 import SiteFeaturesEditor from "../components/SiteFeaturesEditor.vue";
 import EvidencePanel from "../components/EvidencePanel.vue";
@@ -17,6 +18,9 @@ const rows = ref<Row[]>([]),
   total = ref(0),
   page = ref(1),
   query = ref(""),
+  sortKey = ref(""),
+  sortDirection = ref("desc"),
+  columnFilters = ref<Record<string, string>>({}),
   selected = ref<Row[]>([]),
   detail = ref<Row | null>(null),
   dialog = ref(false),
@@ -30,6 +34,22 @@ const rows = ref<Row[]>([]),
   quoteOpen = ref(false),
   formRef = ref(),
   showDeleted = ref(false);
+const locationLineIds = ref<(string | null)[]>([]);
+function clearLocationDevice(loc: Row) {
+  loc.logical_tower_id = null;
+  loc.physical_tower_id = null;
+  loc.span_id = null;
+  loc.span_version = undefined;
+  loc.site_features_json = "{}";
+  loc.adopt_current_definition = true;
+}
+function changeLocationKind(loc: Row) {
+  clearLocationDevice(loc);
+}
+function removeLocation(index: number) {
+  form.value.work_locations.splice(index, 1);
+  locationLineIds.value.splice(index, 1);
+}
 const operation = computed(() =>
   adoptedOperation.value?.operation_id === form.value.operation_id &&
   adoptedOperation.value?.version === form.value.operation_version
@@ -42,9 +62,42 @@ const extraFields = computed(() =>
 const locationReference = computed(() =>
   operation.value?.work_target_type === "physical" ? "physical" : "towers",
 );
+const demandLocationColumns: TableColumn[] = [
+  { key: "location_snapshot_json", label: "位置", minWidth: 230, sortable: false, filterable: false },
+  { key: "quantity_scaled", label: "数量", minWidth: 135 },
+  { key: "work_mode", label: "作业方式", minWidth: 130 },
+  { key: "site_features_json", label: "现场特征", minWidth: 230, sortable: false, filterable: false },
+];
+const demandMaterialColumns: TableColumn[] = [
+  { key: "material_name", label: "物资名称", minWidth: 165 },
+  { key: "model", label: "型号", minWidth: 145 },
+  { key: "specification", label: "规格", minWidth: 145 },
+  { key: "quantity_scaled", label: "预计数量", minWidth: 165 },
+];
+const demandColumns: TableColumn[] = [
+  { key: "demand_no", label: "需求编号", minWidth: 150 },
+  { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
+  { key: "problem_description", label: "问题描述", minWidth: 200 },
+  { key: "quantity_scaled", label: "工作量" },
+  { key: "unit_snapshot", label: "计量单位" },
+  { key: "work_locations", filterable: false, label: "作业位置数", sortable: false },
+  { key: "status", label: "状态" },
+  { key: "binding", filterable: false, label: "当前关联", sortable: false },
+];
+function sortTable(value: { key: string; order: string }) {
+  sortKey.value = value.key;
+  sortDirection.value = value.order === "ascending" ? "asc" : "desc";
+  page.value = 1;
+  load();
+}
+function filterTable(value: Record<string, string>) {
+  columnFilters.value = value;
+  page.value = 1;
+  load();
+}
 async function load() {
   const result = await api(
-    `/demands?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}`,
+    `/demands?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
   );
   rows.value = result.items;
   total.value = result.total;
@@ -67,6 +120,26 @@ async function edit(row?: Row) {
       };
   for (const loc of form.value.work_locations)
     loc.site_features_json = JSON.stringify(loc.site_features_json || {});
+  // A historical selected object must remain visible even outside the current
+  // search range; infer its actual line only from persisted relationships.
+  locationLineIds.value = await Promise.all(form.value.work_locations.map(async (loc: Row) => {
+    const selectedId = loc.location_kind === "span" ? loc.span_id
+      : loc.location_kind === "physical_tower" ? loc.physical_tower_id
+        : loc.logical_tower_id;
+    if (!selectedId) return null;
+    const target = loc.location_kind === "span" ? "spans"
+      : loc.location_kind === "physical_tower" ? "physical" : "towers";
+    try {
+      const item = await api("/catalog/" + target + "/" + selectedId + "?deleted=true");
+      if (target === "physical") {
+        const active = item.bindings?.filter((link: Row) =>
+          link.logical_status !== "retired" && !link.logical_deleted) || [];
+        const unique = [...new Set(active.map((link: Row) => link.line_id))];
+        return unique.length === 1 ? String(unique[0]) : null;
+      }
+      return item.line_id || null;
+    } catch { return null; }
+  }));
   form.value.custom_fields = value?.custom_fields || {};
   adoptedOperation.value = value
     ? (await api("/catalog/operations/history/" + value.operation_id)).find(
@@ -98,6 +171,7 @@ async function chooseOperation() {
         { confirmButtonText: "重新选择位置", cancelButtonText: "保留原操作" },
       );
       form.value.work_locations = [];
+      locationLineIds.value = [];
     } catch {
       form.value.operation_id = lastOperationId.value;
       return;
@@ -117,6 +191,7 @@ async function chooseOperation() {
 }
 function addLocation() {
   const op = operation.value;
+  locationLineIds.value.push(null);
   form.value.work_locations.push({
     location_kind:
       op?.work_target_type === "physical"
@@ -239,7 +314,7 @@ onMounted(async () => {
   <template v-if="!detail"
     ><div class="page-heading">
       <div>
-        <div class="section-caption">Professional demands</div>
+        <div class="section-caption">专业需求管理</div>
         <h1>专业需求</h1>
         <p>一种操作，多处作业位置。数量、现场条件与来源分别留存。</p>
       </div>
@@ -265,51 +340,20 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <ElTable :data="rows" @selection-change="selected = $event"
-        ><ElTableColumn type="selection" width="42" /><ElTableColumn
-          prop="demand_no"
-          label="需求编号"
-          width="140"
-          sortable
-        /><ElTableColumn
-          prop="operation_snapshot"
-          label="操作类型"
-          min-width="150"
-        /><ElTableColumn
-          prop="problem_description"
-          label="问题描述"
-          min-width="200"
-        /><ElTableColumn label="数量 / 位置" width="130"
-          ><template #default="{ row }"
-            >{{ quantity(row.quantity_scaled) }} {{ row.unit_snapshot }}
-            <div class="muted">
-              {{ row.work_locations.length }} 处位置
-            </div></template
-          ></ElTableColumn
-        ><ElTableColumn label="状态" width="100"
-          ><template #default="{ row }"
-            ><ElTag>{{
-              row.deleted ? "已删除" : statusText[row.status]
-            }}</ElTag></template
-          ></ElTableColumn
-        ><ElTableColumn label="当前关联" min-width="100"
-          ><template #default="{ row }">{{
-            row.binding ? "已关联子项目" : "未关联"
-          }}</template></ElTableColumn
-        ><ElTableColumn label="操作" width="100"
-          ><template #default="{ row }"
-            ><ElButton
-              size="small"
-              @click="
-                api('/demands/' + row.id + '?deleted=true').then(
-                  (value) => (detail = value),
-                )
-              "
-              >查看</ElButton
-            ></template
-          ></ElTableColumn
-        ></ElTable
-      ><ElPagination
+      <BusinessTable :rows="rows" :columns="demandColumns" table-key="demand:list" selectable
+        @selection-change="selected = $event" @sort-change="sortTable" @filter-change="filterTable">
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+          <span v-else-if="column.key === 'work_locations'">{{ row.work_locations?.length || 0 }} 处</span>
+          <span v-else-if="column.key === 'binding'">{{ row.binding ? '已关联子项目' : '未关联' }}</span>
+          <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? "已删除" : statusText[row.status] }}</ElTag>
+          <span v-else>{{ row[column.key] ?? '—' }}</span>
+        </template>
+        <template #actions="{ row }">
+          <ElButton size="small" @click="api('/demands/' + row.id + '?deleted=true').then(value => (detail = value))">查看</ElButton>
+        </template>
+      </BusinessTable>
+      <ElPagination
         v-model:current-page="page"
         :total="total"
         :page-size="30"
@@ -375,40 +419,23 @@ onMounted(async () => {
     </div>
     <div class="panel">
       <h2>作业位置</h2>
-      <ElTable :data="detail.work_locations"
-        ><ElTableColumn label="位置" min-width="180"
-          ><template #default="{ row }"
-            >{{ row.location_snapshot_json.line_name }}
-            {{
-              row.location_snapshot_json.location_label ||
-              row.location_snapshot_json.tower_no ||
-              row.location_snapshot_json.physical_code ||
-              row.span_id
-            }}</template
-          ></ElTableColumn
-        ><ElTableColumn label="数量" width="130"
-          ><template #default="{ row }">{{
-            quantity(row.quantity_scaled)
-          }}</template></ElTableColumn
-        ><ElTableColumn label="作业方式"
-          ><template #default="{ row }">{{
-            statusText[row.work_mode] || row.work_mode
-          }}</template></ElTableColumn
-        ><ElTableColumn label="现场特征"
-          ><template #default="{ row }">{{
-            Object.entries(row.site_features_json)
-              .map(
-                ([key, value]) =>
-                  (businessLabels[key + "@" + (value as Row).factor_version] ||
-                    businessLabels[key] ||
-                    "历史价格特征") +
-                  " · " +
-                  (value as Row).value,
-              )
-              .join(" / ") || "—"
-          }}</template></ElTableColumn
-        ></ElTable
-      >
+      <BusinessTable client-side table-key="demand:detail-locations"
+        :rows="detail.work_locations || []" :columns="demandLocationColumns">
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'location_snapshot_json'">
+            {{ row.location_snapshot_json?.line_name || '' }}
+            {{ row.location_snapshot_json?.location_label || row.location_snapshot_json?.tower_no || row.location_snapshot_json?.physical_code || row.span_id }}
+          </span>
+          <span v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+          <span v-else-if="column.key === 'work_mode'">{{ statusText[row.work_mode] || row.work_mode }}</span>
+          <span v-else-if="column.key === 'site_features_json'">
+            {{ Object.entries(row.site_features_json || {}).map(([key, value]) =>
+              (businessLabels[key + '@' + (value as Row).factor_version] || businessLabels[key] || '历史价格特征') +
+              ' · ' + (value as Row).value).join(' / ') || '—' }}
+          </span>
+          <span v-else>{{ row[column.key] ?? '—' }}</span>
+        </template>
+      </BusinessTable>
     </div>
     <div class="panel">
       <h2>来源与预计物资</h2>
@@ -425,18 +452,13 @@ onMounted(async () => {
           >删除</ElButton
         >
       </p>
-      <ElTable :data="detail.materials"
-        ><ElTableColumn prop="material_name" label="物资名称" /><ElTableColumn
-          prop="model"
-          label="型号"
-        /><ElTableColumn prop="specification" label="规格" /><ElTableColumn
-          label="预计数量"
-          ><template #default="{ row }"
-            >{{ quantity(row.quantity_scaled) }}
-            {{ row.unit_snapshot }}</template
-          ></ElTableColumn
-        ></ElTable
-      >
+      <BusinessTable client-side table-key="demand:detail-materials"
+        :rows="detail.materials || []" :columns="demandMaterialColumns">
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }} {{ row.unit_snapshot }}</span>
+          <span v-else>{{ row[column.key] ?? '—' }}</span>
+        </template>
+      </BusinessTable>
     </div>
     <EvidencePanel
       :key="detail.id"
@@ -530,11 +552,16 @@ onMounted(async () => {
           <ElFormItem
             v-if="operation?.allow_span && operation?.allow_tower"
             label="位置类型"
-            ><ElSelect v-model="loc.location_kind"
+            ><ElSelect v-model="loc.location_kind" @change="changeLocationKind(loc)"
               ><ElOption label="杆塔" value="logical_tower" /><ElOption
                 label="档距"
                 value="span" /></ElSelect></ElFormItem
-          ><ElFormItem
+          ><ElFormItem label="所属线路（筛选作业设备）">
+            <FieldControl v-model="locationLineIds[Number(index)]"
+              :field="{ type: 'ref', reference: 'lines' }"
+              @update:model-value="clearLocationDevice(loc)" />
+          </ElFormItem>
+          <ElFormItem
             label="作业设备"
             :prop="[
               'work_locations',
@@ -566,7 +593,8 @@ onMounted(async () => {
                 type: 'ref',
                 reference:
                   loc.location_kind === 'span' ? 'spans' : locationReference,
-              }" /></ElFormItem
+              }"
+              :filters="locationLineIds[Number(index)] ? { line_id: locationLineIds[Number(index)]! } : {}" /></ElFormItem
           ><ElFormItem
             label="实际数量"
             :prop="['work_locations', String(index), 'quantity_scaled']"
@@ -591,7 +619,7 @@ onMounted(async () => {
         <ElButton
           type="danger"
           plain
-          @click="form.work_locations.splice(index, 1)"
+          @click="removeLocation(Number(index))"
           >移除此位置</ElButton
         >
       </div>

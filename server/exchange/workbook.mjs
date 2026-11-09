@@ -37,6 +37,7 @@ const businessChoices = {
 };
 const technicalColumns = new Set([
   "id",
+  "tower_code",
   "line_id",
   "voltage_level_id",
   "parent_line_id",
@@ -91,6 +92,23 @@ export const layouts = {
         "junction_tower_no",
         "status",
         "erection_type",
+      ],
+    },
+    {
+      name: "物理杆塔",
+      key: "physical",
+      columns: [
+        "id",
+        "expected_version",
+        "asset_no",
+        "tower_type",
+        "model",
+        "height_scaled",
+        "purpose",
+        "longitude",
+        "latitude",
+        "commissioned_on",
+        "status",
       ],
     },
     {
@@ -284,6 +302,9 @@ const labels = {
   distinct_physical: "明确确认同号但不同实物",
   name: "线路名称",
   erection_type: "架设方式",
+  tower_code: "系统编号",
+  purpose: "用途",
+  commissioned_on: "投运日期",
   tower_type: "塔型",
   model: "型号",
   height_scaled: "杆塔高度（米）",
@@ -532,7 +553,7 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
       ? "业务报表，仅供阅读，不可回导"
       : "数据维护工作簿，可离线修改并回导",
     "金额填写人民币元（最多2位小数），工作量填写实际单位数量（最多4位小数）。",
-    "线路、杆塔、档距可在同一份 Excel 内录入，先填线路/主线接入杆塔，再填支线与档距；系统按依赖顺序自动创建。没有真实档距关系时留空档距工作表，系统不会推测连接。",
+    "线路、物理杆塔、逻辑杆塔、档距可在同一份 Excel 内录入。普通新增杆塔只需填写逻辑杆塔表；物理杆塔表用于独立维护已有实体或明确新建独立实物。",
     "支线在“线路”填写所属主线和主线接入杆塔号；档距填写所属线路和两端杆塔号。共塔必须明确填写要共享的已有杆塔，不允许猜测实物身份。",
     "系统身份和原版本自动携带。新增填写业务名称、线路杆号及真实属性，单据号由服务端生成。同名歧义须在系统核对后使用维护导出。",
     "一张清单时明细自动归属，多张清单用实际Excel行号关联。行号只表达文件中真实的归属关系。",

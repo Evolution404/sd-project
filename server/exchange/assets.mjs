@@ -20,6 +20,10 @@ export function createAssetExchange(system) {
     const row = document.payload,
       refs = createReferences(system);
     const values = { ...row, expected_version: row.expected_version };
+    if (document.kind === "physical") {
+      // A physical entity has no parent line; identity remains server-owned.
+      return values;
+    }
     if (document.kind === "lines") {
       values.voltage_level_id = refs.named(
         "voltages", row.voltage_name, row.voltage_level_id,
@@ -106,10 +110,12 @@ export function createAssetExchange(system) {
   function prepare(parsed, mode = "mixed") {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
     const lines = parsed.rows.documents || [],
+      physical = parsed.rows.physical || [],
       towers = parsed.rows.towers || [],
       spans = parsed.rows.spans || [],
       source = [
         ...lines.map((row) => ({ kind: "lines", row })),
+        ...physical.map((row) => ({ kind: "physical", row })),
         ...towers.map((row) => ({ kind: "towers", row })),
         ...spans.map((row) => ({ kind: "spans", row })),
       ],
@@ -186,7 +192,12 @@ export function createAssetExchange(system) {
         requireValue(mode !== "create" || !existing,
           "仅新增模式不能修改已有对象");
 
-        if (kind === "lines") {
+        if (kind === "physical") {
+          if (!existing) requireValue(
+            physicalKeys.some((key) => row[key] !== undefined && row[key] !== null && row[key] !== ""),
+            "请填写至少一项真实实物属性；普通杆塔请在逻辑杆塔表新建",
+          );
+        } else if (kind === "lines") {
           requireValue(String(row.name || "").trim(), "请填写线路名称");
           requireValue(
             row.voltage_name || row.voltage_level_id || existing?.voltage_level_id,
@@ -356,6 +367,8 @@ export function createAssetExchange(system) {
           kind, payload, id: row.id || null,
           number: kind === "lines"
             ? row.name
+            : kind === "physical"
+              ? (row.tower_code || row.tower_type || row.model || "独立物理杆塔")
             : kind === "towers"
               ? row.line_name + " · " + row.tower_no
               : row.line_name + " · " + row.start_tower_no +
@@ -370,9 +383,54 @@ export function createAssetExchange(system) {
           row._sheet, row._row,
           Object.keys(error.fields || {})[0] ||
             (kind === "lines" ? "name" :
+              kind === "physical" ? "tower_type" :
               kind === "towers" ? "tower_no" : "start_tower_no"),
           row, error.message,
         ));
+      }
+    }
+    // A maintenance logical-tower row may modify physical properties. Record
+    // that mutation against the stable physical entity, never on the logical
+    // entity or a second physical record. All edits share one formal history.
+    const physicalUpdates = new Map(
+      documents.filter((doc) => doc.kind === "physical" && doc.id)
+        .map((doc) => [doc.id, doc]),
+    );
+    for (const logicalDocument of documents.filter((doc) =>
+      doc.kind === "towers" && doc.id)) {
+      const physicalId = savedTowers.find((row) =>
+        row.id === logicalDocument.id)?.physical_tower_id;
+      const existingPhysical = physicalId
+        ? catalog.get("physical", physicalId, true) : null;
+      if (!existingPhysical) continue;
+      const physicalChanges = physicalKeys.filter((key) =>
+        logicalDocument.payload[key] !== undefined &&
+        logicalDocument.payload[key] !== existingPhysical[key]);
+      if (!physicalChanges.length) continue;
+      let physicalDoc = physicalUpdates.get(physicalId);
+      if (!physicalDoc) {
+        physicalDoc = {
+          kind: "physical", id: physicalId,
+          payload: { id: physicalId, expected_version: existingPhysical.version },
+          sheet: logicalDocument.sheet, row: logicalDocument.row,
+          number: existingPhysical.tower_code, action: "update", changes: [],
+        };
+        documents.splice(documents.indexOf(logicalDocument), 0, physicalDoc);
+        physicalUpdates.set(physicalId, physicalDoc);
+      }
+      for (const key of physicalChanges) {
+        const value = logicalDocument.payload[key];
+        const priorChange = physicalDoc.changes.find((change) => change.field === key);
+        if (priorChange && priorChange.after !== value) {
+          issues.push(issue(logicalDocument.sheet, logicalDocument.row, key, value,
+            "同一物理杆塔存在互相矛盾的实物属性修改，请统一填写"));
+          continue;
+        }
+        physicalDoc.payload[key] = value;
+        if (!priorChange) physicalDoc.changes.push({
+          field: key, before: existingPhysical[key], after: value,
+        });
+        physicalDoc.action = "update";
       }
     }
     // Reject all rows of a duplicated business object, rather than silently
@@ -382,6 +440,8 @@ export function createAssetExchange(system) {
       const row = doc.payload;
       const key = doc.kind === "lines"
         ? JSON.stringify(["line", row.name, row.voltage_name || ""])
+        : doc.kind === "physical"
+          ? JSON.stringify(["physical", row.id || row._row])
         : doc.kind === "towers"
           ? JSON.stringify(["tower", row.line_name, row.voltage_name || "",
             row.tower_no])
@@ -497,7 +557,7 @@ export function createAssetExchange(system) {
       documents: ordered.filter((doc) =>
         !invalidRows.has(doc.sheet + "/" + doc.row)),
       issues,
-      document_count: source.length,
+      document_count: documents.length,
       invalid_document_count: invalidRows.size,
     };
   }
@@ -551,7 +611,7 @@ export function createAssetExchange(system) {
   }
   async function exportData(actor, options = {}) {
     authorize(actor, "read");
-    const rows = { documents: [], towers: [], spans: [] },
+    const rows = { documents: [], physical: [], towers: [], spans: [] },
       selected = new Set(options.ids || []),
       selectedLineIds = new Set(
         catalog.list("lines").filter((row) => selected.has(row.id))
@@ -586,6 +646,10 @@ export function createAssetExchange(system) {
         } else {
           const line = catalog.get("lines", record.line_id, true);
           value.line_name = line.name;
+          if (kind === "towers" && record.physical_tower_id) {
+            const physical = catalog.get("physical", record.physical_tower_id, true);
+            for (const key of physicalKeys) value[key] = physical[key];
+          }
           value.voltage_name = catalog.get(
             "voltages", line.voltage_level_id, true,
           ).name;
@@ -612,6 +676,15 @@ export function createAssetExchange(system) {
         }
         rows[kind === "lines" ? "documents" : kind].push(value);
       }
+    const includedPhysical = new Set(rows.towers.map((tower) => tower.physical_tower_id).filter(Boolean));
+    for (const physicalTower of catalog.list("physical")) {
+      if (selected.size && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id)) continue;
+      if (options.query && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id) &&
+          ![physicalTower.tower_type, physicalTower.model, physicalTower.tower_code,
+            physicalTower.related_lines, physicalTower.related_towers].some((value) =>
+              String(value || "").includes(options.query))) continue;
+      rows.physical.push({ ...physicalTower, expected_version: physicalTower.version });
+    }
     if (options.report)
       return makeBusinessReport("assets", [
         ...rows.documents.map((row) => ({
@@ -622,8 +695,12 @@ export function createAssetExchange(system) {
           所属主线: row.parent_line_name || "",
           接入杆塔: row.junction_tower_no || "",
         })),
+        ...rows.physical.map((row) => ({
+          对象: "物理杆塔", 名称: row.tower_code, 塔型: row.tower_type, 型号: row.model,
+          关联线路: row.related_lines, 关联杆塔号: row.related_towers,
+        })),
         ...rows.towers.map((row) => ({
-          对象: "杆塔",
+          对象: "逻辑杆塔",
           线路: row.line_name,
           杆塔号: row.tower_no,
         })),

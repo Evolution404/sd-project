@@ -5,6 +5,7 @@ const can = useAccess();
 import { ref, watch, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "./FieldControl.vue";
+import BusinessTable, { type TableColumn } from "./BusinessTable.vue";
 import ExchangePanel from "./ExchangePanel.vue";
 import EvidencePanel from "./EvidencePanel.vue";
 const evidence = ref<Row | null>(null);
@@ -56,27 +57,78 @@ const costs = ref<Row[]>([]),
   selected = ref<Row[]>([]),
   history = ref<Row | null>(null),
   reconciliations = ref<Row[]>([]);
+const financeColumns: Record<string, TableColumn[]> = {
+  nodes: [
+    { key: "name", label: "科目名称", minWidth: 180 },
+    { key: "parent_id", label: "上级科目", sortable: false, filterable: false },
+    { key: "status", label: "状态" },
+  ],
+  costs: [
+    { key: "title", label: "事项", minWidth: 180 },
+    { key: "occurred_on", label: "发生日期" },
+    { key: "amount_fen", label: "实际金额" },
+    { key: "status", label: "状态" },
+  ],
+  bills: [
+    { key: "number", label: "结算编号", minWidth: 175 },
+    { key: "review", label: "正式版本与状态", minWidth: 180, sortable: false, filterable: false },
+    { key: "amount", label: "本次金额", minWidth: 145, sortable: false, filterable: false },
+  ],
+  reconciliations: [
+    { key: "reconciled_cost_fen", label: "实际费用份额", minWidth: 165 },
+    { key: "reconciled_settlement_fen", label: "结算核定额", minWidth: 165 },
+    { key: "evidence", label: "核对依据", minWidth: 180 },
+    { key: "status", label: "状态" },
+  ],
+  demands: [
+    { key: "demand_no", label: "需求编号", minWidth: 190 },
+    { key: "approved_quantity_scaled", label: "批准数量" },
+    { key: "resolved_quantity_scaled", label: "已解决" },
+    { key: "remaining_quantity_scaled", label: "未解决数量" },
+    { key: "excess_quantity_scaled", label: "超量数量" },
+  ],
+};
+const financeSort = ref({ costs: "", bills: "", reconciliations: "" });
+const financeDirection = ref({ costs: "desc", bills: "desc", reconciliations: "desc" });
+const financeFilters = ref<Record<string, Record<string, string>>>({ costs: {}, bills: {}, reconciliations: {} });
+function financeTableSort(table: "costs" | "bills" | "reconciliations", value: { key: string; order: string }) {
+  financeSort.value[table] = value.key;
+  financeDirection.value[table] = value.order === "ascending" ? "asc" : "desc";
+  if (table === "costs") costPage.value = 1;
+  else if (table === "bills") billPage.value = 1;
+  else reconPage.value = 1;
+  load();
+}
+function financeTableFilter(table: "costs" | "bills" | "reconciliations", value: Record<string, string>) {
+  financeFilters.value[table] = value;
+  if (table === "costs") costPage.value = 1;
+  else if (table === "bills") billPage.value = 1;
+  else reconPage.value = 1;
+  load();
+}
 const costPage = ref(1),
   billPage = ref(1),
+  reconPage = ref(1),
   costTotal = ref(0),
-  billTotal = ref(0);
+  billTotal = ref(0),
+  reconTotal = ref(0);
 async function load() {
   const costResult = await api(
-      `/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}`,
+      `/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`,
     ),
     billResult = await api(
-      `/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30`,
+      `/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30&sort=${encodeURIComponent(financeSort.value.bills || "created_at")}&direction=${financeDirection.value.bills}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.bills))}`,
     );
   costs.value = costResult.items;
   costTotal.value = costResult.total;
   bills.value = billResult.items;
   billTotal.value = billResult.total;
   summary.value = await api(`/projects/${props.project.id}/summary`);
-  reconciliations.value = (
-    await api(
-      `/reconciliations?page_size=200&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}`,
-    )
-  ).items;
+  const reconResult = await api(
+      `/reconciliations?page=${reconPage.value}&page_size=30&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}&sort=${encodeURIComponent(financeSort.value.reconciliations || "created_at")}&direction=${financeDirection.value.reconciliations}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.reconciliations))}`,
+    );
+  reconciliations.value = reconResult.items;
+  reconTotal.value = reconResult.total;
 }
 function edit(type: string, row?: Row) {
   editing.value = row || null;
@@ -296,33 +348,17 @@ watch(() => props.project.id, load, { immediate: true });
       >
     </div>
     <ElCheckbox v-model="showDeletedNodes">包含已删除科目</ElCheckbox
-    ><ElTable :data="displayedNodes"
-      ><ElTableColumn prop="name" label="科目名称" /><ElTableColumn label="上级"
-        ><template #default="{ row }">{{
-          project.cost_nodes.find((n: Row) => n.id === row.parent_id)?.name ||
-          "根科目"
-        }}</template></ElTableColumn
-      ><ElTableColumn label="状态"
-        ><template #default="{ row }">{{
-          statusText[row.status] || row.status
-        }}</template></ElTableColumn
-      ><ElTableColumn label="操作"
-        ><template #default="{ row }"
-          ><ElButton
-            :disabled="!can('write')"
-            size="small"
-            @click="edit('node', row)"
-            >编辑版本</ElButton
-          ><ElButton
-            :disabled="!can('admin')"
-            size="small"
-            type="danger"
-            @click="removeFinancial('nodes', row)"
-            >删除</ElButton
-          ></template
-        ></ElTableColumn
-      ></ElTable
-    >
+    ><BusinessTable client-side table-key="finance:nodes" :rows="displayedNodes" :columns="financeColumns.nodes" :actions-width="210">
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'parent_id'">{{ project.cost_nodes.find((n: Row) => n.id === row.parent_id)?.name || '根科目' }}</span>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ statusText[row.status] || row.status }}</ElTag>
+        <span v-else>{{ row[column.key] ?? '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <ElButton :disabled="!can('write')" size="small" @click="edit('node', row)">编辑版本</ElButton>
+        <ElButton :disabled="!can('admin')" size="small" type="danger" @click="removeFinancial('nodes', row)">删除</ElButton>
+      </template>
+    </BusinessTable>
   </div>
   <div class="panel">
     <div class="toolbar">
@@ -337,54 +373,22 @@ watch(() => props.project.id, load, { immediate: true });
         >核定费用</ElButton
       >
     </div>
-    <ElTable :data="costs"
-      ><ElTableColumn prop="title" label="事项" min-width="160" /><ElTableColumn
-        prop="occurred_on"
-        label="发生日期"
-        width="120"
-      /><ElTableColumn label="实际金额"
-        ><template #default="{ row }"
-          >¥{{ money(row.amount_fen) }}</template
-        ></ElTableColumn
-      ><ElPagination
-        v-model:current-page="costPage"
-        :total="costTotal"
-        :page-size="30"
-        layout="prev,pager,next,total"
-        @current-change="load"
-      /><ElTableColumn label="状态"
-        ><template #default="{ row }">{{
-          statusText[row.status] || row.status
-        }}</template></ElTableColumn
-      ><ElTableColumn label="操作" min-width="180"
-        ><template #default="{ row }"
-          ><ElButton
-            size="small"
-            @click="
-              evidence = { ownerKind: 'cost_version_id', ownerId: row.id }
-            "
-            >附件</ElButton
-          ><ElButton
-            :disabled="!can('cost.confirm')"
-            size="small"
-            @click="edit('cost', row)"
-            >更正</ElButton
-          ><ElButton
-            :disabled="!can('cost.confirm')"
-            size="small"
-            type="danger"
-            @click="voidCost(row)"
-            >撤销</ElButton
-          ><ElButton
-            :disabled="!can('admin')"
-            size="small"
-            type="danger"
-            @click="removeFinancial('costs', row)"
-            >删除</ElButton
-          ></template
-        ></ElTableColumn
-      ></ElTable
-    >
+    <BusinessTable table-key="finance:costs" :rows="costs" :columns="financeColumns.costs" :actions-width="300"
+      @sort-change="financeTableSort('costs', $event)" @filter-change="financeTableFilter('costs', $event)">
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ statusText[row.status] || row.status }}</ElTag>
+        <span v-else>{{ row[column.key] ?? '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <ElButton size="small" @click="evidence = { ownerKind: 'cost_version_id', ownerId: row.id }">附件</ElButton>
+        <ElButton :disabled="!can('cost.confirm')" size="small" @click="edit('cost', row)">更正</ElButton>
+        <ElButton :disabled="!can('cost.confirm')" size="small" type="danger" @click="voidCost(row)">撤销</ElButton>
+        <ElButton :disabled="!can('admin')" size="small" type="danger" @click="removeFinancial('costs', row)">删除</ElButton>
+      </template>
+    </BusinessTable>
+    <ElPagination v-model:current-page="costPage" :total="costTotal" :page-size="30"
+      layout="prev,pager,next,total" @current-change="load" />
   </div>
   <div class="panel">
     <div class="toolbar">
@@ -401,82 +405,26 @@ watch(() => props.project.id, load, { immediate: true });
         @changed="load"
       />
     </div>
-    <ElTable :data="bills" @selection-change="selected = $event"
-      ><ElTableColumn type="selection" width="40" /><ElTableColumn
-        prop="number"
-        label="结算编号"
-        min-width="140"
-      /><ElTableColumn label="正式版本 / 状态" min-width="150"
-        ><template #default="{ row }"
-          >V{{ row.version?.version_no || 0 }} ·
-          {{
-            row.draft ? "有草稿" : statusText[row.review?.action] || "待编制"
-          }}</template
-        ></ElTableColumn
-      ><ElPagination
-        v-model:current-page="billPage"
-        :total="billTotal"
-        :page-size="30"
-        layout="prev,pager,next,total"
-        @current-change="load"
-      /><ElTableColumn label="本次金额"
-        ><template #default="{ row }"
-          >¥{{
-            money(
-              (row.draft?.document.items || row.items).reduce(
-                (sum: number, item: Row) => sum + item.amount_fen,
-                0,
-              ),
-            )
-          }}</template
-        ></ElTableColumn
-      ><ElTableColumn label="操作" min-width="350"
-        ><template #default="{ row }"
-          ><ElButton
-            :disabled="!can('write')"
-            size="small"
-            @click="edit('settlement', row)"
-            >编制 / 修订</ElButton
-          ><ElButton
-            :disabled="!can('write')"
-            v-if="row.draft"
-            size="small"
-            @click="action(row, 'submit')"
-            >正式提交</ElButton
-          ><ElButton
-            :disabled="!can('settlement.approve')"
-            v-if="row.review?.action === 'submit'"
-            size="small"
-            type="primary"
-            @click="action(row, 'approve')"
-            >批准</ElButton
-          ><ElButton
-            :disabled="!can('settlement.approve')"
-            v-if="row.review?.action === 'submit'"
-            size="small"
-            @click="action(row, 'return')"
-            >退回</ElButton
-          ><ElButton
-            v-if="row.version"
-            size="small"
-            @click="
-              evidence = {
-                ownerKind: 'settlement_version_id',
-                ownerId: row.version.id,
-              }
-            "
-            >附件</ElButton
-          ><ElButton size="small" @click="showHistory(row)">历史</ElButton
-          ><ElButton
-            :disabled="!can('admin')"
-            size="small"
-            type="danger"
-            @click="removeBill(row)"
-            >删除</ElButton
-          ></template
-        ></ElTableColumn
-      ></ElTable
-    >
+    <BusinessTable table-key="finance:bills" :rows="bills" :columns="financeColumns.bills" selectable :actions-width="530"
+      @selection-change="selected = $event" @sort-change="financeTableSort('bills', $event)"
+      @filter-change="financeTableFilter('bills', $event)">
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'review'">V{{ row.version?.version_no || 0 }} · {{ row.draft ? '有草稿' : statusText[row.review?.action] || '待编制' }}</span>
+        <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item: Row) => sum + item.amount_fen, 0)) }}</span>
+        <span v-else>{{ row[column.key] ?? '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <ElButton :disabled="!can('write')" size="small" @click="edit('settlement', row)">编制 / 修订</ElButton>
+        <ElButton v-if="row.draft" :disabled="!can('write')" size="small" @click="action(row, 'submit')">正式提交</ElButton>
+        <ElButton v-if="row.review?.action === 'submit'" :disabled="!can('settlement.approve')" size="small" type="primary" @click="action(row, 'approve')">批准</ElButton>
+        <ElButton v-if="row.review?.action === 'submit'" :disabled="!can('settlement.approve')" size="small" @click="action(row, 'return')">退回</ElButton>
+        <ElButton v-if="row.version" size="small" @click="evidence = { ownerKind: 'settlement_version_id', ownerId: row.version.id }">附件</ElButton>
+        <ElButton size="small" @click="showHistory(row)">历史</ElButton>
+        <ElButton :disabled="!can('admin')" size="small" type="danger" @click="removeBill(row)">删除</ElButton>
+      </template>
+    </BusinessTable>
+    <ElPagination v-model:current-page="billPage" :total="billTotal" :page-size="30"
+      layout="prev,pager,next,total" @current-change="load" />
   </div>
   <div class="panel">
     <div class="toolbar">
@@ -487,59 +435,33 @@ watch(() => props.project.id, load, { immediate: true });
         >新增正式核对</ElButton
       >
     </div>
-    <ElTable :data="reconciliations"
-      ><ElTableColumn label="实际费用份额"
-        ><template #default="{ row }">{{
-          money(row.reconciled_cost_fen)
-        }}</template></ElTableColumn
-      ><ElTableColumn label="结算核定额"
-        ><template #default="{ row }">{{
-          money(row.reconciled_settlement_fen)
-        }}</template></ElTableColumn
-      ><ElTableColumn prop="evidence" label="核对依据" /><ElTableColumn
-        label="状态"
-        ><template #default="{ row }">{{
-          row.deleted ? "已删除" : row.status === "voided" ? "已撤销" : "有效"
-        }}</template></ElTableColumn
-      ><ElTableColumn label="操作" min-width="230"
-        ><template #default="{ row }"
-          ><ElButton
-            :disabled="!can('cost.confirm') || row.deleted"
-            @click="edit('reconcile', row)"
-            >更正</ElButton
-          ><ElButton @click="reconciliationHistory(row)">历史</ElButton
-          ><ElButton
-            type="danger"
-            :disabled="!can('cost.confirm') || row.deleted"
-            @click="removeReconciliation(row)"
-            >删除</ElButton
-          ></template
-        ></ElTableColumn
-      ></ElTable
-    >
+    <BusinessTable table-key="finance:reconciliations" :rows="reconciliations"
+      :columns="financeColumns.reconciliations" :actions-width="230"
+      @sort-change="financeTableSort('reconciliations', $event)"
+      @filter-change="financeTableFilter('reconciliations', $event)">
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'reconciled_cost_fen' || column.key === 'reconciled_settlement_fen'">¥{{ money(row[column.key]) }}</span>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已撤销' : '有效' }}</ElTag>
+        <span v-else>{{ row[column.key] ?? '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <ElButton :disabled="!can('cost.confirm') || row.deleted" size="small" @click="edit('reconcile', row)">更正</ElButton>
+        <ElButton size="small" @click="reconciliationHistory(row)">历史</ElButton>
+        <ElButton type="danger" size="small" :disabled="!can('cost.confirm') || row.deleted" @click="removeReconciliation(row)">删除</ElButton>
+      </template>
+    </BusinessTable>
+    <ElPagination v-model:current-page="reconPage" :total="reconTotal" :page-size="30"
+      layout="prev,pager,next,total" @current-change="load" />
   </div>
   <div class="panel">
     <h2>实际解决需求</h2>
-    <ElTable :data="summary.demands"
-      ><ElTableColumn
-        prop="demand_no"
-        label="需求编号"
-        min-width="200"
-      /><ElTableColumn label="批准数量"
-        ><template #default="{ row }">{{
-          quantity(row.approved_quantity_scaled)
-        }}</template></ElTableColumn
-      ><ElTableColumn label="已解决"
-        ><template #default="{ row }">{{
-          quantity(row.resolved_quantity_scaled)
-        }}</template></ElTableColumn
-      ><ElTableColumn label="未解决 / 超量"
-        ><template #default="{ row }"
-          >{{ quantity(row.remaining_quantity_scaled) }} /
-          {{ quantity(row.excess_quantity_scaled) }}</template
-        ></ElTableColumn
-      ></ElTable
-    >
+    <BusinessTable client-side table-key="finance:demands" :rows="summary.demands || []"
+      :columns="financeColumns.demands">
+      <template #cell="{ row, column }">
+        <span v-if="column.key.endsWith('_quantity_scaled')">{{ quantity(row[column.key]) }}</span>
+        <span v-else>{{ row[column.key] ?? '—' }}</span>
+      </template>
+    </BusinessTable>
   </div>
   <ElDialog
     :model-value="!!dialog"

@@ -1,6 +1,8 @@
+import { searchEquipment } from "./equipment-search.mjs";
 export function businessRepository(store) {
   return {
     ...store,
+    searchEquipment: (kind, options) => searchEquipment(store, kind, options),
     where(table, values) {
       return store.where(table, values);
     },
@@ -24,6 +26,17 @@ export function businessRepository(store) {
           entity,
           entityId,
         ),
+      );
+    },
+    physicalRelations() {
+      return store.query(
+        "SELECT t.physical_tower_id, t.id AS logical_tower_id, t.tower_no, "
+        + "t.status AS logical_status, EXISTS(SELECT 1 FROM audit_events a "
+        + "WHERE a.entity='towers' AND a.entity_id=t.id AND a.action='delete') AS logical_deleted, l.id AS line_id, l.name AS line_name, "
+        + "l.status AS line_status, v.name AS voltage_name "
+        + "FROM logical_towers t JOIN transmission_lines l ON l.id=t.line_id "
+        + "LEFT JOIN voltage_levels v ON v.id=l.voltage_level_id "
+        + "WHERE t.physical_tower_id IS NOT NULL ORDER BY l.name, t.tower_no",
       );
     },
     demandSources(demandId, includeHistorical = false) {

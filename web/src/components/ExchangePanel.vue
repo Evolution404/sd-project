@@ -15,7 +15,7 @@ const props = defineProps<{
 const emit = defineEmits(["changed"]);
 const dialog = ref(false),
   mode = ref("mixed"),
-  atomic = ref(false),
+  atomic = ref(props.kind === "assets"),
   preview = ref<Row | null>(null),
   busy = ref(false),
   result = ref<Row | null>(null),
@@ -136,7 +136,7 @@ async function commit() {
   <ElButton @click="dialog = true">Excel 批量处理</ElButton>
   <ElDialog
     v-model="dialog"
-    :title="kind === 'assets' ? '设备台账 Excel（线路／杆塔／档距）' : 'Excel 数据交换'"
+    :title="kind === 'assets' ? '设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）' : 'Excel 数据交换'"
     width="1060px"
     :close-on-click-modal="false"
     :close-on-press-escape="!busy"
@@ -179,7 +179,7 @@ async function commit() {
     <ElAlert
       :title="
         kind === 'assets'
-          ? '统一工作簿包含线路、杆塔、档距。先写业务名称及真实关联；系统自动建立身份并按依赖顺序处理。档距不会根据杆号自动猜测，共塔必须明确关联。'
+          ? '统一工作簿包含线路、物理杆塔、逻辑杆塔、档距。普通新建杆塔只填逻辑杆塔表；独立实物维护使用物理杆塔表。系统按真实关联与依赖顺序办理。'
           : kind === 'settlements'
             ? '导入仅保存结算草稿，提交与审核需分别确认。金额与本次新增解决量独立填写。'
             : '需求更新生成新的正式内容版本。缺少位置或物资行保持原值，删除须明确标记。'

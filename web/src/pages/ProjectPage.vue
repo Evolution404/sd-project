@@ -5,6 +5,7 @@ const can = useAccess();
 import { ref, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../components/FieldControl.vue";
+import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import PricingQuoteDialog from "../components/PricingQuoteDialog.vue";
 import FinancePanel from "../components/FinancePanel.vue";
 import { api, type Row, money, quantity, statusText } from "../services/api";
@@ -15,6 +16,9 @@ const rows = ref<Row[]>([]),
   total = ref(0),
   page = ref(1),
   query = ref(""),
+  sortKey = ref(""),
+  sortDirection = ref("desc"),
+  columnFilters = ref<Record<string, string>>({}),
   detail = ref<Row | null>(null),
   dialog = ref(""),
   form = ref<Row>({}),
@@ -28,9 +32,40 @@ const rows = ref<Row[]>([]),
   quoteOpen = ref(false);
 const editingCharge = ref<Row | null>(null);
 const showDeleted = ref(false);
+const projectScopeColumns: TableColumn[] = [
+  { key: "demand_no", label: "需求编号", minWidth: 215 },
+  { key: "binding", label: "状态", sortable: false, filterable: false },
+];
+const projectApprovalColumns: TableColumn[] = [
+  { key: "demand_no", label: "需求", minWidth: 185 },
+  { key: "quantity_scaled", label: "承接数量" },
+  { key: "locations", label: "位置数", sortable: false, filterable: false },
+];
+const projectChargeColumns: TableColumn[] = [
+  { key: "rule_title", label: "批次或项目参考费用", minWidth: 210 },
+  { key: "amount_fen", label: "金额", minWidth: 140 },
+];
+const projectColumns: TableColumn[] = [
+  { key: "code", label: "项目编号", minWidth: 150 },
+  { key: "name", label: "项目名称", minWidth: 220 },
+  { key: "status", label: "阶段" },
+  { key: "approval", filterable: false, label: "批准预算", sortable: false },
+  { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
+];
+function sortTable(value: { key: string; order: string }) {
+  sortKey.value = value.key;
+  sortDirection.value = value.order === "ascending" ? "asc" : "desc";
+  page.value = 1;
+  load();
+}
+function filterTable(value: Record<string, string>) {
+  columnFilters.value = value;
+  page.value = 1;
+  load();
+}
 async function load() {
   const value = await api(
-    `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}`,
+    `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
   );
   rows.value = value.items;
   total.value = value.total;
@@ -240,7 +275,7 @@ onMounted(async () => {
     ><div class="page-heading">
       <div>
         <div class="section-caption">
-          {{ financeOnly ? "Costs & settlements" : "Project portfolio" }}
+          {{ financeOnly ? "实际费用与结算" : "项目管理" }}
         </div>
         <h1>{{ financeOnly ? "实际费用与结算" : "年度框架与子项目" }}</h1>
         <p>
@@ -272,34 +307,19 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <ElTable :data="rows"
-        ><ElTableColumn
-          prop="code"
-          label="项目编号"
-          width="140"
-          sortable
-        /><ElTableColumn
-          prop="name"
-          label="项目名称"
-          min-width="220"
-        /><ElTableColumn label="阶段" width="110"
-          ><template #default="{ row }"
-            ><ElTag>{{ statusText[row.status] }}</ElTag></template
-          ></ElTableColumn
-        ><ElTableColumn label="批准预算"
-          ><template #default="{ row }"
-            >¥{{ money(row.approval?.approved_budget_fen) }}</template
-          ></ElTableColumn
-        ><ElTableColumn label="需求" width="80"
-          ><template #default="{ row }">{{
-            row.scopes.filter((x: Row) => x.binding).length
-          }}</template></ElTableColumn
-        ><ElTableColumn label="操作" width="110"
-          ><template #default="{ row }"
-            ><ElButton @click="open(row)">进入项目</ElButton></template
-          ></ElTableColumn
-        ></ElTable
-      ><ElPagination
+      <BusinessTable :rows="rows" :columns="projectColumns" table-key="project:list"
+        @sort-change="sortTable" @filter-change="filterTable">
+        <template #cell="{ row, column }">
+          <ElTag v-if="column.key === 'status'" effect="plain">{{ statusText[row.status] }}</ElTag>
+          <span v-else-if="column.key === 'approval'">¥{{ money(row.approval?.approved_budget_fen) }}</span>
+          <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x: Row) => x.binding).length || 0 }}</span>
+          <span v-else>{{ row[column.key] ?? '—' }}</span>
+        </template>
+        <template #actions="{ row }">
+          <ElButton size="small" @click="open(row)">进入项目</ElButton>
+        </template>
+      </BusinessTable>
+      <ElPagination
         v-model:current-page="page"
         :total="total"
         :page-size="30"
@@ -378,27 +398,18 @@ onMounted(async () => {
             >关联需求</ElButton
           >
         </div>
-        <ElTable :data="detail.scopes"
-          ><ElTableColumn
-            prop="demand_no"
-            label="需求编号"
-            min-width="220"
-          /><ElTableColumn label="状态"
-            ><template #default="{ row }"
-              ><ElTag :type="row.binding ? 'success' : 'info'">{{
-                row.binding ? "当前关联" : "已解绑"
-              }}</ElTag></template
-            ></ElTableColumn
-          ><ElTableColumn label="操作"
-            ><template #default="{ row }"
-              ><ElButton
-                :disabled="!can('write') || !row.binding"
-                @click="release(row)"
-                >显式解绑</ElButton
-              ></template
-            ></ElTableColumn
-          ></ElTable
-        >
+        <BusinessTable client-side table-key="project:scopes" :rows="detail.scopes || []"
+          :columns="projectScopeColumns" :actions-width="135">
+          <template #cell="{ row, column }">
+            <ElTag v-if="column.key === 'binding'" :type="row.binding ? 'success' : 'info'" effect="plain">
+              {{ row.binding ? '当前关联' : '已解绑' }}
+            </ElTag>
+            <span v-else>{{ row[column.key] ?? '—' }}</span>
+          </template>
+          <template #actions="{ row }">
+            <ElButton :disabled="!can('write') || !row.binding" size="small" @click="release(row)">显式解绑</ElButton>
+          </template>
+        </BusinessTable>
       </div>
       <div class="toolbar">
         <ElButton
@@ -449,50 +460,29 @@ onMounted(async () => {
               : "未完整计价，已计价小计 ¥" +
                 money(approval.reference.subtotal_fen)
           }}</ElDescriptionsItem></ElDescriptions
-        ><ElTable :data="approval.scopes"
-          ><ElTableColumn
-            prop="demand_no"
-            label="需求"
-            min-width="180"
-          /><ElTableColumn label="承接数量"
-            ><template #default="{ row }">{{
-              quantity(row.quantity_scaled)
-            }}</template></ElTableColumn
-          ><ElTableColumn label="位置数"
-            ><template #default="{ row }">{{
-              row.locations.length
-            }}</template></ElTableColumn
-          ><ElTableColumn v-if="approval.status === 'draft'" label="操作"
-            ><template #default="{ row }"
-              ><ElButton :disabled="!can('write')" @click="priceScope(row)"
-                >按承接范围核价</ElButton
-              ></template
-            ></ElTableColumn
-          ></ElTable
-        >
-        <ElTable
-          v-if="approval.reference.charges.length"
-          :data="approval.reference.charges"
-          ><ElTableColumn
-            prop="rule_title"
-            label="批次或项目参考费用"
-          /><ElTableColumn label="金额"
-            ><template #default="{ row }"
-              >¥{{ money(row.amount_fen) }}</template
-            ></ElTableColumn
-          ><ElTableColumn v-if="approval.status === 'draft'" label="操作"
-            ><template #default="{ row }"
-              ><ElButton :disabled="!can('write')" @click="editCharge(row)"
-                >更正</ElButton
-              ><ElButton
-                type="danger"
-                :disabled="!can('write')"
-                @click="removeCharge(row)"
-                >删除</ElButton
-              ></template
-            ></ElTableColumn
-          ></ElTable
-        >
+        ><BusinessTable client-side table-key="project:approval-scopes" :rows="approval.scopes || []"
+          :columns="projectApprovalColumns" :actions-width="170">
+          <template #cell="{ row, column }">
+            <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+            <span v-else-if="column.key === 'locations'">{{ row.locations?.length || 0 }}</span>
+            <span v-else>{{ row[column.key] ?? '—' }}</span>
+          </template>
+          <template v-if="approval.status === 'draft'" #actions="{ row }">
+            <ElButton :disabled="!can('write')" size="small" @click="priceScope(row)">按承接范围核价</ElButton>
+          </template>
+        </BusinessTable>
+        <BusinessTable v-if="approval.reference.charges.length" client-side
+          table-key="project:approval-charges" :rows="approval.reference.charges"
+          :columns="projectChargeColumns" :actions-width="190">
+          <template #cell="{ row, column }">
+            <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
+            <span v-else>{{ row[column.key] ?? '—' }}</span>
+          </template>
+          <template v-if="approval.status === 'draft'" #actions="{ row }">
+            <ElButton :disabled="!can('write')" size="small" @click="editCharge(row)">更正</ElButton>
+            <ElButton :disabled="!can('write')" type="danger" size="small" @click="removeCharge(row)">删除</ElButton>
+          </template>
+        </BusinessTable>
       </div></template
     >
     <ElAlert
