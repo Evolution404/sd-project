@@ -23,6 +23,7 @@ const nodes = ref<OrganizationNode[]>([]),
 const selected = computed(() =>
   nodes.value.find((node) => node.id === selectedId.value),
 );
+const mobilePane = ref<"list" | "detail">("list");
 const detail = ref<OrganizationDetail | null>(null),
   loading = ref(false),
   error = ref(""),
@@ -78,6 +79,7 @@ async function load() {
   }
 }
 watch(selectedId, (value) => {
+  if (value) mobilePane.value = "detail";
   if (value) sessionStorage.setItem("sd-organization-node", value);
   void loadDetail();
 });
@@ -254,7 +256,11 @@ const projectDialog = useEntityDialog(
       <ElCheckbox v-model="includeDeleted">包含已删除单位</ElCheckbox
       ><ElButton text @click="load">刷新组织</ElButton>
     </div>
-    <div class="tree-workspace">
+    <div class="mobile-tree-switch" role="group" aria-label="单位视图切换">
+      <ElButton :type="mobilePane === 'list' ? 'primary' : 'default'" @click="mobilePane = 'list'">单位列表</ElButton>
+      <ElButton :type="mobilePane === 'detail' ? 'primary' : 'default'" :disabled="!selected" @click="mobilePane = 'detail'">单位详情</ElButton>
+    </div>
+    <div class="tree-workspace" :class="'mobile-pane-' + mobilePane">
       <BusinessTree
         v-model="selectedId"
         :nodes="visible"
@@ -267,6 +273,7 @@ const projectDialog = useEntityDialog(
         ></BusinessTree
       >
       <section v-if="selected" class="tree-facts">
+        <ElButton class="mobile-back" text @click="mobilePane = 'list'">返回列表</ElButton>
         <div class="subheading">
           {{ selected.name }}
           <ElTag :type="selected.deleted ? 'danger' : 'info'">{{
@@ -301,12 +308,15 @@ const projectDialog = useEntityDialog(
             "根单位"
           }}</ElDescriptionsItem
           ><ElDescriptionsItem label="直属下级">{{
-            children.map((node) => node.name).join("、") || "暂无"
+            `${children.length}个`
           }}</ElDescriptionsItem
-          ><ElDescriptionsItem label="正式版本"
+          ><ElDescriptionsItem v-if="children.length" label="下级单位">
+            <ElButton v-for="child in children.slice(0, 6)" :key="child.id" text @click="selectedId = child.id">{{ child.name }}</ElButton>
+            <span v-if="children.length > 6">等{{ children.length }}个单位</span>
+          </ElDescriptionsItem><ElDescriptionsItem label="正式版本"
             >第{{ selected.version_no }}版</ElDescriptionsItem
           ><ElDescriptionsItem label="版本变更时间">{{
-            selected.recorded_at
+            selected.recorded_at ? new Date(selected.recorded_at).toLocaleString("zh-CN", { hour12: false }) : "—"
           }}</ElDescriptionsItem></ElDescriptions
         >
         <h3>当前关联子项目</h3>
@@ -516,7 +526,12 @@ const projectDialog = useEntityDialog(
   color: var(--muted);
   overflow-wrap: anywhere;
 }
+.mobile-tree-switch, .mobile-back { display: none; }
 @media (max-width: 1000px) {
+  .mobile-tree-switch { display: flex; gap: 8px; margin: 12px 0; }
+  .mobile-back { display: inline-flex; margin-bottom: 8px; }
+  .tree-workspace.mobile-pane-list > .tree-facts { display: none; }
+  .tree-workspace.mobile-pane-detail > :first-child { display: none; }
   .tree-workspace {
     grid-template-columns: minmax(0, 1fr);
   }

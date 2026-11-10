@@ -31,6 +31,7 @@ const emit = defineEmits<{ changed: [] }>();
 const can = useAccess(),
   nodes = ref<CostCategoryNode[]>([]),
   selectedId = ref<string | null>(null);
+const mobilePane = ref<"list" | "detail">("list");
 const loading = ref(false),
   error = ref(""),
   includeDeleted = ref(false),
@@ -111,6 +112,7 @@ watch(
   },
 );
 watch(selectedId, (value) => {
+  if (value) mobilePane.value = "detail";
   page.value = 1;
   if (value) sessionStorage.setItem("sd-cost-node:" + props.projectId, value);
   void loadDetail();
@@ -234,7 +236,11 @@ async function viewCost(entryId: string) {
     <ElAlert v-if="error" :title="error" type="error" :closable="false"
       ><ElButton text @click="load">重试</ElButton></ElAlert
     >
-    <div class="tree-workspace">
+    <div class="mobile-tree-switch" role="group" aria-label="科目视图切换">
+      <ElButton :type="mobilePane === 'list' ? 'primary' : 'default'" @click="mobilePane = 'list'">科目列表</ElButton>
+      <ElButton :type="mobilePane === 'detail' ? 'primary' : 'default'" :disabled="!selected" @click="mobilePane = 'detail'">科目详情</ElButton>
+    </div>
+    <div class="tree-workspace" :class="'mobile-pane-' + mobilePane">
       <BusinessTree
         v-model="selectedId"
         :nodes="visible"
@@ -247,6 +253,7 @@ async function viewCost(entryId: string) {
         ></BusinessTree
       >
       <section v-if="selected" class="tree-facts">
+        <ElButton class="mobile-back" text @click="mobilePane = 'list'">返回列表</ElButton>
         <div class="subheading">
           {{ selected.name }}
           <ElTag :type="selected.deleted ? 'danger' : 'info'">{{
@@ -285,7 +292,7 @@ async function viewCost(entryId: string) {
             selected.child_count
           }}</ElDescriptionsItem
           ><ElDescriptionsItem label="所含末级科目">{{
-            leaves.map((node) => node.name).join("、") || "—"
+            leaves.length ? leaves.slice(0, 5).map((node) => node.name).join("、") + (leaves.length > 5 ? ` 等${leaves.length}项` : "") : "—"
           }}</ElDescriptionsItem
           ><ElDescriptionsItem label="当前有效实际费用"
             >¥{{ money(selected.actual_cost_fen) }}</ElDescriptionsItem
@@ -483,7 +490,12 @@ async function viewCost(entryId: string) {
 .tree-facts :deep(.el-descriptions__cell) {
   overflow-wrap: anywhere;
 }
+.mobile-tree-switch, .mobile-back { display: none; }
 @media (max-width: 1000px) {
+  .mobile-tree-switch { display: flex; gap: 8px; margin: 12px 0; }
+  .mobile-back { display: inline-flex; margin-bottom: 8px; }
+  .tree-workspace.mobile-pane-list > .tree-facts { display: none; }
+  .tree-workspace.mobile-pane-detail > :first-child { display: none; }
   .tree-workspace {
     grid-template-columns: minmax(0, 1fr);
   }

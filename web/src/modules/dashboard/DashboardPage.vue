@@ -96,30 +96,35 @@ onMounted(refreshDashboard);
     </ElButton>
   </div>
   <div class="panel">
-    <h2>项目费用与预算差异</h2>
-    <BusinessTable client-side table-key="dashboard:portfolio" :loading="loading"
-      :rows="dashboard.portfolio || []" :columns="portfolioColumns">
-      <template #cell="{ row, column }">
-        <ElTag v-if="column.key === 'status'" effect="plain">{{ display(row, column) }}</ElTag>
-        <span v-else>{{ display(row, column) }}</span>
-      </template>
-      <template #actions="{ row }">
-        <ElButton size="small" @click="openProject(row.id)">进入办理</ElButton>
-      </template>
-    </BusinessTable>
-  </div>
-  <div class="panel">
-    <h2>项目预警</h2>
-    <BusinessTable client-side table-key="dashboard:alerts" :loading="loading"
-      :rows="alertRows" :columns="alertColumns">
-      <template #cell="{ row, column }">{{ display(row, column) }}</template>
-      <template #actions="{ row }">
-        <ElButton size="small" @click="openProject(row.project_id)">处理预警</ElButton>
-      </template>
-    </BusinessTable>
+    <h2>需要关注</h2>
+    <template v-if="alertRows.length">
+      <BusinessTable client-side table-key="dashboard:alerts" :loading="loading"
+        :rows="alertRows" :columns="alertColumns">
+        <template #cell="{ row, column }">{{ display(row, column) }}</template>
+        <template #actions="{ row }">
+          <ElButton size="small" @click="openProject(row.project_id)">处理预警</ElButton>
+        </template>
+      </BusinessTable>
+    </template>
+    <ElEmpty v-else description="暂无需要关注的项目预警" :image-size="48" />
   </div>
   <div class="panel">
     <ElTabs>
+      <ElTabPane label="项目费用与预算差异">
+        <BusinessTable v-if="(dashboard.portfolio || []).length" client-side table-key="dashboard:portfolio" :loading="loading"
+          :rows="dashboard.portfolio || []" :columns="portfolioColumns">
+          <template #cell="{ row, column }">
+            <ElTag v-if="column.key === 'status'" effect="plain">{{ display(row, column) }}</ElTag>
+            <span v-else>{{ display(row, column) }}</span>
+          </template>
+          <template #actions="{ row }">
+            <ElButton size="small" @click="openProject(row.id)">进入办理</ElButton>
+          </template>
+        </BusinessTable>
+        <ElEmpty v-else description="暂无项目费用记录" :image-size="48" />
+      </ElTabPane>
+      <ElTabPane label="资金与进度分析">
+        <ElTabs>
       <ElTabPane label="年度框架">
         <BusinessTable client-side table-key="dashboard:frameworks"
           :rows="dashboard.frameworks || []" :columns="frameworkColumns">
@@ -137,6 +142,8 @@ onMounted(refreshDashboard);
           :rows="dashboard.quarters || []" :columns="quarterColumns">
           <template #cell="{ row, column }">{{ display(row, column) }}</template>
         </BusinessTable>
+      </ElTabPane>
+    </ElTabs>
       </ElTabPane>
     </ElTabs>
   </div>
