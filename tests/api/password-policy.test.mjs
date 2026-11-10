@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSystem } from "../../server/application/system.mjs";
-import { passwordHash } from "../../server/application/auth.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { passwordHash } from "../../dist/server/platform/auth/service.js";
 
 test("admin initialization accepts a nonempty password shorter than 12 characters", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "sd113-short-password-"));

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { calculate, roundRatio } from "../../server/domain/pricing.mjs";
+import { calculate, roundRatio } from "../../dist/server/modules/pricing/calculation.js";
 const compute = (mode, quantity, options = {}) =>
   calculate({ pricing_mode: mode, ...options }, quantity);
 test("all eight pricing modes and integer half-up boundaries", () => {

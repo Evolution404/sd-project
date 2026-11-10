@@ -5,8 +5,8 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { upgradeEquipmentFields } from '../../server/database/upgrade-equipment-fields.mjs';
-import { createSystem } from '../../server/application/system.mjs';
+import { upgradeEquipmentFields } from '../../dist/server/database/upgrade-equipment-fields.mjs';
+import { createSystem } from '../../dist/server/bootstrap.js';
 
 function oldDatabase(t) {
   const directory = mkdtempSync(join(tmpdir(), 'sd-equipment-upgrade-test-'));

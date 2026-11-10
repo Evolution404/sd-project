@@ -74,7 +74,6 @@ const shipped = spawnSync(
   [
     "ls-files",
     "-z",
-    "server",
     "scripts/init-admin.mjs",
     "scripts/backup.mjs",
     "scripts/restore.mjs",
@@ -86,6 +85,14 @@ const shipped = spawnSync(
   { cwd: root, encoding: "utf8" },
 );
 assert.equal(shipped.status, 0);
+assert.equal(manifest.entrypoint, "dist/server/main.js");
+for (const [path, digest] of Object.entries(manifest.server_source_sha256))
+  assert.equal(hash(join(root, path)), digest, "服务端源码与发布提交不一致 " + path);
+for (const [path, digest] of Object.entries(manifest.server_artifact_sha256)) {
+  assert.equal(hash(join(stage, "dist/server", path)), digest, "服务端产物不一致 " + path);
+  assert.equal(hash(join(root, "dist/server", path)), digest, "本地重建产物不一致 " + path);
+}
+assert.equal(existsSync(join(stage, "server")), false, "离线包应运行编译产物");
 for (const path of shipped.stdout.split("\0").filter(Boolean))
   assert.equal(
     hash(join(stage, path)),
@@ -97,7 +104,7 @@ assert.equal(
   manifest.runtime_node_exe_sha256,
 );
 assert.equal(
-  hash(join(stage, "server/database/schema/schema113.sql")),
+  hash(join(stage, "dist/server/database/schema/schema113.sql")),
   manifest.schema_sha256,
 );
 assert.equal(
@@ -130,7 +137,7 @@ const initialized = spawnSync(
 );
 assert.equal(initialized.status, 0, initialized.stderr);
 function launch(directory) {
-  const child = spawn(processExec, [join(stage, "server/main.mjs")], {
+  const child = spawn(processExec, [join(stage, "dist/server/main.js")], {
     env: { ...env, DATA_DIR: directory },
     stdio: ["ignore", "pipe", "pipe"],
   });

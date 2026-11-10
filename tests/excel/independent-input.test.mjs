@@ -3,8 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import { fixture, approvedFixture } from "../helpers.mjs";
-import { createExchange } from "../../server/exchange/service.mjs";
-import { makeWorkbook } from "../../server/exchange/workbook.mjs";
+import { createExchange } from "../../dist/server/modules/exchange/service.mjs";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
 
 test("new demands use business names and worksheet rows, with protected identity roundtrip", async (t) => {
   const { s, user, operation, towers } = fixture(t),

@@ -1,6 +1,6 @@
 // Explicit, backup-first Schema113 structure update; never runs on service startup.
 import { resolve, join } from "node:path";
-import { upgradeSchema113 } from "../server/database/upgrade-equipment-fields.mjs";
+import { upgradeSchema113 } from "../dist/server/database/upgrade-equipment-fields.mjs";
 
 const directory = resolve(process.env.DATA_DIR || "data");
 const destination = process.argv[2] || join(directory, "backups",

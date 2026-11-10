@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 test("system management API delegates authenticated users, IP, audit and permission workflows", async (t) => {
   const { s } = fixture(t);

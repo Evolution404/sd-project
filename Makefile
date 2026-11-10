@@ -4,7 +4,7 @@ DATA_DIR ?= $(CURDIR)/data
 HOST ?= 127.0.0.1
 PORT ?= 8787
 dev: build
-	@DATA_DIR="$(DATA_DIR)" HOST="$(HOST)" PORT="$(PORT)" node server/main.mjs
+	@DATA_DIR="$(DATA_DIR)" HOST="$(HOST)" PORT="$(PORT)" node dist/server/main.js
 demo:
 	@npm run demo
 build:

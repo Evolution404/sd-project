@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { createSystem } from "../../server/application/system.mjs";
-import { today } from "../../server/application/auth.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { today } from "../../dist/server/platform/auth/service.js";
 
 export const DEMO_ACCOUNT = "demo";
 export const DEMO_PASSWORD = "DemoOnly-2026!";

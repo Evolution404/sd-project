@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { createSystem } from "../../server/application/system.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 import { ensureDemoDatabase, DEMO_ACCOUNT, DEMO_PASSWORD } from "./seed-demo.mjs";
 
 const directory = resolve(import.meta.dirname, "../../data/demo");

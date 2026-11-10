@@ -1,0 +1,54 @@
+import { openDatabase } from "./database/connection.js";
+import { createStore } from "./database/repositories/store.mjs";
+import { businessRepository } from "./database/repositories/business.mjs";
+import { identityRepository } from "./database/repositories/identity.js";
+import { createAuth, digest, now } from "./platform/auth/service.js";
+import { createCatalog } from "./modules/catalog/service.mjs";
+import { createDemands } from "./modules/demands/service.mjs";
+import { createPricing } from "./modules/pricing/service.mjs";
+import { createProjects } from "./modules/projects/service.mjs";
+import { createSources } from "./modules/demands/sources.mjs";
+import { createReporting } from "./modules/reporting/service.mjs";
+import { createManagement } from "./modules/management/service.mjs";
+import { createFinance } from "./modules/finance/service.mjs";
+import { requireValue } from "./shared/errors/business-error.js";
+import type { Actor } from "./shared/types/contracts.js";
+
+export function createSystem(dataDir?: string) {
+  const database = openDatabase(dataDir);
+  const store = createStore(database);
+  const repo = businessRepository(store);
+  const identity = identityRepository(store);
+  const auth = createAuth(identity, database);
+  const catalog = createCatalog(repo);
+  const demands = createDemands(repo, catalog);
+  const pricing = createPricing(repo, catalog, demands);
+  const projects = createProjects(repo, catalog, demands, pricing);
+  const finance = createFinance(repo, catalog, projects, pricing);
+  const reporting = createReporting(repo, catalog, demands, projects, finance);
+
+  return {
+    database, repo, identity, auth, catalog, demands, pricing, projects, finance,
+    management: createManagement({ repo, identity, auth, catalog }),
+    sources: createSources(repo, catalog),
+    idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {
+      requireValue(typeof key === "string" && key.length >= 8 && key.length <= 200,
+        "请提供8至200位幂等请求标识");
+      return database.transaction(() => {
+        const hash = digest(JSON.stringify(payload));
+        const previous = identity.requestReceipt(key);
+        if (previous) {
+          requireValue(previous.actor_id === actor.id && previous.request_hash === hash,
+            "幂等标识已由不同用户或不同请求使用", 409);
+          return JSON.parse(previous.result_json) as T;
+        }
+        const result = action();
+        identity.recordRequest(actor, key, hash, result, now());
+        return result;
+      });
+    },
+    dashboard: reporting.dashboard,
+    close() { database.close(); },
+  };
+}
+export type System = ReturnType<typeof createSystem>;

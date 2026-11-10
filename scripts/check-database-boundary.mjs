@@ -2,28 +2,21 @@ import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const protectedDirectories = [
-  "server/http",
-  "server/domain",
-  "server/infrastructure",
-  "server/application",
-  "server/exchange",
-];
+const protectedDirectories = ["server"];
 function filesUnder(dir) {
   const result = [];
   if (!existsSync(join(root, dir))) return result;
   for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) result.push(...filesUnder(path));
-    else if (entry.name.endsWith(".mjs")) result.push(path);
+    else if (/\.(?:mjs|ts)$/.test(entry.name)) result.push(path);
   }
   return result;
 }
 const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs", "scripts/upgrade-equipment-fields.mjs"];
 const sources = [
-  ...protectedDirectories.flatMap(filesUnder),
+  ...protectedDirectories.flatMap(filesUnder).filter(path => !path.startsWith("server/database/")),
   ...protectedScripts,
-  "server/main.mjs",
 ];
 const violations = [];
 for (const source of sources) {

@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { createExchange } from "../../server/exchange/service.mjs";
-import { makeWorkbook } from "../../server/exchange/workbook.mjs";
+import { createExchange } from "../../dist/server/modules/exchange/service.mjs";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
 for (const count of [100, 1000, 5000])
   test(`${count} complete demands preflight and single atomic batch, retry and stable identities`, async (t) => {
     const { s, user, operation } = fixture(t),

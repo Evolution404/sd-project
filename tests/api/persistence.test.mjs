@@ -4,9 +4,9 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixture } from "../helpers.mjs";
-import { createSystem } from "../../server/application/system.mjs";
-import { createEvidence } from "../../server/application/evidence.mjs";
-import { restoreBackup } from "../../server/database/restore.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { createEvidence } from "../../dist/server/platform/files/service.mjs";
+import { restoreBackup } from "../../dist/server/database/restore.mjs";
 test("database and evidence restart, independent backup and verified restore", async (t) => {
   const { s, user, dir, demandInput } = fixture(t),
     demand = s.demands.save(user, demandInput),

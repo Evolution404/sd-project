@@ -5,9 +5,9 @@ import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { createSystem } from "../../server/application/system.mjs";
-import { upgradeSchema113 } from "../../server/database/upgrade-equipment-fields.mjs";
-import { restoreBackup } from "../../server/database/restore.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { upgradeSchema113 } from "../../dist/server/database/upgrade-equipment-fields.mjs";
+import { restoreBackup } from "../../dist/server/database/restore.mjs";
 import { spawnSync } from "node:child_process";
 const PRE_PRICE_STRUCTURE = "c666bc3dbd3392af5bcac585147a9920ed897c0c7ef641ae692815b692d4f044";
 function previousPriceDefinitions() {

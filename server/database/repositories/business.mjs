@@ -1,7 +1,11 @@
+import { businessLists } from "../queries/business-lists.js";
 import { searchEquipment } from "./equipment-search.mjs";
 export function businessRepository(store) {
   return {
     ...store,
+    searchFinance: businessLists(store).finance,
+    searchDemands: businessLists(store).demands,
+    searchProjects: businessLists(store).projects,
     searchEquipment: (kind, options) => searchEquipment(store, kind, options),
     latest(table, key, value, sequence = "version_no") {
       return store.where(table, { [key]: value }, sequence, 1)[0];

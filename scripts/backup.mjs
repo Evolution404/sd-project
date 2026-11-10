@@ -1,4 +1,4 @@
-import { createSystem } from "../server/application/system.mjs";
+import { createSystem } from "../dist/server/bootstrap.js";
 import { join } from "node:path";
 const system = createSystem();
 try {

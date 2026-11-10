@@ -1,4 +1,4 @@
-import { createSystem } from "../server/application/system.mjs";
+import { createSystem } from "../dist/server/bootstrap.js";
 import { createInterface } from "node:readline/promises";
 const system = createSystem();
 try {

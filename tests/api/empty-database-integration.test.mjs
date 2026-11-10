@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSystem } from "../../server/application/system.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 function blank(t) {
   const root = mkdtempSync(join(tmpdir(), "sd113-blank-integration-"));

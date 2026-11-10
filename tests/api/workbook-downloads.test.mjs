@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import { approvedFixture } from '../helpers.mjs';
-import { httpServer } from '../../server/http/server.mjs';
+import { httpServer } from '../../dist/server/platform/http/server.js';
 import { columnIndex } from '../workbook-helpers.mjs';
 
 test('all exchange downloads have Chinese filenames, Chinese headers and required markers', async t => {

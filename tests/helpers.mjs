@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createSystem } from "../server/application/system.mjs";
+import { createSystem } from "../dist/server/bootstrap.js";
 export function fixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "sd113-"));
   const s = createSystem(dir);

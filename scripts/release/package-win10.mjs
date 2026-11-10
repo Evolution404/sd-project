@@ -8,6 +8,7 @@ import {
   writeFileSync,
   createWriteStream,
   statSync,
+  readdirSync,
   renameSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
@@ -81,7 +82,7 @@ writeFileSync(runtime, shell.stdout);
 if (statSync(runtime).size < 20000000)
   throw Error("Windows runtime binary unusually small");
 cpSync(frontend, join(stage, "dist", "web"), { recursive: true });
-cpSync(join(root, "server"), join(stage, "server"), { recursive: true });
+cpSync(join(root, "dist/server"), join(stage, "dist/server"), { recursive: true });
 mkdirSync(join(stage, "scripts"), { recursive: true });
 for (const [src, dest] of [
   ["scripts/init-admin.mjs", "scripts/init-admin.mjs"],
@@ -120,8 +121,8 @@ for (const f of ["启动服务.cmd", "初始化管理员.cmd"]) {
     throw Error(f + " must be ASCII only");
 }
 for (const f of [
-  "server/main.mjs",
-  "server/database/connection.mjs",
+  "dist/server/main.js",
+  "dist/server/database/connection.js",
   "package.json",
 ]) {
   if (readFileSync(join(stage, f)).subarray(0, 3).toString("hex") === "efbbbf")
@@ -143,8 +144,27 @@ const npm = spawnSync(
   { cwd: stage, stdio: "inherit" },
 );
 if (npm.status !== 0) throw Error("Production dependency installation failed");
+function artifactHashes(directory) {
+  const hashes = {};
+  function visit(folder) {
+    for (const entry of readdirSync(folder, { withFileTypes: true })) {
+      const path = join(folder, entry.name);
+      if (entry.isDirectory()) visit(path);
+      else hashes[path.slice(directory.length + 1).replaceAll("\\", "/")] = digestFile(path);
+    }
+  }
+  visit(directory);
+  return hashes;
+}
+const trackedSources = spawnSync("git", ["ls-files", "-z", "server"], { cwd: root, encoding: "utf8" });
+if (trackedSources.status !== 0) throw Error("无法固定服务端源码清单");
+const sourceHashes = Object.fromEntries(trackedSources.stdout.split("\0").filter(Boolean)
+  .map(path => [path, digestFile(join(root, path))]));
 const manifest = {
   product: "sd-project",
+  entrypoint: "dist/server/main.js",
+  server_source_sha256: sourceHashes,
+  server_artifact_sha256: artifactHashes(join(stage, "dist/server")),
   git_commit: gitCommit,
   target: "Windows 10 x64, PowerShell 5.1",
   runtime: version,
@@ -156,7 +176,7 @@ const manifest = {
   data_location: "./data",
   schema_version: 113,
   schema_sha256: digestFile(
-    join(stage, "server/database/schema/schema113.sql"),
+    join(stage, "dist/server/database/schema/schema113.sql"),
   ),
   build_timestamp: new Date().toISOString(),
 };
@@ -172,7 +192,7 @@ const proc = spawnSync("python3", ["-c", python, stage, pendingZip], {
   stdio: "inherit",
 });
 if (proc.status !== 0) throw Error("ZIP creation failed");
-const verify = `import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad\nfiles=set(z.namelist());need={'runtime/node.exe','scripts/first-run.ps1','启动服务.cmd','初始化管理员.cmd','server/main.mjs','server/database/connection.mjs','server/database/schema/schema113.sql','server/exchange/service.mjs','dist/web/index.html','BUILD-MANIFEST.json'};assert need.issubset(files),str(need-files)\nassert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')\nassert all(x<128 for x in z.read('启动服务.cmd'))\nassert not any(x.startswith('data/') for x in files), 'ZIP must not contain runtime data'\nassert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')\nprint('ZIP_OK files:',len(files))\n`;
+const verify = `import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad\nfiles=set(z.namelist());need={'runtime/node.exe','scripts/first-run.ps1','启动服务.cmd','初始化管理员.cmd','dist/server/main.js','dist/server/database/connection.js','dist/server/database/schema/schema113.sql','dist/server/modules/exchange/service.mjs','dist/web/index.html','BUILD-MANIFEST.json'};assert need.issubset(files),str(need-files)\nassert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')\nassert all(x<128 for x in z.read('启动服务.cmd'))\nassert not any(x.startswith('data/') for x in files), 'ZIP must not contain runtime data'\nassert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')\nprint('ZIP_OK files:',len(files))\n`;
 const check = spawnSync("python3", ["-c", verify, pendingZip], {
   encoding: "utf8",
 });
