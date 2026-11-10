@@ -1,4 +1,15 @@
-import { currentSources, reviseSource } from "./sources.mjs";
+import { currentSources, reviseSource } from "./sources.js";
+import type { Actor, ListQuery, Page } from "../../shared/types/contracts.js";
+import { isObject } from "../../shared/types/contracts.js";
+import type { Database } from "../../database/connection.js";
+import type { DemandRepository } from "../../database/repositories/demands.js";
+import type {
+  DemandCatalog, DemandWriteInput, DemandRecord, DemandLocation, DemandListItem,
+  NormalizedDemand, DemandStatus, DemandMaterialInput,
+  SiteFeatures
+} from "../../shared/types/demands.js";
+import type { OperationField, PricingFeatureDeclaration } from "../../shared/types/work-standards.js";
+import type { FactorDefinition } from "../pricing/features.js";
 import { validateFeatureValue } from "../pricing/features.js";
 import { authorize, documentCode, id, now } from "../../platform/auth/service.js";
 import {
@@ -7,47 +18,55 @@ import {
   integer,
   expectedVersion,
 } from "../../shared/errors/business-error.js";
-export function createDemands(repo, catalog) {
-  function get(key, includeDeleted = false) {
-    const row = repo.find("v_demand_current", "id", key);
+function parseDemandInput(value: unknown): DemandWriteInput {
+  requireValue(isObject(value), "需求内容必须为对象");
+  requireValue(value.work_locations === undefined || Array.isArray(value.work_locations),
+    "作业位置必须是列表");
+  requireValue(value.materials === undefined || Array.isArray(value.materials), "预计物资必须是列表");
+  requireValue(value.sources === undefined || Array.isArray(value.sources), "来源必须是列表");
+  requireValue(value.custom_fields === undefined || isObject(value.custom_fields),
+    "补充现场字段必须是对象");
+  return value as DemandWriteInput;
+}
+function parseLifecycleInput(value: unknown): {
+  expected_version: number; expected_event_seq: number; status: DemandStatus; reason?: string
+} {
+  requireValue(isObject(value) && (["pending","active","returned","cancelled"] as unknown[]).includes(value.status),
+    "需求生命周期状态无效");
+  return value as unknown as {
+    expected_version: number; expected_event_seq: number; status: DemandStatus; reason?: string
+  };
+}
+export function createDemands(
+  repo: DemandRepository,
+  catalog: DemandCatalog,
+  database: Pick<Database, "transaction">
+) {
+  function get(key: string, includeDeleted = false): DemandRecord {
+    const row = repo.current(key);
     requireValue(
-      row && (includeDeleted || !repo.isDeleted("demands", key)),
+      row && (includeDeleted || !repo.isDeleted(key)),
       "需求不存在或已删除",
       404,
     );
-    const definition = JSON.parse(row.full_definition_json);
+    const definition = JSON.parse(row.full_definition_json) as NormalizedDemand;
     return {
       ...definition,
       ...row,
-      deleted: repo.isDeleted("demands", key),
+      deleted: repo.isDeleted(key),
       work_locations: definition.work_locations,
-      materials: repo
-        .where("demand_material_version_items", {
-          demand_id: key,
-          demand_version: row.current_version,
-        })
-        .map((item) => {
-          const definition = repo.find(
-            "material_versions",
-            "id",
-            item.material_version_id,
-          );
-          return {
-            ...item,
-            material_name: definition.name,
-            model: definition.model,
-            specification: definition.specification,
-          };
-        }),
+      materials: repo.materials(key, row.current_version),
       sources: currentSources(repo, key),
       custom_fields: JSON.parse(definition.custom_fields_json || "{}"),
       binding:
-        repo.find("v_project_demand_binding_current", "demand_id", key) || null,
+        repo.binding(key) || null,
     };
   }
-  function normalize(input, previous) {
+  function normalize(raw: unknown, previous: DemandRecord | null = null): NormalizedDemand {
+    const input = parseDemandInput(raw);
     const operationId = input.operation_id || previous?.operation_id;
-    const sameOperation = previous?.operation_id === operationId;
+    requireValue(typeof operationId === "string" && operationId.trim(), "请选择操作类型");
+    const sameOperation = Boolean(previous && previous.operation_id === operationId);
     const current = catalog.get("operations", operationId, sameOperation);
     requireValue(
       sameOperation ||
@@ -57,18 +76,16 @@ export function createDemands(repo, catalog) {
       409,
     );
     const selectedVersion = sameOperation
-      ? (input.operation_version ?? previous.operation_version)
+      ? (input.operation_version ?? previous?.operation_version ?? current.version)
       : current.version;
     requireValue(
       !sameOperation ||
-        selectedVersion === previous.operation_version ||
+        selectedVersion === previous?.operation_version ||
         selectedVersion === current.version,
       "须明确选择原操作定义或当前正式定义",
     );
-    const definition = repo.where("operation_versions", {
-      operation_id: operationId,
-      version: selectedVersion,
-    })[0];
+    const definition = repo.operationVersion(operationId, selectedVersion);
+    requireValue(definition, "操作类型正式版本不存在", 404);
     const op = { ...current, ...definition, id: operationId };
     requireValue(op.status === "active", "操作类型已停用");
     if (!sameOperation)
@@ -76,13 +93,11 @@ export function createDemands(repo, catalog) {
         catalog.get("units", op.default_unit_id).status === "active",
         "操作类型采用的单位已停用",
       );
-    const unitDefinition = repo.where("dictionary_item_versions", {
-      item_id: op.default_unit_id,
-      version: op.default_unit_version,
-    })[0];
+    const unitDefinition = repo.unitVersion(op.default_unit_id, op.default_unit_version);
+    requireValue(unitDefinition, "正式计量单位版本不存在", 404);
     const unit = { ...unitDefinition, id: op.default_unit_id };
     const object =
-      sameOperation && selectedVersion === previous.operation_version
+      sameOperation && previous && selectedVersion === previous.operation_version
         ? { id: previous.work_object_id, name: previous.work_object_snapshot }
         : catalog.get("objects", op.work_object_id);
     requireValue(
@@ -101,7 +116,7 @@ export function createDemands(repo, catalog) {
       custom && typeof custom === "object" && !Array.isArray(custom),
       "补充现场字段格式错误",
     );
-    const fields = JSON.parse(op.fields_json);
+    const fields = JSON.parse(op.fields_json) as OperationField[];
     requireValue(
       Object.keys(custom).every((key) =>
         fields.some((field) => field.key === key),
@@ -139,7 +154,7 @@ export function createDemands(repo, catalog) {
         fieldError,
       );
       requireValue(
-        field.type !== "select" || field.options.includes(value),
+        field.type !== "select" || (typeof value === "string" && (field.options ?? []).includes(value)),
         `${field.label}不在正式可选范围`,
         422,
         fieldError,
@@ -154,13 +169,13 @@ export function createDemands(repo, catalog) {
         fieldError,
       );
     }
-    const raw = input.work_locations ?? previous?.work_locations;
+    const rawLocations = input.work_locations ?? previous?.work_locations;
     requireValue(
-      Array.isArray(raw) && raw.length > 0 && raw.length <= 5000,
+      Array.isArray(rawLocations) && rawLocations.length > 0 && rawLocations.length <= 5000,
       "必须提供1至5000个作业位置",
     );
-    const keys = new Set();
-    const locations = raw.map((loc, index) => {
+    const keys = new Set<string>();
+    const locations: DemandLocation[] = rawLocations.map((loc, index): DemandLocation => {
       const kind = loc.location_kind;
       requireValue(
         ["logical_tower", "physical_tower", "span"].includes(kind),
@@ -180,6 +195,7 @@ export function createDemands(repo, catalog) {
           : kind === "logical_tower"
             ? "logical_tower_id"
             : "physical_tower_id";
+      requireValue(typeof loc[key] === "string" && loc[key], "请选择真实作业位置");
       let entity = catalog.get(
         kind === "span"
           ? "spans"
@@ -199,9 +215,7 @@ export function createDemands(repo, catalog) {
       keys.add(`${kind}/${entity.id}`);
       const associated =
         kind === "physical_tower"
-          ? repo
-              .where("logical_towers", { physical_tower_id: entity.id })
-              .filter((t) => t.status === "active")
+          ? repo.activePhysicalCircuits(entity.id)
           : [];
       const lineIds = [...new Set(associated.map((t) => t.line_id))];
       const contextLineId =
@@ -222,13 +236,10 @@ export function createDemands(repo, catalog) {
           "档距定义已变化，请重新核对正式版本",
           409,
         );
-        const history = repo.where("line_span_history", {
-          span_id: entity.id,
-          version_no: version,
-        })[0];
+        const history = repo.spanVersion(entity.id, version);
         requireValue(history, "档距历史版本不存在");
         entity = {
-          id: entity.id,
+          ...entity,
           line_id: history.line_id,
           start_tower_id: history.start_tower_id,
           end_tower_id: history.end_tower_id,
@@ -254,37 +265,40 @@ export function createDemands(repo, catalog) {
           : kind === "physical_tower"
             ? entity
             : null;
-      let actual;
+      let parsedFeatures: unknown;
       try {
-        actual =
+        parsedFeatures =
           typeof loc.site_features_json === "string"
             ? JSON.parse(loc.site_features_json)
             : loc.site_features_json || {};
       } catch {
         requireValue(false, "现场特征格式错误");
       }
-      requireValue(
-        actual && typeof actual === "object" && !Array.isArray(actual),
-        "现场特征须为具名事实对象",
-      );
-      actual = { ...actual };
-      const asset = {
+      requireValue(isObject(parsedFeatures), "现场特征须为具名事实对象");
+      const actual: SiteFeatures = {};
+      for (const [code, rawValue] of Object.entries(parsedFeatures)) {
+        requireValue(isObject(rawValue) && Number.isSafeInteger(rawValue.factor_version),
+          "现场特征须引用正式价格特征及其版本");
+        actual[code] = {
+          factor_version: integer(rawValue.factor_version, "价格特征版本", 1),
+          value: rawValue.value
+        };
+      }
+      const voltage = line?.voltage_level_id ? catalog.get("voltages", line.voltage_level_id, true) : null;
+      const asset: { tower_type: string | null; voltage_name: string | null; voltage_code: string | null } = {
         tower_type: physical?.tower_type || null,
-        voltage_name: line
-          ? catalog.get("voltages", line.voltage_level_id, true).name
-          : null,
-        voltage_code: line
-          ? catalog.get("voltages", line.voltage_level_id, true).code
-          : null,
+        voltage_name: voltage?.name || null,
+        voltage_code: voltage?.code || null
       };
-      for (const declared of JSON.parse(op.pricing_features_json)) {
-        const factor = repo.find("dictionary_items", "id", declared.factor_id),
-          version = repo.where("dictionary_item_versions", {
-            item_id: factor.id,
-            version: declared.factor_version,
-          })[0],
-          definition = JSON.parse(version.fields_json),
-          value = asset[definition.asset_field];
+      for (const declared of JSON.parse(op.pricing_features_json) as PricingFeatureDeclaration[]) {
+        const factor = repo.factor(declared.factor_id);
+        requireValue(factor, "价格特征身份不存在", 404);
+        const version = repo.factorVersion(factor.id, declared.factor_version);
+        requireValue(version, "正式价格特征版本不存在", 404);
+        const definition = JSON.parse(version.fields_json) as FactorDefinition,
+
+          field = definition.asset_field,
+          value = field && Object.hasOwn(asset, field) ? asset[field as keyof typeof asset] : undefined;
         if (
           ["asset", "either"].includes(declared.source) &&
           value !== undefined &&
@@ -303,10 +317,7 @@ export function createDemands(repo, catalog) {
         }
       }
       for (const [code, feature] of Object.entries(actual)) {
-        const factor = repo.where("dictionary_items", {
-          type_id: "price_factor",
-          code,
-        })[0];
+        const factor = repo.factorByCode(code);
         requireValue(
           factor &&
             feature &&
@@ -314,12 +325,9 @@ export function createDemands(repo, catalog) {
             Number.isSafeInteger(feature.factor_version),
           "现场特征须引用正式价格特征及其版本",
         );
-        const version = repo.where("dictionary_item_versions", {
-          item_id: factor.id,
-          version: feature.factor_version,
-        })[0];
+        const version = repo.factorVersion(factor.id, feature.factor_version);
         requireValue(version, "现场特征定义版本不存在");
-        const declared = JSON.parse(op.pricing_features_json).find((item) =>
+        const declared = (JSON.parse(op.pricing_features_json) as PricingFeatureDeclaration[]).find((item) =>
           item.factor_id === factor.id && item.factor_version === feature.factor_version);
         requireValue(declared, "现场价格特征不属于本操作类型的正式定义");
         validateFeatureValue(JSON.parse(version.fields_json), feature.value, version.name);
@@ -356,9 +364,9 @@ export function createDemands(repo, catalog) {
           span: kind === "span" ? entity : null,
           location_label:
             kind === "span"
-              ? catalog.get("towers", entity.start_tower_id, true).tower_no +
+              ? catalog.get("towers", text(entity.start_tower_id, "起始杆塔"), true).tower_no +
                 " ~ " +
-                catalog.get("towers", entity.end_tower_id, true).tower_no
+                catalog.get("towers", text(entity.end_tower_id, "终止杆塔"), true).tower_no
               : entity.tower_no || physical?.label || "真实作业位置",
         },
       };
@@ -458,14 +466,15 @@ export function createDemands(repo, catalog) {
       materials,
     };
   }
-  function save(actor, input, key, context = {}) {
+  function save(actor: Actor, raw: unknown, key?: string, context: {batchId?: string} = {}): DemandRecord {
+    const input = parseDemandInput(raw);
     authorize(actor, "write");
-    return repo.transaction(() => {
+    return database.transaction(() => {
       const previous = key ? get(key) : null;
       if (previous)
         expectedVersion(previous.current_version, input.expected_version);
       const normalized = normalize(input, previous);
-      const duplicates = repo.demandDuplicates(
+      const duplicates = repo.duplicates(
         normalized.operation_id,
         normalized.work_locations,
         key,
@@ -486,7 +495,7 @@ export function createDemands(repo, catalog) {
           ...JSON.parse(previous.full_definition_json),
           ...normalized,
         };
-        const materialIdentity = (items) =>
+        const materialIdentity = (items: DemandMaterialInput[]) =>
           items.map((item) => ({
             material_id: item.material_id,
             quantity_scaled: item.quantity_scaled,
@@ -503,7 +512,7 @@ export function createDemands(repo, catalog) {
             !previous.sources.some(
               (old) =>
                 old.id === source.id &&
-                ["description", "discovered_on", "external_record_id"].every(
+                (["description", "discovered_on", "external_record_id"] as const).every(
                   (field) =>
                     source[field] === undefined || source[field] === old[field],
                 ),
@@ -516,7 +525,7 @@ export function createDemands(repo, catalog) {
               JSON.stringify(normalize(previous, previous)),
           "需求内容没有变化",
         );
-        repo.insert("demand_revisions", {
+        repo.appendRevision({
           id: id(),
           demand_id: keyId,
           version: previous.current_version + 1,
@@ -527,7 +536,7 @@ export function createDemands(repo, catalog) {
         });
       } else {
         const { work_locations, materials, ...root } = normalized;
-        repo.insert("demands", {
+        repo.createDemand({
           id: keyId,
           demand_no: documentCode("XQ", keyId),
           batch_id: context.batchId || null,
@@ -537,7 +546,7 @@ export function createDemands(repo, catalog) {
           created_at: timestamp,
         });
         materials.forEach((item) =>
-          repo.insert("demand_material_items", {
+          repo.appendExpectedMaterial({
             id: id(),
             demand_id: keyId,
             ...item,
@@ -557,23 +566,12 @@ export function createDemands(repo, catalog) {
               source,
             );
             source.id = current.id;
-            requireValue(
-              repo.find("source_records", "id", source.id),
-              "来源不存在",
-            );
-            if (
-              !repo.where("demand_sources", {
-                demand_id: keyId,
-                source_id: source.id,
-              }).length
-            )
-              repo.insert("demand_sources", {
-                demand_id: keyId,
-                source_id: source.id,
-              });
+            requireValue(repo.source(current.id), "来源不存在");
+            if (!repo.linkedSource(keyId, current.id))
+              repo.linkSource(keyId, current.id);
           } else {
             const sourceId = id();
-            repo.insert("source_records", {
+            repo.createSource({
               id: sourceId,
               source_system: context.batchId ? "excel" : "manual",
               external_record_id: null,
@@ -582,15 +580,12 @@ export function createDemands(repo, catalog) {
               created_by: actor.id,
               created_at: timestamp,
             });
-            repo.insert("demand_sources", {
-              demand_id: keyId,
-              source_id: sourceId,
-            });
+            repo.linkSource(keyId, sourceId);
           }
         }
       if (duplicates.length) {
         const batchId = id();
-        repo.insert("demand_batches", {
+        repo.createDuplicateBatch({
           id: batchId,
           draft_json: JSON.stringify({
             decision: "separate",
@@ -601,7 +596,7 @@ export function createDemands(repo, catalog) {
           updated_at: timestamp,
         });
         for (const duplicate of duplicates)
-          repo.insert("demand_duplicate_reviews", {
+          repo.appendDuplicateReview({
             id: id(),
             batch_id: batchId,
             matched_demand_id: duplicate.id,
@@ -611,11 +606,7 @@ export function createDemands(repo, catalog) {
             actor_id: actor.id,
             created_at: timestamp,
           });
-        repo.update("demand_batches", "id", batchId, {
-          status: "submitted",
-          version: 2,
-          updated_at: now(),
-        });
+        repo.finalizeDuplicateBatch(batchId, now());
       }
       catalog.audit(
         actor,
@@ -632,41 +623,43 @@ export function createDemands(repo, catalog) {
     get,
     normalize,
     save,
-    search(query) {
-      const result = repo.searchDemands(query);
+    search(query: ListQuery): Page<DemandListItem> {
+      const result = repo.search(query);
       return { ...result, items: result.items.map(({ binding_json, ...row }) => ({
         ...JSON.parse(row.full_definition_json), ...row,
         binding: binding_json ? JSON.parse(binding_json) : null,
         deleted: Boolean(row.deleted),
       })) };
     },
-    list(includeDeleted = false) {
-      const deleted = repo.deleted("demands");
-      return repo
-        .list("v_demand_current")
-        .filter((x) => includeDeleted || !deleted.has(x.id))
-        .map((x) => ({
-          ...JSON.parse(x.full_definition_json),
-          ...x,
-          binding:
-            repo.find("v_project_demand_binding_current", "demand_id", x.id) ||
-            null,
-          deleted: deleted.has(x.id),
+    searchCandidates(query: ListQuery, includePending = false): Page<DemandListItem> {
+      const result = repo.eligibleCandidates(query, includePending);
+      return { ...result, items: result.items.map(row => ({
+        ...JSON.parse(row.full_definition_json),
+        ...row,
+        binding: null,
+        deleted: false
+      })) };
+    },
+    list(includeDeleted = false): DemandListItem[] {
+      return repo.currentAll()
+        .filter((row) => includeDeleted || !row.deleted)
+        .map(({binding_json, ...row}) => ({
+          ...JSON.parse(row.full_definition_json),
+          ...row,
+          binding: binding_json ? JSON.parse(binding_json) : null,
+          deleted: Boolean(row.deleted),
         }));
     },
-    transition(actor, key, input) {
+    transition(actor: Actor, key: string, raw: unknown): DemandRecord {
+      const input = parseLifecycleInput(raw);
       authorize(actor, "demand.activate");
-      return repo.transaction(() => {
+      return database.transaction(() => {
         const previous = get(key);
         expectedVersion(previous.current_version, input.expected_version);
-        const last = repo.latest(
-          "demand_lifecycle_events",
-          "demand_id",
-          key,
-          "event_seq",
-        );
+        const last = repo.lastLifecycle(key);
+        requireValue(last, "需求初始状态事件不存在", 409);
         expectedVersion(last.event_seq, input.expected_event_seq);
-        repo.insert("demand_lifecycle_events", {
+        repo.appendLifecycle({
           id: id(),
           demand_id: key,
           event_seq: last.event_seq + 1,
@@ -679,33 +672,15 @@ export function createDemands(repo, catalog) {
         return get(key);
       });
     },
-    history(key) {
+    history(key: string) {
       get(key, true);
-      return {
-        versions: repo.where("demand_versions", { demand_id: key }),
-        reference_quotes: repo
-          .where("reference_price_evaluations", { demand_id: key })
-          .map((quote) => ({
-            ...quote,
-            lines: repo.where("reference_price_evaluation_lines", {
-              evaluation_id: quote.id,
-            }),
-          })),
-        sources: currentSources(repo, key, true),
-        events: repo.where("demand_lifecycle_events", { demand_id: key }),
-        bindings: repo
-          .where("project_demand_scopes", { demand_id: key })
-          .map((scope) => ({
-            ...scope,
-            events: repo.where("project_demand_link_events", {
-              project_scope_id: scope.id,
-            }),
-          })),
-      };
+      return repo.history(key);
     },
-    remove(actor, key, input) {
+    remove(actor: Actor, key: string, raw: unknown): { deleted: true } {
+      requireValue(isObject(raw), "请提供需删除需求的版本");
+      const input = raw;
       authorize(actor, "admin");
-      return repo.transaction(() => {
+      return database.transaction(() => {
         const previous = get(key);
         expectedVersion(previous.current_version, input.expected_version);
         requireValue(

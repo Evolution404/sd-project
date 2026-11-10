@@ -16,7 +16,8 @@ import SiteFeaturesEditor from "../pricing/SiteFeaturesEditor.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import { api, type Row, quantity, statusText } from "../../shared/api/client";
-const adoptedOperation = ref<Row | null>(null),
+import type { OperationRecord, OperationVersion } from "../../../../server/shared/types/work-standards";
+const adoptedOperation = ref<OperationVersion | null>(null),
   lastOperationId = ref("");
 const props = defineProps<{ user: Row }>();
 const rows = ref<Row[]>([]),
@@ -33,7 +34,7 @@ const rows = ref<Row[]>([]),
   loading = ref(false),
   form = ref<Row>({}),
   editing = ref<Row | null>(null),
-  operations = ref<Row[]>([]),
+  operations = ref<OperationRecord[]>([]),
   businessLabels = ref<Row>({}),
   errors = ref<Row>({}),
   history = ref<Row | null>(null),
@@ -178,10 +179,16 @@ async function edit(row?: Row) {
   dialog.value = true;
   draftGuard.capture();
 }
+async function operationRecord(key: string): Promise<OperationRecord | null> {
+  if (!key) return null;
+  const found = operations.value.find(item => item.id === key);
+  if (found) return found;
+  const fetched = await api<OperationRecord>("/catalog/operations/" + key + "?deleted=true");
+  operations.value.push(fetched);
+  return fetched;
+}
 async function chooseOperation() {
-  const selected = operations.value.find(
-    (item) => item.id === form.value.operation_id,
-  );
+  const selected = await operationRecord(String(form.value.operation_id || ""));
   if (!selected) return;
   const incompatible = form.value.work_locations.some(
     (loc: Row) =>
@@ -207,7 +214,7 @@ async function chooseOperation() {
   }
   const previous = adoptedOperation.value?.operation_id === lastOperationId.value
     ? adoptedOperation.value
-    : operations.value.find((item: Row) => item.id === lastOperationId.value);
+    : await operationRecord(lastOperationId.value);
   const oldDefault = String(previous?.completion_standard || "").trim();
   const currentStandard = String(form.value.completion_standard || "").trim();
   const newDefault = String(selected.completion_standard || "");
@@ -357,7 +364,6 @@ useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: s
 const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = null; quoteOpen.value = false; });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
-  operations.value = (await api("/catalog/operations?page_size=200")).items;
   businessLabels.value = await api("/display-labels");
   await load();
 });
@@ -529,15 +535,12 @@ onMounted(async () => {
           label="操作类型"
           prop="operation_id"
           :rules="[{ required: true, message: '请选择操作类型' }]"
-          ><ElSelect
+          ><FieldControl
             v-model="form.operation_id"
-            filterable
-            @change="chooseOperation"
-            ><ElOption
-              v-for="op in operations"
-              :key="op.id"
-              :value="op.id"
-              :label="op.name" /></ElSelect></ElFormItem
+            :field="{ type: 'ref', reference: 'operations' }"
+            :selected-label="operation?.name || ''"
+            @update:model-value="chooseOperation"
+          /></ElFormItem
         ><ElFormItem
           label="问题描述"
           prop="problem_description"

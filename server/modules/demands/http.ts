@@ -13,6 +13,11 @@ export async function handleDemands(context: RouteContext): Promise<{
             if (read)
                 result = !key
                     ? system.demands.search(parseListQuery(url.searchParams))
+                    : key === "candidates"
+                        ? system.demands.searchCandidates(
+                            parseListQuery(url.searchParams),
+                            url.searchParams.get("include_pending") === "true",
+                          )
                     : sub === "history"
                         ? system.demands.history(key)
                         : system.demands.get(key, deleted);

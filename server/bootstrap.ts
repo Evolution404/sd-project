@@ -17,14 +17,15 @@ import { createOrganizations } from "./modules/organizations/service.js";
 import { openDatabase } from "./database/connection.js";
 import { createStore } from "./database/repositories/store.mjs";
 import { businessRepository } from "./database/repositories/business.mjs";
+import { demandRepository } from "./database/repositories/demands.js";
 import { identityRepository } from "./database/repositories/identity.js";
 import { createAuth, digest, now } from "./platform/auth/service.js";
 import { createCatalog } from "./modules/catalog/service.mjs";
-import { createDemands } from "./modules/demands/service.mjs";
+import { createDemands } from "./modules/demands/service.js";
 import { createPricing } from "./modules/pricing/service.js";
 import { pricingRepository } from "./database/repositories/pricing.js";
 import { createProjects } from "./modules/projects/service.mjs";
-import { createSources } from "./modules/demands/sources.mjs";
+import { createSources } from "./modules/demands/sources.js";
 import { createReporting } from "./modules/reporting/service.mjs";
 import { createManagement } from "./modules/management/service.mjs";
 import { createFinance } from "./modules/finance/service.mjs";
@@ -45,7 +46,8 @@ export function createSystem(dataDir?: string) {
   const standards = createWorkStandards(workStandardRepository(store),dictionaries,factors,database,audit);
   const priceRules = createPriceRules(priceRuleRepository(store),standards,equipment,database,audit);
   const catalog = createCatalog(repo, equipment, audit, dictionaries, materials, factors, standards, priceRules);
-  const demands = createDemands(repo, catalog);
+  const demandRecords = demandRepository(store);
+  const demands = createDemands(demandRecords, catalog, database);
   const pricing = createPricing(pricingRepository(store), priceRules, standards, database, audit);
   const projects = createProjects(repo, catalog, demands, pricing);
   const hierarchies = hierarchyRepository(store);
@@ -56,7 +58,7 @@ export function createSystem(dataDir?: string) {
   return {
     database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, demands, pricing, projects, finance, organizations,
     management: createManagement({ repo, identity, auth, catalog }),
-    sources: createSources(repo, catalog),
+    sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {
       requireValue(typeof key === "string" && key.length >= 8 && key.length <= 200,
         "请提供8至200位幂等请求标识");
