@@ -9,69 +9,15 @@ import {
 import { createAssetExchange } from "./assets.mjs";
 import { createReferences } from "./references.mjs";
 import { decimalText } from "../../shared/decimal.js";
+import { cleanRow as clean, detailIdentity as identity, mergeDetails, differences } from "./details.js";
 import { validateFeatureValue } from "../pricing/features.js";
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
-const clean = (row) =>
-  Object.fromEntries(
-    Object.entries(row).filter(([key]) => !key.startsWith("_")),
-  );
-const identity = (kind, row) =>
-  kind === "work_locations"
-    ? `${row.location_kind}/${row.logical_tower_id || row.physical_tower_id || row.span_id}`
-    : kind === "materials"
-      ? row.material_id
-      : kind === "items"
-        ? `${row.cost_node_id}/${row.project_scope_id || ""}`
-        : row.project_scope_id;
-function mergeDetails(kind, old, updates) {
-  const result = old.map((x) => ({ ...x }));
-  for (const row of updates) {
-    const entry = clean(row),
-      key = identity(kind, entry),
-      index = result.findIndex((x) => identity(kind, x) === key);
-    delete entry.action;
-    if (row.action === "delete") {
-      requireValue(index >= 0, "删除明细不存在");
-      result.splice(index, 1);
-    } else {
-      requireValue(!row.action || row.action === "upsert", "未知明细动作");
-      if (index >= 0) result[index] = { ...result[index], ...entry };
-      else result.push(entry);
-    }
-  }
-  return result;
-}
-function differences(before, after, path = "") {
-  const result = [];
-  for (const key of new Set([
-    ...Object.keys(before || {}),
-    ...Object.keys(after || {}),
-  ])) {
-    if (["_sheet", "_row"].includes(key)) continue;
-    const a = before?.[key],
-      b = after?.[key];
-    if (JSON.stringify(a) !== JSON.stringify(b))
-      result.push({ field: path + key, before: a ?? null, after: b ?? null });
-  }
-  return result;
-}
 export function createExchange(system) {
   const { repo, catalog, demands, finance } = system;
   const assets = createAssetExchange(system);
   let references;
   let matchingMs = 0;
-  function nodePath(nodeId) {
-    const parts = [];
-    let node = repo.find("v_project_cost_node_current", "id", nodeId);
-    while (node) {
-      parts.unshift(node.name);
-      node = node.parent_id
-        ? repo.find("v_project_cost_node_current", "id", node.parent_id)
-        : null;
-    }
-    return parts.join("/");
-  }
   function resolveDetails(kind, row, projectId, existing) {
     const value = { ...row };
     const started = performance.now();
@@ -111,13 +57,8 @@ export function createExchange(system) {
         },
       ).id;
     matchingMs += performance.now() - started;
-    if (kind === "items" && value.cost_node_path) {
-      const matches = repo
-        .where("v_project_cost_node_current", { project_id: projectId })
-        .filter((node) => nodePath(node.id) === value.cost_node_path);
-      requireValue(matches.length === 1, "费用科目完整路径未精确匹配唯一科目");
-      value.cost_node_id = matches[0].id;
-    }
+    if (kind === "items" && value.cost_node_path)
+      value.cost_node_id = references.costNode(projectId, value.cost_node_path).id;
     if (["items", "resolutions"].includes(kind) && value.demand_description)
       value.project_scope_id = references.scope(
         projectId,
@@ -795,6 +736,7 @@ export function createExchange(system) {
   async function exportData(actor, kind, options = {}) {
     if (kind === "assets") return assets.exportData(actor, options);
     authorize(actor, "read");
+    const exportReferences = createReferences(system);
     let records =
       kind === "demands" ? demands.list() : finance.allSettlements();
     if (options.projectId)
@@ -1017,7 +959,7 @@ export function createExchange(system) {
             ...x,
             number: record.number,
             cost_node_path: x.cost_node_id
-              ? nodePath(x.cost_node_id)
+              ? exportReferences.costPath(record.project_id, x.cost_node_id)
               : undefined,
             demand_description: x.project_scope_id
               ? system.demands.get(

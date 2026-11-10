@@ -3,7 +3,11 @@ import { requireValue } from "../../shared/errors/business-error.js";
 // One preparation pass uses one read-only index of business descriptions.
 export function createReferences({ catalog, repo, projects, demands }) {
   const lists = new Map(),
-    indexes = new Map();
+    indexes = new Map(),
+    projectCandidates = new Map(),
+    projectScopes = new Map(),
+    projectCostPaths = new Map(),
+    projectCostIds = new Map();
   const list = (kind) => {
     if (!lists.has(kind))
       lists.set(
@@ -130,25 +134,40 @@ export function createReferences({ catalog, repo, projects, demands }) {
   }
   function project(name, selectedId) {
     if (!name && selectedId) return projects.get(selectedId);
-    return unique(
-      projects.list().filter((row) => row.name === name),
-      "子项目“" + (name || "未填写") + "”",
-      selectedId,
-    );
+    if (!projectCandidates.has(name))
+      projectCandidates.set(name, repo.exchangeProjectCandidates(name));
+    return unique(projectCandidates.get(name),
+      "子项目“" + (name || "未填写") + "”", selectedId);
   }
   function scope(projectId, problem, selectedId) {
-    const scopes = repo
-      .where("project_demand_scopes", { project_id: projectId })
-      .map((row) => ({
-        ...row,
-        problem_description: demands.get(row.demand_id, true)
-          .problem_description,
-      }));
-    return unique(
-      scopes.filter((row) => !problem || row.problem_description === problem),
-      "项目内需求“" + (problem || "未填写") + "”",
-      selectedId,
-    );
+    if (!projectScopes.has(projectId))
+      projectScopes.set(projectId, repo.exchangeScopeCandidates(projectId));
+    const scopes = projectScopes.get(projectId);
+    return unique(scopes.filter((row) => !problem || row.problem_description === problem),
+      "项目内需求“" + (problem || "未填写") + "”", selectedId);
   }
-  return { named, line, location, project, scope, unique };
+  function ensureCostPaths(projectId) {
+    if (projectCostPaths.has(projectId)) return;
+    const byPath = new Map(),
+      byId = new Map();
+    for (const row of repo.exchangeCostPaths(projectId)) {
+      const matches = byPath.get(row.full_path) || [];
+      matches.push(row);
+      byPath.set(row.full_path, matches);
+      byId.set(row.id, row.full_path);
+    }
+    projectCostPaths.set(projectId, byPath);
+    projectCostIds.set(projectId, byId);
+  }
+  function costNode(projectId, path) {
+    ensureCostPaths(projectId);
+    const matches = projectCostPaths.get(projectId).get(path) || [];
+    requireValue(matches.length === 1, "费用科目完整路径未精确匹配唯一科目");
+    return matches[0];
+  }
+  function costPath(projectId, nodeId) {
+    ensureCostPaths(projectId);
+    return projectCostIds.get(projectId).get(nodeId) || "";
+  }
+  return { named, line, location, project, scope, costNode, costPath, unique };
 }
