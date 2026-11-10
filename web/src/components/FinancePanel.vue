@@ -231,10 +231,10 @@ async function save() {
       );
     if (dialog.value === "reconcile")
       await api("/reconciliations", "POST", form.value);
+    ElMessage.success("费用或结算数据已保存，正在刷新列表");
     await load();
     emit("changed");
     dialog.value = "";
-    ElMessage.success("已保存");
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {

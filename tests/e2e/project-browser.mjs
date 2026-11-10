@@ -40,7 +40,7 @@ async function select(label, option) {
   await page.getByRole("option", { name: option, exact: true }).last().click();
 }
 async function confirm() {
-  await page.getByRole("button", { name: "确定", exact: true }).click();
+  await page.locator(".el-message-box:visible .el-message-box__btns .el-button--primary").click();
   await page.locator(".el-message-box").waitFor({ state: "hidden" });
 }
 try {
@@ -70,7 +70,7 @@ try {
   await page.getByRole("button", { name: "确认入库", exact: true }).click();
   await confirm();
   await page.getByRole("button", { name: "关联需求", exact: true }).click();
-  await select("专业需求", demand.demand_no + " · 防鸟设施缺失");
+  await select("专业需求", "已确认 · " + demand.demand_no + " · 防鸟设施缺失");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })

@@ -111,6 +111,7 @@ async function save() {
       "POST",
       form.value,
     );
+    ElMessage.success("系统管理数据已保存，正在刷新列表");
     await load();
     dialog.value = false;
   } catch (e) {

@@ -444,10 +444,10 @@ async function save() {
     );
     // The form stays locked until its list/detail refresh completes. Otherwise
     // a rapid second creation opens while the previous saving flag is true.
+    ElMessage.success("正式版本已保存，正在刷新列表");
     await load();
     await refreshDetail();
     dialog.value = false;
-    ElMessage.success("已保存正式版本");
     for (const warning of saved.warnings || []) ElMessage.warning({ message: warning, duration: 8000 });
   } catch (e) {
     errors.value = (e as Row).fields || {};

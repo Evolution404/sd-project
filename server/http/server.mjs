@@ -287,10 +287,15 @@ export function httpServer(
             result = mutate("demand.activate", () =>
               system.demands.transition(actor, key, input),
             );
-          else if (sub === "quote")
+          else if (sub === "quote") {
+            if (input.confirm)
+              requireValue(typeof input.preview_hash === "string" &&
+                /^[a-f0-9]{64}$/.test(input.preview_hash),
+                "正式报价必须先试算并提交有效的预览凭据", 422);
             result = input.confirm
               ? mutate("write", () => system.pricing.quote(actor, key, input))
               : system.pricing.quote(actor, key, input);
+          }
           else
             result = mutate("write", () =>
               system.demands.save(actor, input, key),

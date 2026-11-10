@@ -29,7 +29,7 @@ export function createProjects(repo, catalog, demands, pricing) {
       .where("project_demand_scopes", { project_id: key })
       .map((scope) => ({
         ...scope,
-        demand_no: repo.find("demands", "id", scope.demand_id).demand_no,
+        demand_no: repo.find("demands", "id", scope.demand_id).demand_no,        demand_status: repo.find("v_demand_current", "id", scope.demand_id)?.status || "pending",
         binding:
           repo.find(
             "v_project_demand_binding_current",
@@ -80,7 +80,13 @@ export function createProjects(repo, catalog, demands, pricing) {
               materials: repo.where("project_approval_material_items", {
                 approval_version_id: ap.id,
                 project_scope_id: sc.project_scope_id,
-              }),
+              }).map((item) => ({
+                ...item,
+                // Presentation-only link, reconstructed from the stable
+                // scope/material identity; no duplicate ID is persisted.
+                material_id: repo.find("project_scope_materials", "id",
+                  item.project_material_id)?.material_id || null,
+              })),
               locations: repo.where("project_approval_work_locations", {
                 approval_scope_version_id: sc.id,
               }),
@@ -175,6 +181,43 @@ export function createProjects(repo, catalog, demands, pricing) {
     });
     return get(key);
   }
+  function approvalChangeSummary(project, input) {
+    if (!project.approval) return [];
+    const previous = project.approvals.find(x => x.id === project.approval.id);
+    const reasons = [];
+    if (project.approval.approved_budget_fen !== input.approved_budget_fen)
+      reasons.push("批准预算发生变化");
+    for (const original of previous.scopes) {
+      const selected = (input.scopes || []).find(
+        x => x.project_scope_id === original.project_scope_id);
+      if (!selected) {
+        reasons.push(original.demand_no + " 从批准范围中移除");
+        continue;
+      }
+      if (original.demand_version !== selected.demand_version)
+        reasons.push(original.demand_no + " 需求正式定义版本已变化，须重新核对作业设备和范围");
+      const oldLocations = original.locations.length
+        ? original.locations.map(loc => [loc.location_item_no, loc.approved_quantity_scaled])
+        : [[1, original.quantity_scaled]];
+      const nextLocations = (selected.locations || []).map(
+        loc => [loc.location_item_no, loc.approved_quantity_scaled]);
+      if (JSON.stringify(oldLocations.sort((a,b)=>a[0]-b[0])) !==
+          JSON.stringify(nextLocations.sort((a,b)=>a[0]-b[0])))
+        reasons.push(original.demand_no + " 作业位置或批准数量发生变化");
+      const oldMaterials = original.materials.map(
+        item => [item.material_id, item.approved_quantity_scaled])
+        .sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+      const nextMaterials = (selected.materials || []).map(
+        item => [item.material_id, item.quantity_scaled])
+        .sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+      if (JSON.stringify(oldMaterials) !== JSON.stringify(nextMaterials))
+        reasons.push(original.demand_no + " 已批准物资及数量发生变化");
+    }
+    const previousIds = new Set(previous.scopes.map(x => x.project_scope_id));
+    if ((input.scopes || []).some(x => !previousIds.has(x.project_scope_id)))
+      reasons.push("新增批准需求范围");
+    return reasons;
+  }
   function approvalDraft(actor, key, input) {
     authorize(actor, "write");
     return repo.transaction(() => {
@@ -190,6 +233,10 @@ export function createProjects(repo, catalog, demands, pricing) {
         "项目批准基线已变化，请刷新后重新编制",
         409,
       );
+      const changes = approvalChangeSummary(project, input);
+      requireValue(!changes.length || input.confirm_changes === true,
+        "正式变更涉及批准范围、数量、物资或预算调整，请核对差异并明确确认", 409,
+        { changes });
       const previous = project.approval,
         approvalId = id(),
         version = project.approvals.length + 1,

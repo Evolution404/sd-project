@@ -209,6 +209,22 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   margin-top: 15px;
   font-weight: 600;
 }
+.el-button.metric-action {
+  width: 100%;
+  height: auto;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  white-space: normal;
+  color: var(--ink);
+  transition: transform .16s ease, border-color .16s ease;
+}
+.el-button.metric-action > span { display: block; width: 100%; }
+.el-button.metric-action:hover { transform: translateY(-2px); border-color: var(--accent); }
+.el-button.metric-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .el-table {
   --el-table-header-bg-color: var(--table-heading);
   --el-table-border-color: var(--edge);

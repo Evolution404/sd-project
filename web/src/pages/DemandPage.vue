@@ -127,11 +127,12 @@ async function load() {
     if (sequence === loadSequence) listLoading.value = false;
   }
 }
+const needsCompletionReview = ref(false);
 const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 async function edit(row?: Row) {
-  editing.value = row || null;
+  editing.value = row || null;  needsCompletionReview.value = false;
   const value = row ? await api("/demands/" + row.id) : null;
   form.value = value
     ? structuredClone(value)
@@ -204,6 +205,19 @@ async function chooseOperation() {
       return;
     }
   }
+  const previous = adoptedOperation.value?.operation_id === lastOperationId.value
+    ? adoptedOperation.value
+    : operations.value.find((item: Row) => item.id === lastOperationId.value);
+  const oldDefault = String(previous?.completion_standard || "").trim();
+  const currentStandard = String(form.value.completion_standard || "").trim();
+  const newDefault = String(selected.completion_standard || "");
+  if (!currentStandard || currentStandard === oldDefault) {
+    form.value.completion_standard = newDefault;
+    needsCompletionReview.value = false;
+  } else {
+    needsCompletionReview.value = !!newDefault &&
+      currentStandard !== newDefault.trim();
+  }
   form.value.operation_version = selected.version;
   lastOperationId.value = selected.id;
   form.value.custom_fields = Object.fromEntries(
@@ -212,7 +226,6 @@ async function chooseOperation() {
       form.value.custom_fields?.[field.key] ?? field.default ?? null,
     ]),
   );
-  form.value.completion_standard ||= selected.completion_standard;
   form.value.target_object = selected.default_target_object;
   if (!form.value.work_locations.length) addLocation();
 }
@@ -269,9 +282,9 @@ async function save() {
       "POST",
       input,
     );
+    ElMessage.success("需求版本已保存，正在同步列表");
     await load();
     dialog.value = false;
-    ElMessage.success("需求版本已保存");
   } catch (e) {
     errors.value = (e as Row).fields || {};
     if (errors.value.duplicates) {
@@ -538,6 +551,9 @@ onMounted(async () => {
           :rules="[{ required: true, message: '请填写验收标准' }]"
           ><ElInput v-model="form.completion_standard" type="textarea"
         /></ElFormItem>
+        <ElAlert v-if="needsCompletionReview" class="full-width" type="warning"
+          :closable="false"
+          title="操作类型已经切换：当前验收标准包含手工填写内容，已保留。请确认其适用于新的作业类型。" />
       </div>
       <ElCollapse
         ><ElCollapseItem title="优先级与期望日期（按需填写）" name="priority"

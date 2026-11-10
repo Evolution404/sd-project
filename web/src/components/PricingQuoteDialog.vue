@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAccess } from "../services/access";
 const can = useAccess();
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import FieldControl from "./FieldControl.vue";
 import BusinessTable, { type TableColumn } from "./BusinessTable.vue";
@@ -38,24 +38,44 @@ const priceColumns: TableColumn[] = [
   { key: "amount_fen", label: "金额", minWidth: 145 },
 ];
 const quote = ref<Row | null>(null),
+  evaluatedInput = ref(""),
   busy = ref(false),
   selections = ref<Row>({}),
   selectionBasis = ref<Row>({}),
   bases = ref<Row>({}),
   date = ref(today());
+function requestInput(confirm = false) {
+  return {
+    expected_version: props.expectedVersion,
+    approval_scope_version_id: props.scopeId,
+    pricing_date: date.value,
+    confirm,
+    selections: selections.value,
+    selection_basis: selectionBasis.value,
+    bases: bases.value,
+  };
+}
+const currentInput = computed(() => JSON.stringify(requestInput(false)));
+const stalePreview = computed(() =>
+  !!quote.value && evaluatedInput.value !== currentInput.value);
+const canConfirm = computed(() => !busy.value && !stalePreview.value &&
+  !!quote.value?.complete && !quote.value?.id && can("write"));
 async function calculate(confirm = false) {
+  if (busy.value) return;
+  if (confirm && !canConfirm.value) {
+    ElMessage.warning("计价条件已变化，请重新试算并核对金额");
+    return;
+  }
+  const snapshot = JSON.parse(currentInput.value);
   busy.value = true;
   try {
-    quote.value = await api("/demands/" + props.demandId + "/quote", "POST", {
-      expected_version: props.expectedVersion,
-      approval_scope_version_id: props.scopeId,
-      pricing_date: date.value,
-      confirm,
-      selections: selections.value,
-      selection_basis: selectionBasis.value,
-      bases: bases.value,
+    const result = await api("/demands/" + props.demandId + "/quote", "POST", {
+      ...snapshot, confirm,
+      ...(confirm ? { preview_hash: quote.value?.preview_hash } : {}),
     });
-    for (const missing of quote.value!.missing)
+    quote.value = result;
+    evaluatedInput.value = JSON.stringify(snapshot);
+    for (const missing of result.missing || [])
       bases.value[missing.location_item_no] ||= {};
     if (confirm) {
       ElMessage.success("已保存正式参考报价");
@@ -72,7 +92,8 @@ watch(
   (value) => {
     if (value) {
       quote.value = null;
-      selections.value = {};
+      selections.value = {};      evaluatedInput.value = "";
+      date.value = today();
       selectionBasis.value = {};
       bases.value = {};
       calculate();
@@ -91,7 +112,10 @@ watch(
     ><ElForm label-position="top" novalidate
       ><ElFormItem label="价格适用日期"
         ><ElDatePicker v-model="date" value-format="YYYY-MM-DD" /></ElFormItem
-      ><template v-if="quote"
+      ><ElAlert v-if="stalePreview"
+        type="warning" :closable="false"
+        title="计价条件已修改，上次金额仅供参考；请重新试算后才能确认正式报价" />
+      <template v-if="quote"
         ><ElAlert
           :title="
             quote.complete
@@ -173,7 +197,7 @@ watch(
       ><ElButton
         type="primary"
         :loading="busy"
-        :disabled="!can('write') || !quote?.complete || !!quote?.id"
+        :disabled="!canConfirm"
         @click="calculate(true)"
         >确认正式报价</ElButton
       ></template

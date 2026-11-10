@@ -85,6 +85,7 @@ export function createReporting(repo, catalog, demands, projects, finance) {
         const messages = [];
         if (project.budget_difference_fen > 0)
           messages.push({
+            project_id: project.id,
             project: project.name,
             kind: "费用超过批准预算",
             difference_fen: project.budget_difference_fen,
@@ -95,6 +96,7 @@ export function createReporting(repo, catalog, demands, projects, finance) {
           project.planned_end_on < today
         )
           messages.push({
+            project_id: project.id,
             project: project.name,
             kind: "超过计划结束日期",
             planned_end_on: project.planned_end_on,

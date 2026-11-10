@@ -1,4 +1,5 @@
 import { authorize, id, now, today } from "./auth.mjs";
+import { createHash } from "node:crypto";
 import { requireValue, expectedVersion } from "../domain/errors.mjs";
 import {
   calculate,
@@ -189,10 +190,22 @@ export function createPricing(repo, catalog, demands) {
       lines,
       engine_version: ENGINE_VERSION,
     };
+    // A preview fingerprints exact rule versions and calculated amounts.
+    result.preview_hash = createHash("sha256").update(JSON.stringify({
+      demand_id: key, demand_version: demand.current_version,
+      scope_id: scope?.id || null, pricing_date: date,
+      complete: result.complete, total_fen: result.total_fen,
+      missing: result.missing, lines: result.lines,
+      selections: input.selections || {}, selection_basis: input.selection_basis || {},
+      bases: input.bases || {},
+    })).digest("hex");
     if (!input.confirm) return result;
     requireValue(result.complete, "未完整计价，不能确认完整参考报价", 422, {
       missing,
     });
+    if (input.preview_hash != null)
+      requireValue(input.preview_hash === result.preview_hash,
+        "价格条件或计价结果已发生变化，请重新试算后确认", 409);
     return repo.transaction(() => {
       const evaluationId = id(),
         timestamp = now();

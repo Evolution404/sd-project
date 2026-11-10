@@ -99,6 +99,9 @@ test("formal project change is authored before approval and cannot reuse a stale
         },
       ],
     };
+  assert.throws(() => s.projects.approvalDraft(user, project.id, input),
+    /请核对差异并明确确认/);
+  input.confirm_changes = true;
   let current = s.projects.approvalDraft(user, project.id, input),
     change = current.approvals.find((item) => item.status === "draft");
   assert.equal(current.approval.id, approval.id);

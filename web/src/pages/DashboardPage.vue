@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted } from "vue";
 import { ElMessage } from "element-plus";
+import { useRouter } from "vue-router";
 import BusinessTable, { type TableColumn } from "../components/BusinessTable.vue";
 import { api, type Row, money, statusText } from "../services/api";
 
@@ -8,6 +9,22 @@ const dashboard = ref<Row>({
   portfolio: [], alerts: [], frameworks: [], months: [], quarters: [],
 });
 const loading = ref(true);
+const router = useRouter();
+function openMetric(key: string) {
+  if (key === "pending_demands")
+    void router.push({ path: "/demands", query: {
+      filters: JSON.stringify({ status: "pending" }) } });
+  else void router.push(key === "demands" ? "/demands" : "/projects");
+}
+function openProject(projectId: string) {
+  void router.push({ path: "/projects", query: { project: projectId } });
+}
+async function refreshDashboard() {
+  loading.value = true;
+  try { dashboard.value = await api("/dashboard"); }
+  catch (error) { ElMessage.error((error as Error).message); }
+  finally { loading.value = false; }
+}
 const portfolioColumns: TableColumn[] = [
   { key: "code", label: "项目编号", minWidth: 150 },
   { key: "name", label: "子项目", minWidth: 180 },
@@ -52,11 +69,7 @@ function display(row: Row, col: TableColumn) {
   if (col.key === "target_percent") return value + "%";
   return value;
 }
-onMounted(async () => {
-  try { dashboard.value = await api("/dashboard"); }
-  catch (error) { ElMessage.error((error as Error).message); }
-  finally { loading.value = false; }
-});
+onMounted(refreshDashboard);
 </script>
 <template>
   <div class="page-heading">
@@ -64,18 +77,20 @@ onMounted(async () => {
       <div class="section-caption">业务运行概览</div>
       <h1>工作台</h1>
       <p>专业需求、项目批准、实际费用与结算的当前情况。</p>
+      <ElButton size="small" @click="refreshDashboard" :loading="loading">刷新待办与预警</ElButton>
     </div>
   </div>
   <div class="metric-grid">
-    <div v-for="metric in [
+    <ElButton v-for="metric in [
       { label: '专业需求', key: 'demands' },
       { label: '待确认需求', key: 'pending_demands' },
       { label: '子项目', key: 'projects' },
       { label: '在办项目', key: 'active_projects' },
-    ]" :key="metric.key" class="metric">
+    ]" :key="metric.key" class="metric metric-action" text
+      :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
       <span>{{ metric.label }}</span>
       <strong>{{ dashboard[metric.key] || 0 }}</strong>
-    </div>
+    </ElButton>
   </div>
   <div class="panel">
     <h2>项目费用与预算差异</h2>
@@ -85,6 +100,9 @@ onMounted(async () => {
         <ElTag v-if="column.key === 'status'" effect="plain">{{ display(row, column) }}</ElTag>
         <span v-else>{{ display(row, column) }}</span>
       </template>
+      <template #actions="{ row }">
+        <ElButton size="small" @click="openProject(row.id)">进入办理</ElButton>
+      </template>
     </BusinessTable>
   </div>
   <div class="panel">
@@ -92,6 +110,9 @@ onMounted(async () => {
     <BusinessTable client-side table-key="dashboard:alerts" :loading="loading"
       :rows="alertRows" :columns="alertColumns">
       <template #cell="{ row, column }">{{ display(row, column) }}</template>
+      <template #actions="{ row }">
+        <ElButton size="small" @click="openProject(row.project_id)">处理预警</ElButton>
+      </template>
     </BusinessTable>
   </div>
   <div class="panel">
