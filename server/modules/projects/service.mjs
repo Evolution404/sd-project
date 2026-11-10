@@ -93,12 +93,7 @@ export function createProjects(repo, catalog, demands, pricing) {
             })),
           reference: pricing.summary(ap.id),
         })),
-      cost_nodes: repo
-        .where("v_project_cost_node_current", { project_id: key })
-        .map((node) => ({
-          ...node,
-          deleted: repo.isDeleted("cost_nodes", node.id),
-        })),
+      cost_nodes: repo.projectCostNodes(key),
       changes: repo.where("project_change_orders", { project_id: key }),
     };
   }
@@ -135,7 +130,13 @@ export function createProjects(repo, catalog, demands, pricing) {
           ? catalog.get("categories", input.category_id)
           : null,
         organization = input.managing_unit_id
-          ? catalog.get("organizations", input.managing_unit_id)
+          ? previous?.managing_unit_id === input.managing_unit_id
+            ? {
+                ...repo.find("organizational_unit_versions", "id", previous.managing_unit_version_id),
+                id: previous.managing_unit_id,
+                unit_version_id: previous.managing_unit_version_id,
+              }
+            : catalog.get("organizations", input.managing_unit_id)
           : null;
       repo.insert("project_management_versions", {
         id: id(),

@@ -1,9 +1,8 @@
 import { ref, onUnmounted } from "vue";
 import { onBeforeRouteUpdate } from "vue-router";
 import type { Ref } from "vue";
-import type { Row } from "../api/client";
 
-export function useEntityDialog(detail: Ref<Row | null>, fetchEntity: (id: string) => Promise<Row>, resetTransient: () => void) {
+export function useEntityDialog<T>(detail: Ref<T | null>, fetchEntity: (id: string) => Promise<T>, resetTransient: () => void) {
   const isOpen = ref(false), loading = ref(false), error = ref("");
   let sequence = 0, currentId = "";
   async function open(id: string) {

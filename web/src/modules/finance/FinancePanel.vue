@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import CostCategoryWorkspace from "./components/CostCategoryWorkspace.vue";
+import CostCategorySelect from "./components/CostCategorySelect.vue";
+import type { CostCategoryNode } from "../../../../server/shared/types/trees";
+const categoryNodes = ref<CostCategoryNode[]>([]);
 import { useListRoute } from "../../shared/composables/use-list-route";import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import RowActions from "../../shared/ui/RowActions.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
@@ -21,33 +25,7 @@ import {
 } from "../../shared/api/client";
 const formRef = ref();
 const props = defineProps<{ project: Row }>();
-const showDeletedNodes = ref(false),
-  showDeletedCosts = ref(false),
-  showDeletedReconciliations = ref(false);
-function enabledPath(node: Row) {
-  let current: Row | undefined = node;
-  while (current) {
-    if (current.deleted || current.status !== "active") return false;
-    current = props.project.cost_nodes.find(
-      (parent: Row) => parent.id === current!.parent_id,
-    );
-  }
-  return true;
-}
-const activeLeaves = computed(() =>
-  props.project.cost_nodes.filter(
-    (node: Row) =>
-      enabledPath(node) &&
-      !props.project.cost_nodes.some(
-        (child: Row) => child.parent_id === node.id,
-      ),
-  ),
-);
-const displayedNodes = computed(() =>
-  props.project.cost_nodes.filter(
-    (node: Row) => showDeletedNodes.value || !node.deleted,
-  ),
-);
+const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
 const emit = defineEmits(["changed"]);
 const costs = ref<Row[]>([]),
   listLoading = ref(false),
@@ -61,11 +39,6 @@ const costs = ref<Row[]>([]),
   history = ref<Row | null>(null),
   reconciliations = ref<Row[]>([]);
 const financeColumns: Record<string, TableColumn[]> = {
-  nodes: [
-    { key: "name", label: "科目名称", minWidth: 180 },
-    { key: "parent_id", label: "上级科目", sortable: false, filterable: false },
-    { key: "status", label: "状态" },
-  ],
   costs: [
     // Keep operational state and amount visible beside the fixed action
     // column even in a 760px project-detail dialog.
@@ -122,13 +95,15 @@ async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
   try {
-    const [costResult, billResult, summaryResult, reconResult] = await Promise.all([
+    const [costResult, billResult, summaryResult, reconResult, treeResult] = await Promise.all([
       api(`/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`),
       api(`/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30&sort=${encodeURIComponent(financeSort.value.bills || "created_at")}&direction=${financeDirection.value.bills}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.bills))}`),
       api(`/projects/${props.project.id}/summary`),
       api(`/reconciliations?page=${reconPage.value}&page_size=30&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}&sort=${encodeURIComponent(financeSort.value.reconciliations || "created_at")}&direction=${financeDirection.value.reconciliations}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.reconciliations))}`),
+      api<CostCategoryNode[]>(`/projects/${props.project.id}/cost-tree`),
     ]);
     if (sequence !== loadSequence) return;
+    categoryNodes.value = treeResult;
     costs.value = costResult.items;
     costTotal.value = costResult.total;
     bills.value = billResult.items;
@@ -148,15 +123,12 @@ function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done
 function edit(type: string, row?: Row) {
   editing.value = row || null;
   dialog.value = type;
-  if (type === "node")
-    form.value = row
-      ? { ...row, expected_version: row.version_no }
-      : { name: "", status: "active" };
   if (type === "cost")
     form.value = row
       ? {
           ...row,
-          cost_node_id: props.project.cost_nodes.find(
+          request_key: undefined,
+          cost_node_id: row.cost_node_id || props.project.cost_nodes.find(
             (n: Row) => n.current_version_id === row.cost_node_version_id,
           )?.id,
           expected_version: row.version_no,
@@ -211,12 +183,6 @@ async function save() {
   busy.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
-    if (dialog.value === "node")
-      await api(
-        `/projects/${props.project.id}/nodes${editing.value ? "/" + editing.value.id : ""}`,
-        "POST",
-        form.value,
-      );
     if (dialog.value === "cost")
       await api(
         `/projects/${props.project.id}/costs${editing.value ? "/" + editing.value.entry_id : ""}`,
@@ -269,6 +235,7 @@ async function voidCost(row: Row) {
   await ElMessageBox.confirm("撤销保留原始费用和历史核对。", "撤销费用");
   await api(`/projects/${props.project.id}/costs/${row.entry_id}`, "POST", {
     ...row,
+    request_key: undefined,
     expected_version: row.version_no,
     status: "voided",
   });
@@ -291,16 +258,14 @@ async function removeBill(row: Row) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-async function removeFinancial(type: string, row: Row) {
+async function removeCost(row: Row) {
   try {
     await ElMessageBox.confirm(
-      type === "nodes"
-        ? "删除后该科目及其子级不能新增费用或结算，历史保留。"
-        : "删除将正式撤销当前费用，历史和核对记录保留。",
+      "删除将正式撤销当前费用，历史和核对记录保留。",
       "确认删除",
     );
     await api(
-      `/projects/${props.project.id}/${type}/${type === "costs" ? row.entry_id : row.id}`,
+      `/projects/${props.project.id}/costs/${row.entry_id}`,
       "DELETE",
       { expected_version: row.version_no },
     );
@@ -332,7 +297,7 @@ async function showHistory(row: Row) {
 }
 useListRoute({
   costPage, billPage, reconPage,
-  deletedNodes: showDeletedNodes, deletedCosts: showDeletedCosts, deletedReconciliations: showDeletedReconciliations,
+  deletedCosts: showDeletedCosts, deletedReconciliations: showDeletedReconciliations,
   costsSort: computed({ get: () => financeSort.value.costs, set: value => { financeSort.value.costs = value; } }),
   costsDirection: computed({ get: () => financeDirection.value.costs, set: value => { financeDirection.value.costs = value; } }),
   costsFilters: computed({ get: () => financeFilters.value.costs, set: value => { financeFilters.value.costs = value; } }),
@@ -377,28 +342,7 @@ watch(() => props.project.id, load, { immediate: true });
     </div>
     <p class="muted">参考价格、批准预算、真实费用和分期结算是不同业务事实，不要求相等。缺少任何需求报价时不显示完整参考总价。</p>
   </div>
-  <div class="panel">
-    <div class="toolbar">
-      <h2>费用科目</h2>
-      <ElButton :disabled="!can('write')" @click="edit('node')"
-        >新增科目</ElButton
-      >
-    </div>
-    <ElCheckbox v-model="showDeletedNodes">包含已删除科目</ElCheckbox
-    ><BusinessTable client-side table-key="finance:nodes" :rows="displayedNodes" :columns="financeColumns.nodes" :actions-width="190">
-      <template #cell="{ row, column }">
-        <span v-if="column.key === 'parent_id'">{{ project.cost_nodes.find((n: Row) => n.id === row.parent_id)?.name || '根科目' }}</span>
-        <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag>
-        <span v-else>{{ row[column.key] ?? '—' }}</span>
-      </template>
-      <template #actions="{ row }">
-        <RowActions :actions="[
-          { label: '编辑版本', disabled: !can('write') || row.deleted, run: () => edit('node', row) },
-          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeFinancial('nodes', row) },
-        ]" />
-      </template>
-    </BusinessTable>
-  </div>
+  <CostCategoryWorkspace :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
   <div class="panel">
     <div class="toolbar">
       <h2>实际费用</h2>
@@ -425,7 +369,7 @@ watch(() => props.project.id, load, { immediate: true });
           { label: '附件', run: () => evidence = { ownerKind: 'cost_version_id', ownerId: row.id } },
           { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('cost', row) },
           { label: '撤销', danger: true, disabled: !can('cost.confirm') || row.deleted, run: () => voidCost(row) },
-          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeFinancial('costs', row) },
+          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeCost(row) },
         ]" />
       </template>
     </BusinessTable>
@@ -529,28 +473,6 @@ watch(() => props.project.id, load, { immediate: true });
     @close="dialog = ''"
     ><ElForm ref="formRef" label-position="top" novalidate :model="form"
       ><div class="form-grid">
-        <template v-if="dialog === 'node'"
-          ><ElFormItem
-            label="名称"
-            prop="name"
-            :rules="[{ required: true, message: '请填写名称' }]"
-            required
-            ><ElInput v-model="form.name" /></ElFormItem
-          ><ElFormItem label="上级科目"
-            ><ElSelect v-model="form.parent_id" clearable :disabled="!!editing"
-              ><ElOption
-                v-for="n in project.cost_nodes.filter((node: Row) =>
-                  enabledPath(node),
-                )"
-                :key="n.id"
-                :value="n.id"
-                :label="n.name" /></ElSelect></ElFormItem
-          ><ElFormItem label="状态"
-            ><ElSelect v-model="form.status"
-              ><ElOption label="启用" value="active" /><ElOption
-                label="停用"
-                value="inactive" /></ElSelect></ElFormItem
-        ></template>
         <template v-if="dialog === 'cost'"
           ><ElFormItem
             label="费用事项"
@@ -563,17 +485,7 @@ watch(() => props.project.id, load, { immediate: true });
             prop="cost_node_id"
             :rules="[{ required: true, message: '请填写末级费用科目' }]"
             required
-            ><ElSelect v-model="form.cost_node_id" :disabled="!!editing"
-              ><ElOption
-                v-for="n in project.cost_nodes.filter(
-                  (n: Row) =>
-                    !project.cost_nodes.some(
-                      (child: Row) => child.parent_id === n.id,
-                    ),
-                )"
-                :key="n.id"
-                :value="n.id"
-                :label="n.name" /></ElSelect></ElFormItem
+            > <CostCategorySelect v-model="form.cost_node_id" :project-id="project.id" :nodes="categoryNodes" :disabled="!!editing" :historical-label="editing?.cost_node_name" :historical-version-id="editing?.cost_node_version_id" /></ElFormItem
           ><ElFormItem
             label="实际金额（元）"
             prop="amount_fen"
@@ -683,12 +595,7 @@ watch(() => props.project.id, load, { immediate: true });
         <div v-for="(item, index) in form.items" :key="index" class="panel">
           <div class="form-grid">
             <ElFormItem label="费用科目" required
-              ><ElSelect v-model="item.cost_node_id"
-                ><ElOption
-                  v-for="node in activeLeaves"
-                  :key="node.id"
-                  :value="node.id"
-                  :label="node.name" /></ElSelect></ElFormItem
+              > <CostCategorySelect v-model="item.cost_node_id" :project-id="project.id" :nodes="categoryNodes" :historical-label="item.cost_node_name" :historical-version-id="item.cost_node_version_id" /></ElFormItem
             ><ElFormItem label="关联需求（共同费用可不选）"
               ><ElSelect v-model="item.project_scope_id" clearable
                 ><ElOption

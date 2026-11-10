@@ -3,6 +3,10 @@ import { searchEquipment } from "./equipment-search.mjs";
 export function businessRepository(store) {
   return {
     ...store,
+    projectCostNodes(projectId) {
+      return store.query("SELECT n.*, EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='cost_nodes' AND a.entity_id=n.id AND a.action='delete') AS deleted FROM v_project_cost_node_current n WHERE n.project_id=?", projectId)
+        .map(node => ({ ...node, deleted: Boolean(node.deleted) }));
+    },
     searchFinance: businessLists(store).finance,
     searchDemands: businessLists(store).demands,
     searchProjects: businessLists(store).projects,

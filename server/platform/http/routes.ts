@@ -1,3 +1,4 @@
+import { handleOrganizations } from "../../modules/organizations/http.js";
 import type { RouteContext, RouteHandler } from "./context.js";
 import { handleCatalog } from '../../modules/catalog/http.js';
 import { handleReporting } from '../../modules/reporting/http.js';
@@ -15,6 +16,7 @@ const routes: Record<string, RouteHandler> = {
   'display-labels': handleCatalog,
   'catalogs': handleCatalog,
   'catalog': handleCatalog,
+  'organizations': handleOrganizations,
   'dashboard': handleReporting,
   'demands': handleDemands,
   'sources': handleDemands,

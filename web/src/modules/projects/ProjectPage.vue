@@ -719,7 +719,7 @@ onMounted(async () => {
               v-model="form.managing_unit_id"
               :field="{
                 type: 'ref',
-                reference: 'organizations',
+                reference: 'organizations', adoptedLabel: form.managing_unit_name, adoptedVersionId: form.managing_unit_version_id,
               }" /></ElFormItem
           ><ElFormItem label="初步估算（元）"
             ><FieldControl

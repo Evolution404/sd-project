@@ -1,3 +1,4 @@
+import { selectFormChoice } from "./field-helper.mjs";
 import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
@@ -34,11 +35,7 @@ page.on("pageerror", (e) => errors.push(e.message));
 const output = join(process.cwd(), "test-results", "schema113");
 mkdirSync(output, { recursive: true });
 async function select(label, option) {
-  await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
-    .getByLabel(label, { exact: true })
-    .press("ArrowDown");
-  await page.getByRole("option", { name: option, exact: true }).last().click();
+  await selectFormChoice(page, label, option);
 }
 async function confirm() {
   await page.locator(".el-message-box:visible .el-message-box__btns .el-button--primary").click();

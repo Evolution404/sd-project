@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted, watch } from "vue";
+import { computed, ref, onMounted, onUnmounted, watch, inject } from "vue";
 
 import { api, statusText, type Row } from "../api/client";
+import { referenceSelectorsKey } from "./reference-selectors";
+const referenceSelectors = inject(referenceSelectorsKey, {});
 const props = defineProps<{
   field: Row;
   modelValue: any;
@@ -62,7 +64,7 @@ let requestSequence = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let inFlight: AbortController | null = null;
 function search(q = "", immediate = false) {
-  if (props.field.type !== "ref") return;
+  if (props.field.type !== "ref" || referenceSelectors[props.field.reference]) return;
   const sequence = ++requestSequence;
   if (debounceTimer) clearTimeout(debounceTimer);
   inFlight?.abort();
@@ -114,8 +116,9 @@ onUnmounted(() => {
 });
 </script>
 <template>
+  <component v-if="field.type === 'ref' && referenceSelectors[field.reference]" :is="referenceSelectors[field.reference]" v-model="value" :disabled="disabled" :historical-label="field.adoptedLabel" :historical-version-id="field.adoptedVersionId" />
   <ElSelect
-    v-if="field.type === 'ref'"
+    v-else-if="field.type === 'ref'"
     v-model="value"
     :disabled="disabled"
     clearable

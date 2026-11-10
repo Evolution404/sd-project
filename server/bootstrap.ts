@@ -1,3 +1,5 @@
+import { hierarchyRepository } from "./database/repositories/hierarchies.js";
+import { createOrganizations } from "./modules/organizations/service.js";
 import { openDatabase } from "./database/connection.js";
 import { createStore } from "./database/repositories/store.mjs";
 import { businessRepository } from "./database/repositories/business.mjs";
@@ -24,11 +26,13 @@ export function createSystem(dataDir?: string) {
   const demands = createDemands(repo, catalog);
   const pricing = createPricing(repo, catalog, demands);
   const projects = createProjects(repo, catalog, demands, pricing);
-  const finance = createFinance(repo, catalog, projects, pricing);
+  const hierarchies = hierarchyRepository(store);
+  const finance = createFinance(repo, catalog, projects, pricing, hierarchies);
+  const organizations = createOrganizations(hierarchies, catalog, database);
   const reporting = createReporting(repo, catalog, demands, projects, finance);
 
   return {
-    database, repo, identity, auth, catalog, demands, pricing, projects, finance,
+    database, repo, identity, auth, catalog, demands, pricing, projects, finance, organizations,
     management: createManagement({ repo, identity, auth, catalog }),
     sources: createSources(repo, catalog),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

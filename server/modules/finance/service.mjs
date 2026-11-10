@@ -6,7 +6,7 @@ import {
   integer,
 } from "../../shared/errors/business-error.js";
 import { safeAmount } from "../pricing/calculation.js";
-export function createFinance(repo, catalog, projects, pricing) {
+export function createFinance(repo, catalog, projects, pricing, hierarchies) {
   function activeLeaf(project, nodeId) {
     const node = project.cost_nodes.find((item) => item.id === nodeId);
     requireValue(
@@ -17,7 +17,7 @@ export function createFinance(repo, catalog, projects, pricing) {
     while (current) {
       requireValue(
         current.status === "active" &&
-          !repo.isDeleted("cost_nodes", current.id),
+          !current.deleted,
         "费用科目及全部上级必须启用且未删除",
       );
       current = current.parent_id
@@ -29,14 +29,34 @@ export function createFinance(repo, catalog, projects, pricing) {
   function node(actor, projectId, input, key) {
     authorize(actor, "write");
     return repo.transaction(() => {
-      projects.get(projectId);
+      requireValue(hierarchies.projectExists(projectId), "项目不存在", 404);
       const previous = key
         ? repo.find("v_project_cost_node_current", "id", key)
         : null;
+      requireValue(!key || previous, "费用科目不存在", 404);
       if (previous) {
+        requireValue(
+          input.parent_id === undefined || (input.parent_id || null) === previous.parent_id,
+          "费用科目层级身份不可修改",
+        );
         requireValue(!repo.isDeleted("cost_nodes", key), "费用科目已删除");
         requireValue(previous.project_id === projectId, "科目不属于本项目");
         expectedVersion(previous.version_no, input.expected_version);
+      }
+      if (!previous && input.parent_id) {
+        const parentNodes = new Map(
+          repo.projectCostNodes(projectId).map(node => [node.id, node]),
+        );
+        let parent = parentNodes.get(input.parent_id);
+        const seen = new Set();
+        requireValue(parent, "上级费用科目必须属于本项目");
+        while (parent) {
+          requireValue(!seen.has(parent.id), "费用科目上级路径存在循环");
+          seen.add(parent.id);
+          requireValue(parent.status === "active" && !parent.deleted, "新费用子项的全部上级必须启用且未删除");
+          requireValue(!parent.parent_id || parentNodes.has(parent.parent_id), "费用科目上级路径不完整");
+          parent = parent.parent_id ? parentNodes.get(parent.parent_id) : null;
+        }
       }
       const nodeId = key || id();
       if (!previous)
@@ -57,7 +77,9 @@ export function createFinance(repo, catalog, projects, pricing) {
         recorded_at: now(),
         reason: input.reason || "",
       });
-      return repo.find("v_project_cost_node_current", "id", nodeId);
+      const result = repo.find("v_project_cost_node_current", "id", nodeId);
+      catalog.audit(actor, "cost_nodes", nodeId, previous ? "revise" : "create", previous, result);
+      return result;
     });
   }
   function cost(actor, projectId, input, key) {
@@ -120,16 +142,7 @@ export function createFinance(repo, catalog, projects, pricing) {
     requireValue(root, "结算单不存在", 404);
     const version = repo.latest("settlement_versions", "settlement_id", key),
       draft = repo.find("settlement_drafts", "settlement_id", key);
-    const items = version
-      ? repo
-          .where("settlement_item_versions", {
-            settlement_version_id: version.id,
-          })
-          .map((x) => ({
-            ...repo.find("settlement_items", "id", x.settlement_item_id),
-            ...x,
-          }))
-      : [];
+    const items = version ? hierarchies.settlementItems(version.id) : [];
     const resolutions = version
       ? repo.where("settlement_scope_results", {
           settlement_version_id: version.id,
@@ -448,14 +461,18 @@ export function createFinance(repo, catalog, projects, pricing) {
     submit,
     validateDraft,
     summary,
-    costs: (projectId, includeDeleted = false) =>
-      repo
-        .where("v_cost_current", { project_id: projectId })
-        .map((cost) => ({
-          ...cost,
-          deleted: repo.isDeleted("costs", cost.entry_id),
-        }))
-        .filter((cost) => includeDeleted || !cost.deleted),
+    costTree(actor, projectId) {
+      authorize(actor, "read");
+      requireValue(hierarchies.projectExists(projectId, true), "项目不存在", 404);
+      return hierarchies.costTree(projectId);
+    },
+    categoryDetail(actor, projectId, nodeId, page = 1) {
+      authorize(actor, "read");
+      requireValue(hierarchies.projectExists(projectId, true), "项目不存在", 404);
+      requireValue(hierarchies.costNodeExists(projectId, nodeId), "费用科目不存在", 404);
+      return hierarchies.categoryDetail(projectId, nodeId, page);
+    },
+    costs: (projectId, includeDeleted = false) => hierarchies.costs(projectId, includeDeleted),
     settlements: (projectId) =>
       repo
         .where("settlements", { project_id: projectId })
@@ -635,6 +652,9 @@ export function createFinance(repo, catalog, projects, pricing) {
         requireValue(!repo.isDeleted("cost_nodes", key),
           "费用科目已删除，不能重复删除", 409);
         expectedVersion(current.version_no, input.expected_version);
+        const impact = hierarchies.costTree(projectId).find(node => node.id === key);
+        requireValue(input.expected_references === undefined || input.expected_references === impact.reference_count, "正式引用已变化，请重新核对删除影响", 409);
+        requireValue(input.expected_children === undefined || input.expected_children === impact.child_count, "直属下级已变化，请重新核对删除影响", 409);
         if (current.status === "active")
           node(
             actor,
@@ -648,6 +668,8 @@ export function createFinance(repo, catalog, projects, pricing) {
           );
         catalog.audit(actor, "cost_nodes", key, "delete", current, {
           logical: true,
+          references: impact.reference_count,
+          children: impact.child_count,
         });
         return { deleted: true };
       });

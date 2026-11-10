@@ -1,5 +1,5 @@
 <script setup lang="ts">
-defineProps<{ open: boolean; title: string; loading: boolean; error: string }>();
+withDefaults(defineProps<{ open: boolean; title: string; loading?: boolean; error?: string }>(), { loading: false, error: "" });
 defineEmits<{ (event: "close"): void; (event: "retry"): void }>();
 </script>
 <template>

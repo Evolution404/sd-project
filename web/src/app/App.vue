@@ -6,6 +6,7 @@ import {
   watch,
   computed,
   provide,
+  defineAsyncComponent,
 } from "vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { Fold, Expand, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
@@ -14,6 +15,8 @@ import { api } from "../shared/api/client";
 import { useRoute, useRouter } from "vue-router";
 import NavigationMenu from "./NavigationMenu.vue";
 import { navigationItems } from "./navigation";
+import { referenceSelectorsKey } from "../shared/ui/reference-selectors";
+provide(referenceSelectorsKey, { organizations: defineAsyncComponent(() => import("../modules/dictionaries/components/OrganizationSelect.vue")) });
 const route = useRoute(), router = useRouter();
 const active = computed(() => String(route.name || "dashboard"));
 const user = ref<Actor | null>(null),

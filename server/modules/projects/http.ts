@@ -10,6 +10,11 @@ export async function handleProjects(context: RouteContext): Promise<{
     let result: unknown;
     switch (resource) {
         case "projects":
+            if (sub === "cost-tree") {
+                requireValue(read, "费用科目树只允许查询", 405);
+                result = subKey ? system.finance.categoryDetail(actor, key, subKey, parseListQuery(url.searchParams).page) : system.finance.costTree(actor, key);
+                break;
+            }
             if (read)
                 result = !key
                     ? system.projects.search(parseListQuery(url.searchParams))
