@@ -52,6 +52,10 @@ test("project SQL list keeps current approval and binding without loading all de
   assert.equal(current.profile_version, project.profile_version);
   const detail = s.projects.get(project.id);
   assert.equal(detail.approvals.length, 1);
+  assert.equal(detail.approvals[0].scopes.length, 1);
+  assert.equal(detail.approvals[0].scopes[0].demand_no, demand.demand_no);
+  assert.ok(Array.isArray(detail.approvals[0].scopes[0].materials));
+  assert.ok(Array.isArray(detail.approvals[0].scopes[0].locations));
   assert.equal(detail.scopes[0].demand_no, demand.demand_no);
   assert.equal(detail.scopes[0].demand_status, "active");
   assert.equal(detail.scopes[0].binding.project_scope_id, detail.scopes[0].id);

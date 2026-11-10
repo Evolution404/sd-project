@@ -54,34 +54,10 @@ export function createProjects(repo, catalog, demands, pricing) {
         repo.latest("project_funding_versions", "project_id", key) || null,
       approval,
       scopes,
-      approvals: repo
-        .where("project_approval_versions", { project_id: key })
-        .filter((approval) => approval.status !== "withdrawn")
-        .map((ap) => ({
-          ...ap,
-          scopes: repo
-            .where("project_approval_scope_versions", {
-              approval_version_id: ap.id,
-            })
-            .map((sc) => ({
-              ...sc,
-              demand_no: repo.find("demands", "id", sc.demand_id).demand_no,
-              materials: repo.where("project_approval_material_items", {
-                approval_version_id: ap.id,
-                project_scope_id: sc.project_scope_id,
-              }).map((item) => ({
-                ...item,
-                // Presentation-only link, reconstructed from the stable
-                // scope/material identity; no duplicate ID is persisted.
-                material_id: repo.find("project_scope_materials", "id",
-                  item.project_material_id)?.material_id || null,
-              })),
-              locations: repo.where("project_approval_work_locations", {
-                approval_scope_version_id: sc.id,
-              }),
-            })),
-          reference: pricing.summary(ap.id),
-        })),
+      approvals: repo.projectApprovalHistory(key).map(ap => ({
+        ...ap,
+        reference: pricing.summary(ap.id),
+      })),
       cost_nodes: repo.projectCostNodes(key),
       changes: repo.where("project_change_orders", { project_id: key }),
     };
