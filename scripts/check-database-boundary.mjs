@@ -13,7 +13,7 @@ function filesUnder(dir) {
   }
   return result;
 }
-const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs", "scripts/upgrade-equipment-fields.mjs"];
+const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs", "scripts/restore.mjs", "scripts/upgrade-equipment-fields.mjs", "scripts/upgrade-schema113.mjs", "scripts/demo/start-demo.mjs", "scripts/demo/seed-demo.mjs"];
 const sources = [
   ...protectedDirectories.flatMap(filesUnder).filter(path => !path.startsWith("server/database/")),
   ...protectedScripts,
@@ -31,7 +31,7 @@ for (const source of sources) {
       "raw driver",
     ],
     [
-      /\b(?:repo|store|database)\.(?:query|get|run)\s*\(\s*['"`]\s*(?:SELECT|WITH|INSERT|DELETE|UPDATE|PRAGMA)\b/gi,
+      /\b(?:repo|store|database)\.(?:query|get|run)\s*\(/g,
       "embedded SQL through repository",
     ],
     [/\b(?:one|all|exec)\s*\(\s*(?:['"`])/g, "embedded SQL call"],

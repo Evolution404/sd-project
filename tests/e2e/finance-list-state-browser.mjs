@@ -1,0 +1,58 @@
+import { chromium } from "playwright";
+import { existsSync } from "node:fs";
+import assert from "node:assert/strict";
+import { approvedFixture } from "../helpers.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
+
+const cleanup = [];
+const { s, user, project, node } = approvedFixture({ after: action => cleanup.push(action) });
+s.finance.cost(user, project.id, { cost_node_id: node.id, title: "跨项目检索验收费用", occurred_on: "2026-11-10", amount_fen: 140000, evidence: "真实测试依据" });
+const server = httpServer(s);
+await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+const base = `http://127.0.0.1:${server.address().port}`;
+const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: "chrome" });
+const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+const errors = [];
+page.on("pageerror", error => errors.push(error.message));
+try {
+  await page.goto(base + "/#/finance/costs");
+  await page.getByLabel("用户名", { exact: true }).fill("admin");
+  await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  const row = page.getByRole("row").filter({ hasText: "跨项目检索验收费用" });
+  await row.waitFor();
+  await row.getByText("1,400.00", { exact: true }).waitFor();
+  const search = page.getByPlaceholder("搜索子项目、编号或费用事项");
+  await search.fill("跨项目检索验收费用");
+  await search.press("Enter");
+  await page.waitForURL(url => url.hash.includes("q="));
+  const previous = page.url();
+  await row.getByRole("button", { name: "进入项目", exact: true }).click();
+  const detail = page.locator(".business-detail-dialog:visible");
+  await detail.getByRole("heading", { name: "独立结算单", exact: true }).waitFor();
+  assert.equal(page.url(), previous);
+  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await detail.waitFor({ state: "hidden" });
+  await page.getByRole("tab", { name: "结算单", exact: true }).click();
+  await page.waitForURL(url => url.hash === "#/finance/settlements");
+  assert.equal(await search.inputValue(), "");
+  await page.goBack();
+  await page.waitForURL(previous);
+  assert.equal(await search.inputValue(), "跨项目检索验收费用");
+  await row.waitFor();
+  await page.reload();
+  await row.waitFor();
+  assert.equal(await search.inputValue(), "跨项目检索验收费用");
+  await search.fill("不存在的费用");
+  await search.press("Enter");
+  await page.getByText("没有符合筛选条件的记录", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "清除筛选条件", exact: true }).last().click();
+  await row.waitFor();
+  assert.equal(await search.inputValue(), "");
+  assert.deepEqual(errors, []);
+  console.log("FINANCE_LIST_STATE_BROWSER_OK cross-project amounts, modal state, tab isolation, back/refresh restoration and empty-filter clearing");
+} finally {
+  await browser.close();
+  await new Promise(resolve => server.close(resolve));
+  for (const action of cleanup.reverse()) await action();
+}

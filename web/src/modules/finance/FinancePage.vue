@@ -76,7 +76,7 @@ async function refreshProject() {
   void load();
 }
 useListRoute({ page, q: query, sort, direction, filters, deleted }, load);
-watch(kind, () => { page.value = 1; query.value = ""; sort.value = ""; filters.value = {}; deleted.value = false; void load(); });
+watch(kind, () => { rows.value = []; error.value = ""; void load(); });
 onMounted(() => { void load(); });
 </script>
 <template>
