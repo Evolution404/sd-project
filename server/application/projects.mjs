@@ -1,4 +1,4 @@
-import { authorize, documentCode, id, now } from "./auth.mjs";
+import { authorize, documentCode, id, now, today } from "./auth.mjs";
 import {
   requireValue,
   expectedVersion,
@@ -352,10 +352,67 @@ export function createProjects(repo, catalog, demands, pricing) {
       return get(key);
     });
   }
+  // Agreement balances are a budget *comparison*, not a funds-allocation
+  // ledger. Only the latest funding link and latest formally approved project
+  // budget contribute to the reference figures.
+  function agreementOptions(key) {
+    const project = get(key);
+    const selectedId = project.funding?.agreement_id || null;
+    const currentDate = today();
+    const budgets = new Map(repo.list("v_project_current_approval").map(
+      row => [row.project_id, row.approved_budget_fen ?? 0],
+    ));
+    const links = repo.list("v_project_funding_current");
+    const linked = new Map();
+    for (const link of links) {
+      if (!link.agreement_id || repo.isDeleted("projects", link.project_id))
+        continue;
+      const entry = linked.get(link.agreement_id) || {
+        projects: 0, approved_budget_fen: 0,
+      };
+      entry.projects += 1;
+      entry.approved_budget_fen += budgets.get(link.project_id) || 0;
+      requireValue(Number.isSafeInteger(entry.approved_budget_fen),
+        "关联项目预算汇总超出安全范围");
+      linked.set(link.agreement_id, entry);
+    }
+    const agreements = catalog.list("agreements", true)
+      .filter(agreement => agreement.framework_id === project.framework_id)
+      .map(agreement => {
+        const eligible = !agreement.deleted && agreement.status === "active" &&
+          (!agreement.effective_from || agreement.effective_from <= currentDate) &&
+          (!agreement.effective_to || agreement.effective_to >= currentDate);
+        const used = linked.get(agreement.id) || {
+          projects: 0, approved_budget_fen: 0,
+        };
+        return {
+          id: agreement.id, code: agreement.code, name: agreement.name,
+          framework_id: agreement.framework_id, status: agreement.status,
+          effective_from: agreement.effective_from,
+          effective_to: agreement.effective_to,
+          deleted: agreement.deleted, eligible,
+          limit_fen: agreement.limit_fen,
+          linked_projects_count: used.projects,
+          linked_approved_budget_fen: used.approved_budget_fen,
+          budget_difference_fen: agreement.limit_fen -
+            used.approved_budget_fen,
+        };
+      });
+    return {
+      framework_id: project.framework_id,
+      current_agreement_id: selectedId,
+      project_approved_budget_fen: project.approval?.approved_budget_fen ?? null,
+      // Keep an ineligible historical selection visible, but not selectable
+      // for a new funding assignment.
+      options: agreements.filter(row => row.eligible || row.id === selectedId)
+        .sort((a, b) => a.code.localeCompare(b.code, "zh-CN")),
+    };
+  }
   return {
     get,
     save,
     approvalDraft,
+    agreementOptions,
     list(includeDeleted = false) {
       const deleted = repo.deleted("projects");
       return repo
@@ -446,12 +503,29 @@ export function createProjects(repo, catalog, demands, pricing) {
           project.funding?.version_no || 0,
           input.expected_version,
         );
-        if (input.agreement_id) catalog.get("agreements", input.agreement_id);
+        requireValue(project.status !== "closed",
+          "项目已结项，不能变更资金归属", 409);
+        const agreementId = input.agreement_id || null;
+        requireValue(agreementId !== (project.funding?.agreement_id || null),
+          "资金归属未变化，无需重复保存", 409);
+        if (agreementId) {
+          const agreement = catalog.get("agreements", agreementId);
+          requireValue(agreement.framework_id === project.framework_id,
+            "所选执行协议必须属于子项目所在年度框架", 422);
+          requireValue(agreement.status === "active" &&
+            !repo.isDeleted("agreements", agreementId),
+            "执行协议已停用或删除，请选择有效协议", 422);
+          const date = today();
+          requireValue(
+            (!agreement.effective_from || agreement.effective_from <= date) &&
+            (!agreement.effective_to || agreement.effective_to >= date),
+            "执行协议尚未生效或已过期，请选择当前有效协议", 422);
+        }
         repo.insert("project_funding_versions", {
           id: id(),
           project_id: key,
           version_no: (project.funding?.version_no || 0) + 1,
-          agreement_id: input.agreement_id || null,
+          agreement_id: agreementId,
           actor_id: actor.id,
           recorded_at: now(),
           reason: input.reason || "",

@@ -307,6 +307,8 @@ export function httpServer(
               ? page(system.projects.list(deleted), url.searchParams)
               : sub === "history"
                 ? system.projects.history(key)
+              : sub === "agreements"
+                ? system.projects.agreementOptions(key)
                 : sub === "summary"
                   ? system.finance.summary(key)
                   : sub === "costs" && subKey
