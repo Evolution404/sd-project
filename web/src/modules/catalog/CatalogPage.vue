@@ -603,7 +603,7 @@ onMounted(async () => {
         ><ElButton @click="load">刷新</ElButton
         ><span class="muted">共 {{ total }} 项</span>
       </div>
-      <BusinessTable :rows="rows" :columns="tableColumns" :table-key="'catalog:' + kind" :loading="loading" :filter-state="columnFilters"
+      <BusinessTable :search-active="!!query" @clear-search="query = ''; columnFilters = {}; page = 1; load()" :rows="rows" :columns="tableColumns" :table-key="'catalog:' + kind" :loading="loading" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         :selectable="['lines','physical','towers','spans'].includes(kind)" :actions-width="180"
         @selection-change="selectRows" @sort-change="tableSort" @filter-change="tableFilter">

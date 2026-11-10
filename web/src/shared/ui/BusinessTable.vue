@@ -10,9 +10,11 @@ const props = withDefaults(defineProps<{
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
   filterState?: Record<string, string>;
+  searchActive?: boolean;
   sortState?: { prop: string; order: "ascending" | "descending" | null };
 }>(), { selectable: false, loading: false, actionsWidth: 190 });
 const emit = defineEmits<{
+  (e: "clear-search"): void;
   (e: "selection-change", rows: Row[]): void;
   (e: "sort-change", value: { key: string; order: string }): void;
   (e: "filter-change", filters: Record<string, string>): void;
@@ -33,9 +35,11 @@ const pref = ref<Pref>({ order: [], hidden: [], fixed: [], widths: {} });
 const filters = ref<Record<string, string>>({});
 const activeFilterCount = computed(() =>
   Object.values(filters.value).filter(value => String(value ?? "").trim()).length);
+const hasActiveFilters = computed(() => props.searchActive || activeFilterCount.value > 0);
 function clearFilters() {
   filters.value = {};
-  if (!props.clientSide) emit("filter-change", {});
+  if (props.searchActive) emit("clear-search");
+  else if (!props.clientSide) emit("filter-change", {});
 }
 const table = ref<TableInstance>();
 watch(() => props.filterState, value => { if (value) filters.value = { ...value }; }, { immediate: true, deep: true });
@@ -213,8 +217,8 @@ watch(() => props.tableKey, async () => {
   <div class="business-table">
     <div class="business-table-tools">
       <span class="business-table-hint">{{ toolHint }}</span>
-      <ElButton v-if="activeFilterCount" size="small" plain @click="clearFilters">
-        已筛选 {{ activeFilterCount }} 列 · 清除
+      <ElButton v-if="hasActiveFilters" size="small" plain @click="clearFilters">
+        {{ searchActive ? "清除筛选条件" : "已筛选 " + activeFilterCount + " 列 · 清除" }}
       </ElButton>
       <ElButton size="small" text @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
@@ -242,8 +246,8 @@ watch(() => props.tableKey, async () => {
         <template #default="{ row }"><slot name="actions" :row="row" /></template>
       </ElTableColumn>
       <template #empty>
-        <ElEmpty :description="activeFilterCount ? '没有符合筛选条件的记录' : '暂无记录'" :image-size="76">
-          <ElButton v-if="activeFilterCount" size="small" @click="clearFilters">清除筛选条件</ElButton>
+        <ElEmpty :description="hasActiveFilters ? '没有符合筛选条件的记录' : '暂无记录'" :image-size="76">
+          <ElButton v-if="hasActiveFilters" size="small" @click="clearFilters">清除筛选条件</ElButton>
         </ElEmpty>
       </template>
     </ElTable>
