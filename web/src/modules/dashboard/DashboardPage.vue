@@ -14,6 +14,9 @@ function openMetric(key: string) {
   if (key === "pending_demands")
     void router.push({ path: "/demands", query: {
       filters: JSON.stringify({ status: "pending" }) } });
+  else if (key === "active_projects")
+    void router.push({ path: "/projects", query: {
+      filters: JSON.stringify({ status: "approved" }) } });
   else void router.push(key === "demands" ? "/demands" : "/projects");
 }
 function openProject(projectId: string) {

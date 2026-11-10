@@ -108,14 +108,6 @@ function columnMinWidth(col: TableColumn) {
   return columnWidth(col) === undefined ? savedColumnWidth(col) ?? defaultColumnWidth(col) : 80;
 }
 
-const toolHint = computed(() => {
-  const sort = props.columns.some(c => c.sortable !== false);
-  const filter = props.columns.some(c => c.filterable !== false);
-  if (sort && filter) return "点击表头排序，按列筛选";
-  if (sort) return "点击表头排序，列设置可调整布局";
-  if (filter) return "按列筛选，列设置可调整布局";
-  return "可调整列宽和显示顺序";
-});
 function persist() {
   localStorage.setItem("sd-columns:" + props.tableKey, JSON.stringify(pref.value));
 }
@@ -223,7 +215,6 @@ watch(() => props.tableKey, async () => {
 <template>
   <div class="business-table">
     <div class="business-table-tools">
-      <span class="business-table-hint">{{ toolHint }}</span>
       <ElButton v-if="hasActiveFilters" size="small" plain @click="clearFilters">
         {{ searchActive ? "清除筛选条件" : "已筛选 " + activeFilterCount + " 列 · 清除" }}
       </ElButton>
@@ -277,7 +268,6 @@ watch(() => props.tableKey, async () => {
 </template>
 <style scoped>
 .business-table-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
-.business-table-hint{color:var(--muted);font-size:12px}
 .business-column-title{font-weight:600;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
 .business-table-grid :deep(.el-table__header-wrapper th .cell) {
   white-space:nowrap;display:flex;align-items:center;flex-wrap:nowrap;min-width:0;
