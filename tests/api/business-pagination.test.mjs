@@ -50,7 +50,13 @@ test("project SQL list keeps current approval and binding without loading all de
   assert.equal(current.scopes[0].binding.project_id, project.id);
   assert.equal(current.approvals, undefined);
   assert.equal(current.profile_version, project.profile_version);
-  assert.equal(s.projects.get(project.id).approvals.length, 1);
+  const detail = s.projects.get(project.id);
+  assert.equal(detail.approvals.length, 1);
+  assert.equal(detail.scopes[0].demand_no, demand.demand_no);
+  assert.equal(detail.scopes[0].demand_status, "active");
+  assert.equal(detail.scopes[0].binding.project_scope_id, detail.scopes[0].id);
+  assert.equal(detail.scopes[0].binding.project_id, project.id);
+  assert.equal(detail.scopes[0].binding.demand_id, demand.id);
 });
 
 test("cross-project finance queries preserve formal amount, drafts and reference isolation", t => {

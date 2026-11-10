@@ -2,6 +2,27 @@ import { businessLists } from "../queries/business-lists.js";
 export function businessRepository(store) {
   return {
     ...store,
+    // One indexed project scan replaces four lookups for every demand scope.
+    // Keep the full historical scope row and current binding projection intact.
+    projectScopes(projectId) {
+      return store.query(`SELECT sc.*, d.demand_no,
+        COALESCE(dc.status, 'pending') AS demand_status,
+        CASE WHEN b.project_scope_id IS NULL THEN NULL ELSE json_object(
+          'project_scope_id', b.project_scope_id,
+          'project_id', b.project_id,
+          'demand_id', b.demand_id,
+          'link_event_id', b.link_event_id,
+          'linked_by', b.linked_by,
+          'linked_at', b.linked_at) END AS binding_json
+        FROM project_demand_scopes sc
+        JOIN demands d ON d.id=sc.demand_id
+        LEFT JOIN v_demand_current dc ON dc.id=sc.demand_id
+        LEFT JOIN v_project_demand_binding_current b ON b.project_scope_id=sc.id
+        WHERE sc.project_id=?`, projectId).map(({ binding_json, ...scope }) => ({
+          ...scope,
+          binding: binding_json ? JSON.parse(binding_json) : null,
+        }));
+    },
     projectCostNodes(projectId) {
       return store.query("SELECT n.*, EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='cost_nodes' AND a.entity_id=n.id AND a.action='delete') AS deleted FROM v_project_cost_node_current n WHERE n.project_id=?", projectId)
         .map(node => ({ ...node, deleted: Boolean(node.deleted) }));

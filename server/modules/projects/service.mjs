@@ -25,18 +25,7 @@ export function createProjects(repo, catalog, demands, pricing) {
             status: "approved",
           })
           .sort((a, b) => b.version_no - a.version_no)[0] || null;
-    const scopes = repo
-      .where("project_demand_scopes", { project_id: key })
-      .map((scope) => ({
-        ...scope,
-        demand_no: repo.find("demands", "id", scope.demand_id).demand_no,        demand_status: repo.find("v_demand_current", "id", scope.demand_id)?.status || "pending",
-        binding:
-          repo.find(
-            "v_project_demand_binding_current",
-            "project_scope_id",
-            scope.id,
-          ) || null,
-      }));
+    const scopes = repo.projectScopes(key);
     return {
       ...profile,
       ...root,
