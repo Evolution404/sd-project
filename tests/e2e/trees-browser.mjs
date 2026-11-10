@@ -1,5 +1,5 @@
 import { chromium } from "playwright";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
@@ -65,6 +65,14 @@ const browser = await chromium.launch(
 );
 const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });
 const errors = [];
+let stage = "initialization";
+page.setDefaultTimeout(12000);
+page.setDefaultNavigationTimeout(15000);
+function checkpoint(label) {
+  stage = label;
+  console.log(`TREE_STAGE ${label} route=${new URL(page.url()).hash} width=${page.viewportSize()?.width}`);
+}
+
 page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/trees");
 mkdirSync(output, { recursive: true });
@@ -276,8 +284,10 @@ try {
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   // Restore desktop viewport before exercising tree actions; mobile uses a list/detail switch.
   await page.setViewportSize({ width: 1100, height: 1050 });
+  checkpoint("organization-entry");
   await page.goto(base + "/#/dictionaries/organizations");
   const organization = page.locator(".organization-workspace");
+  checkpoint("organization-expand");
   await organization
     .getByRole("button", { name: "展开全部", exact: true })
     .click();
@@ -396,6 +406,7 @@ try {
     .click();
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page.setViewportSize({ width: 1100, height: 1050 });
+  checkpoint("organization-viewer");
   await page.goto(base + "/#/dictionaries/organizations");
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
   await login("tree-viewer", "Tree-viewer-password");
@@ -417,7 +428,16 @@ try {
     "TREES_BROWSER_OK cost roots/children, readonly hierarchy, sums, historical deletion, tree selectors, organization versioned move and adopted historical path, 3 widths and viewer",
   );
 } catch (error) {
-  await page.screenshot({ path: join(output, "failure.png"), fullPage: true });
+  console.error(`TREE_FAILURE stage=${stage} route=${page.url()} width=${page.viewportSize()?.width}`);
+  await page.screenshot({ path: join(output, "failure.png"), fullPage: true }).catch(() => {});
+  const diagnostic = await page.evaluate(() => ({
+    title: document.title,
+    heading: document.querySelector("main h1")?.textContent,
+    workspace: document.querySelector(".organization-workspace")?.textContent?.slice(0, 2000),
+    buttons: [...document.querySelectorAll("button")].filter(x => x.getBoundingClientRect().width).map(x => x.textContent?.trim()).slice(0, 70),
+    viewport: [innerWidth, innerHeight],
+  })).catch(error => ({ diagnosticError: String(error) }));
+  writeFileSync(join(output, "failure-diagnostic.json"), JSON.stringify({ stage, url: page.url(), errors, diagnostic }, null, 2));
   console.log("TREE_FAILURE_URL", page.url(), errors);
   console.log(
     await page.locator(".el-select__popper").evaluateAll((nodes) =>
