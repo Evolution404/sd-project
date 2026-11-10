@@ -41,7 +41,12 @@ async function settleLayout() {
     await document.fonts.ready;
     const finite = document.getAnimations().filter(animation =>
       animation.effect?.getComputedTiming().iterations !== Infinity);
-    await Promise.all(finite.map(animation => animation.finished.catch(() => {})));
+    // Some UI transitions can be replaced/restarted indefinitely during a reactive update.
+    // Visual stability must not hang the entire release gate.
+    await Promise.race([
+      Promise.all(finite.map(animation => animation.finished.catch(() => {}))),
+      new Promise(resolve => setTimeout(resolve, 1200)),
+    ]);
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
 }

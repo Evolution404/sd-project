@@ -274,6 +274,8 @@ try {
     });
   }
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  // Restore desktop viewport before exercising tree actions; mobile uses a list/detail switch.
+  await page.setViewportSize({ width: 1100, height: 1050 });
   await page.goto(base + "/#/dictionaries/organizations");
   const organization = page.locator(".organization-workspace");
   await organization
@@ -393,6 +395,7 @@ try {
     .getByRole("button", { name: "取消", exact: true })
     .click();
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await page.setViewportSize({ width: 1100, height: 1050 });
   await page.goto(base + "/#/dictionaries/organizations");
   await page.getByRole("button", { name: "退出登录", exact: true }).click();
   await login("tree-viewer", "Tree-viewer-password");
