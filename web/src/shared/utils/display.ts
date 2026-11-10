@@ -53,6 +53,7 @@ export const fieldNames: Record<string, string> = {
   closures: "结项决定",
   funding: "资金归属",
   versions: "正式内容版本",
+  audit_events: "操作审计",
   events: "状态决定",
   bindings: "需求关联及解绑",
   cost_nodes: "费用科目历史",

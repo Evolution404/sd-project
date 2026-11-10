@@ -5,7 +5,7 @@ import type {
 } from "../../shared/types/trees.js";
 import type { hierarchyRepository } from "../../database/repositories/hierarchies.js";
 import type { Database } from "../../database/connection.js";
-import type { createCatalog } from "../catalog/service.mjs";
+import type { DictionaryService } from "../dictionaries/service.js";
 import { authorize, digest } from "../../platform/auth/service.js";
 import {
   expectedVersion,
@@ -15,7 +15,7 @@ import {
 
 export function createOrganizations(
   repository: ReturnType<typeof hierarchyRepository>,
-  catalog: ReturnType<typeof createCatalog>,
+  dictionaries: DictionaryService,
   database: Pick<Database, "transaction">,
 ) {
   function tree(actor: Actor) {
@@ -121,7 +121,7 @@ export function createOrganizations(
           "项目引用已变化，请重新核对删除影响",
           409,
         );
-        return catalog.remove(
+        return dictionaries.remove(
           actor,
           "organizations",
           id,
@@ -148,9 +148,8 @@ export function createOrganizations(
           409,
         );
         const node = existing;
-        return catalog.save(
+        return dictionaries.saveOrganization(
           actor,
-          "organizations",
           {
             name: node.name,
             status: node.status,

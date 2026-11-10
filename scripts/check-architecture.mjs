@@ -18,6 +18,7 @@ export function inspectArchitecture(root) {
     const code = file.endsWith(".vue") ? raw.match(/<script\b[^>]*>([\s\S]*?)<\/script>/)?.[1] || "" : raw;
     const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
     const strictFrontend = name.startsWith("web/src/modules/equipment/")
+      || name.startsWith("web/src/modules/materials/")
       || name.startsWith("web/src/modules/finance/components/")
       || name.startsWith("web/src/modules/dictionaries/")
       || /web\/src\/shared\/(?:ui\/BusinessTree|utils\/tree)/.test(name);

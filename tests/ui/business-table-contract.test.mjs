@@ -39,7 +39,7 @@ test("all business data tables use the single customizable BusinessTable adapter
 });
 
 test("multi-action rows use one primary action and an accessible shared menu", () => {
-  for (const name of ["modules/catalog/CatalogPage.vue", "modules/equipment/EquipmentPage.vue", "modules/system/SystemPage.vue", "modules/projects/ProjectPage.vue", "modules/finance/FinancePanel.vue", "modules/files/EvidencePanel.vue"]) {
+  for (const name of ["modules/catalog/CatalogPage.vue", "modules/equipment/EquipmentPage.vue", "modules/materials/MaterialsPage.vue", "modules/dictionaries/DictionaryPage.vue", "modules/system/SystemPage.vue", "modules/projects/ProjectPage.vue", "modules/finance/FinancePanel.vue", "modules/files/EvidencePanel.vue"]) {
     const source = readFileSync(resolve("web/src", name), "utf8");
     assert.match(source, /<RowActions\b/);
     assert.doesNotMatch(source, /:actions-width="(?:295|300|530)"/);
@@ -63,8 +63,9 @@ test("sparse tables use flexible minimum widths and detail viewing stays in one 
   assert.match(table, /:min-width="columnMinWidth\(col\)"/);
   assert.match(table, /const stretchColumn = computed/);
   assert.doesNotMatch(table, /type="expand"/);
-  for (const name of ["DemandPage", "ProjectPage", "CatalogPage", "EquipmentPage"]) {
-    const source = readFileSync(resolve(`web/src/modules/${name === "DemandPage" ? "demands" : name === "ProjectPage" ? "projects" : name === "EquipmentPage" ? "equipment" : "catalog"}/${name}.vue`), "utf8");
+  const pages = { demands: "DemandPage", projects: "ProjectPage", catalog: "CatalogPage", equipment: "EquipmentPage", materials: "MaterialsPage", dictionaries: "DictionaryPage" };
+  for (const [module, name] of Object.entries(pages)) {
+    const source = readFileSync(resolve(`web/src/modules/${module}/${name}.vue`), "utf8");
     assert.match(source, /<BusinessDetailDialog\b/);
     assert.match(source, /useEntityDialog\(/);
     assert.doesNotMatch(source, /useEntityRoute|#expand/);

@@ -12,7 +12,7 @@ export const router = createRouter({
     { path: "/agreements", name: "agreements", component: catalog, props: { title: "执行协议", kinds: ["agreements"] } },
     { path: "/ledger/:kind(lines|physical|towers|spans)?", name: "ledger", component: () => import("../modules/equipment/EquipmentPage.vue"),
       props: {} },
-    { path: "/materials", name: "materials", component: catalog, props: { title: "物资管理", kinds: ["materials"] } },
+    { path: "/materials", name: "materials", component: () => import("../modules/materials/MaterialsPage.vue") },
     { path: "/standards/:kind(operations|objects)?", name: "standards", component: catalog,
       props: { title: "作业标准", kinds: ["operations", "objects"] } },
     { path: "/pricing/:kind(prices|factors)?", name: "pricing", component: catalog,

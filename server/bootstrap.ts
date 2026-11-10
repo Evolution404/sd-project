@@ -1,3 +1,7 @@
+import { dictionaryRepository } from "./database/repositories/dictionaries.js";
+import { materialRepository } from "./database/repositories/materials.js";
+import { createDictionaries } from "./modules/dictionaries/service.js";
+import { createMaterials } from "./modules/materials/service.js";
 import { equipmentRepository } from "./database/repositories/equipment.js";
 import { auditRepository } from "./database/repositories/audit.js";
 import { createAudit } from "./platform/audit/service.js";
@@ -28,17 +32,19 @@ export function createSystem(dataDir?: string) {
   const auth = createAuth(identity, database);
   const audit = createAudit(auditRepository(store));
   const equipment = createEquipment(equipmentRepository(store), database, audit);
-  const catalog = createCatalog(repo, equipment, audit);
+  const dictionaries = createDictionaries(dictionaryRepository(store),database,audit);
+  const materials = createMaterials(materialRepository(store),dictionaries,database,audit);
+  const catalog = createCatalog(repo, equipment, audit, dictionaries, materials);
   const demands = createDemands(repo, catalog);
   const pricing = createPricing(repo, catalog, demands);
   const projects = createProjects(repo, catalog, demands, pricing);
   const hierarchies = hierarchyRepository(store);
   const finance = createFinance(repo, catalog, projects, pricing, hierarchies);
-  const organizations = createOrganizations(hierarchies, catalog, database);
+  const organizations = createOrganizations(hierarchies, dictionaries, database);
   const reporting = createReporting(repo, catalog, demands, projects, finance);
 
   return {
-    database, repo, identity, auth, audit, equipment, catalog, demands, pricing, projects, finance, organizations,
+    database, repo, identity, auth, audit, equipment, dictionaries, materials, catalog, demands, pricing, projects, finance, organizations,
     management: createManagement({ repo, identity, auth, catalog }),
     sources: createSources(repo, catalog),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

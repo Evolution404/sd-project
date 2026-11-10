@@ -1,3 +1,4 @@
+import { isFoundationKind } from "../dictionaries/service.js";
 import { isEquipmentKind } from "../equipment/service.js";
 import { validateOperationFields } from "../work-standards/catalog-validation.mjs";
 import { validateFactorFields } from "../pricing/factor-catalog.mjs";
@@ -29,7 +30,7 @@ function unchangedPriceDefinition(previous, next) {
   return priceDefinitionFields.every(key =>
     normalized(previous[key]) === normalized(next[key] === undefined ? previous[key] : next[key]));
 }
-export function createCatalog(repo, equipment, auditor) {
+export function createCatalog(repo, equipment, auditor, dictionaries, materials) {
   const audit = auditor.record;
   const definitions = catalogDefinitions;
   function config(kind) {
@@ -57,6 +58,8 @@ export function createCatalog(repo, equipment, auditor) {
     return descriptions;
   }
   function list(kind, includeDeleted = false) {
+    if (isFoundationKind(kind)) return dictionaries.list(kind, includeDeleted);
+    if (kind === "materials") return materials.list(includeDeleted);
     if (isEquipmentKind(kind)) return equipment.list(kind, includeDeleted);
     const c = config(kind), deleted = repo.deleted(kind);
     return repo
@@ -90,6 +93,8 @@ export function createCatalog(repo, equipment, auditor) {
     return equipment.search(kind, options);
   }
   function get(kind, key, includeDeleted = false) {
+    if (isFoundationKind(kind)) return dictionaries.get(kind, key, includeDeleted);
+    if (kind === "materials") return materials.get(key, includeDeleted);
     if (isEquipmentKind(kind)) return equipment.get(kind, key, includeDeleted);
     requireValue(
       typeof key === "string" && key.trim(),
@@ -120,6 +125,8 @@ export function createCatalog(repo, equipment, auditor) {
     };
   }
   function save(actor, kind, input, key) {
+    if (isFoundationKind(kind)) return dictionaries.save(actor, kind, input, key);
+    if (kind === "materials") return materials.save(actor, input, key);
     if (isEquipmentKind(kind)) return equipment.save(actor, kind, input, key);
     authorize(
       actor,
@@ -483,6 +490,8 @@ export function createCatalog(repo, equipment, auditor) {
     replacementPreview: equipment.replacementPreview,
     replacePhysical: equipment.replacePhysical,
     history(kind, key) {
+      if (isFoundationKind(kind)) return dictionaries.history(kind, key);
+      if (kind === "materials") return materials.history(key);
       if (isEquipmentKind(kind)) return equipment.history(kind, key);
       const c = config(kind);
       get(kind, key, true);
@@ -493,6 +502,8 @@ export function createCatalog(repo, equipment, auditor) {
           : repo.auditFor(kind, key);
     },
     remove(actor, kind, key, version) {
+      if (isFoundationKind(kind)) return dictionaries.remove(actor, kind, key, version);
+      if (kind === "materials") return materials.remove(actor, key, version);
       if (isEquipmentKind(kind)) return equipment.remove(actor, kind, key, version);
       authorize(actor, "admin");
       return repo.transaction(() => {

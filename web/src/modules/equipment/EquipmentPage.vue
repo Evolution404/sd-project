@@ -269,27 +269,7 @@ onMounted(async () => {
       :name="key"
       :label="definitions[key]?.title || key"
   /></ElTabs>
-  <ElTabs
-    v-else
-    model-value="voltages"
-    @tab-change="
-      (value) => {
-        if (value !== 'voltages')
-          router.push({
-            name: 'dictionaries',
-            params: { kind: String(value) },
-            query: {},
-          });
-      }
-    "
-    ><ElTabPane name="voltages" label="电压等级" /><ElTabPane
-      name="units"
-      label="计量单位" /><ElTabPane
-      name="priorities"
-      label="优先级" /><ElTabPane
-      name="categories"
-      label="项目类别" /><ElTabPane name="organizations" label="归口单位"
-  /></ElTabs>
+  <slot v-else name="tabs" />
   <ElAlert v-if="error" :title="error" type="error" :closable="false"
     ><ElButton @click="load">重试</ElButton></ElAlert
   >

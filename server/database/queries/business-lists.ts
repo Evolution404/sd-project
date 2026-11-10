@@ -6,10 +6,11 @@ interface QueryStore {
   query(sql: string, ...parameters: SQLInputValue[]): unknown[];
   get(sql: string, ...parameters: SQLInputValue[]): unknown;
 }
-interface ListSource {
+export interface ListSource {
   sql: string;
   columns: readonly string[];
   search: readonly string[];
+  defaultSort?: string;
 }
 export interface DemandListRecord {
   id: string;
@@ -106,7 +107,7 @@ const financeSources: Record<FinanceListKind, ListSource> = {
   },
 };
 
-function searchPage<T>(store: QueryStore, entity: string, source: ListSource, query: ListQuery): Page<T> {
+export function searchPage<T>(store: QueryStore, entity: string, source: ListSource, query: ListQuery): Page<T> {
   const statement = `WITH list_rows AS (SELECT source.*, EXISTS(SELECT 1 FROM audit_events a
     WHERE a.entity=? AND a.entity_id=source.id AND a.action='delete') AS deleted FROM (${source.sql}) source) `;
   const predicates = query.deleted ? [] : ["deleted=0"];
@@ -122,7 +123,7 @@ function searchPage<T>(store: QueryStore, entity: string, source: ListSource, qu
   }
   const where = predicates.length ? " WHERE " + predicates.join(" AND ") : "";
   const count = store.get(statement + "SELECT COUNT(*) AS total FROM list_rows" + where, ...parameters) as { total: number };
-  const sort = source.columns.includes(query.sort) ? query.sort : "created_at";
+  const sort = source.columns.includes(query.sort) ? query.sort : source.defaultSort || "created_at";
   const direction = query.direction === "asc" ? "ASC" : "DESC";
   const items = store.query(statement + `SELECT * FROM list_rows${where} ORDER BY "${sort}" ${direction}, id ASC LIMIT ? OFFSET ?`,
     ...parameters, query.page_size, (query.page - 1) * query.page_size) as T[];

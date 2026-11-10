@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
-import { useRouter } from "vue-router";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
 import type {
   OrganizationNode,
@@ -16,8 +15,7 @@ import BusinessTree from "../../../shared/ui/BusinessTree.vue";
 import BusinessTreeSelect from "../../../shared/ui/BusinessTreeSelect.vue";
 import BusinessTable from "../../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../../shared/ui/BusinessDetailDialog.vue";
-const router = useRouter(),
-  can = useAccess();
+const can = useAccess();
 const nodes = ref<OrganizationNode[]>([]),
   selectedId = ref<string | null>(
     sessionStorage.getItem("sd-organization-node"),
@@ -247,26 +245,7 @@ const projectDialog = useEntityDialog(
       >
     </div>
   </div>
-  <ElTabs
-    model-value="organizations"
-    @tab-change="
-      (value) => {
-        if (value !== 'organizations')
-          router.push({
-            name: 'dictionaries',
-            params: { kind: String(value) },
-            query: {},
-          });
-      }
-    "
-    ><ElTabPane name="voltages" label="电压等级" /><ElTabPane
-      name="units"
-      label="计量单位" /><ElTabPane
-      name="priorities"
-      label="优先级" /><ElTabPane
-      name="categories"
-      label="项目类别" /><ElTabPane name="organizations" label="归口单位"
-  /></ElTabs>
+  <slot name="tabs" />
   <ElAlert v-if="error" :title="error" type="error" :closable="false"
     ><ElButton @click="load">重试</ElButton></ElAlert
   >

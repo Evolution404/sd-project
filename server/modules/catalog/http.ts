@@ -40,7 +40,7 @@ export async function handleCatalog(context: RouteContext): Promise<{
                             ? system.catalog.get(key, sub, deleted)
                             : page(system.catalog.list(key, deleted), url.searchParams);
             else if (method === "DELETE")
-                result = mutate("admin", () => key === "organizations" ? system.organizations.remove(actor, sub, input) : system.catalog.remove(actor, key, sub, input.expected_version));
+                result = mutate("admin", () => system.catalog.remove(actor, key, sub, input.expected_version));
             else
                 result = mutate(["frameworks", "agreements"].includes(key) ? "write" : "admin", () => system.catalog.save(actor, key, input, sub));
             break;

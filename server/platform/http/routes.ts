@@ -1,3 +1,6 @@
+import { handleDictionaries } from "../../modules/dictionaries/http.js";
+import { isFoundationKind } from "../../modules/dictionaries/service.js";
+import { handleMaterials } from "../../modules/materials/http.js";
 import { handleEquipment } from "../../modules/equipment/http.js";
 import { isEquipmentKind } from "../../modules/equipment/service.js";
 import { handleOrganizations } from "../../modules/organizations/http.js";
@@ -38,5 +41,7 @@ const routes: Record<string, RouteHandler> = {
 export function dispatchRoute(context: RouteContext) {
   requireValue(Object.hasOwn(routes, context.resource), '接口不存在', 404);
   if (context.resource === "catalog" && isEquipmentKind(context.key)) return handleEquipment(context);
+  if (context.resource === "catalog" && isFoundationKind(context.key)) return handleDictionaries(context);
+  if (context.resource === "catalog" && context.key === "materials") return handleMaterials(context);
   return routes[context.resource](context);
 }
