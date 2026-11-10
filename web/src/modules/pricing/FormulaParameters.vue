@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import FieldControl from "../../shared/ui/FieldControl.vue";
-import type { Row } from "../../shared/api/client";
+import type { PricingParameters } from "../../../../server/modules/pricing/model";
+type FormulaDraft = {
+  [K in keyof PricingParameters]?: PricingParameters[K] | null;
+};
 const props = defineProps<{
   mode: string;
-  parameters: Row;
+  parameters: FormulaDraft;
   component?: boolean;
 }>();
 function addBracket() {
@@ -101,7 +104,7 @@ function addTier() {
             :field="{ type: 'money' }"
         /></ElFormItem>
       </div>
-      <ElButton type="danger" @click="parameters.brackets.splice(index, 1)"
+      <ElButton type="danger" @click="parameters.brackets?.splice(index, 1)"
         >删除此档</ElButton
       >
     </div>
@@ -120,7 +123,7 @@ function addTier() {
             :field="{ type: 'money' }"
         /></ElFormItem>
       </div>
-      <ElButton type="danger" @click="parameters.tiers.splice(index, 1)"
+      <ElButton type="danger" @click="parameters.tiers?.splice(index, 1)"
         >删除此档</ElButton
       >
     </div>

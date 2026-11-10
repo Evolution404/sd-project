@@ -1,4 +1,4 @@
-import type { CatalogDefinition, CatalogField, CatalogFieldType, CatalogKind } from "../../shared/types/catalog.js";
+import type { CatalogDefinition, CatalogFormDefinition, CatalogField, CatalogFieldType, CatalogKind } from "../../shared/types/catalog.js";
 import type { JsonValue } from "../../shared/types/contracts.js";
 
 const field = (key: string, label: string, type: CatalogFieldType = "text", extra: Partial<CatalogField> = {}): CatalogField => ({
@@ -348,3 +348,11 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
     created_by: true,
   },
 };
+
+// The browser consumes business form metadata, never database persistence descriptors.
+export const catalogFormDefinitions = Object.fromEntries(
+  Object.entries(catalogDefinitions).map(([kind, definition]) => [kind, {
+    title: definition.title, rootFields: definition.rootFields,
+    fields: definition.fields, sequence: definition.sequence,
+  }]),
+) as Record<CatalogKind, CatalogFormDefinition>;

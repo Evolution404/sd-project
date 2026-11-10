@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
-import type { CatalogDefinition } from "../../../../server/shared/types/catalog";
+import type { CatalogFormDefinition } from "../../../../server/shared/types/catalog";
 import type {
   EquipmentFields,
   EquipmentRecord,
@@ -14,7 +14,7 @@ import BusinessTable from "../../shared/ui/BusinessTable.vue";
 const props = defineProps<{
   open: boolean;
   physical: EquipmentRecord | null;
-  definition?: CatalogDefinition;
+  definition?: CatalogFormDefinition;
   refresh: () => Promise<void>;
 }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();

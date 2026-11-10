@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import type { Row } from "../../shared/api/client";
+import type { OperationField } from "../../../../server/shared/types/work-standards";
 import { newClientId } from "../../shared/utils/id";
-const props = defineProps<{ operation: Row }>(),
-  fields = ref<Row[]>([]);
+const props = defineProps<{ operation: { fields_json?: unknown } }>(),
+  fields = ref<
+    Pick<OperationField, "key" | "label" | "type" | "required" | "options">[]
+  >([]);
 watch(
   () => props.operation,
   (operation) => {
     try {
-      fields.value = JSON.parse(operation.fields_json || "[]");
+      fields.value = JSON.parse(String(operation.fields_json || "[]"));
     } catch {
       fields.value = [];
     }

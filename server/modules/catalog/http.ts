@@ -1,3 +1,4 @@
+import { catalogFormDefinitions } from "./definitions.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { requireValue } from '../../shared/errors/business-error.js';
@@ -18,7 +19,7 @@ export async function handleCatalog(context: RouteContext): Promise<{
             break;
         case "catalogs":
             requireValue(read, "请求方法无效", 405);
-            result = system.catalog.definitions;
+            result = catalogFormDefinitions;
             break;
         case "catalog":
             if (key === "operations" && subKey === "pricing-definitions") {

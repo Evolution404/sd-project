@@ -8,6 +8,7 @@ const props = defineProps<{
   field: Row;
   modelValue: any;
   disabled?: boolean;
+  selectedLabel?: string;
   filters?: Record<string, string>;
 }>();
 const emit = defineEmits(["update:modelValue"]);
@@ -15,7 +16,7 @@ const options = ref<Row[]>([]);
 const searchError = ref("");
 let failedQuery = "";
 const optionLabel = (item: Row) =>
-  item.label || item.name || item.title || item.tower_no || "业务记录";
+  (item.id === props.modelValue && props.selectedLabel) || item.label || item.name || item.title || item.tower_no || "业务记录";
 const ambiguous = computed(() => {
   const counts = new Map<string, number>();
   for (const item of options.value)

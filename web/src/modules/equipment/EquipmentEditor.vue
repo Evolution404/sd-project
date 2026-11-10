@@ -7,7 +7,7 @@ import type {
   EquipmentFields,
 } from "../../../../server/shared/types/equipment";
 import type {
-  CatalogDefinition,
+  CatalogFormDefinition,
   CatalogField,
 } from "../../../../server/shared/types/catalog";
 import type { FieldErrors } from "../../../../server/shared/types/contracts";
@@ -20,8 +20,8 @@ interface EquipmentField extends CatalogField {
 const props = defineProps<{
   open: boolean;
   kind: EquipmentCatalogKind;
-  definition?: CatalogDefinition;
-  physicalDefinition?: CatalogDefinition;
+  definition?: CatalogFormDefinition;
+  physicalDefinition?: CatalogFormDefinition;
   editing: EquipmentRecord | null;
   refresh: () => Promise<void>;
 }>();

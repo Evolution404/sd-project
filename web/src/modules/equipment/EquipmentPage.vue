@@ -8,7 +8,7 @@ import type {
   EquipmentRecord,
 } from "../../../../server/shared/types/equipment";
 import type {
-  CatalogDefinition,
+  CatalogFormDefinition,
   CatalogField,
 } from "../../../../server/shared/types/catalog";
 import type {
@@ -48,7 +48,7 @@ const kind = computed<EquipmentCatalogKind>({
   },
 });
 const definitions = shallowRef<
-  Partial<Record<EquipmentCatalogKind, CatalogDefinition>>
+  Partial<Record<EquipmentCatalogKind, CatalogFormDefinition>>
 >({});
 const rows = ref<EquipmentRecord[]>([]),
   total = ref(0),

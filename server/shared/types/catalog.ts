@@ -15,16 +15,18 @@ export interface CatalogField {
   systemManaged?: boolean;
   immutable?: boolean;
 }
-export interface CatalogDefinition {
+export interface CatalogFormDefinition {
   title: string;
+  rootFields: CatalogField[];
+  fields: CatalogField[];
+  sequence?: string;
+}
+export interface CatalogDefinition extends CatalogFormDefinition {
   root: string;
   view?: string;
   versions?: string;
   foreign?: string;
-  sequence?: string;
   typeId?: string;
-  rootFields: CatalogField[];
-  fields: CatalogField[];
   created_at?: boolean;
   created_by?: boolean;
   equipment?: boolean;

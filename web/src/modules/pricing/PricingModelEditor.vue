@@ -1,13 +1,31 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import FormulaParameters from "./FormulaParameters.vue";
-import { statusText, type Row } from "../../shared/api/client";
-const props = defineProps<{ rule: Row }>();
-const parameters = ref<Row>({}),
-  components = ref<Row[]>([]);
-function parse(value: unknown, fallback: unknown) {
+import { statusText } from "../../shared/api/client";
+import type { PricingParameters } from "../../../../server/modules/pricing/model";
+type FormulaDraft = {
+  [K in keyof PricingParameters]?: PricingParameters[K] | null;
+};
+interface ComponentDraft {
+  coverage_key: string;
+  formula_mode: string;
+  parameters: FormulaDraft;
+}
+const props = defineProps<{
+  rule: {
+    pricing_mode?: string;
+    calculation_params_json?: unknown;
+    quantity_brackets_json?: unknown;
+    fee_components_json?: unknown;
+  };
+}>();
+const parameters = ref<FormulaDraft>({}),
+  components = ref<ComponentDraft[]>([]);
+function parse<T>(value: unknown, fallback: T): T {
   try {
-    return typeof value === "string" ? JSON.parse(value) : value || fallback;
+    return (
+      typeof value === "string" ? JSON.parse(value) : value || fallback
+    ) as T;
   } catch {
     return fallback;
   }
@@ -16,10 +34,13 @@ watch(
   () => props.rule,
   (rule) => {
     parameters.value = {
-      ...parse(rule.calculation_params_json, {}),
-      brackets: parse(rule.quantity_brackets_json, []),
+      ...parse<FormulaDraft>(rule.calculation_params_json, {}),
+      brackets: parse<FormulaDraft["brackets"]>(
+        rule.quantity_brackets_json,
+        [],
+      ),
     };
-    components.value = parse(rule.fee_components_json, []);
+    components.value = parse<ComponentDraft[]>(rule.fee_components_json, []);
   },
   { immediate: true },
 );
@@ -27,7 +48,7 @@ watch(
   parameters,
   (values) => {
     const { brackets, ...params } = values;
-    for (const key of Object.keys(params))
+    for (const key of Object.keys(params) as (keyof typeof params)[])
       if (params[key] === null) delete params[key];
     props.rule.calculation_params_json = JSON.stringify(params);
     props.rule.quantity_brackets_json = JSON.stringify(brackets || []);
@@ -46,7 +67,7 @@ watch(
   <section class="full-width">
     <h3 class="subheading">计算参数</h3>
     <FormulaParameters
-      :mode="rule.pricing_mode"
+      :mode="rule.pricing_mode || 'per_unit'"
       :parameters="parameters"
     /><template v-if="rule.pricing_mode === 'composite'"
       ><div v-for="(component, index) in components" :key="index" class="panel">

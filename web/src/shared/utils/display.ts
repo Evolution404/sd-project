@@ -54,6 +54,8 @@ export const fieldNames: Record<string, string> = {
   funding: "资金归属",
   versions: "正式内容版本",
   audit_events: "操作审计",
+  version_created_at: "版本创建时间",
+  version_created_by: "版本创建人",
   events: "状态决定",
   bindings: "需求关联及解绑",
   cost_nodes: "费用科目历史",
@@ -152,6 +154,7 @@ export const fieldNames: Record<string, string> = {
 
 const actorFields = new Set([
   "created_by",
+  "version_created_by",
   "changed_by",
   "updated_by",
   "actor_id",

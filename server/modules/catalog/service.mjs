@@ -1,11 +1,7 @@
 import { isFoundationKind } from "../dictionaries/service.js";
 import { isEquipmentKind } from "../equipment/service.js";
-import { validateOperationFields } from "../work-standards/catalog-validation.mjs";
-import { validateFactorFields } from "../pricing/factor-catalog.mjs";
 import { catalogDefinitions } from "./definitions.js";
 export { catalogDefinitions } from "./definitions.js";
-import { calculate, validatePricingRule } from "../pricing/calculation.js";
-import { validateFactorCondition, priceRulesMayOverlap } from "../pricing/features.js";
 import { authorize, id, now } from "../../platform/auth/service.js";
 import {
   requireValue,
@@ -13,24 +9,7 @@ import {
   text,
   integer,
 } from "../../shared/errors/business-error.js";
-// Deactivation is a formally versioned lifecycle decision, not a new price
-// definition. Every business field must exactly match the published version;
-// changing applicability or prices requires a separate validated revision.
-const priceDefinitionFields = ["title","operation_id","operation_version","unit_id","unit_version","voltage_level_id","tower_type","work_mode","specification","additional_conditions_json","pricing_mode","pricing_scope","calculation_params_json","fee_components_json","base_fee_fen","unit_price_fen","quantity_brackets_json","price_source","price_date","effective_on","basis"];
-function unchangedPriceDefinition(previous, next) {
-  if (!previous || previous.status !== "active" || next.status !== "inactive")
-    return false;
-  const normalized = value => {
-    if (typeof value === "string" && (value.trimStart().startsWith("{") || value.trimStart().startsWith("["))) {
-      try { return JSON.stringify(JSON.parse(value)); } catch { return value; }
-    }
-    if (value && typeof value === "object") return JSON.stringify(value);
-    return value;
-  };
-  return priceDefinitionFields.every(key =>
-    normalized(previous[key]) === normalized(next[key] === undefined ? previous[key] : next[key]));
-}
-export function createCatalog(repo, equipment, auditor, dictionaries, materials) {
+export function createCatalog(repo, equipment, auditor, dictionaries, materials, factors, standards, priceRules) {
   const audit = auditor.record;
   const definitions = catalogDefinitions;
   function config(kind) {
@@ -58,6 +37,10 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
     return descriptions;
   }
   function list(kind, includeDeleted = false) {
+    if (kind === "prices") return priceRules.list(includeDeleted);
+    if (kind === "factors") return factors.list(includeDeleted);
+    if (kind === "objects") return standards.objects(includeDeleted);
+    if (kind === "operations") return standards.operations(includeDeleted);
     if (isFoundationKind(kind)) return dictionaries.list(kind, includeDeleted);
     if (kind === "materials") return materials.list(includeDeleted);
     if (isEquipmentKind(kind)) return equipment.list(kind, includeDeleted);
@@ -93,6 +76,10 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
     return equipment.search(kind, options);
   }
   function get(kind, key, includeDeleted = false) {
+    if (kind === "prices") return priceRules.get(key, includeDeleted);
+    if (kind === "factors") return factors.get(key, includeDeleted);
+    if (kind === "objects") return standards.getObject(key, includeDeleted);
+    if (kind === "operations") return standards.getOperation(key, includeDeleted);
     if (isFoundationKind(kind)) return dictionaries.get(kind, key, includeDeleted);
     if (kind === "materials") return materials.get(key, includeDeleted);
     if (isEquipmentKind(kind)) return equipment.get(kind, key, includeDeleted);
@@ -125,6 +112,10 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
     };
   }
   function save(actor, kind, input, key) {
+    if (kind === "prices") return priceRules.save(actor, input, key);
+    if (kind === "factors") return factors.save(actor, input, key);
+    if (kind === "objects") return standards.saveObject(actor, input, key);
+    if (kind === "operations") return standards.saveOperation(actor, input, key);
     if (isFoundationKind(kind)) return dictionaries.save(actor, kind, input, key);
     if (kind === "materials") return materials.save(actor, input, key);
     if (isEquipmentKind(kind)) return equipment.save(actor, kind, input, key);
@@ -150,27 +141,6 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
           previous[sequence] || previous.version || 1,
           input.expected_version,
         );
-      if (kind === "operations" && (input.work_object_id ?? previous?.work_object_id)) {
-        const workObjectId = input.work_object_id ?? previous.work_object_id;
-        const existingBinding = previous?.work_object_id === workObjectId;
-        const workObject = get("objects", workObjectId, existingBinding);
-        const status = input.status ?? previous?.status ?? "active";
-        // A historic association can be retired after its master is deleted.
-        // New or changed associations still require a live master.
-        requireValue(
-          status === "inactive" || workObject.status === "active",
-          "作业对象已停用，请更换关联对象或停用操作类型",
-          409,
-        );
-        input.work_target_type = status === "inactive" && existingBinding
-          ? previous.work_target_type : workObject.work_target_type;
-        if (input.work_target_type === "physical")
-          Object.assign(input, {
-            allow_tower: 1,
-            allow_span: 0,
-            default_location_kind: "tower",
-          });
-      }
       const root = {},
         values = {};
       for (const f of [...c.rootFields, ...c.fields]) {
@@ -222,8 +192,6 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
           root[f.key] = value;
         } else values[f.key] = value;
       }
-      if (kind === "factors") validateFactorFields({ values, previous, get, repo });
-      if (kind === "operations") validateOperationFields({ values, previous, get, repo });
 
       const timestamp = now();
       if (c.typeId) {
@@ -239,68 +207,6 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
           ...root,
           ...(!c.versions ? values : {}),
         });
-      }
-      if (kind === "operations")
-        values.default_unit_version =
-          previous?.default_unit_id === values.default_unit_id
-            ? previous.default_unit_version
-            : get("units", values.default_unit_id).version;
-      let overlappingPrices = [];
-      if (kind === "prices") {
-        validatePricingRule(values);
-        const existingBinding = previous?.operation_id === values.operation_id;
-        const op = get("operations", values.operation_id, existingBinding);
-        requireValue(
-          values.status === "inactive" || op.status === "active",
-          "操作类型已停用，请更换操作类型或停用参考价格规则",
-          409,
-        );
-        // Retiring a rule must not silently adopt a newer operation or unit.
-        // Editing an existing rule must not silently adopt a newer operation
-        // version. Explicit adoption is an authorized, deliberate action.
-        const keepAdopted = existingBinding && !input.adopt_latest_operation_version;
-        values.operation_version = keepAdopted
-          ? previous.operation_version : op.version;
-        values.unit_id = keepAdopted ? previous.unit_id : op.default_unit_id;
-        values.unit_version = keepAdopted
-          ? previous.unit_version : op.default_unit_version;
-        if (values.tower_type === "") values.tower_type = null;
-        const statusOnlyRetirement = unchangedPriceDefinition(previous, values);
-        // A pure retirement may reference historical feature definitions;
-        // all other revisions still require the current active definition.
-        const adoptedVersion = repo.where("operation_versions", {
-          operation_id: values.operation_id, version: values.operation_version,
-        })[0];
-        const declarations = JSON.parse(adoptedVersion.pricing_features_json);
-        for (const [code, condition] of Object.entries(JSON.parse(values.additional_conditions_json))) {
-          const factor = repo.where("dictionary_items", {
-            type_id: "price_factor", code,
-          })[0];
-          const declared = declarations.find((f) =>
-            f.factor_id === factor?.id && f.factor_version === condition.factor_version);
-          requireValue(declared, "价格适用条件必须由所选操作类型的正式版本声明");
-          const definitionVersion = repo.where("dictionary_item_versions", {
-            item_id: factor.id, version: declared.factor_version,
-          })[0];
-          requireValue(definitionVersion, "价格特征定义版本不存在");
-          validateFactorCondition(JSON.parse(definitionVersion.fields_json), condition, code);
-          const latestFactor = repo.latest("dictionary_item_versions",
-            "item_id", factor.id, "version");
-          requireValue(
-            statusOnlyRetirement ||
-              (latestFactor?.version === declared.factor_version && latestFactor.status === "active"),
-            "价格特征「" + (latestFactor?.name || code) +
-              "」已更新或停用；仅变更为停用状态可保留原定义，修改价格请升级操作类型及适用条件",
-            409,
-          );
-        }
-        if (values.status === "active") {
-          const deletedPrices = repo.deleted("prices");
-          overlappingPrices = repo.list("v_reference_price_current")
-            .filter((rule) => rule.id !== keyId && !deletedPrices.has(rule.id))
-            .filter((rule) => priceRulesMayOverlap(values, rule))
-            .map((rule) => rule.title);
-        }
       }
       if (c.versions) {
         const timestampKey = [
@@ -338,127 +244,13 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
           previous,
           result,
         );
-      return overlappingPrices.length
-        ? { ...result, warnings: [`可能与以下参考价格规则重叠：${overlappingPrices.join("、")}；正式报价须明确选择及依据`] }
-        : result;
+      return result;
     });
   }
   return {
     definitions,
-    operationPriceFeatures(key, version) {
-      const selected = version
-        ? repo.where("operation_versions", {
-            operation_id: key, version,
-          })[0]
-        : repo.latest("operation_versions", "operation_id", key, "version");
-      requireValue(selected, "操作类型正式版本不存在", 404);
-      const items = JSON.parse(selected.pricing_features_json).map((feature) => {
-        const identity = repo.find("dictionary_items", "id", feature.factor_id);
-        const adopted = repo.where("dictionary_item_versions", {
-          item_id: feature.factor_id, version: feature.factor_version,
-        })[0];
-        requireValue(identity?.type_id === "price_factor" && adopted,
-          "价格特征正式定义不存在", 409);
-        const definition = JSON.parse(adopted.fields_json);
-        const unit = definition.unit_id
-          ? repo.where("dictionary_item_versions", {
-              item_id: definition.unit_id, version: definition.unit_version,
-            })[0]
-          : null;
-        return {
-          ...feature, code: identity.code, name: adopted.name, definition,
-          unit: unit?.name || "",
-        };
-      });
-      return { operation_id: key, operation_version: selected.version, items };
-    },
-    previewPrice(actor, input) {
-      authorize(actor, "admin");
-      const previous = input.existing_id
-        ? get("prices", input.existing_id) : null;
-      const op = get("operations", input.operation_id);
-      const keepAdopted = previous &&
-        previous.operation_id === input.operation_id &&
-        !input.adopt_latest_operation_version;
-      const rule = {
-        ...input,
-        operation_version: keepAdopted ? previous.operation_version : op.version,
-        unit_id: keepAdopted ? previous.unit_id : op.default_unit_id,
-        unit_version: keepAdopted ? previous.unit_version : op.default_unit_version,
-        status: input.status || "active",
-      };
-      const statusOnlyRetirement = unchangedPriceDefinition(previous, rule);
-      for (const [key, label] of [
-        ["title", "规则名称"], ["price_source", "价格来源"],
-        ["price_date", "价格日期"], ["effective_on", "生效日期"],
-        ["basis", "计价依据"],
-      ])
-        requireValue(typeof rule[key] === "string" && rule[key].trim(),
-          "请填写" + label);
-      validatePricingRule(rule);
-      const adopted = repo.where("operation_versions", {
-        operation_id: rule.operation_id,
-        version: rule.operation_version,
-      })[0];
-      requireValue(adopted, "操作类型采用的正式版本不存在");
-      const declarations = JSON.parse(adopted.pricing_features_json);
-      const conditions = typeof rule.additional_conditions_json === "string"
-        ? JSON.parse(rule.additional_conditions_json) :
-        (rule.additional_conditions_json || {});
-      for (const [code, condition] of Object.entries(conditions)) {
-        const factor = repo.where("dictionary_items", {
-          type_id: "price_factor", code,
-        })[0];
-        const declared = declarations.find((item) =>
-          item.factor_id === factor?.id &&
-          item.factor_version === condition.factor_version);
-        requireValue(declared, "适用条件不属于所采用操作类型的正式版本：" + code);
-        const version = repo.where("dictionary_item_versions", {
-          item_id: factor.id, version: declared.factor_version,
-        })[0];
-        validateFactorCondition(JSON.parse(version.fields_json), condition, code);
-        const latestFactor = repo.latest("dictionary_item_versions",
-          "item_id", factor.id, "version");
-        requireValue(
-          statusOnlyRetirement ||
-            (latestFactor?.version === declared.factor_version && latestFactor.status === "active"),
-          "价格特征「" + (latestFactor?.name || code) +
-            "」已更新或停用；原定义只能原样停用，修改其他内容请升级操作类型及适用条件",
-          409,
-        );
-      }
-      const overlaps = rule.status === "active"
-        ? list("prices").filter((other) => other.id !== previous?.id)
-          .filter((other) => priceRulesMayOverlap(rule, other))
-          .map((other) => ({
-            id: other.id,
-            title: other.title,
-            effective_on: other.effective_on,
-          }))
-        : [];
-      const sampleQuantity = input.sample_quantity_scaled === undefined
-        ? 10000 : input.sample_quantity_scaled;
-      let sample = null, sampleError = null;
-      try {
-        const result = calculate(rule, sampleQuantity, input.sample_bases || {});
-        sample = {
-          quantity_scaled: sampleQuantity, amount_fen: result.amount_fen,
-          calculation_trace: result.trace,
-        };
-      } catch (error) {
-        if (!error.status) throw error;
-        sampleError = error.message;
-      }
-      return {
-        valid: true,
-        operation_version: rule.operation_version,
-        unit_version: rule.unit_version,
-        sample,
-        sample_error: sampleError,
-        overlaps,
-        warning: overlaps.length ? "规则适用范围可能重叠，正式报价须人工选择并记录依据" : null,
-      };
-    },
+    operationPriceFeatures: standards.operationPriceFeatures,
+    previewPrice: priceRules.preview,
     displayLabels() {
       const labels = {},
         factors = new Map(
@@ -490,6 +282,10 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
     replacementPreview: equipment.replacementPreview,
     replacePhysical: equipment.replacePhysical,
     history(kind, key) {
+      if (kind === "prices") return priceRules.history(key);
+      if (kind === "factors") return factors.history(key);
+      if (kind === "objects") return standards.objectHistory(key);
+      if (kind === "operations") return standards.operationHistory(key);
       if (isFoundationKind(kind)) return dictionaries.history(kind, key);
       if (kind === "materials") return materials.history(key);
       if (isEquipmentKind(kind)) return equipment.history(kind, key);
@@ -502,6 +298,10 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials)
           : repo.auditFor(kind, key);
     },
     remove(actor, kind, key, version) {
+      if (kind === "prices") return priceRules.remove(actor, key, version);
+      if (kind === "factors") return factors.remove(actor, key, version);
+      if (kind === "objects") return standards.removeObject(actor, key, version);
+      if (kind === "operations") return standards.removeOperation(actor, key, version);
       if (isFoundationKind(kind)) return dictionaries.remove(actor, kind, key, version);
       if (kind === "materials") return materials.remove(actor, key, version);
       if (isEquipmentKind(kind)) return equipment.remove(actor, kind, key, version);

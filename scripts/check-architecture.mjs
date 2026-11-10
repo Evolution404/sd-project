@@ -19,6 +19,8 @@ export function inspectArchitecture(root) {
     const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
     const strictFrontend = name.startsWith("web/src/modules/equipment/")
       || name.startsWith("web/src/modules/materials/")
+      || name.startsWith("web/src/modules/work-standards/")
+      || name.startsWith("web/src/modules/pricing/")
       || name.startsWith("web/src/modules/finance/components/")
       || name.startsWith("web/src/modules/dictionaries/")
       || /web\/src\/shared\/(?:ui\/BusinessTree|utils\/tree)/.test(name);

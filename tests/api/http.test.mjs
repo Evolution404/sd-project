@@ -26,6 +26,14 @@ test("actual HTTP login, permissions, optimistic locking, idempotency and IP gua
     Cookie: cookie,
     "Idempotency-Key": "http-request-0001",
   };
+  const metadata = await (await fetch(base + "/api/catalogs", { headers })).json();
+  assert.equal(metadata.lines.title, "线路");
+  assert.equal(metadata.operations.sequence, "version");
+  assert.ok(metadata.materials.rootFields.some(field => field.key === "unit_id"));
+  for (const definition of Object.values(metadata)) {
+    for (const key of ["root", "view", "versions", "foreign", "history", "historyKey"])
+      assert.equal(Object.hasOwn(definition, key), false);
+  }
   const input = JSON.stringify({ code: "http-unit", name: "件" }),
     first = await fetch(base + "/api/catalog/units", {
       method: "POST",
