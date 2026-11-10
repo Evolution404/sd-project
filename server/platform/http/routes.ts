@@ -1,3 +1,5 @@
+import { handleEquipment } from "../../modules/equipment/http.js";
+import { isEquipmentKind } from "../../modules/equipment/service.js";
 import { handleOrganizations } from "../../modules/organizations/http.js";
 import type { RouteContext, RouteHandler } from "./context.js";
 import { handleCatalog } from '../../modules/catalog/http.js';
@@ -35,5 +37,6 @@ const routes: Record<string, RouteHandler> = {
 
 export function dispatchRoute(context: RouteContext) {
   requireValue(Object.hasOwn(routes, context.resource), '接口不存在', 404);
+  if (context.resource === "catalog" && isEquipmentKind(context.key)) return handleEquipment(context);
   return routes[context.resource](context);
 }

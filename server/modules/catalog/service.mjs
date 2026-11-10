@@ -1,3 +1,4 @@
+import { isEquipmentKind } from "../equipment/service.js";
 import { validateOperationFields } from "../work-standards/catalog-validation.mjs";
 import { validateFactorFields } from "../pricing/factor-catalog.mjs";
 import { catalogDefinitions } from "./definitions.js";
@@ -28,7 +29,8 @@ function unchangedPriceDefinition(previous, next) {
   return priceDefinitionFields.every(key =>
     normalized(previous[key]) === normalized(next[key] === undefined ? previous[key] : next[key]));
 }
-export function createCatalog(repo) {
+export function createCatalog(repo, equipment, auditor) {
+  const audit = auditor.record;
   const definitions = catalogDefinitions;
   function config(kind) {
     const value = definitions[kind];
@@ -36,51 +38,11 @@ export function createCatalog(repo) {
     return value;
   }
   function label(kind, row) {
-    if (kind === "lines")
-      return (
-        row.name +
-        " · " +
-        (repo.find("voltage_levels", "id", row.voltage_level_id)?.name ||
-          "电压待确认")
-      );
-    if (kind === "towers")
-      return (
-        label("lines", repo.find("transmission_lines", "id", row.line_id)) +
-        " · " +
-        row.tower_no
-      );
-    if (kind === "physical") {
-      const links = repo.where("logical_towers", { physical_tower_id: row.id });
-      return links.length
-        ? links.map((tower) => label("towers", tower)).join(" / ")
-        : row.asset_no ||
-            [
-              row.tower_type,
-              row.model,
-              row.height_scaled ? row.height_scaled / 10000 + "米" : "",
-            ]
-              .filter(Boolean)
-              .join(" · ") ||
-            "独立物理杆塔";
-    }
-    if (kind === "materials")
-      return [row.name, row.model, row.specification]
-        .filter(Boolean)
-        .join(" · ");
-    if (kind === "frameworks")
-      return [row.name, row.fiscal_year].filter(Boolean).join(" · ");
-    if (kind === "agreements")
-      return [row.name, row.contract_number].filter(Boolean).join(" · ");
-    if (kind !== "spans") return row.name || row.title || "业务对象";
-    return [
-      repo.find("transmission_lines", "id", row.line_id)?.name,
-      repo.find("logical_towers", "id", row.start_tower_id)?.tower_no +
-        " ~ " +
-        repo.find("logical_towers", "id", row.end_tower_id)?.tower_no,
-    ].join(" ");
-  }
-  function physicalBindings(id, index) {
-    return index ? index.get(id) || [] : repo.physicalRelations().filter(row => row.physical_tower_id === id);
+    if (isEquipmentKind(kind)) return equipment.get(kind, row.id, true).label;
+    if (kind === "materials") return [row.name, row.model, row.specification].filter(Boolean).join(" · ");
+    if (kind === "frameworks") return [row.name, row.fiscal_year].filter(Boolean).join(" · ");
+    if (kind === "agreements") return [row.name, row.contract_number].filter(Boolean).join(" · ");
+    return row.name || row.title || "业务对象";
   }
   function referenceLabels(kind, row) {
     const descriptions = {};
@@ -94,49 +56,9 @@ export function createCatalog(repo) {
     }
     return descriptions;
   }
-  function enriched(kind, row, index) {
-    const references = referenceLabels(kind, row);
-    if (kind === "physical") {
-      const bindings = physicalBindings(row.id, index);
-      const current = bindings.filter(link => link.logical_status !== "retired" && !link.logical_deleted);
-      return {
-        ...references,
-        bindings, current_circuits: current.length,
-        related_lines: [...new Set(current.map(link => link.line_name))].join("、"),
-        related_towers: [...new Set(current.map(link => link.tower_no))].join("、"),
-      };
-    }
-    if (kind === "lines") return {
-      ...references,
-      voltage_level_name: repo.find("voltage_levels", "id", row.voltage_level_id)?.name || "",
-      parent_line_name: row.parent_line_id ? repo.find("transmission_lines", "id", row.parent_line_id)?.name || "" : "",
-      junction_tower_no: row.junction_tower_id ? repo.find("logical_towers", "id", row.junction_tower_id)?.tower_no || "" : "",
-    };
-    if (kind === "towers") {
-      const line = repo.find("transmission_lines", "id", row.line_id);
-      return {
-        ...references,
-        tower_nature: repo.find("physical_towers", "id", row.physical_tower_id)?.tower_nature ?? null,
-        line_name: line?.name || "",
-        voltage_level_name: line ? repo.find("voltage_levels", "id", line.voltage_level_id)?.name || "" : "",
-      };
-    }
-    if (kind === "spans") return {
-      ...references,
-      line_name: repo.find("transmission_lines", "id", row.line_id)?.name || "",
-      start_tower_no: repo.find("logical_towers", "id", row.start_tower_id)?.tower_no || "",
-      end_tower_no: repo.find("logical_towers", "id", row.end_tower_id)?.tower_no || "",
-    };
-    return references;
-  }
   function list(kind, includeDeleted = false) {
-    const c = config(kind),
-      deleted = repo.deleted(kind),
-      index = kind === "physical" ? new Map() : null;
-    if (index) for (const link of repo.physicalRelations()) {
-      if (!index.has(link.physical_tower_id)) index.set(link.physical_tower_id, []);
-      index.get(link.physical_tower_id).push(link);
-    }
+    if (isEquipmentKind(kind)) return equipment.list(kind, includeDeleted);
+    const c = config(kind), deleted = repo.deleted(kind);
     return repo
       .list(c.view || c.root)
       .filter(
@@ -159,37 +81,16 @@ export function createCatalog(repo) {
           id: row.id,
           deleted: deleted.has(row.id),
           label: label(kind, row),
-          ...enriched(kind, row, index),
-          ...(c.plain
-            ? {
-                version:
-                  repo
-                    .auditFor(kind, row.id)
-                    .filter((event) => event.action === "revise").length + 1,
-              }
-            : {}),
+          ...referenceLabels(kind, row),
+
         };
       });
   }
   function search(kind, options = {}) {
-    config(kind);
-    const result = repo.searchEquipment(kind, options);
-    const index = kind === "physical" ? new Map() : null;
-    if (index) for (const link of repo.physicalRelations()) {
-      if (!index.has(link.physical_tower_id)) index.set(link.physical_tower_id, []);
-      index.get(link.physical_tower_id).push(link);
-    }
-    return {
-      ...result,
-      items: result.items.map((row) => ({
-        ...row,
-        deleted: Boolean(row.deleted),
-        label: label(kind, row),
-        ...enriched(kind, row, index),
-      })),
-    };
+    return equipment.search(kind, options);
   }
   function get(kind, key, includeDeleted = false) {
+    if (isEquipmentKind(kind)) return equipment.get(kind, key, includeDeleted);
     requireValue(
       typeof key === "string" && key.trim(),
       `请选择${config(kind).title}`,
@@ -214,125 +115,28 @@ export function createCatalog(repo) {
       id: row.id,
       deleted,
       label: label(kind, row),
-      ...enriched(kind, row),
-      ...(kind === "towers"
-        ? { identity_decisions: repo.auditFor("tower_identity_decisions", key) }
-        : {}),
-      ...(kind === "physical"
-        ? { replacements: repo.auditFor("tower_replacements", key) }
-        : {}),
-      ...(c.plain
-        ? {
-            version:
-              repo
-                .auditFor(kind, key)
-                .filter((event) => event.action === "revise").length + 1,
-          }
-        : {}),
+      ...referenceLabels(kind, row),
+
     };
   }
-  function audit(actor, entity, entityId, action, before, after, recordedAt = now()) {
-    repo.insert("audit_events", {
-      id: id(),
-      actor_id: actor.id,
-      entity,
-      entity_id: entityId,
-      action,
-      before_json: before ? JSON.stringify(before) : null,
-      after_json: after ? JSON.stringify(after) : null,
-      created_at: recordedAt,
-    });
-  }
   function save(actor, kind, input, key) {
+    if (isEquipmentKind(kind)) return equipment.save(actor, kind, input, key);
     authorize(
       actor,
       kind === "frameworks" || kind === "agreements" ? "write" : "admin",
     );
     return repo.transaction(() => {
       const c = config(kind),
-        previous = key
-          ? get(
-              kind,
-              key,
-              Boolean(
-                input.historical_update &&
-                  c.equipment &&
-                  actor.role === "admin",
-              ),
-            )
-          : null,
+        previous = key ? get(kind, key) : null,
         sequence = c.sequence || "version_no";
       const keyId = key || id();
       input = { ...input };
-      let physicalDecision;
       for (const f of c.rootFields.filter((field) => field.systemManaged)) {
         if (previous && input[f.key] !== undefined)
           requireValue(input[f.key] === previous[f.key], "系统身份不可修改");
         input[f.key] =
           previous?.[f.key] ||
           kind.toUpperCase() + "-" + keyId.replaceAll("-", "");
-      }
-      if (kind === "lines") {
-        const lineKind = input.line_kind ?? previous?.line_kind ?? "main";
-        const parent = input.parent_line_id ?? previous?.parent_line_id ?? null;
-        const junction = input.junction_tower_id ?? previous?.junction_tower_id ?? null;
-        if (lineKind === "main") {
-          requireValue(!parent && !junction, "主线不能关联所属主线或分支接入塔");
-        } else {
-          requireValue(parent && parent !== keyId, "支线必须选择合法所属主线");
-          const parentLine = get("lines", parent);
-          requireValue(parentLine.line_kind === "main", "支线只能归属主线");
-          if (junction) {
-            const entry = get("towers", junction);
-            requireValue(entry.line_id === parent, "接入杆塔必须属于指定主线");
-          }
-        }
-      }
-      if (kind === "towers" && input.tower_no !== undefined)
-        input.tower_no = String(input.tower_no).trim();
-      if (kind === "towers" && !previous) {
-        physicalDecision = input.physical_tower_id ? "shared" : "new";
-        const line = get("lines", input.line_id);
-        requireValue(line.status === "active", "请选择在运线路");
-        const siblings = repo.where("logical_towers", { line_id: line.id });
-        requireValue(
-          !siblings.some(
-            (tower) =>
-              tower.tower_no === input.tower_no &&
-              tower.status !== "retired" &&
-              !repo.isDeleted("towers", tower.id),
-          ),
-          "本线路已有该杆塔号，请查询已有杆塔",
-          409,
-          { tower_no: "本线路杆塔号重复" },
-        );
-        input.sort_rank ??=
-          Math.max(0, ...siblings.map((tower) => tower.sort_rank)) + 1;
-        input.status ??= "active";
-        requireValue(
-          input.physical_mode !== "shared" || input.physical_tower_id,
-          "请选择要共用的已有物理杆塔",
-          422,
-          { physical_tower_id: "共塔必须明确选择已有实物" },
-        );
-        if (!input.physical_tower_id) {
-          input.physical_tower_id = save(
-            actor,
-            "physical",
-            input.physical_properties || {},
-          ).id;
-        } else {
-          requireValue(
-            !Object.values(input.physical_properties || {}).some(
-              (value) => value !== undefined && value !== null && value !== "",
-            ),
-            "共塔关系复用已有实物，实物属性变更请在物理杆塔详情办理",
-          );
-          requireValue(
-            get("physical", input.physical_tower_id).status === "active",
-            "共用杆塔须选择在运物理实体",
-          );
-        }
       }
       if (previous)
         expectedVersion(
@@ -414,24 +218,15 @@ export function createCatalog(repo) {
       if (kind === "factors") validateFactorFields({ values, previous, get, repo });
       if (kind === "operations") validateOperationFields({ values, previous, get, repo });
 
-      const timestamp =
-        c.equipment && previous
-          ? new Date(
-              Math.max(Date.now(), Date.parse(previous.updated_at) + 1),
-            ).toISOString()
-          : now();
+      const timestamp = now();
       if (c.typeId) {
         if (!repo.find("dictionary_types", "id", c.typeId))
           repo.insert("dictionary_types", { id: c.typeId, title: c.title });
         root.type_id = c.typeId;
       }
       if (!previous) {
-        if (c.created_at || c.equipment) root.created_at = timestamp;
-        if (c.created_by || c.equipment) root.created_by = actor.id;
-        if (c.equipment) {
-          root.updated_at = timestamp;
-          root.version = 1;
-        }
+        if (c.created_at) root.created_at = timestamp;
+        if (c.created_by) root.created_by = actor.id;
         repo.insert(c.root, {
           id: keyId,
           ...root,
@@ -525,31 +320,10 @@ export function createCatalog(repo) {
           reason: input.reason || "",
         });
       } else if (previous) {
-        if (c.plain) {
-          requireValue(
-            Object.entries(values).some(
-              ([field, value]) => value !== previous[field],
-            ),
-            "内容没有变化",
-          );
-          values.updated_at = timestamp;
-          audit(actor, kind, keyId, "revise", previous, {
-            ...previous,
-            ...values,
-          }, timestamp);
-        }
-        if (c.equipment)
-          Object.assign(values, {
-            version: previous.version + 1,
-            updated_at: timestamp,
-            updated_by: actor.id,
-            change_reason: input.reason || "",
-          });
         repo.update(c.root, "id", keyId, values);
       }
       const result = get(kind, keyId, Boolean(previous?.deleted));
-      if (!(c.plain && previous))
-        audit(
+      audit(
           actor,
           kind,
           keyId,
@@ -557,12 +331,6 @@ export function createCatalog(repo) {
           previous,
           result,
         );
-      if (physicalDecision)
-        audit(actor, "tower_identity_decisions", keyId, "confirm", null, {
-          decision: physicalDecision,
-          physical_tower_id: result.physical_tower_id,
-          label: result.label,
-        });
       return overlappingPrices.length
         ? { ...result, warnings: [`可能与以下参考价格规则重叠：${overlappingPrices.join("、")}；正式报价须明确选择及依据`] }
         : result;
@@ -712,74 +480,10 @@ export function createCatalog(repo) {
     get,
     save,
     audit,
-    replacementPreview(key) {
-      const physical = get("physical", key);
-      requireValue(physical.status !== "retired", "该物理实体已退役");
-      return {
-        physical,
-        bindings: repo
-          .where("logical_towers", { physical_tower_id: key })
-          .filter((tower) => tower.status !== "retired")
-          .map((tower) => ({ ...tower, label: label("towers", tower) })),
-      };
-    },
-    replacePhysical(actor, key, input) {
-      authorize(actor, "admin");
-      return repo.transaction(() => {
-        const current = this.replacementPreview(key);
-        expectedVersion(current.physical.version, input.expected_version);
-        const identity = (rows) =>
-          rows.map((row) => row.id + "/" + row.version).sort();
-        requireValue(
-          JSON.stringify(identity(current.bindings)) ===
-            JSON.stringify(identity(input.bindings || [])),
-          "关联回路已变化，请重新核对整基更换范围",
-          409,
-        );
-        const replacement = save(actor, "physical", {
-          ...input.properties,
-          status: "active",
-        });
-        for (const tower of current.bindings)
-          save(
-            actor,
-            "towers",
-            {
-              ...tower,
-              expected_version: tower.version,
-              physical_tower_id: replacement.id,
-            },
-            tower.id,
-          );
-        save(
-          actor,
-          "physical",
-          { status: "retired", expected_version: current.physical.version },
-          key,
-        );
-        const decision = {
-          old_physical_id: key,
-          new_physical_id: replacement.id,
-          bindings: current.bindings.map((tower) => ({
-            logical_tower_id: tower.id,
-            label: tower.label,
-            old_version: tower.version,
-            new_version: tower.version + 1,
-          })),
-        };
-        audit(actor, "tower_replacements", key, "replace", current, decision);
-        audit(
-          actor,
-          "tower_replacements",
-          replacement.id,
-          "replace",
-          null,
-          decision,
-        );
-        return { ...get("physical", replacement.id), replacement: decision };
-      });
-    },
+    replacementPreview: equipment.replacementPreview,
+    replacePhysical: equipment.replacePhysical,
     history(kind, key) {
+      if (isEquipmentKind(kind)) return equipment.history(kind, key);
       const c = config(kind);
       get(kind, key, true);
       return c.versions
@@ -789,6 +493,7 @@ export function createCatalog(repo) {
           : repo.auditFor(kind, key);
     },
     remove(actor, kind, key, version) {
+      if (isEquipmentKind(kind)) return equipment.remove(actor, kind, key, version);
       authorize(actor, "admin");
       return repo.transaction(() => {
         const previous = get(kind, key),
@@ -809,7 +514,6 @@ export function createCatalog(repo) {
             { ...previous, status: "inactive", expected_version: version },
             key,
           );
-        if (c.plain) repo.update(c.root, "id", key, { status: "inactive" });
         audit(actor, kind, key, "delete", previous, { logical: true });
         return { id: key, deleted: true };
       });

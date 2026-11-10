@@ -36,9 +36,18 @@ async function visit(path) {
     await page.waitForLoadState('networkidle');
   }
 }
+async function settleLayout() {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const finite = document.getAnimations().filter(animation =>
+      animation.effect?.getComputedTiming().iterations !== Infinity);
+    await Promise.all(finite.map(animation => animation.finished.catch(() => {})));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+}
 async function auditLayout(name, width) {
   await page.setViewportSize({ width, height: 800 });
-  await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+  await settleLayout();
   const root = await page.locator('.business-detail-dialog:visible').count() ? page.locator('.business-detail-dialog:visible') : page.locator('main');
   const violations = await root.evaluate(main => {
     const issues = [], bounds = main.getBoundingClientRect();
@@ -61,7 +70,7 @@ async function auditDialog(name, button, width) {
   await page.getByRole('button', { name: button, exact: true }).click();
   const dialog = page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog');
   await dialog.waitFor();
-  await page.waitForTimeout(250);
+  await settleLayout();
   const layout = await dialog.evaluate(element => {
     const rect = element.getBoundingClientRect();
     const footer = element.querySelector('.el-dialog__footer')?.getBoundingClientRect();

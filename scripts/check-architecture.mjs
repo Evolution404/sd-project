@@ -17,14 +17,18 @@ export function inspectArchitecture(root) {
     const name = relative(root, file), raw = readFileSync(file, "utf8");
     const code = file.endsWith(".vue") ? raw.match(/<script\b[^>]*>([\s\S]*?)<\/script>/)?.[1] || "" : raw;
     const source = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, true);
-    if (name.startsWith("server/") && file.endsWith(".ts")) {
+    const strictFrontend = name.startsWith("web/src/modules/equipment/")
+      || name.startsWith("web/src/modules/finance/components/")
+      || name.startsWith("web/src/modules/dictionaries/")
+      || /web\/src\/shared\/(?:ui\/BusinessTree|utils\/tree)/.test(name);
+    if ((name.startsWith("server/") && file.endsWith(".ts")) || strictFrontend) {
       function check(node) {
         if (node.kind === ts.SyntaxKind.AnyKeyword) issues.push(name + " contains explicit any");
         ts.forEachChild(node, check);
       }
       check(source);
       if (/@ts-(?:ignore|nocheck)/.test(code)) issues.push(name + " suppresses type checking");
-      if (!name.startsWith("server/database/") && /\brepo\.(?:insert|update|remove|query|run)\s*\(/.test(code))
+      if (!name.startsWith("server/database/") && /\b(?:repo|repository|store)\.(?:insert|update|remove|query|run)\s*\(/.test(code))
         issues.push(name + " bypasses a typed business repository");
     }
     const edges = [];

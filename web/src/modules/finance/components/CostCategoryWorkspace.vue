@@ -301,14 +301,14 @@ async function viewCost(entryId: string) {
           :rows="detail?.items || []"
           :columns="costColumns"
         >
-          <template #cell="{ row, column }"
+          <template #cell="{ row, column, value }"
             ><span v-if="column.key === 'amount_fen'">{{
               money(row.amount_fen)
             }}</span
             ><span v-else-if="column.key === 'status'">{{
               row.deleted ? "已删除" : statusText[row.status]
             }}</span
-            ><span v-else>{{ row[column.key] }}</span></template
+            ><span v-else>{{ value }}</span></template
           ><template #actions="{ row }"
             ><ElButton size="small" @click="viewCost(String(row.entry_id))"
               >查看费用</ElButton
@@ -394,9 +394,9 @@ async function viewCost(entryId: string) {
           { key: 'actor_name', label: '操作人' },
           { key: 'recorded_at', label: '变更时间' },
         ]"
-        ><template #cell="{ row, column }"
+        ><template #cell="{ row, column, value }"
           ><span>{{
-            column.key === "status" ? statusText[row.status] : row[column.key]
+            column.key === "status" ? statusText[row.status] : value
           }}</span></template
         ></BusinessTable
       ><BusinessTable
@@ -408,11 +408,11 @@ async function viewCost(entryId: string) {
           { key: 'actor_name', label: '操作人' },
           { key: 'created_at', label: '操作时间' },
         ]"
-        ><template #cell="{ row, column }"
+        ><template #cell="{ row, column, value }"
           ><span>{{
             column.key === "action"
               ? statusText[row.action] || row.action
-              : row[column.key]
+              : value
           }}</span></template
         ></BusinessTable
       ></BusinessDetailDialog
@@ -452,13 +452,13 @@ async function viewCost(entryId: string) {
             { key: 'amount_fen', label: '历史金额' },
             { key: 'status', label: '状态' },
           ]"
-          ><template #cell="{ row, column }"
+          ><template #cell="{ row, column, value }"
             ><span>{{
               column.key === "status"
                 ? statusText[row.status]
                 : column.key === "amount_fen"
                   ? money(row.amount_fen)
-                  : row[column.key]
+                  : value
             }}</span></template
           ></BusinessTable
         ></template

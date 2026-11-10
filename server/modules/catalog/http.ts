@@ -32,32 +32,13 @@ export async function handleCatalog(context: RouteContext): Promise<{
                 result = system.catalog.previewPrice(actor, input);
                 break;
             }
-            if (key === "physical" && subKey === "replacement") {
-                result = read
-                    ? system.catalog.replacementPreview(sub)
-                    : mutate("admin", () => system.catalog.replacePhysical(actor, sub, input));
-                break;
-            }
             if (read)
                 result =
                     sub === "history"
                         ? system.catalog.history(key, subKey)
                         : sub
                             ? system.catalog.get(key, sub, deleted)
-                            : ["lines", "physical", "towers", "spans"].includes(key)
-                                ? system.catalog.search(key, {
-                                    page: url.searchParams.get("page"),
-                                    page_size: url.searchParams.get("page_size"),
-                                    q: url.searchParams.get("q"),
-                                    sort: url.searchParams.get("sort"),
-                                    direction: url.searchParams.get("direction"),
-                                    filters: url.searchParams.get("filters"),
-                                    lineId: url.searchParams.get("line_id"),
-                                    lineKind: url.searchParams.get("line_kind"),
-                                    excludeId: url.searchParams.get("exclude_id"),
-                                    deleted,
-                                })
-                                : page(system.catalog.list(key, deleted), url.searchParams);
+                            : page(system.catalog.list(key, deleted), url.searchParams);
             else if (method === "DELETE")
                 result = mutate("admin", () => key === "organizations" ? system.organizations.remove(actor, sub, input) : system.catalog.remove(actor, key, sub, input.expected_version));
             else

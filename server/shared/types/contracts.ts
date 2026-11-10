@@ -37,3 +37,14 @@ export type JsonValue = string | number | boolean | null | JsonValue[] | { [key:
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+
+export interface AuditRecord {
+  id: string;
+  actor_id: string;
+  entity: string;
+  entity_id: string;
+  action: string;
+  before_json: string | null;
+  after_json: string | null;
+  created_at: string;
+}

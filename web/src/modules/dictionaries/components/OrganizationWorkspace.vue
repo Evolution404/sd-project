@@ -341,9 +341,9 @@ const projectDialog = useEntityDialog(
             { key: 'adopted_name', label: '采用单位名称' },
             { key: 'adopted_version', label: '采用正式版本' },
           ]"
-          ><template #cell="{ row, column }"
+          ><template #cell="{ row, column, value }"
             ><span>{{
-              column.key === "status" ? statusText[row.status] : row[column.key]
+              column.key === "status" ? statusText[row.status] : value
             }}</span></template
           ><template #actions="{ row }">
             <ElButton size="small" @click="projectDialog.open(String(row.id))"
@@ -493,7 +493,7 @@ const projectDialog = useEntityDialog(
         { key: 'actor_name', label: '操作人' },
         { key: 'recorded_at', label: '变更时间' },
       ]"
-      ><template #cell="{ row, column }"
+      ><template #cell="{ row, column, value }"
         ><span>{{
           column.key === "status"
             ? statusText[row.status]
@@ -501,7 +501,7 @@ const projectDialog = useEntityDialog(
               ? row.parent_unit_id
                 ? row.parent_name || "历史上级（定义待核对）"
                 : "根单位"
-              : row[column.key]
+              : value
         }}</span></template
       ></BusinessTable
     ><BusinessTable
@@ -513,11 +513,11 @@ const projectDialog = useEntityDialog(
         { key: 'actor_name', label: '操作人' },
         { key: 'created_at', label: '操作时间' },
       ]"
-      ><template #cell="{ row, column }"
+      ><template #cell="{ row, column, value }"
         ><span>{{
           column.key === "action"
             ? statusText[row.action] || row.action
-            : row[column.key]
+            : value
         }}</span></template
       ></BusinessTable
     ></BusinessDetailDialog

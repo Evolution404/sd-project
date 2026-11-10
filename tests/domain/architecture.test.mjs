@@ -17,9 +17,13 @@ test("architecture gate rejects cycles, shared-to-business imports and type supp
   source("server/modules/b/service.ts", 'import "../a/service.js"; // @ts-nocheck');
   source("web/src/shared/ui/Bad.ts", 'import "../../modules/projects/Bad.ts";');
   source("web/src/modules/projects/Bad.ts", 'export const bad = true;');
+  source("server/modules/c/service.ts", 'repository.insert("arbitrary_table", {});');
+  source("web/src/modules/equipment/Bad.vue", '<script setup lang="ts">const row: any = {};</script>');
   const issues = inspectArchitecture(root);
   assert.ok(issues.some(issue => issue.includes("dependency cycle")));
   assert.ok(issues.some(issue => issue.includes("explicit any")));
   assert.ok(issues.some(issue => issue.includes("suppresses type checking")));
   assert.ok(issues.some(issue => issue.includes("reverses shared UI dependency")));
+  assert.ok(issues.some(issue => issue.includes("c/service.ts bypasses a typed business repository")));
+  assert.ok(issues.some(issue => issue.includes("equipment/Bad.vue contains explicit any")));
 });

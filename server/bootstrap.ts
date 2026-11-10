@@ -1,3 +1,7 @@
+import { equipmentRepository } from "./database/repositories/equipment.js";
+import { auditRepository } from "./database/repositories/audit.js";
+import { createAudit } from "./platform/audit/service.js";
+import { createEquipment } from "./modules/equipment/service.js";
 import { hierarchyRepository } from "./database/repositories/hierarchies.js";
 import { createOrganizations } from "./modules/organizations/service.js";
 import { openDatabase } from "./database/connection.js";
@@ -22,7 +26,9 @@ export function createSystem(dataDir?: string) {
   const repo = businessRepository(store);
   const identity = identityRepository(store);
   const auth = createAuth(identity, database);
-  const catalog = createCatalog(repo);
+  const audit = createAudit(auditRepository(store));
+  const equipment = createEquipment(equipmentRepository(store), database, audit);
+  const catalog = createCatalog(repo, equipment, audit);
   const demands = createDemands(repo, catalog);
   const pricing = createPricing(repo, catalog, demands);
   const projects = createProjects(repo, catalog, demands, pricing);
@@ -32,7 +38,7 @@ export function createSystem(dataDir?: string) {
   const reporting = createReporting(repo, catalog, demands, projects, finance);
 
   return {
-    database, repo, identity, auth, catalog, demands, pricing, projects, finance, organizations,
+    database, repo, identity, auth, audit, equipment, catalog, demands, pricing, projects, finance, organizations,
     management: createManagement({ repo, identity, auth, catalog }),
     sources: createSources(repo, catalog),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

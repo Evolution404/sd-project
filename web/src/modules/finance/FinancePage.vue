@@ -93,7 +93,7 @@ onMounted(() => { void load(); });
       :sort-state="{ prop: sort, order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="value => { sort = value.key; direction = value.order === 'ascending' ? 'asc' : 'desc'; reset(); }"
       @filter-change="value => { filters = value; reset(); }">
-      <template #cell="{ row, column }"><ElTag v-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ money(row.amount_fen) }}</span><span v-else>{{ row[column.key] ?? '—' }}</span></template>
+      <template #cell="{ row, column, value }"><ElTag v-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ money(row.amount_fen) }}</span><span v-else>{{ value ?? '—' }}</span></template>
       <template #actions="{ row }"><ElButton size="small" @click="detailDialog.open(row.project_id)">进入项目</ElButton></template>
     </BusinessTable>
     <ElPagination v-model:current-page="page" :total="total" :page-size="30" layout="prev,pager,next,total" @current-change="load" />

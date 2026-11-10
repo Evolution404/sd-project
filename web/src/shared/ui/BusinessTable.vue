@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="TRow extends object = Row">
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { Setting, Filter, Rank } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
@@ -6,7 +6,7 @@ import type { TableInstance } from "element-plus";
 import type { Row } from "../api/client";
 export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean };
 const props = withDefaults(defineProps<{
-  rows: Row[]; columns: TableColumn[]; tableKey: string;
+  rows: TRow[]; columns: TableColumn[]; tableKey: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
   filterState?: Record<string, string>;
@@ -15,10 +15,17 @@ const props = withDefaults(defineProps<{
 }>(), { selectable: false, loading: false, actionsWidth: 190 });
 const emit = defineEmits<{
   (e: "clear-search"): void;
-  (e: "selection-change", rows: Row[]): void;
+  (e: "selection-change", rows: TRow[]): void;
   (e: "sort-change", value: { key: string; order: string }): void;
   (e: "filter-change", filters: Record<string, string>): void;
 }>();
+defineSlots<{
+  cell(props: { row: TRow; column: TableColumn; value: unknown }): unknown;
+  actions(props: { row: TRow }): unknown;
+}>();
+function valueAt(row: object, key: string): unknown {
+  return (row as Record<string, unknown>)[key];
+}
 type Pref = { order: string[]; hidden: string[]; fixed: string[]; widths: Record<string, number> };
 function readPref(): Pref {
   try {
@@ -53,10 +60,10 @@ const tableRows = computed(() => {
   if (!props.clientSide) return props.rows;
   const activeFilters = Object.entries(filters.value).filter(([, value]) => !!value?.trim());
   const result = props.rows.filter(row => activeFilters.every(([key, value]) =>
-    String(row[key] ?? "").toLocaleLowerCase("zh-CN").includes(value.trim().toLocaleLowerCase("zh-CN"))));
+    String(valueAt(row, key) ?? "").toLocaleLowerCase("zh-CN").includes(value.trim().toLocaleLowerCase("zh-CN"))));
   const { key, order } = localSort.value;
   if (key && order) result.sort((a, b) => {
-    const va = a[key], vb = b[key];
+    const va = valueAt(a, key), vb = valueAt(b, key);
     if (va == null) return vb == null ? 0 : 1;
     if (vb == null) return -1;
     const compare = typeof va === "number" && typeof vb === "number"
@@ -239,11 +246,11 @@ watch(() => props.tableKey, async () => {
             <template #reference><ElButton class="business-filter-button" text size="small" :aria-label="'筛选' + col.label" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
           </ElPopover>
         </template>
-        <template #default="{ row }"><slot name="cell" :row="row" :column="col">{{ row[col.key] ?? "—" }}</slot></template>
+        <template #default="{ row }"><slot name="cell" :row="row as TRow" :column="col" :value="valueAt(row, col.key)">{{ row[col.key] ?? "—" }}</slot></template>
       </ElTableColumn>
       <ElTableColumn v-if="$slots.actions" label="操作" fixed="right" :min-width="80"
         :width="pref.widths.__actions || actionsWidth" resizable>
-        <template #default="{ row }"><slot name="actions" :row="row" /></template>
+        <template #default="{ row }"><slot name="actions" :row="row as TRow" /></template>
       </ElTableColumn>
       <template #empty>
         <ElEmpty :description="hasActiveFilters ? '没有符合筛选条件的记录' : '暂无记录'" :image-size="76">
