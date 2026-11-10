@@ -380,74 +380,39 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
     });
   }
   function summary(projectId) {
-    const project = projects.get(projectId),
-      costs = repo
-        .where("v_cost_current", { project_id: projectId })
-        .filter((x) => x.status === "active");
-    const settlementIds = new Set(
-      repo.where("settlements", { project_id: projectId }).map((x) => x.id),
-    );
-    const versions = repo
-      .list("v_settlement_effective_versions")
-      .filter(
-        (x) => settlementIds.has(x.settlement_id) && x.change_type !== "void",
-      );
-    const versionIds = new Set(versions.map((x) => x.id));
-    const items = repo
-      .list("settlement_item_versions")
-      .filter((x) => versionIds.has(x.settlement_version_id));
-    const resolutions = repo
-      .list("settlement_scope_results")
-      .filter((x) => versionIds.has(x.settlement_version_id));
-    const reconciliations = repo
-      .list("v_effective_cost_reconciliations")
-      .filter((x) => costs.some((cost) => cost.entry_id === x.entry_id));
-    const sum = (rows, key) =>
-      safeAmount(rows.reduce((s, x) => s + BigInt(x[key]), 0n));
-    const actual = sum(costs, "amount_fen"),
-      settled = sum(items, "amount_fen"),
-      reconciled = sum(reconciliations, "reconciled_cost_fen");
-    const reference = project.approval ? pricing.summary(project.approval.id) : null;
+    const basis = projects.summaryBasis(projectId);
+    const raw = repo.projectFinanceTotals(projectId);
+    const actual = safeAmount(BigInt(raw.actual_cost_fen));
+    const settled = safeAmount(BigInt(raw.settlement_fen));
+    const reconciled = safeAmount(BigInt(raw.reconciled_cost_fen));
+    const approvalId = basis.approval_version_id;
+    const budget = basis.approved_budget_fen;
+    const reference = approvalId ? pricing.summary(approvalId) : null;
     const referenceTotal = reference?.total_fen ?? null;
     return {
       reference_total_fen: referenceTotal,
       reference_complete: reference?.complete || false,
       reference_subtotal_fen: reference?.subtotal_fen ?? null,
-      reference_budget_difference_fen: referenceTotal !== null && project.approval
-        ? referenceTotal - project.approval.approved_budget_fen : null,
+      reference_budget_difference_fen: referenceTotal !== null && budget !== null
+        ? referenceTotal - budget : null,
       actual_reference_difference_fen: referenceTotal !== null
         ? actual - referenceTotal : null,
-      approved_budget_fen: project.approval?.approved_budget_fen ?? null,
+      approved_budget_fen: budget,
       actual_cost_fen: actual,
       settlement_fen: settled,
       reconciled_cost_fen: reconciled,
       unreconciled_cost_fen: actual - reconciled,
-      budget_difference_fen: project.approval
-        ? actual - project.approval.approved_budget_fen
-        : null,
-      demands: (project.approval
-        ? repo.where("project_approval_scope_versions", {
-            approval_version_id: project.approval.id,
-          })
-        : []
-      ).map((scope) => {
-        const solved = sum(
-          resolutions.filter(
-            (x) => x.project_scope_id === scope.project_scope_id,
-          ),
-          "resolved_quantity_scaled",
-        );
+      budget_difference_fen: budget !== null ? actual - budget : null,
+      demands: (approvalId ? repo.projectFinanceDemands(approvalId) : []).map(scope => {
+        const solved = safeAmount(BigInt(scope.resolved_quantity_scaled));
         return {
           project_scope_id: scope.project_scope_id,
           demand_id: scope.demand_id,
-          demand_no: repo.find("demands", "id", scope.demand_id).demand_no,
-          approved_quantity_scaled: scope.quantity_scaled,
+          demand_no: scope.demand_no,
+          approved_quantity_scaled: scope.approved_quantity_scaled,
           resolved_quantity_scaled: solved,
-          remaining_quantity_scaled: Math.max(
-            0,
-            scope.quantity_scaled - solved,
-          ),
-          excess_quantity_scaled: Math.max(0, solved - scope.quantity_scaled),
+          remaining_quantity_scaled: Math.max(0, scope.approved_quantity_scaled - solved),
+          excess_quantity_scaled: Math.max(0, solved - scope.approved_quantity_scaled),
         };
       }),
     };
@@ -603,15 +568,7 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
       });
     },
     reconciliations(projectId, includeDeleted = false) {
-      return repo.list("v_cost_reconciliation_current").filter((record) => {
-        const cost = repo.find("cost_versions", "id", record.cost_version_id),
-          entry = repo.find("cost_entries", "id", cost.entry_id);
-        record.deleted = repo.isDeleted("reconciliations", record.record_id);
-        return (
-          (!projectId || entry.project_id === projectId) &&
-          (includeDeleted || !record.deleted)
-        );
-      });
+      return repo.projectReconciliations(projectId, includeDeleted);
     },
     removeReconciliation(actor, key, input) {
       authorize(actor, "cost.confirm");
@@ -792,21 +749,7 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
     },
     history(key) {
       settlement(key);
-      const versions = repo.where("settlement_versions", {
-        settlement_id: key,
-      });
-      return versions.map((version) => ({
-        ...version,
-        items: repo.where("settlement_item_versions", {
-          settlement_version_id: version.id,
-        }),
-        resolutions: repo.where("settlement_scope_results", {
-          settlement_version_id: version.id,
-        }),
-        events: repo.where("settlement_review_events", {
-          settlement_version_id: version.id,
-        }),
-      }));
+      return repo.settlementHistory(key);
     },
   };
 }

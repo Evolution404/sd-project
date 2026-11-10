@@ -388,6 +388,11 @@ export function createProjects(repo, catalog, demands, pricing) {
         deleted: Boolean(row.deleted),
       })) };
     },
+    summaryBasis(key) {
+      const basis = repo.projectSummaryBasis(key);
+      requireValue(basis, "项目不存在或已删除", 404);
+      return basis;
+    },
     list(includeDeleted = false) {
       const deleted = repo.deleted("projects");
       return repo

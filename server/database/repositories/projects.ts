@@ -121,6 +121,15 @@ export function projectReadRepository(store: Store) {
         scopes: scopeGroups.get(approval.id) || [],
       }));
     },
+    projectSummaryBasis(projectId: string) {
+      return store.query(`SELECT p.id,ap.approval_version_id,ap.approved_budget_fen
+        FROM projects p LEFT JOIN v_project_current_approval ap ON ap.project_id=p.id
+        WHERE p.id=? AND NOT EXISTS(
+          SELECT 1 FROM audit_events a WHERE a.entity='projects'
+          AND a.entity_id=p.id AND a.action='delete')`, projectId)[0] as
+        { id: string; approval_version_id: string | null;
+          approved_budget_fen: number | null } | undefined;
+    },
     projectCostNodes(projectId: string): ProjectCostNode[] {
       const rows = store.query(`SELECT n.*, EXISTS(
         SELECT 1 FROM audit_events a

@@ -1,9 +1,11 @@
 import { businessLists } from "../queries/business-lists.js";
 import { projectReadRepository } from "./projects.js";
+import { financeReadRepository } from "./finance.js";
 export function businessRepository(store) {
   return {
     ...store,
     ...projectReadRepository(store),
+    ...financeReadRepository(store),
     searchFinance: businessLists(store).finance,
     searchDemands: businessLists(store).demands,
     searchProjects: businessLists(store).projects,

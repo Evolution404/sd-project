@@ -48,6 +48,11 @@ test("settled amounts, independently reported work, over-completion and reconcil
     s.finance.summary(project.id).demands[0].resolved_quantity_scaled,
     0,
   );
+  const feeHistory = s.finance.history(fee.id);
+  assert.equal(feeHistory.length, 1);
+  assert.equal(feeHistory[0].items[0].id, fee.items[0].id);
+  assert.equal(feeHistory[0].resolutions[0].resolved_quantity_scaled, 0);
+  assert.deepEqual(feeHistory[0].events.map(event => event.action), ["submit", "approve"]);
   const work = bill("WORK-ZERO-AMOUNT", 0, 110000);
   assert.equal(work.items[0].amount_fen, 0);
   const summary = s.finance.summary(project.id);
