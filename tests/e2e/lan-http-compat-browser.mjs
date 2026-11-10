@@ -1,3 +1,4 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { columnIndex } from "../workbook-helpers.mjs";
 import ExcelJS from "exceljs";
 import { readFileSync } from "node:fs";
@@ -5,8 +6,8 @@ import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
-import { makeWorkbook } from "../../server/exchange/workbook.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
 
 // A normal LAN HTTP origin has getRandomValues() but no randomUUID().
 // Emulate that API shape before any application JS runs.
@@ -42,7 +43,7 @@ try {
     .fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
-  await page.getByRole("menuitem", { name: "专业需求", exact: true }).click();
+  await selectNavigation(page, "专业需求");
   await page
     .getByRole("button", { name: "Excel 批量处理", exact: true })
     .click();

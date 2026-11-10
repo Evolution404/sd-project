@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [], { s, save } = fixture({ after: fn => cleanup.push(fn) });
 const voltage = save("voltages", { name: "110kV" });

@@ -3,8 +3,8 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { createSystem } from "../../server/application/system.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 import { ensureDemoDatabase, DEMO_ACCOUNT, DEMO_PASSWORD } from "../../scripts/demo/seed-demo.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "sd113-governance-browser-"));

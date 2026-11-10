@@ -20,38 +20,38 @@ test("all business data tables use the single customizable BusinessTable adapter
     assert.doesNotMatch(source, /<ElTable(?:Column)?\b/,
       file + " bypasses the shared table adapter");
   }
-  const shared = readFileSync(join(root, "components/BusinessTable.vue"), "utf8");
+  const shared = readFileSync(join(root, "shared/ui/BusinessTable.vue"), "utf8");
   assert.match(shared, /hideable\?: boolean/);
   assert.match(shared, /<ElTable border allow-drag-last-column\b/, "Element Plus drag also needs the last-column flag");
   assert.match(shared, /@header-dragend="resize"/);
   assert.match(shared, /:width="columnWidth\(col\)"/);
-  const app = readFileSync(join(root, "App.vue"), "utf8");
+  const app = readFileSync(join(root, "app/App.vue"), "utf8");
   assert.doesNotMatch(app, /调整侧栏宽度<\/ElButton|sidebar-settings|<ElSlider\s+v-model="sidebarWidth"/);
   assert.match(app, /class="sidebar-resize-grip"/);
   assert.match(app, /@pointerdown="startSidebarResize"/);
   assert.match(app, /@keydown="resizeSidebarByKeyboard"/);
 
   assert.match(shared, /c\.hideable === false/);
-  const project = readFileSync(join(root, "pages/ProjectPage.vue"), "utf8");
+  const project = readFileSync(join(root, "modules/projects/ProjectPage.vue"), "utf8");
   const block = project.split("const approvalEditorColumns")[1].split("const projectScopeColumns")[0];
   assert.equal((block.match(/hideable: false/g) || []).length, 3,
     "all formal approval decision input columns must be permanently visible");
 });
 
 test("multi-action rows use one primary action and an accessible shared menu", () => {
-  for (const name of ["pages/CatalogPage.vue", "pages/SystemPage.vue", "pages/ProjectPage.vue", "components/FinancePanel.vue", "components/EvidencePanel.vue"]) {
+  for (const name of ["modules/catalog/CatalogPage.vue", "modules/system/SystemPage.vue", "modules/projects/ProjectPage.vue", "modules/finance/FinancePanel.vue", "modules/files/EvidencePanel.vue"]) {
     const source = readFileSync(resolve("web/src", name), "utf8");
     assert.match(source, /<RowActions\b/);
     assert.doesNotMatch(source, /:actions-width="(?:295|300|530)"/);
   }
-  const source = readFileSync(resolve("web/src/components/RowActions.vue"), "utf8");
+  const source = readFileSync(resolve("web/src/shared/ui/RowActions.vue"), "utf8");
   assert.match(source, /placement="bottom-end"/);
   assert.match(source, /action.disabled \|\| busy.value/);
   assert.match(source, /aria-label="更多操作"/);
 });
 
 test("column ordering uses SortableJS and a keyboard alternative", () => {
-  const source = readFileSync(resolve("web/src/components/BusinessTable.vue"), "utf8");
+  const source = readFileSync(resolve("web/src/shared/ui/BusinessTable.vue"), "utf8");
   assert.match(source, /Sortable.create/);
   assert.match(source, /@keydown="reorderByKeyboard/);
   assert.match(source, /aria-live="polite"/);
@@ -59,16 +59,16 @@ test("column ordering uses SortableJS and a keyboard alternative", () => {
 });
 
 test("sparse tables use flexible minimum widths and detail viewing stays in one modal adapter", () => {
-  const table = readFileSync(resolve("web/src/components/BusinessTable.vue"), "utf8");
+  const table = readFileSync(resolve("web/src/shared/ui/BusinessTable.vue"), "utf8");
   assert.match(table, /:min-width="columnMinWidth\(col\)"/);
   assert.match(table, /const stretchColumn = computed/);
   assert.doesNotMatch(table, /type="expand"/);
   for (const name of ["DemandPage", "ProjectPage", "CatalogPage"]) {
-    const source = readFileSync(resolve(`web/src/pages/${name}.vue`), "utf8");
+    const source = readFileSync(resolve(`web/src/modules/${name === "DemandPage" ? "demands" : name === "ProjectPage" ? "projects" : "catalog"}/${name}.vue`), "utf8");
     assert.match(source, /<BusinessDetailDialog\b/);
     assert.match(source, /useEntityDialog\(/);
     assert.doesNotMatch(source, /useEntityRoute|#expand/);
   }
-  const dialog = readFileSync(resolve("web/src/services/entity-dialog.ts"), "utf8");
+  const dialog = readFileSync(resolve("web/src/shared/composables/use-entity-dialog.ts"), "utf8");
   assert.doesNotMatch(dialog, /router\.push|router\.replace/);
 });

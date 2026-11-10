@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 const cleanup = [],
   { s, user, save, demandInput } = fixture({
     after: (action) => cleanup.push(action),
@@ -51,9 +52,7 @@ try {
     .fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
-  await page
-    .getByRole("menuitem", { name: "年度框架与子项目", exact: true })
-    .click();
+  await selectNavigation(page, "子项目管理");
   await page.getByRole("button", { name: "新增子项目", exact: true }).click();
   await page.getByLabel("项目名称", { exact: true }).fill("浏览器完整流程项目");
   await select("年度框架", "浏览器验收框架 · 2026");

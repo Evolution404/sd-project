@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 const cleanup = [];
 const { s, user, project, node } = approvedFixture({ after: fn => cleanup.push(fn) });
 const c = s.finance.cost(user, project.id, {
@@ -28,6 +28,7 @@ try {
   await page.locator(".shell").waitFor();
   await page.goto(base + "/#/finance");
   await page.locator("main h1").waitFor();
+  await page.getByRole("tab", { name: "项目办理", exact: true }).click();
   await page.getByRole("button", { name: "进入项目" }).first().click();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.waitFor();

@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [], { s, user } = fixture({ after: action => cleanup.push(action) });
 const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
@@ -41,7 +42,7 @@ try {
   await page.reload();
   await page.locator(".navigation.is-collapsed").waitFor();
   await page.getByRole("button", { name: "展开导航" }).click();
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
+  await selectNavigation(page, "输电设备台账");
   await page.getByRole("heading", { name: "输电设备台账" }).waitFor();
 
   // Column layout is persisted and must not change the underlying equipment.
@@ -74,7 +75,7 @@ try {
   assert.equal(await page.getByRole("columnheader", { name: "接入杆塔" }).count(), 0);
   assert.ok(await page.getByRole("columnheader", { name: /线路名称/ }).count());
   await page.reload();
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
+  await selectNavigation(page, "输电设备台账");
   await page.getByRole("heading", { name: "输电设备台账" }).waitFor();
   assert.equal(await page.getByRole("columnheader", { name: "接入杆塔" }).count(), 0);
   const restored = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")));

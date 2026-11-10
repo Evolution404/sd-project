@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { createSystem } from "../../server/application/system.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const root = mkdtempSync(join(tmpdir(), "sd113-empty-browser-"));
 const s = createSystem(join(root, "data"));
@@ -91,8 +91,7 @@ try {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.locator(".shell").waitFor();
 
-  const routes = ["dashboard", "ledger", "demands", "projects",
-    "funding", "finance", "standards", "system"];
+  const routes = ['dashboard', 'demands', 'projects', 'frameworks', 'agreements', 'finance', 'ledger', 'materials', 'standards', 'pricing', 'dictionaries', 'system'];
   for (const path of routes) {
     await visit(path);
     for (const width of [1500, 1280, 960, 760])
@@ -102,8 +101,8 @@ try {
     ["ledger", "新增线路"],
     ["standards", "新增操作类型"],
     ["standards/objects", "新增作业对象"],
-    ["standards/factors", "新增价格特征"],
-    ["standards/prices", "新增参考价格规则"],
+    ["pricing/factors", "新增价格特征"],
+    ["pricing/prices", "新增参考价格规则"],
     ["demands", "新增需求"],
     ["projects", "新增子项目"],
   ];
@@ -115,7 +114,7 @@ try {
     await dialog.waitFor({ state: "hidden" });
   }
 
-  await visit("standards/units");
+  await visit("dictionaries/units");
   await page.getByRole("button", { name: "新增计量单位", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("套");
   await save();
@@ -127,7 +126,7 @@ try {
   await select("归属范围", "杆塔");
   await save();
 
-  await visit("standards/factors");
+  await visit("pricing/factors");
   await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("施工难度");
   for (const value of ["普通", "困难"]) {
@@ -152,7 +151,7 @@ try {
   await save();
   assert.equal(s.catalog.list("operations").length, 1);
 
-  await visit("standards/prices");
+  await visit("pricing/prices");
   await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
   await dialog.getByLabel("规则名称", { exact: true }).fill("空库普通施工参考价");
   await select("操作类型", "安装防鸟装置");
@@ -187,7 +186,7 @@ try {
   assert.equal(s.catalog.list("prices").length, 1);
   assert.equal(s.catalog.get("prices", copiedRule.id, true).deleted, true);
 
-  await visit("standards/priorities");
+  await visit("dictionaries/priorities");
   await page.getByRole("button", { name: "新增优先级", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("空库临时优先级");
   await save();
@@ -207,7 +206,7 @@ try {
   assert.equal(s.catalog.get("priorities", priority.id, true).deleted, true);
 
   assert.deepEqual(errors, []);
-  console.log("EMPTY_DATABASE_BROWSER_OK 8 zero-data modules, 4 widths, 7 empty dialogs, UI master creation/edit/delete, price copy, overlap preview");
+  console.log("EMPTY_DATABASE_BROWSER_OK 12 zero-data modules, 4 widths, 7 empty dialogs, UI master creation/edit/delete, price copy, overlap preview");
 } catch (error) {
   console.log("EMPTY_DATABASE_BROWSER_ERRORS", errors);
   await page.screenshot({ path: join(out, "failure.png"), fullPage: true });

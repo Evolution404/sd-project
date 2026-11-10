@@ -1,10 +1,11 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
-import { makeWorkbook } from "../../server/exchange/workbook.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
 
 const cleanup = [], { s, user } = fixture({ after: action => cleanup.push(action) });
 s.catalog.save(user, "voltages", { name: "220kV" });
@@ -56,7 +57,7 @@ try {
   await darkIs(false);
   assert.equal(await page.evaluate(() => localStorage.getItem("sd-appearance")), "system");
 
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
+  await selectNavigation(page, "输电设备台账");
   await page.getByRole("heading", { name: "输电设备台账" }).waitFor();
   await page.getByRole("button", { name: "Excel 批量处理", exact: true }).click();
   const workbook = await makeWorkbook("assets", {

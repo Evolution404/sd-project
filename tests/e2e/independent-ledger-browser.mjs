@@ -1,10 +1,11 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
-import { makeWorkbook } from "../../server/exchange/workbook.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
 const cleanup = [],
   { s, user, operation, towers } = fixture({
     after: (action) => cleanup.push(action),
@@ -109,14 +110,14 @@ try {
     .fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
-  await page
-    .getByRole("menuitem", { name: "输电设备台账", exact: true })
-    .click();
+  await selectNavigation(page, "输电设备台账");
+  await selectNavigation(page, "基础数据");
   await page.getByRole("tab", { name: "电压等级", exact: true }).click();
   await page.getByRole("button", { name: "新增电压等级", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("220kV");
   assert.equal(await page.getByLabel("编码", { exact: true }).count(), 0);
   await save();
+  await selectNavigation(page, "输电设备台账");
   for (const name of ["最少录入甲线", "最少录入乙线", "最少录入丙线"])
     await line(name);
   const originalPhysicalCount = s.catalog.list("physical").length;
@@ -232,7 +233,7 @@ try {
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
-  await page.getByRole("menuitem", { name: "专业需求", exact: true }).last().click();
+  await selectNavigation(page, "专业需求");
   await page
     .getByRole("row")
     .filter({ hasText: "中文正式特征历史" })
@@ -243,7 +244,7 @@ try {
   assert.ok(!(await page.locator("body").innerText()).includes(factor.code));
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).last().click();
+  await selectNavigation(page, "输电设备台账");
   await line("最少录入甲线");
   await tower("最少录入甲线", "#88");
   await page

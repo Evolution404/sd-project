@@ -1,10 +1,11 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from 'playwright';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import ExcelJS from 'exceljs';
 import { fixture } from '../helpers.mjs';
-import { httpServer } from '../../server/http/server.mjs';
+import { httpServer } from '../../dist/server/platform/http/server.js';
 import { columnIndex } from '../workbook-helpers.mjs';
 
 const cleanup = [], { s, save } = fixture({ after: action => cleanup.push(action) });
@@ -62,7 +63,7 @@ try {
   await editor.waitFor({ state: 'hidden' });
   assert.equal(s.catalog.list('towers')[0].tower_nature, 'tension');
   await page.getByRole('cell', { name: '耐张', exact: true }).waitFor();
-  await page.getByRole('menuitem', { name: '作业标准与参考价格', exact: true }).click();
+  await selectNavigation(page, '作业标准');
   await page.getByRole('columnheader', { name: /默认作业位置/ }).waitFor();
   const spanRow = page.getByRole('row').filter({ hasText: '处理导线缺陷' });
   await spanRow.getByRole('cell', { name: '档距', exact: true }).waitFor();
@@ -81,7 +82,7 @@ try {
   assert.equal(await editor.getByRole('tab').count(), 4);
   assert.equal(await editor.getByText('影响与预览', { exact: true }).count(), 0);
   await editor.getByRole('button', { name: '取消', exact: true }).click();
-  await page.getByRole('menuitem', { name: '专业需求', exact: true }).click();
+  await selectNavigation(page, '专业需求');
   await page.getByRole('button', { name: 'Excel 批量处理', exact: true }).click();
   const received = page.waitForEvent('download');
   await page.getByRole('button', { name: '空白模板', exact: true }).click();

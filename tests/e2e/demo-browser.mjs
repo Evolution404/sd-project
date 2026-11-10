@@ -4,8 +4,8 @@ import { mkdtempSync, rmSync, mkdirSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright";
-import { createSystem } from "../../server/application/system.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 import { ensureDemoDatabase, DEMO_ACCOUNT, DEMO_PASSWORD } from "../../scripts/demo/seed-demo.mjs";
 
 test("demo can be explored in the real browser without any manual master-data setup", async t => {
@@ -44,7 +44,7 @@ test("demo can be explored in the real browser without any manual master-data se
   await visit("demands", "【演示】220kV青峰线15、16号杆塔缺少防鸟装置");
   await visit("projects", "【演示】青峰线防鸟装置整治");
   await visit("standards/operations", "安装防鸟装置");
-  await visit("standards/prices", "【演示】防鸟安装—常规施工");
+  await visit("pricing/prices", "【演示】防鸟安装—常规施工");
   const output = join(process.cwd(), "test-results/schema113");
   mkdirSync(output, { recursive: true });
   await page.screenshot({ path: join(output, "demo-experience-1280.png"), fullPage: true });

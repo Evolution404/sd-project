@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
 const { s, demand, project, towers } = approvedFixture({ after: action => cleanup.push(action) });
@@ -16,7 +16,7 @@ const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/visual-audit');
 mkdirSync(output, { recursive: true });
-const routes = ['dashboard', 'demands', 'projects', 'funding', 'finance', 'ledger', 'standards', 'system'];
+const routes = ['dashboard', 'demands', 'projects', 'frameworks', 'agreements', 'finance', 'ledger', 'materials', 'standards', 'pricing', 'dictionaries', 'system'];
 const widths = [1500, 1280, 960, 760];
 async function visit(path) {
   if (await page.locator('.business-detail-dialog:visible').count()) {
@@ -30,6 +30,7 @@ async function visit(path) {
   await page.locator('main h1').waitFor();
   await page.waitForLoadState('networkidle');
   if (isDetail) {
+    if (parts[0] === "finance") await page.getByRole("tab", { name: "项目办理", exact: true }).click();
     await page.locator('main').getByRole('button', { name: parts[0] === 'finance' || parts[0] === 'projects' ? '进入项目' : '查看', exact: true }).first().click();
     await page.locator('.business-detail-dialog h1').waitFor();
     await page.waitForLoadState('networkidle');
@@ -129,7 +130,7 @@ try {
   assert.equal(page.url(), location);
   assert.equal(s.catalog.get('physical', towers[0].id).deleted, false);
   assert.deepEqual(errors, []);
-  console.log('VISUAL_AUDIT_BROWSER_OK 8 modules + 3 details + 8 dialogs, 4 widths, light/dark, bounded footer, responsive facts and cancel');
+  console.log('VISUAL_AUDIT_BROWSER_OK 12 modules + 3 details + 8 dialogs, 4 widths, light/dark, bounded footer, responsive facts and cancel');
 } catch (error) {
   await page.screenshot({ path: join(output, 'failure.png'), fullPage: true });
   console.log('FAILURE_URL', page.url(), errors);

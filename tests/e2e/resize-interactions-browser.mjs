@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [], { s, user } = fixture({ after: action => cleanup.push(action) });
 const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
@@ -80,7 +81,7 @@ try {
   await page.getByRole("button", { name: "展开导航" }).click();
   await waitWidth(240);
 
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
+  await selectNavigation(page, "输电设备台账");
   await page.getByRole("heading", { name: "输电设备台账", exact: true }).waitFor();
   const table = page.locator(".business-table-grid").first();
   await table.locator(".el-loading-mask").waitFor({ state: "hidden" });
@@ -113,7 +114,7 @@ try {
   assert.ok(resized.width > initial.width + 48, "dragging table column boundary must increase width");
   const savedWidth = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")).widths.name);
   await page.reload();
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
+  await selectNavigation(page, "输电设备台账");
   await page.getByRole("heading", { name: "输电设备台账", exact: true }).waitFor();
   const restored = await page.locator(".business-table-grid").first().getByRole("columnheader", { name: /线路名称/ }).boundingBox();
   assert.ok(Math.abs(restored.width - savedWidth) <= 3, JSON.stringify({ restored: restored.width, savedWidth }));
@@ -136,7 +137,7 @@ try {
   });
   const actionsSaved = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")).widths.__actions);
   await page.reload();
-  await page.getByRole("menuitem", { name: "输电设备台账", exact: true }).click();
+  await selectNavigation(page, "输电设备台账");
   const actionsRestored = await page.locator(".business-table-grid").first().getByRole("columnheader", { name: "操作", exact: true }).boundingBox();
   assert.ok(Math.abs(actionsRestored.width - actionsSaved) < 3);
 

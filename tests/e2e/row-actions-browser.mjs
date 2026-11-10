@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
 const { s, user, project, approval, node, scope, save } = approvedFixture({ after: action => cleanup.push(action) });
@@ -32,7 +33,8 @@ async function login(name, password) {
 async function navigate(name) {
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
-  await page.getByRole("menuitem", { name, exact: true }).last().click();
+  await selectNavigation(page, name);
+  if (name === "费用与结算") await page.getByRole("tab", { name: "项目办理", exact: true }).click();
 }
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
@@ -66,7 +68,7 @@ try {
   await page.getByRole("button", { name: "取消", exact: true }).click();
   assert.equal(s.catalog.list("lines").length, 1);
   await page.setViewportSize({ width: 1500, height: 1000 });
-  await navigate("实际费用与结算");
+  await navigate("费用与结算");
   await page.getByRole("button", { name: "进入项目" }).click();
   const billRow = page.getByRole("row").filter({ hasText: bill.number });
   await billRow.getByRole("button", { name: "正式提交", exact: true }).click();
@@ -85,7 +87,7 @@ try {
   for (const label of ["编辑", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
   assert.ok(await page.getByRole("menuitem", { name: "历史", exact: true }).isEnabled());
   await page.keyboard.press("Escape");
-  await navigate("实际费用与结算");
+  await navigate("费用与结算");
   await page.getByRole("button", { name: "进入项目" }).click();
   await billRow.getByRole("button", { name: "附件", exact: true }).waitFor();
   await billRow.getByRole("button", { name: "更多操作" }).click();

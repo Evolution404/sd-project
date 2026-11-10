@@ -1,10 +1,11 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 const cleanup = [],
   t = { after: (action) => cleanup.push(action) },
   { s } = fixture(t),
@@ -41,7 +42,7 @@ try {
     path: join(output, "dashboard-1500.png"),
     fullPage: true,
   });
-  await page.getByRole("menuitem", { name: "专业需求", exact: true }).click();
+  await selectNavigation(page, "专业需求");
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
   await select("操作类型", "安装防鸟装置");
   await page.getByLabel("问题描述", { exact: true }).fill("三基塔防鸟装置缺失");
@@ -106,16 +107,20 @@ try {
   });
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   for (const name of [
-    "年度框架与子项目",
-    "执行协议与资金",
-    "实际费用与结算",
+    "子项目管理",
+    "年度框架",
+    "执行协议",
+    "物资管理",
+    "参考价格",
+    "基础数据",
+    "费用与结算",
     "输电设备台账",
-    "作业标准与参考价格",
+    "作业标准",
     "系统管理",
   ]) {
     const mobileMenu = page.getByRole("button", { name: "打开导航" });
     if (await mobileMenu.isVisible()) await mobileMenu.click();
-    await page.getByRole("menuitem", { name, exact: true }).last().click();
+    await selectNavigation(page, name);
     await page.locator("h1").waitFor();
     assert.ok(
       await page.evaluate(
@@ -147,7 +152,7 @@ try {
       .count(),
     0,
   );
-  await reader.getByRole("menuitem", { name: "专业需求", exact: true }).click();
+  await selectNavigation(reader, "专业需求");
   assert.equal(
     await reader
       .getByRole("button", { name: "新增需求", exact: true })
@@ -161,7 +166,7 @@ try {
   await readerContext.close();
   assert.deepEqual(errors, []);
   console.log(
-    "SCHEMA113_BROWSER_OK login, 3-location demand, 480.00 quote, Excel workbench, 8 modules, 1500/1280/960/760px",
+    "SCHEMA113_BROWSER_OK login, 3-location demand, 480.00 quote, Excel workbench, 12 modules, 1500/1280/960/760px",
   );
 } finally {
   await browser.close();

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
 const { s, user, save, operation } = fixture({ after: fn => cleanup.push(fn) });
@@ -61,7 +61,7 @@ try {
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.goto(base + "/#/standards/prices");
+  await page.goto(base + "/#/pricing/prices");
   await page.getByRole("row").filter({ hasText: oldRule.title }).waitFor();
   assert.ok(await page.getByRole("row").filter({ hasText: oldRule.title })
     .getByText("安装防鸟装置").count(), "operation reference must show the readable name");
@@ -156,6 +156,7 @@ try {
   assert.equal(s.projects.list().some(row => row.name === "临时新增项目"), false);
 
   await page.goto(base + "/#/finance");
+  await page.getByRole("tab", { name: "项目办理", exact: true }).click();
   await page.getByRole("row").filter({ hasText: existingProject.name })
     .getByRole("button", { name: "进入项目" }).click();
   const projectDetail = page.locator(".business-detail-dialog:visible");

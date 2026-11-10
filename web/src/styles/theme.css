@@ -349,3 +349,8 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {scroll-behavior:auto !important;animation-duration:.01ms !important;transition-duration:.01ms !important}
 }
+
+.navigation > .el-menu {overflow-y:auto;overflow-x:hidden;min-height:0}
+.navigation .el-sub-menu__title {height:38px;font-size:12px;color:var(--muted)}
+.navigation .el-sub-menu .el-menu-item {height:40px;line-height:40px;border-radius:8px;margin:2px 0}
+.navigation .el-sub-menu .el-menu {background:transparent}

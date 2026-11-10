@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
 const { s } = fixture({ after: (action) => cleanup.push(action) });
@@ -102,18 +103,22 @@ try {
   for (const [title, button, expectedButtons] of [
     ["输电设备台账", "新增线路", 2],
     ["专业需求", "新增需求", 2],
-    ["年度框架与子项目", "新增子项目", 1],
-    ["执行协议与资金", "新增年度框架", 1],
-    ["实际费用与结算", null, 0],
-    ["作业标准与参考价格", "新增操作类型", 1],
+    ["子项目管理", "新增子项目", 1],
+    ["年度框架", "新增年度框架", 1],
+    ["执行协议", "新增执行协议", 1],
+    ["物资管理", "新增物资", 1],
+    ["参考价格", "新增参考价格规则", 1],
+    ["基础数据", "新增电压等级", 1],
+    ["费用与结算", null, 0],
+    ["作业标准", "新增操作类型", 1],
     ["系统管理", "新增用户", 1],
   ]) {
     if (await page.getByRole("button", { name: "打开导航" }).isVisible())
       await page.getByRole("button", { name: "打开导航" }).click();
-    await page.getByRole("menuitem", { name: title, exact: true }).last().click();
+    await selectNavigation(page, title);
     await page
       .getByRole("heading", {
-        name: title === "执行协议与资金" ? "年度框架、协议与组织" : title,
+        name: title === "年度框架" ? "年度框架" : title,
         exact: true,
       })
       .waitFor();
@@ -138,11 +143,13 @@ try {
       assert.ok(second.y >= first.y + first.height + 8);
       assert.ok(Math.abs(second.x - first.x) <= 1);
       await actions.evaluate((group) => group.style.removeProperty("width"));
-      await page.getByRole("tab", { name: "电压等级", exact: true }).click();
+      await selectNavigation(page, "基础数据");
+  await page.getByRole("tab", { name: "电压等级", exact: true }).click();
       await page
         .getByRole("button", { name: "新增电压等级", exact: true })
         .waitFor();
       await checkHeading(title, 1, 1500);
+      await selectNavigation(page, "输电设备台账");
       await page.getByRole("tab", { name: "线路", exact: true }).click();
       await page
         .getByRole("button", { name: "Excel 批量处理", exact: true })
@@ -158,7 +165,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    "HEADING_LAYOUT_BROWSER_OK 7 modules, 7 widths, grouped actions, 10px spacing, alignment, wrap and Excel dialog",
+    "HEADING_LAYOUT_BROWSER_OK 11 modules, 7 widths, grouped actions, 10px spacing, alignment, wrap and Excel dialog",
   );
 } catch (error) {
   await page.screenshot({

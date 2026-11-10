@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { fixture } from '../helpers.mjs';
-import { httpServer } from '../../server/http/server.mjs';
+import { httpServer } from '../../dist/server/platform/http/server.js';
 
 const cleanup = [], { s, user, save } = fixture({ after: action => cleanup.push(action) });
 const voltage = save('voltages', { name: '500kV' });
@@ -20,7 +20,7 @@ page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/table-fill-modals');
 mkdirSync(output, { recursive: true });
 try {
-  await page.goto(`${base}/#/ledger/voltages`);
+  await page.goto(`${base}/#/dictionaries/voltages`);
   await page.getByLabel('用户名', { exact: true }).fill('admin');
   await page.getByLabel('密码', { exact: true }).fill('Schema113-test-password');
   await page.getByRole('button', { name: '登录', exact: true }).click();
@@ -58,6 +58,7 @@ try {
   }, null, { timeout: 4000 });
   const savedLayout = await page.locator('main .el-table').evaluate(table => ({ body: table.querySelector('.el-table__body').getBoundingClientRect().width, table: table.getBoundingClientRect().width }));
   assert.ok(savedLayout.body >= savedLayout.table - 3, JSON.stringify(savedLayout));
+  await page.goto(`${base}/#/ledger/physical`);
   await page.getByRole('tab', { name: '物理杆塔', exact: true }).click();
   assert.equal(await page.locator('.el-table__expand-column').count(), 0);
   const url = page.url();

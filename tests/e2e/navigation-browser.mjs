@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
 const { s, user, save, demand } = approvedFixture({ after: action => cleanup.push(action) });
@@ -60,15 +61,15 @@ try {
   await page.unroute('**/api/demands?*');
 
   const modules = [
-    ["工作台", "/dashboard"], ["年度框架与子项目", "/projects"],
-    ["执行协议与资金", "/funding"], ["实际费用与结算", "/finance"],
-    ["作业标准与参考价格", "/standards"], ["系统管理", "/system"], ["输电设备台账", "/ledger"],
+    ["工作台", "/dashboard"], ["子项目管理", "/projects"],
+    ["年度框架", "/frameworks"], ["执行协议", "/agreements"], ["物资管理", "/materials"], ["参考价格", "/pricing"], ["基础数据", "/dictionaries"], ["费用与结算", "/finance"],
+    ["作业标准", "/standards"], ["系统管理", "/system"], ["输电设备台账", "/ledger"],
   ];
   for (const [name, path] of modules) {
-    await page.getByRole("menuitem", { name, exact: true }).click();
+    await selectNavigation(page, name);
     await page.waitForURL(url => url.hash === '#' + path);
     await page.reload();
-    await page.getByRole("heading", { name: name === "执行协议与资金" ? "年度框架、协议与组织" : name, exact: true }).waitFor();
+    await page.getByRole("heading", { name: name === "年度框架" ? "年度框架" : name, exact: true }).waitFor();
   }
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await page.waitForURL(/page=2/);
@@ -100,6 +101,7 @@ try {
   await page.getByRole('button', { name: '筛选线路名称', exact: true }).click();
   assert.equal(await page.getByPlaceholder('筛选线路名称', { exact: true }).inputValue(), '17');
   await page.locator('main h1').click();
+  await selectNavigation(page, "基础数据");
   await page.getByRole('tab', { name: '电压等级', exact: true }).click();
   await page.getByRole('row').filter({ hasText: '500kV' }).getByRole('button', { name: '更多操作' }).click();
   const beforeHistory = page.url();
@@ -113,8 +115,9 @@ try {
   await page.goForward();
   await page.getByRole('row').filter({ hasText: '500kV' }).waitFor();
 
-  await page.getByRole('menuitem', { name: '实际费用与结算', exact: true }).click();
+  await selectNavigation(page, '费用与结算');
   await page.waitForURL(url => url.hash === '#/finance');
+  await page.getByRole('tab', { name: '项目办理', exact: true }).click();
   const financeUrl = page.url();
   await page.getByRole('button', { name: '进入项目', exact: true }).click();
   await detail.getByRole('heading', { name: '独立结算单', exact: true }).waitFor();
@@ -124,7 +127,7 @@ try {
   await page.reload();
   assert.equal(await detail.count(), 0);
   // Validation awaits must still reserve a save before a second click.
-  await page.getByRole('menuitem', { name: '年度框架与子项目', exact: true }).click();
+  await selectNavigation(page, '子项目管理');
   await page.getByRole('button', { name: '新增子项目', exact: true }).click();
   const editor = page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible');
   await editor.getByLabel('项目名称', { exact: true }).fill('防重复保存项目');

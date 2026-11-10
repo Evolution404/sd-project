@@ -1,9 +1,10 @@
+import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { httpServer } from "../../server/http/server.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
 const cleanup = [],
   { s } = fixture({ after: (action) => cleanup.push(action) }),
   server = httpServer(s);
@@ -53,9 +54,8 @@ try {
     .fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
-  await page
-    .getByRole("menuitem", { name: "输电设备台账", exact: true })
-    .click();
+  await selectNavigation(page, "输电设备台账");
+  await selectNavigation(page, "基础数据");
   await page.getByRole("tab", { name: "电压等级", exact: true }).click();
   await page.getByRole("button", { name: "新增电压等级", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("110kV");
@@ -89,9 +89,7 @@ try {
   await page.getByRole("menuitem", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await page.getByText("暂无记录", { exact: true }).waitFor();
-  await page
-    .getByRole("menuitem", { name: "作业标准与参考价格", exact: true })
-    .click();
+  await selectNavigation(page, "作业标准");
   await page.getByRole("tab", { name: "作业对象", exact: true }).click();
   await page
     .getByRole("button", { name: "新增作业对象", exact: true })
@@ -103,10 +101,12 @@ try {
   await save();
   await page.getByRole("row").filter({ hasText: "浏览器专用对象" })
     .getByText("杆塔", { exact: true }).waitFor();
+  await selectNavigation(page, "基础数据");
   await page.getByRole("tab", { name: "计量单位", exact: true }).click();
   await page.getByRole("button", { name: "新增计量单位", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("件");
   await save();
+  await selectNavigation(page, "作业标准");
   await page.getByRole("tab", { name: "操作类型", exact: true }).click();
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("浏览器安装");
@@ -126,7 +126,7 @@ try {
   await select("录入方式", "数值");
   await page.locator(".el-switch:visible").last().click();
   await save();
-  await page.getByRole("menuitem", { name: "专业需求", exact: true }).click();
+  await selectNavigation(page, "专业需求");
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
   await select("操作类型", "浏览器安装");
   await page
@@ -145,7 +145,8 @@ try {
   assert.equal(s.catalog.list("voltages").length, 0);
   assert.equal(s.catalog.list("voltages", true)[0].name, "110千伏");
   // New extra price factors have constrained enum/integer editors.
-  await page.getByRole("menuitem", { name: "作业标准与参考价格", exact: true }).click();
+  await selectNavigation(page, "作业标准");
+  await selectNavigation(page, "参考价格");
   await page.getByRole("tab", { name: "价格特征", exact: true }).click();
   await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
   const factorEditor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
@@ -172,6 +173,7 @@ try {
   assert.equal(heightDefinition.max, 100);
   assert.ok(heightDefinition.unit_id);
 
+  await selectNavigation(page, "作业标准");
   await page.getByRole("tab", { name: "操作类型", exact: true }).click();
   await page.getByRole("row").filter({ hasText: "浏览器安装" })
     .getByRole("button", { name: "更多操作" }).click();
@@ -185,6 +187,7 @@ try {
   assert.equal(s.catalog.get("operations", s.catalog.list("operations").find(
     (item) => item.name === "浏览器安装").id).version, 2);
 
+  await selectNavigation(page, "参考价格");
   await page.getByRole("tab", { name: "参考价格规则", exact: true }).click();
   await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
   assert.deepEqual(await factorEditor.getByRole("tab").allTextContents(),
