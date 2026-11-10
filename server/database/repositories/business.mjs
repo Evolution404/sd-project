@@ -1,68 +1,9 @@
 import { businessLists } from "../queries/business-lists.js";
+import { projectReadRepository } from "./projects.js";
 export function businessRepository(store) {
   return {
     ...store,
-    // One indexed project scan replaces four lookups for every demand scope.
-    // Keep the full historical scope row and current binding projection intact.
-    projectScopes(projectId) {
-      return store.query(`SELECT sc.*, d.demand_no,
-        COALESCE(dc.status, 'pending') AS demand_status,
-        CASE WHEN b.project_scope_id IS NULL THEN NULL ELSE json_object(
-          'project_scope_id', b.project_scope_id,
-          'project_id', b.project_id,
-          'demand_id', b.demand_id,
-          'link_event_id', b.link_event_id,
-          'linked_by', b.linked_by,
-          'linked_at', b.linked_at) END AS binding_json
-        FROM project_demand_scopes sc
-        JOIN demands d ON d.id=sc.demand_id
-        LEFT JOIN v_demand_current dc ON dc.id=sc.demand_id
-        LEFT JOIN v_project_demand_binding_current b ON b.project_scope_id=sc.id
-        WHERE sc.project_id=?`, projectId).map(({ binding_json, ...scope }) => ({
-          ...scope,
-          binding: binding_json ? JSON.parse(binding_json) : null,
-        }));
-    },
-    projectApprovalHistory(projectId) {
-      const approvals = store.query(`SELECT * FROM project_approval_versions
-        WHERE project_id=? AND status<>'withdrawn' ORDER BY version_no`, projectId);
-      if (!approvals.length) return [];
-      const scopes = store.query(`SELECT sc.*, d.demand_no FROM project_approval_scope_versions sc
-        JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
-        JOIN demands d ON d.id=sc.demand_id WHERE ap.project_id=? AND ap.status<>'withdrawn'`, projectId);
-      const materials = store.query(`SELECT item.*, pm.material_id FROM project_approval_material_items item
-        JOIN project_approval_versions ap ON ap.id=item.approval_version_id
-        JOIN project_scope_materials pm ON pm.id=item.project_material_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn'`, projectId);
-      const locations = store.query(`SELECT loc.* FROM project_approval_work_locations loc
-        JOIN project_approval_scope_versions sc ON sc.id=loc.approval_scope_version_id
-        JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn'`, projectId);
-      const materialGroups = new Map();
-      for (const item of materials) {
-        const key = `${item.approval_version_id}:${item.project_scope_id}`;
-        if (!materialGroups.has(key)) materialGroups.set(key, []);
-        materialGroups.get(key).push(item);
-      }
-      const locationGroups = new Map();
-      for (const loc of locations) {
-        if (!locationGroups.has(loc.approval_scope_version_id)) locationGroups.set(loc.approval_scope_version_id, []);
-        locationGroups.get(loc.approval_scope_version_id).push(loc);
-      }
-      const scopeGroups = new Map();
-      for (const sc of scopes) {
-        if (!scopeGroups.has(sc.approval_version_id)) scopeGroups.set(sc.approval_version_id, []);
-        scopeGroups.get(sc.approval_version_id).push({ ...sc,
-          materials: materialGroups.get(`${sc.approval_version_id}:${sc.project_scope_id}`) || [],
-          locations: locationGroups.get(sc.id) || [],
-        });
-      }
-      return approvals.map(ap => ({ ...ap, scopes: scopeGroups.get(ap.id) || [] }));
-    },
-    projectCostNodes(projectId) {
-      return store.query("SELECT n.*, EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='cost_nodes' AND a.entity_id=n.id AND a.action='delete') AS deleted FROM v_project_cost_node_current n WHERE n.project_id=?", projectId)
-        .map(node => ({ ...node, deleted: Boolean(node.deleted) }));
-    },
+    ...projectReadRepository(store),
     searchFinance: businessLists(store).finance,
     searchDemands: businessLists(store).demands,
     searchProjects: businessLists(store).projects,

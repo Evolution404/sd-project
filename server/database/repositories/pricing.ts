@@ -105,6 +105,28 @@ export function pricingRepository(store: ReturnType<typeof createStore>) {
         amounts_json: string;
       }[];
     },
+    projectScopeQuotes(projectId: string) {
+      return store.query(
+        `SELECT s.approval_version_id,s.id AS scope_id,s.demand_id,p.evaluation_id,
+        (SELECT json_group_array(l.amount_fen) FROM reference_price_evaluation_lines l
+         WHERE l.evaluation_id=p.evaluation_id) AS amounts_json
+        FROM project_approval_scope_versions s
+        JOIN project_approval_versions ap ON ap.id=s.approval_version_id
+        LEFT JOIN project_approval_scope_prices p ON p.approval_scope_version_id=s.id
+        WHERE ap.project_id=? AND ap.status<>'withdrawn'`, projectId,
+      ) as { approval_version_id: string; scope_id: string; demand_id: string;
+        evaluation_id: string | null; amounts_json: string }[];
+    },
+    projectCharges(projectId: string) {
+      return store.query(
+        `SELECT c.*,r.title AS rule_title,r.catalog_id AS reference_price_catalog_id
+        FROM project_reference_price_charges c
+        JOIN project_approval_versions ap ON ap.id=c.approval_version_id
+        JOIN reference_price_versions r ON r.id=c.reference_price_version_id
+        WHERE ap.project_id=? AND ap.status<>'withdrawn'`, projectId,
+      ) as (ReferenceCharge & { rule_title: string;
+        reference_price_catalog_id: string; approval_version_id: string })[];
+    },
     charges(approvalId: string) {
       return store.query(
         `SELECT c.*,r.title AS rule_title,r.catalog_id AS reference_price_catalog_id

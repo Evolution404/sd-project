@@ -54,10 +54,11 @@ export function createProjects(repo, catalog, demands, pricing) {
         repo.latest("project_funding_versions", "project_id", key) || null,
       approval,
       scopes,
-      approvals: repo.projectApprovalHistory(key).map(ap => ({
-        ...ap,
-        reference: pricing.summary(ap.id),
-      })),
+      approvals: (() => {
+        const approvals = repo.projectApprovalHistory(key);
+        const summaries = pricing.projectSummaries(key, approvals.map(ap => ap.id));
+        return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
+      })(),
       cost_nodes: repo.projectCostNodes(key),
       changes: repo.where("project_change_orders", { project_id: key }),
     };

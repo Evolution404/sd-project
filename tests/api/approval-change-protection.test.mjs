@@ -57,6 +57,11 @@ test("formal change without explicit scope change inherits all approved material
   assert.equal(current.scopes[0].materials[0].approved_quantity_scaled, 50000);
   const original = after.approvals.find(ap => ap.id === approval.id);
   assert.equal(original.scopes[0].materials.length, 1);
+  // Batched summaries must preserve each immutable approval's own quote.
+  for (const version of after.approvals) {
+    assert.deepEqual(version.reference, s.pricing.summary(version.id));
+    assert.equal(version.scopes[0].locations.length, approval.scopes[0].locations.length);
+  }
 });
 test("server rejects silently dropped materials and accepts explicit reviewed removal", t => {
   const setup = demo(t);

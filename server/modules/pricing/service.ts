@@ -63,6 +63,22 @@ function pricingDate(value: unknown): string {
   );
   return date;
 }
+function summarize(
+  scopes: ReturnType<PricingRepository["scopeQuotes"]>,
+  charges: ReturnType<PricingRepository["charges"]>,
+) {
+  const missing = scopes.filter(scope => !scope.evaluation_id)
+    .map(scope => ({ demand_id: scope.demand_id, scope_id: scope.scope_id }));
+  const subtotal = safeAmount([
+    ...scopes.flatMap(scope => JSON.parse(scope.amounts_json) as number[]),
+    ...charges.map(charge => charge.amount_fen),
+  ].reduce((sum, amount) => sum + BigInt(amount), 0n));
+  return {
+    complete: scopes.length > 0 && missing.length === 0,
+    total_fen: scopes.length && missing.length === 0 ? subtotal : null,
+    subtotal_fen: subtotal, missing, charges,
+  };
+}
 export function createPricing(
   repository: PricingRepository,
   rules: PriceRuleService,
@@ -416,29 +432,27 @@ export function createPricing(
       });
     },
     summary(approvalId: string) {
-      const scopes = repository.scopeQuotes(approvalId),
-        charges = repository.charges(approvalId);
-      const missing = scopes
-        .filter((scope) => !scope.evaluation_id)
-        .map((scope) => ({
-          demand_id: scope.demand_id,
-          scope_id: scope.scope_id,
-        }));
-      const subtotal = safeAmount(
-        [
-          ...scopes.flatMap(
-            (scope) => JSON.parse(scope.amounts_json) as number[],
-          ),
-          ...charges.map((charge) => charge.amount_fen),
-        ].reduce((sum, amount) => sum + BigInt(amount), 0n),
-      );
-      return {
-        complete: scopes.length > 0 && missing.length === 0,
-        total_fen: scopes.length && missing.length === 0 ? subtotal : null,
-        subtotal_fen: subtotal,
-        missing,
-        charges,
-      };
+      return summarize(repository.scopeQuotes(approvalId), repository.charges(approvalId));
+    },
+    projectSummaries(projectId: string, approvalIds: string[]) {
+      const scopes = repository.projectScopeQuotes(projectId);
+      const charges = repository.projectCharges(projectId);
+      const scopeGroups = new Map<string, typeof scopes>();
+      const chargeGroups = new Map<string, typeof charges>();
+      for (const scope of scopes) {
+        const group = scopeGroups.get(scope.approval_version_id) || [];
+        group.push(scope);
+        scopeGroups.set(scope.approval_version_id, group);
+      }
+      for (const charge of charges) {
+        const group = chargeGroups.get(charge.approval_version_id) || [];
+        group.push(charge);
+        chargeGroups.set(charge.approval_version_id, group);
+      }
+      const summaries = new Map<string, ReturnType<typeof summarize>>();
+      for (const key of approvalIds)
+        summaries.set(key, summarize(scopeGroups.get(key) || [], chargeGroups.get(key) || []));
+      return summaries;
     },
   };
 }
