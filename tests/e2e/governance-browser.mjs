@@ -58,7 +58,9 @@ try {
   const quote = page.locator(".el-overlay-dialog:visible").filter({ hasText: "参考价格" }).last();
   await quote.getByText("完整参考价 ¥228.00", { exact: true }).waitFor();
   const date = quote.getByLabel("价格适用日期");
-  await date.fill("2026-11-11");
+  // Always change the field: the test may run on 2026-11-11 or later.
+  const originalDate = await date.inputValue();
+  await date.fill(originalDate === "2026-11-12" ? "2026-11-13" : "2026-11-12");
   await date.press("Tab");
   await quote.getByText("计价条件已修改", { exact: false }).first().waitFor();
   assert.equal(await quote.getByRole("button", { name: "确认正式报价" }).isDisabled(), true);
