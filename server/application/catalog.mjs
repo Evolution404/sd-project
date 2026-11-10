@@ -141,7 +141,7 @@ export const catalogDefinitions = {
       }),
       field("allow_tower", "允许杆塔", "boolean", { default: 1 }),
       field("allow_span", "允许档距", "boolean", { default: 0 }),
-      field("default_location_kind", "默认位置", "select", {
+      field("default_location_kind", "默认作业位置", "select", {
         options: ["tower", "span"],
         default: "tower",
       }),

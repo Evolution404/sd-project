@@ -331,9 +331,10 @@ function tableCell(row: Row, column: TableColumn) {
   if (key === "height_scaled" || key === "transmission_center_length_mm")
     return Number(value) / (key === "height_scaled" ? 10000 : 1000);
   if (typeof value === "boolean") return value ? "是" : "否";
-  if (key === "tower_nature" || key === "status" || key === "line_kind" || key === "work_target_type" || key === "pricing_mode" || key === "pricing_scope")
-    return statusText[String(value)] || value;
   const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: Row) => f.key === key);
+  if (f?.type === "boolean") return value ? "是" : "否";
+  if (f?.type === "select" || ["tower_nature", "line_kind"].includes(key))
+    return statusText[String(value)] || value;
   if (f?.type === "ref") return value ? row[key + "_label"] || "历史关联记录" : "—";
   if (f?.type === "money") return "¥" + money(value);
   if (f?.type === "quantity") return quantity(value);
@@ -530,7 +531,7 @@ function display(field: Row, value: unknown) {
   if (field.type === "ref")
     return detail.value?.reference_names?.[field.key] || "历史关联对象";
   if (field.type === "boolean") return value ? "是" : "否";
-  if (["status", "tower_nature", "work_target_type"].includes(field.key)) return statusText[String(value)] || value;
+  if (field.type === "select" || field.key === "tower_nature") return statusText[String(value)] || value;
   return value;
 }
 async function viewHistory(row: Row) {

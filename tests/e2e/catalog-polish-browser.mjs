@@ -10,6 +10,12 @@ import { columnIndex } from '../workbook-helpers.mjs';
 const cleanup = [], { s, save } = fixture({ after: action => cleanup.push(action) });
 const voltage = save('voltages', { name: '500kV' });
 for (const name of ['01线路', '02线路']) save('lines', { name, voltage_level_id: voltage.id });
+const spanUnit = save('units', { name: '处' });
+const spanObject = save('objects', { name: '导线', work_target_type: 'line' });
+const spanOperation = save('operations', {
+  name: '处理导线缺陷', work_object_id: spanObject.id, default_unit_id: spanUnit.id,
+  work_target_type: 'line', allow_tower: 0, allow_span: 1, default_location_kind: 'span',
+});
 const server = httpServer(s);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: 'chrome' });
@@ -57,6 +63,20 @@ try {
   assert.equal(s.catalog.list('towers')[0].tower_nature, 'tension');
   await page.getByRole('cell', { name: '耐张', exact: true }).waitFor();
   await page.getByRole('menuitem', { name: '作业标准与参考价格', exact: true }).click();
+  await page.getByRole('columnheader', { name: /默认作业位置/ }).waitFor();
+  const spanRow = page.getByRole('row').filter({ hasText: '处理导线缺陷' });
+  await spanRow.getByRole('cell', { name: '档距', exact: true }).waitFor();
+  await spanRow.getByRole('cell', { name: '是', exact: true }).waitFor();
+  await spanRow.getByRole('cell', { name: '否', exact: true }).waitFor();
+  const towerRow = page.getByRole('row').filter({ hasText: '安装防鸟装置' });
+  await towerRow.getByRole('cell', { name: '杆塔', exact: true }).waitFor();
+  assert.doesNotMatch(await spanRow.innerText(), /\bspan\b|\btower\b/);
+  assert.equal(s.catalog.get('operations', spanOperation.id).default_location_kind, 'span');
+  await spanRow.getByRole('button', { name: '查看', exact: true }).click();
+  const detail = page.locator('.business-detail-dialog:visible');
+  await detail.getByText('默认作业位置', { exact: true }).waitFor();
+  await detail.getByText('档距', { exact: true }).waitFor();
+  await detail.getByRole('button', { name: '关闭详情' }).click();
   await page.getByRole('button', { name: '新增操作类型', exact: true }).click();
   assert.equal(await editor.getByRole('tab').count(), 4);
   assert.equal(await editor.getByText('影响与预览', { exact: true }).count(), 0);
