@@ -1,0 +1,1314 @@
+{
+  "commit": "699fc1310da349d342909149d268fdc227afb06d",
+  "files": [
+    {
+      "path": "server/application/auth.mjs",
+      "sha256": "20c6608c812630db88896acb3b0c4c42355b7c1689b658fb85c2336502956afc",
+      "lines": 162,
+      "exports": [
+        "digest",
+        "now",
+        "today",
+        "id",
+        "documentCode",
+        "passwordHash",
+        "createAuth",
+        "authorize"
+      ],
+      "tests": [
+        ":"
+      ]
+    },
+    {
+      "path": "server/application/catalog.mjs",
+      "sha256": "3df5ff4eff31a7274b5c2071a51407eccb52c7dcddc951218262cc30a68fdf88",
+      "lines": 1262,
+      "exports": [
+        "catalogDefinitions",
+        "createCatalog"
+      ],
+      "tests": [
+        "dictionary_item_versions",
+        "operation_versions",
+        "dictionary_item_versions"
+      ]
+    },
+    {
+      "path": "server/application/demands.mjs",
+      "sha256": "b87597c10c61111a41cfd6ea6af7e21c0e52783e716bf08295f2fa58b8d1dd82",
+      "lines": 714,
+      "exports": [
+        "createDemands"
+      ],
+      "tests": [
+        "demand_lifecycle_events"
+      ]
+    },
+    {
+      "path": "server/application/evidence.mjs",
+      "sha256": "cd5ebcd27f110110830344afff2b79f4818f06e155501689a71f3ad54795c7ea",
+      "lines": 125,
+      "exports": [
+        "createEvidence"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/application/finance.mjs",
+      "sha256": "6bb8d292f14d190ceaf46ab454d6a9fb344541e4b3e021e1abd38ce7429102c4",
+      "lines": 789,
+      "exports": [
+        "createFinance"
+      ],
+      "tests": [
+        "cost_versions",
+        "settlement_versions",
+        "settlement_review_events",
+        "cost_reconciliation_versions",
+        "cost_reconciliation_versions",
+        "cost_versions"
+      ]
+    },
+    {
+      "path": "server/application/management.mjs",
+      "sha256": "2cd1e0093e7efa4252c8659cd7e3c9a1d00e7a79d39993a898720ab7d21a2594",
+      "lines": 138,
+      "exports": [
+        "createManagement"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/application/pricing.mjs",
+      "sha256": "e4f2c6f00d1af916b4e9e1f16b1fb1867c39ea1c5febce8d4335cfff91eedc11",
+      "lines": 453,
+      "exports": [
+        "createPricing"
+      ],
+      "tests": [
+        "reference_price_versions"
+      ]
+    },
+    {
+      "path": "server/application/projects.mjs",
+      "sha256": "7b8ab497f7e567093b7cb26f3163c29da80b409e3c1bad94d7d7308a138a16ec",
+      "lines": 657,
+      "exports": [
+        "createProjects"
+      ],
+      "tests": [
+        "project_management_versions",
+        "project_funding_versions",
+        "project_demand_link_events",
+        "project_demand_link_events"
+      ]
+    },
+    {
+      "path": "server/application/reporting.mjs",
+      "sha256": "5a24eb26bb2b7682859052d4bdbd9c93af1cdf5265ab33f6531654ee034e87bb",
+      "lines": 124,
+      "exports": [
+        "createReporting"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/application/sources.mjs",
+      "sha256": "5e5405fa8fabc6a5fa4e73e2a01ce2c906428fdd7117a258f97f742c3b570d72",
+      "lines": 73,
+      "exports": [
+        "currentSources",
+        "reviseSource",
+        "createSources"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/application/system.mjs",
+      "sha256": "5ecee75bf9cbad16b5c73916dee3bbbb62e12d9902202bb8c4e45000d2a8a485",
+      "lines": 72,
+      "exports": [
+        "createSystem"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/connection.mjs",
+      "sha256": "cf16e2c3e6564de10721f5e4563f618d735dee443c9025f49f244d077fdbcdd1",
+      "lines": 118,
+      "exports": [
+        "openDatabase"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/repositories/business.mjs",
+      "sha256": "44e31bc42771d6ad66910134687fa856728d01cd51b7696225b24d778963d679",
+      "lines": 110,
+      "exports": [
+        "businessRepository"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/repositories/equipment-search.mjs",
+      "sha256": "780e179a0adddc15170bf7d428b010a1b86d976cacdcdee682e8659fa8ac55de",
+      "lines": 125,
+      "exports": [
+        "searchEquipment"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/repositories/identity.mjs",
+      "sha256": "fd0ca2ee228c321dce172757d171cceb33c1cd03a87997a428d4dd1370cb8a0b",
+      "lines": 21,
+      "exports": [
+        "identityRepository"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/repositories/store.mjs",
+      "sha256": "f3a2a6a173cd52b5b845cfb8b36d58703655335332c791daa9fd54a053bc43bb",
+      "lines": 99,
+      "exports": [
+        "createStore"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/restore.mjs",
+      "sha256": "685190624f85df94c0dfca0b1fbc6110286f7c4488faa97677de0e6ff5100fc3",
+      "lines": 48,
+      "exports": [
+        "restoreBackup"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/database/schema/schema113.sql",
+      "sha256": "c2cb53195712c98589939b489bc00753d89471fc5e77ec649313f2621e5751fb",
+      "lines": 4592,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "server/database/upgrade-equipment-fields.mjs",
+      "sha256": "e34fe390d3b5de79c7d3fd8545e0b14203a732603762841b010892a09107a0ee",
+      "lines": 150,
+      "exports": [
+        "upgradeSchema113",
+        "upgradeEquipmentFields"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/domain/decimal.mjs",
+      "sha256": "061c74662edfb49c5e372c1d4da4652e194ad4ec0587171726c52da8c54d0089",
+      "lines": 22,
+      "exports": [
+        "scaledDecimal",
+        "decimalText"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/domain/errors.mjs",
+      "sha256": "2a45488f91e2c90159f59cfa906f3f2257ee9feb3fde18eff1100b8eeb1a98b2",
+      "lines": 31,
+      "exports": [
+        "BusinessError",
+        "requireValue",
+        "expectedVersion",
+        "integer",
+        "text"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/domain/price-features.mjs",
+      "sha256": "570dbdde6a23b5b66f16e90722a520af03f01a2f9ab451062cab82093adfadc7",
+      "lines": 110,
+      "exports": [
+        "validateFactorDefinition",
+        "validateFeatureValue",
+        "validateFactorCondition",
+        "priceRulesMayOverlap"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/domain/pricing.mjs",
+      "sha256": "333206d9988551bf79115decee58ebf0f80842ae668cabe6c23e0e6d0b291827",
+      "lines": 329,
+      "exports": [
+        "ENGINE_VERSION",
+        "safeAmount",
+        "roundRatio",
+        "calculate",
+        "explainMismatch",
+        "matches",
+        "validatePricingRule"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/exchange/assets.mjs",
+      "sha256": "84d2ec55d9ee4faaf9ce0e0b89d1a64c830868a70deb45a20b28b260797205eb",
+      "lines": 714,
+      "exports": [
+        "createAssetExchange"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/exchange/references.mjs",
+      "sha256": "c8844af40317ba05e4377941dd6d4ff62f5d2fa05bcd377b2ec12cca2f344c69",
+      "lines": 154,
+      "exports": [
+        "createReferences"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/exchange/service.mjs",
+      "sha256": "3dc4f779c4f0090e345bd6028dfe17cc59b40f5d6f6d83aea846aea793bb395d",
+      "lines": 1118,
+      "exports": [
+        "createExchange"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/exchange/workbook.mjs",
+      "sha256": "830ae41f20b7dc29e32478e6838f59e9950406628f60af2e031bd39316602535",
+      "lines": 755,
+      "exports": [
+        "MAX_BYTES",
+        "KEEP",
+        "layouts",
+        "issue",
+        "parseWorkbook",
+        "makeWorkbook",
+        "errorsWorkbook",
+        "makeBusinessReport"
+      ],
+      "tests": []
+    },
+    {
+      "path": "server/http/server.mjs",
+      "sha256": "e9ab4672eb5cbfd190a7cae749863a80a9fa5e7bb93c300070a6b2591d8aa7ce",
+      "lines": 575,
+      "exports": [
+        "httpServer"
+      ],
+      "tests": [
+        ";",
+        "/"
+      ]
+    },
+    {
+      "path": "server/main.mjs",
+      "sha256": "54c4b237ad0c45ea876f65a25ada30241a00ba547b018f33251f6b224af29c56",
+      "lines": 18,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/App.vue",
+      "sha256": "8cedd7112f170382729d925d57df0e9d0451934c1af18b66687cc357599b0226",
+      "lines": 242,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/BusinessDetailDialog.vue",
+      "sha256": "23cb1ccba9944cd6e6cdb79ab31e18b39046223c936c3db79187f357dddbae83",
+      "lines": 16,
+      "exports": [],
+      "tests": [
+        "close",
+        "retry",
+        "close"
+      ]
+    },
+    {
+      "path": "web/src/components/BusinessHistory.vue",
+      "sha256": "ce9e5ce5dcc74a702a3bfdc40ee3eedebbb772a32d71acc58794c7cf7f919c94",
+      "lines": 65,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/BusinessTable.vue",
+      "sha256": "0da6c81701bd31f4ab8b3f07b53a6f4fa4dd5862074bc4f1a668dc30fd5ff8d4",
+      "lines": 285,
+      "exports": [],
+      "tests": [
+        "filter-change",
+        "filter-change",
+        "sort-change",
+        "filter-change",
+        "sort-change",
+        "selection-change"
+      ]
+    },
+    {
+      "path": "web/src/components/EvidencePanel.vue",
+      "sha256": "f6630a7932a3ad77574c1b473aa929e307eb0b7fa62143a4a42d02ba1aea0d5b",
+      "lines": 107,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/ExchangePanel.vue",
+      "sha256": "faaaf1dbe77fc73537949c5b3a7057e14640aa7de03b6d3895925dcfaa747593",
+      "lines": 353,
+      "exports": [],
+      "tests": [
+        "changed"
+      ]
+    },
+    {
+      "path": "web/src/components/ExtraFieldsEditor.vue",
+      "sha256": "4ce8b74b0c23a0fcf0295b0aba2f10a474c3368b20efc1bbfd9677e54b3b22aa",
+      "lines": 71,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/FactorDefinitionEditor.vue",
+      "sha256": "2ccd3b803c09abd95fc1c31507599a7f46a5bbdba4f60ff0ed8005618f5f520c",
+      "lines": 117,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/FieldControl.vue",
+      "sha256": "42e313b976cdb1cb192ebdd9fab0cab219fb9b7751b1f6894528e2120e30ca5b",
+      "lines": 200,
+      "exports": [],
+      "tests": [
+        "update:modelValue",
+        "update:modelValue"
+      ]
+    },
+    {
+      "path": "web/src/components/FinancePanel.vue",
+      "sha256": "43e3f788590a55424df1d3318bf28f57c14f532b2c3a4c27aea6d71a1e8248f3",
+      "lines": 784,
+      "exports": [],
+      "tests": [
+        "changed",
+        "changed",
+        "changed",
+        "changed",
+        "node",
+        "node",
+        "cost",
+        "cost",
+        "settlement",
+        "settlement",
+        "reconcile",
+        "reconcile"
+      ]
+    },
+    {
+      "path": "web/src/components/FormulaParameters.vue",
+      "sha256": "13a4ae175a32aa7ac0ca34013022e10cbed4318f4e72c9542cb8bcea1876b4e7",
+      "lines": 129,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/OperationFeaturesEditor.vue",
+      "sha256": "5912299b352cc06244f66f8007977c0099c0a4ad09cef7746334c69e8c894b9b",
+      "lines": 82,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/PriceConditionsEditor.vue",
+      "sha256": "7d1222c91e5b7a483456c756a80148450c1da3f11ccacde6e19aa00f4e461bdb",
+      "lines": 114,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/PricingModelEditor.vue",
+      "sha256": "618f453e3a8f2f8a418188506507dbcdb9a57de82e86c455fa24dd07ee031cfa",
+      "lines": 93,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/PricingQuoteDialog.vue",
+      "sha256": "5e09f40e29387ac758826d91fe429131ab5631bd3b60d8ac4e225e5ca6e25a6c",
+      "lines": 206,
+      "exports": [],
+      "tests": [
+        "confirmed",
+        "update:modelValue",
+        "update:modelValue"
+      ]
+    },
+    {
+      "path": "web/src/components/RowActions.vue",
+      "sha256": "cc5a0a92132d7454501a9a00e0ba976d8457470f297a3edc53f3ca3ae60517e6",
+      "lines": 71,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components/SiteFeaturesEditor.vue",
+      "sha256": "9b387237cfd06bb187b28e7ac1c9ff292c800754dd2c18515401e6d10caf8da4",
+      "lines": 90,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/components-auto.d.ts",
+      "sha256": "5802df2ef7881b5f87584ac9641a7699c72c5f1dee6be9b9007095cca76c2940",
+      "lines": 60,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/main.ts",
+      "sha256": "cf6fac945717fa6240064d7baef72913b426068301b0e19a4265d91714a2e786",
+      "lines": 7,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/pages/CatalogPage.vue",
+      "sha256": "c99423fee9c298c6bd8884d92eef6458be8cc429a51aaa6f3d8f4027439c7c9d",
+      "lines": 875,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/pages/DashboardPage.vue",
+      "sha256": "13a6d63ae76243159b05e169c981e7489290c54986f2d4f9b6c7110015065990",
+      "lines": 140,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/pages/DemandPage.vue",
+      "sha256": "ed99ce0c8c8eb1fce52091ff8768f2500477094c6c97277ec67a02b3150ff90a",
+      "lines": 741,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/pages/ProjectPage.vue",
+      "sha256": "a6b6a71addf20458ee30d0eb0e83a70ddc7d08305d2c96b0c1d2ba358093eb70",
+      "lines": 983,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/pages/RouteMissingPage.vue",
+      "sha256": "33fbc23efa9670078dfbccfbb0d96a3a80f41a72ca06d361b10b57f072032909",
+      "lines": 9,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/pages/SystemPage.vue",
+      "sha256": "9c3adec948ca32c166d7b02ad61ea7142b97de90cabe5de07e4142fe248f66a4",
+      "lines": 217,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/access.ts",
+      "sha256": "96848dc9581c4aa05a6197e1115b7d0c6efb7b0cd8eee4334b2cf9742aa3f861",
+      "lines": 8,
+      "exports": [
+        "useAccess"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/api.ts",
+      "sha256": "5ba0968002dca9ca57f49c93b3d4f40f7bc10d68b459838de1384adf2ad690b4",
+      "lines": 134,
+      "exports": [
+        "ApiError",
+        "api",
+        "download",
+        "money",
+        "quantity",
+        "statusText",
+        "today"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/dialog-draft.ts",
+      "sha256": "90abbf89ce76774021b7ab5264041d193bce7f034bd2e78cba7059884205f6a3",
+      "lines": 28,
+      "exports": [
+        "useDialogDraftGuard"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/display.ts",
+      "sha256": "e942529ea291297fe780e7a3c4db71b7b0a982c0ee6664c7d303fb4583800b59",
+      "lines": 249,
+      "exports": [
+        "fieldNames",
+        "visibleFact",
+        "fieldName",
+        "factText"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/entity-dialog.ts",
+      "sha256": "58a21f7496f9ddd63badd8b58c3686115f90ade4dc3196763e5e0cb131276b8a",
+      "lines": 35,
+      "exports": [
+        "useEntityDialog"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/id.ts",
+      "sha256": "d04ce72e0d948e87ac1880dc83ba05a26d2bbf94e4b33234347329067938e991",
+      "lines": 16,
+      "exports": [
+        "newClientId"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/page-navigation.ts",
+      "sha256": "28506489abf48fcdf2c94fe78924d7998fb7338a087bf1c748cc41fdba74e9b3",
+      "lines": 47,
+      "exports": [
+        "useListRoute"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/responsive-descriptions.ts",
+      "sha256": "519ac3e30f1884d57ed72f750210e9772c86055dca8315a2a777678989ea16c0",
+      "lines": 16,
+      "exports": [
+        "useDescriptionColumns"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/services/router.ts",
+      "sha256": "9293a1475e4e9312e8962503a42137bbce5c8e97df059a65bd6f1bf36ddbe5c3",
+      "lines": 22,
+      "exports": [
+        "router"
+      ],
+      "tests": []
+    },
+    {
+      "path": "web/src/styles/element-plus.ts",
+      "sha256": "87737f2530c01d4affccf3f1f449c1e6c65bd2d9e63443a73765763b559b52c9",
+      "lines": 2,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "web/src/styles/theme.css",
+      "sha256": "11abe5618ded60b0829c3ae971eb3be49bc14a91b2bb7d94333d3f981ea70978",
+      "lines": 351,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/api/approval-change-protection.test.mjs",
+      "sha256": "fc7824eb0cdc1820018f787ce14174586f9a63742d4bb328f32460d8962548f2",
+      "lines": 129,
+      "exports": [],
+      "tests": [
+        "formal change without explicit scope change inherits all approved material quantities",
+        "server rejects silently dropped materials and accepts explicit reviewed removal",
+        "reference quote confirm must match the previewed price versions and amounts",
+        "HTTP requires a matching trial quote before formal price confirmation",
+        ";"
+      ]
+    },
+    {
+      "path": "tests/api/approval-drafts.test.mjs",
+      "sha256": "67f9bc5992d3551e796ff242d9cf266946c73c364da4bec9110d4716608d2ede",
+      "lines": 127,
+      "exports": [],
+      "tests": [
+        "priced initial approval draft can be withdrawn without erasing the final quotation and recreated as V1",
+        "formal project change is authored before approval and cannot reuse a stale approval baseline"
+      ]
+    },
+    {
+      "path": "tests/api/deleted-master-order.test.mjs",
+      "sha256": "38125cbba5e482f8679b235e9ac5a262104abc62f09c207d9c1d0f3543b9e4ee",
+      "lines": 79,
+      "exports": [],
+      "tests": [
+        "remove linked work object first, then operation and price without losing immutable history",
+        "deletion in normal dependent-first order still works and keeps original master identities"
+      ]
+    },
+    {
+      "path": "tests/api/deletion.test.mjs",
+      "sha256": "2b99bfbbf6ade576a33140dbba93dfc8009dcc74ed03c0eb6cb9c325a66f5a09",
+      "lines": 156,
+      "exports": [],
+      "tests": [
+        "logical master deletion cannot be bypassed and formal settlement deletion retains void history",
+        "archive a price referencing an outdated feature after work-object and operation archival",
+        "deleted costs and cost nodes are read-only and cannot create duplicate delete audits"
+      ]
+    },
+    {
+      "path": "tests/api/demo-seed.test.mjs",
+      "sha256": "0b12c2ad714331894cc176ac78c0a5cc96be3fdd92521b5dbb3b5554d527e130",
+      "lines": 119,
+      "exports": [],
+      "tests": [
+        "demo first launch supplies linked business sample records in its own SQLite",
+        "demo initialization is idempotent and retains subsequent user changes",
+        "refuses any nonempty target lacking a demo marker",
+        "refuses a tampered demo marker rather than resetting data",
+        "demo account can log in to the real HTTP app and view equipment & projects",
+        ";"
+      ]
+    },
+    {
+      "path": "tests/api/empty-database-integration.test.mjs",
+      "sha256": "59a3ab00d65a07d9f72ea412aea9a1266b930bb899181aa0f20f244d3f6968d5",
+      "lines": 295,
+      "exports": [],
+      "tests": [
+        "EMPTY DB: dictionary, standards, ledger, funding masters support create/edit/delete + formal history",
+        "EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged settlements -> delete/restore history",
+        "EMPTY DB: system users/IP/audit + authenticated HTTP read/write and precheck",
+        ";"
+      ]
+    },
+    {
+      "path": "tests/api/equipment-field-upgrade.test.mjs",
+      "sha256": "d20b6c0f4099dd6517d2f9861d770e32beafbd197304cfb74fa4da88305bdac6",
+      "lines": 117,
+      "exports": [],
+      "tests": [
+        "explicit equipment upgrade rehearses a verified backup and preserves all remaining formal facts",
+        "maintenance upgrade rejects an unmatched database without changing its contents",
+        "tower nature is a shared physical fact with immutable definition history",
+        "cleanup also repairs a structurally upgraded database and retains unrelated custom JSON facts"
+      ]
+    },
+    {
+      "path": "tests/api/equipment-pagination.test.mjs",
+      "sha256": "0360d4eb917a6214ecf5064acf31af0e18a5c02ea7b90ec01a19d6d61f75fc3e",
+      "lines": 50,
+      "exports": [],
+      "tests": [
+        "equipment catalog applies search, sorting and filters before SQL pagination"
+      ]
+    },
+    {
+      "path": "tests/api/finance-boundaries.test.mjs",
+      "sha256": "7b343d8c0a28e315057435cf31d655a05cc495ae2d4da057c6b43199f4a43fee",
+      "lines": 106,
+      "exports": [],
+      "tests": [
+        "settled amounts, independently reported work, over-completion and reconciliation revisions remain distinct"
+      ]
+    },
+    {
+      "path": "tests/api/http.test.mjs",
+      "sha256": "750692bff25cd2b68988ee0f01c650698181c9240b81450cb0eb9c07a484f95b",
+      "lines": 112,
+      "exports": [],
+      "tests": [
+        "actual HTTP login, permissions, optimistic locking, idempotency and IP guard",
+        ";"
+      ]
+    },
+    {
+      "path": "tests/api/independent-identities.test.mjs",
+      "sha256": "2529faf307ad6c27ec648127fecff1a2dfc52c04dc411e98687352c637aabf04",
+      "lines": 173,
+      "exports": [],
+      "tests": [
+        "catalog identities are server-owned and ordinary tower creation is a complete atomic operation",
+        "whole physical replacement keeps original demand, quote and all circuit history",
+        "schema adjustments are limited to approved equipment facts and the work-object archival guard"
+      ]
+    },
+    {
+      "path": "tests/api/management.test.mjs",
+      "sha256": "c93e57cd03f88206321dcc199dcae7200412650f8b48425490739d0d525290af",
+      "lines": 59,
+      "exports": [],
+      "tests": [
+        "system management API delegates authenticated users, IP, audit and permission workflows",
+        ";"
+      ]
+    },
+    {
+      "path": "tests/api/password-policy.test.mjs",
+      "sha256": "52a8dbec434a35e8d95e8c7425f4ca436c6cc14b7c765e37ae1781c8398c6e7f",
+      "lines": 52,
+      "exports": [],
+      "tests": [
+        "admin initialization accepts a nonempty password shorter than 12 characters",
+        "user creation, password change, and blank-on-edit preserve the same short password policy"
+      ]
+    },
+    {
+      "path": "tests/api/persistence.test.mjs",
+      "sha256": "29b76f30f96888c679bae94c1c099c85c6517ad04ee5878ea3823d17775bb85d",
+      "lines": 49,
+      "exports": [],
+      "tests": [
+        "database and evidence restart, independent backup and verified restore"
+      ]
+    },
+    {
+      "path": "tests/api/price-features.test.mjs",
+      "sha256": "a8e97b158888249e3d05d38e507bbcfc1fedac648b42e2fcc8c5d537745f5cd1",
+      "lines": 221,
+      "exports": [],
+      "tests": [
+        "extra factor definitions reject empty/duplicate enums and out-of-range integers",
+        "required extra site facts defer demand registration but block a complete quote; overlap warns",
+        "price rule edit preserves adopted operation version until explicit upgrade and explains mismatches"
+      ]
+    },
+    {
+      "path": "tests/api/pricing-scope.test.mjs",
+      "sha256": "39a0ba37012d23a5c59e548a61983d1d49c107e7e8ccf6f6c5dc60318b8ba974",
+      "lines": 161,
+      "exports": [],
+      "tests": [
+        "project reference total is 300 plus 200 plus one 50 project charge, independently from budget"
+      ]
+    },
+    {
+      "path": "tests/api/project-agreement-funding.test.mjs",
+      "sha256": "4bda0ed47ae0746704316fa85e910b9175fb10c49406e0aaea0a1f891b77b936",
+      "lines": 150,
+      "exports": [],
+      "tests": [
+        "project agreement choices show only eligible agreements in same annual framework",
+        "service rejects cross-framework, inactive and out-of-date agreements before writing history",
+        "reassigning funding changes only current association and recalculates budget reference",
+        "old inactive linked agreement is readable but cannot be selected for a new association",
+        "agreement budget comparison is not enforced as a hard spending cap"
+      ]
+    },
+    {
+      "path": "tests/api/repository.test.mjs",
+      "sha256": "f4d6519ebfe5b12c239e9f7d26669e10d19a0d2f5730f438262a0cff4921eb8c",
+      "lines": 86,
+      "exports": [],
+      "tests": [
+        "bounded statement LRU evicts old shapes while deletion reads observe commit and rollback",
+        "duplicate probes use unique multi-position current definitions and ignore cancelled demand history"
+      ]
+    },
+    {
+      "path": "tests/api/schema-guard-upgrade.test.mjs",
+      "sha256": "dd4ffdd9737c80cdb031d6a4efecb21add62b812694dd5b5a5382a0383f5606b",
+      "lines": 179,
+      "exports": [],
+      "tests": [
+        "controlled Schema113 migration preserves all records and enables work-object-before-operation deletion",
+        "explicit price-lifecycle upgrade preserves old rules and permits status-only retirement",
+        "controlled guard upgrade rejects unknown schema before touching files or creating backup"
+      ]
+    },
+    {
+      "path": "tests/api/span-length-metres.test.mjs",
+      "sha256": "24d7dd7aed88ca83ec3b87f681564a3be6818ce877d654ae6a00a3f14efbcab5",
+      "lines": 57,
+      "exports": [],
+      "tests": [
+        "span length: metadata uses metres while stored facts, history, and API are precise integer mm",
+        "span length: missing is unknown; explicit zero is valid; Excel roundtrip uses metres to 3 decimals"
+      ]
+    },
+    {
+      "path": "tests/api/versions.test.mjs",
+      "sha256": "786f2a0799b2f7733b18803928801f7bda0df59e8dbe7f1c37d234e16ffd28fa",
+      "lines": 333,
+      "exports": [],
+      "tests": [
+        "quantity revisions retain adopted operation and unit definitions after master changes",
+        "duplicate creation requires a concrete human decision and records the original matches",
+        "voltage rename is auditable and optimistic, and source corrections retain original evidence",
+        "deleting referenced equipment preserves real operating status while excluding new selections",
+        "versioned extra price features retain exact names and reject undeclared equipment duplicates",
+        "explicit historical equipment correction preserves deletion and permits real retirement",
+        "quantity revision retains adopted span history until explicit current-definition adoption",
+        "adopted material definitions survive unrelated revisions after current material changes and logical deletion",
+        "voltage update and its audit share the same operation timestamp across a millisecond boundary"
+      ]
+    },
+    {
+      "path": "tests/api/workbook-downloads.test.mjs",
+      "sha256": "2b1ed295a2067b3473a5b10a6ca886ea2f42da3e412ef4b7eb2774c376de2ea4",
+      "lines": 33,
+      "exports": [],
+      "tests": [
+        "all exchange downloads have Chinese filenames, Chinese headers and required markers",
+        "UTF-8"
+      ]
+    },
+    {
+      "path": "tests/api/workflow.test.mjs",
+      "sha256": "8d6be272117cd7c74039faeb3163fa6c309f1ce572c72b9ccb354a584518ffe8",
+      "lines": 131,
+      "exports": [],
+      "tests": [
+        "Schema113 real workflow, partial price, exclusive binding, three settlements and flexible close"
+      ]
+    },
+    {
+      "path": "tests/domain/pricing.test.mjs",
+      "sha256": "077fa7ddde51057b2ae0059e347ad6e475ecbaaf82150e55da0bc6829910ce6b",
+      "lines": 116,
+      "exports": [],
+      "tests": [
+        "all eight pricing modes and integer half-up boundaries"
+      ]
+    },
+    {
+      "path": "tests/e2e/appearance-and-exchange-browser.mjs",
+      "sha256": "e0a879194acf302b8c39d61da6750c435e691cdd279729aec47781cd3283146c",
+      "lines": 91,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/browser.mjs",
+      "sha256": "59554e21ccef19679698c32f64c92d345b5277278b1c9954c143a8caccf1de69",
+      "lines": 170,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/catalog-polish-browser.mjs",
+      "sha256": "43eaf9717f93dd37b9507420e9e3a57ef15d786deca9067fd03792b537758a4d",
+      "lines": 106,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/demo-browser.mjs",
+      "sha256": "d31a765d71c4514b212d555f3a34af725fc22fb9c50cf339a6fa5cce8d3bf3b2",
+      "lines": 53,
+      "exports": [],
+      "tests": [
+        "demo can be explored in the real browser without any manual master-data setup",
+        "ledger/lines",
+        "ledger/towers",
+        "demands",
+        "projects",
+        "standards/operations",
+        "standards/prices"
+      ]
+    },
+    {
+      "path": "tests/e2e/empty-database-browser.mjs",
+      "sha256": "adbad45c93d7bf07f81000ae6b10513293327b1819c378339b5c7fd023000c91",
+      "lines": 220,
+      "exports": [],
+      "tests": [
+        "empty-",
+        "standards/units",
+        "standards/objects",
+        "standards/factors",
+        "standards/operations",
+        "standards/prices",
+        "standards/priorities"
+      ]
+    },
+    {
+      "path": "tests/e2e/finance-deleted-browser.mjs",
+      "sha256": "dcf9836a6082e90dd65431c3e716b413484748da38ab38ff87acb128ff3f7150",
+      "lines": 63,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/governance-browser.mjs",
+      "sha256": "5327ee81638d1b4aae7842c0a1a32297b18ce9148f738f341de7312f6e277f1c",
+      "lines": 105,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/heading-layout-browser.mjs",
+      "sha256": "c958fd5c5097ce787496363bd36ee4a72c9c81b7ae237e690cd7daf1b7744363",
+      "lines": 173,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/independent-ledger-browser.mjs",
+      "sha256": "03aa7939423c9b1af67985944cb149047cb5cf6f8c5a5222c8225b598559a625",
+      "lines": 277,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/lan-http-compat-browser.mjs",
+      "sha256": "547c85b6878d8a3a94330525c4d8f3d9db9e381d7ca2de058b8816094ac4ee4d",
+      "lines": 107,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/masters-browser.mjs",
+      "sha256": "562ec16c894670f345e2f95b101b8d24697e11b752e5feadc62e2f6b17c5c05d",
+      "lines": 216,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/navigation-browser.mjs",
+      "sha256": "b53f7bdd4e5af0c4edf6bbbee84981a6440f1d69f757c7b79d51a05d0396181a",
+      "lines": 163,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/project-agreement-browser.mjs",
+      "sha256": "ef93d4c6e98fff614e8d9582a2fb03aa95db41546b2e911268aa7853992cca0a",
+      "lines": 88,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/project-browser.mjs",
+      "sha256": "7c8d13629c5126e0fcbb89eaedf57e4d29b01e1b95a5b4e3ed6ac08aef736087",
+      "lines": 233,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/resize-interactions-browser.mjs",
+      "sha256": "014c6f722e77e2e23675c623a8f865cc6fc994dd9941a505501c1096f12360f6",
+      "lines": 165,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/row-actions-browser.mjs",
+      "sha256": "b2751100a0e9d2f4e5c31e57b62acd72ac36beb257b19440a16e94e4c91d408b",
+      "lines": 99,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/span-metres-browser.mjs",
+      "sha256": "470692a83fd19ad0b2d9d68bc48f63f0f8a16a62ec5453b01d803075306fb550",
+      "lines": 74,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/table-fill-modal-browser.mjs",
+      "sha256": "810fa9f5db880bbb2f6fa7580a25446095e03878d73dedc863ca9199d5c16c6c",
+      "lines": 85,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/table-preferences-browser.mjs",
+      "sha256": "4c4269773eddc6126857925b6f9b005bd54767052f4db0f3b2b4a0656e05dcc0",
+      "lines": 101,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/ux-comprehensive-browser.mjs",
+      "sha256": "97e924cd19c56d6558b624abb582a8fdc1719e3440a473afb1526268c04f6194",
+      "lines": 199,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/e2e/visual-audit-browser.mjs",
+      "sha256": "82d425471a8d9e67763e05c1338061620fdebeb687ec9524d026f60ca508c4d4",
+      "lines": 141,
+      "exports": [],
+      "tests": [
+        "/"
+      ]
+    },
+    {
+      "path": "tests/excel/assets-topology.test.mjs",
+      "sha256": "e525a5d1e7efb2e160e81ef9163a4d72273b005ce312c35fed5f186dba33673b",
+      "lines": 288,
+      "exports": [],
+      "tests": [
+        "single workbook creates main line, junction tower, branch, both circuits and explicit spans in dependency order",
+        "span preview rejects reversed duplicate pairs and invalid junction; no guessing or hidden automatic topology",
+        "span preflight refuses cross-line topology unrelated to the configured branch junction",
+        "cyclic cross-sheet sharing and branch junction is rejected for every dependent row",
+        "physical sheet selected export and history revision",
+        "logical tower Excel physical change is not incorrectly unchanged",
+        "independent physical workbook creates an unlinked entity with automatic identity",
+        "conflicting physical-attribute revisions from two shared logical circuits reject atomic Excel commit"
+      ]
+    },
+    {
+      "path": "tests/excel/bulk.test.mjs",
+      "sha256": "f4ea6f25d800bd9d4cf31a9b06109d121c655287ff7c784f2aad5c6a300091e9",
+      "lines": 82,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "tests/excel/exchange.test.mjs",
+      "sha256": "8a32d42d465b845d6439a7a3ff055561680d03c35760c00fff0d5ec7431af7c7",
+      "lines": 249,
+      "exports": [],
+      "tests": [
+        "demand maintenance export, diff, revision, idempotency and stale version",
+        "formula cells are rejected and missing detail rows preserve existing positions",
+        "new workbook accepts business operation and equipment names with human decimal quantities",
+        "required operation-specific facts share online and workbook validation",
+        "workbook price features use business equipment and feature names without manual version entry",
+        "patched UUID dependency supports ExcelJS extended formatting and workbook roundtrip"
+      ]
+    },
+    {
+      "path": "tests/excel/independent-input.test.mjs",
+      "sha256": "069d3f0415d8e18453678d76dbb6bb74bbccccbceb1fc0653ea24ff494df8323",
+      "lines": 284,
+      "exports": [],
+      "tests": [
+        "new demands use business names and worksheet rows, with protected identity roundtrip",
+        "asset workbook creates complete lines and towers, reuses explicit physical sharing and rejects ambiguity",
+        "new settlement workbook needs business descriptions only and maintenance exports readable descriptions",
+        "asset preflight identifies every duplicated new tower and commit failure rolls all objects back",
+        "workbooks allow selecting complete rows and editing headers while retaining field bindings",
+        "identical tower numbers on different lines create independent physical towers in one atomic workbook"
+      ]
+    },
+    {
+      "path": "tests/excel/settlements.test.mjs",
+      "sha256": "58150ae0a9f96b48bd347973f88ebd04637cfce398b8abb0188c7b32e04f87b9",
+      "lines": 164,
+      "exports": [],
+      "tests": [
+        "settlement workbook creates draft only, preserves independent resolution and revises approved history",
+        "partial success excludes invalid documents, atomic batch rolls back every write"
+      ]
+    },
+    {
+      "path": "tests/helpers.mjs",
+      "sha256": "b54a29c69006dba5eda9b6f3ba10d921025fcf40d6786b5722e2af6b8fc0532e",
+      "lines": 116,
+      "exports": [
+        "fixture",
+        "approvedFixture"
+      ],
+      "tests": []
+    },
+    {
+      "path": "tests/performance/equipment-pagination.bench.mjs",
+      "sha256": "eb31cd18f6400188f6c6d82307a5155f15917fb6b0f835b4c417646583886dc5",
+      "lines": 53,
+      "exports": [],
+      "tests": [
+        "1,000 lines and 10,000 logical towers preserve SQL search and pagination correctness"
+      ]
+    },
+    {
+      "path": "tests/ui/business-table-contract.test.mjs",
+      "sha256": "adcdc1c7a191ea904b406d0fac5b4639dbcb36e00b2287806b635a3f5f5b240f",
+      "lines": 74,
+      "exports": [],
+      "tests": [
+        "all business data tables use the single customizable BusinessTable adapter",
+        "const approvalEditorColumns",
+        "const projectScopeColumns",
+        "multi-action rows use one primary action and an accessible shared menu",
+        "column ordering uses SortableJS and a keyboard alternative",
+        "sparse tables use flexible minimum widths and detail viewing stays in one modal adapter"
+      ]
+    },
+    {
+      "path": "tests/ui/heading-layout.test.mjs",
+      "sha256": "b0fd277f575961d6bdfc8980432f70e3aab8191e9a1060efe84c56a902ba1491",
+      "lines": 39,
+      "exports": [],
+      "tests": [
+        "page headings keep all action components in one explicit action group",
+        "heading gate rejects the ungrouped third flex item from the button-spacing regression",
+        "heading gate also rejects unclassified nested actions and conditional buttons"
+      ]
+    },
+    {
+      "path": "tests/workbook-helpers.mjs",
+      "sha256": "8dda732f30fd6af076af43d4485026b5f51bc43538a73c6f84aa66f730d19c05",
+      "lines": 11,
+      "exports": [
+        "columnIndex"
+      ],
+      "tests": []
+    },
+    {
+      "path": "scripts/backup.mjs",
+      "sha256": "d3bb84eb1488aa5c7836aee30aefcfaab3ed582107d26380b45fc7a3b36d58a7",
+      "lines": 16,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/check-database-boundary.mjs",
+      "sha256": "d9b69bcc54b2617d94dbea6e8bcaeff17bf0ea41b7dee3864508d3594afb4d04",
+      "lines": 68,
+      "exports": [],
+      "tests": [
+        ","
+      ]
+    },
+    {
+      "path": "scripts/check-independent-input.mjs",
+      "sha256": "767d54b579fe2a90ae11109675b15ae66997c241d54eb97df0e1eda754302f32",
+      "lines": 42,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/check-native-ui.mjs",
+      "sha256": "8c37492ab4c08aea0a59179d353f0d5584d1eb3d7ce30b086ecd8897e02d78b7",
+      "lines": 67,
+      "exports": [
+        "NATIVE_UI_TAGS",
+        "findNativeUi",
+        "currentNativeUi"
+      ],
+      "tests": []
+    },
+    {
+      "path": "scripts/check-no-tax.mjs",
+      "sha256": "ff09c09712e4b01ba3f358db2974548035afd2a464b87e793a7811764c1fe1dc",
+      "lines": 31,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/demo/seed-demo.mjs",
+      "sha256": "a34eecf82e5f4b12f96f4eaf655612d8d5e1361306ded125833e451268ec220c",
+      "lines": 386,
+      "exports": [
+        "DEMO_ACCOUNT",
+        "DEMO_PASSWORD",
+        "ensureDemoDatabase"
+      ],
+      "tests": []
+    },
+    {
+      "path": "scripts/demo/start-demo.mjs",
+      "sha256": "e417b48880343e177e1b687ba055fbc6c5fc74776081258f8ccdfc07b6bd2eb1",
+      "lines": 46,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/first-run.ps1",
+      "sha256": "57faf2f1996d7e29745c3ed9c23ecaa4f331c6d37117733df6500cf1f6185fbb",
+      "lines": 33,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/init-admin.mjs",
+      "sha256": "fd58a19c4377073861b63beb2d89b11b8a5dab7408ebc31f5032d9db1e5c5a14",
+      "lines": 16,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/release/package-win10.mjs",
+      "sha256": "0d5b25ddb53cc74f96515b4baa20469b24e89f8f0867ac3bad949fbbd82dadd5",
+      "lines": 212,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/release/verify-package.mjs",
+      "sha256": "ff98a1e250068f4d3c7efab7f0e0423022e0c3fe178295526589bf99f2622d53",
+      "lines": 282,
+      "exports": [],
+      "tests": [
+        "\\0",
+        ";",
+        "\\n"
+      ]
+    },
+    {
+      "path": "scripts/restore.mjs",
+      "sha256": "578bb68a4b795335c58f44b24e972379e61aab8c84d11ebce99c7c73888e8061",
+      "lines": 4,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/ui-contract.mjs",
+      "sha256": "a3b09fb81bdd9cba43298933b2f49fccb92b089125db0c549d79f9148dbc5e49",
+      "lines": 119,
+      "exports": [
+        "inspectUiContract",
+        "currentUiContract"
+      ],
+      "tests": [
+        "-"
+      ]
+    },
+    {
+      "path": "scripts/upgrade-equipment-fields.mjs",
+      "sha256": "9a7236b2e5a27303dd73cfa515cb68321faebbb823919989a426ea3fd5026291",
+      "lines": 7,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/upgrade-schema113.mjs",
+      "sha256": "6568325caad21bb2087fdca31581b9c10a95ce38e8e881e29d05751e19f1f51b",
+      "lines": 14,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/windows/初始化管理员.cmd",
+      "sha256": "490cffe511a790d18f473043eedba2388b5b4dc382898f7bc88dc82a0a5e9db4",
+      "lines": 6,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/windows/启动服务.cmd",
+      "sha256": "f754d4973b486746befb15030956b81e5cdeb3cb3cea957aad5d5b758945206d",
+      "lines": 18,
+      "exports": [],
+      "tests": []
+    },
+    {
+      "path": "scripts/windows/备份数据库.cmd",
+      "sha256": "b766d74f209adf6642cdd86a2e3edac5869527029f8f7d657566c1f1fc4b5857",
+      "lines": 11,
+      "exports": [],
+      "tests": []
+    }
+  ]
+}
