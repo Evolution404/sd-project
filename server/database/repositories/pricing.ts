@@ -105,6 +105,28 @@ export function pricingRepository(store: ReturnType<typeof createStore>) {
         amounts_json: string;
       }[];
     },
+    scopeQuotesForApprovals(approvalIds: string[]) {
+      if (!approvalIds.length) return [] as ReturnType<PricingRepository["projectScopeQuotes"]>;
+      return store.query(
+        `SELECT s.approval_version_id,s.id AS scope_id,s.demand_id,p.evaluation_id,
+        (SELECT json_group_array(l.amount_fen) FROM reference_price_evaluation_lines l
+         WHERE l.evaluation_id=p.evaluation_id) AS amounts_json
+        FROM project_approval_scope_versions s
+        LEFT JOIN project_approval_scope_prices p ON p.approval_scope_version_id=s.id
+        WHERE s.approval_version_id IN (SELECT value FROM json_each(?))`,
+        JSON.stringify(approvalIds),
+      ) as ReturnType<PricingRepository["projectScopeQuotes"]>;
+    },
+    chargesForApprovals(approvalIds: string[]) {
+      if (!approvalIds.length) return [] as ReturnType<PricingRepository["projectCharges"]>;
+      return store.query(
+        `SELECT c.*,r.title AS rule_title,r.catalog_id AS reference_price_catalog_id
+        FROM project_reference_price_charges c
+        JOIN reference_price_versions r ON r.id=c.reference_price_version_id
+        WHERE c.approval_version_id IN (SELECT value FROM json_each(?))`,
+        JSON.stringify(approvalIds),
+      ) as ReturnType<PricingRepository["projectCharges"]>;
+    },
     projectScopeQuotes(projectId: string) {
       return store.query(
         `SELECT s.approval_version_id,s.id AS scope_id,s.demand_id,p.evaluation_id,

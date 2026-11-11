@@ -53,7 +53,7 @@ export function createSystem(dataDir?: string) {
   const hierarchies = hierarchyRepository(store);
   const finance = createFinance(repo, catalog, projects, pricing, hierarchies);
   const organizations = createOrganizations(hierarchies, dictionaries, database);
-  const reporting = createReporting(repo, catalog, demands, projects, finance);
+  const reporting = createReporting(repo, projects, finance);
 
   return {
     database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, demands, pricing, projects, finance, organizations,

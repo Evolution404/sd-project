@@ -79,6 +79,31 @@ function summarize(
     subtotal_fen: subtotal, missing, charges,
   };
 }
+type ApprovalScopeQuote = ReturnType<PricingRepository["projectScopeQuotes"]>[number];
+type ApprovalCharge = ReturnType<PricingRepository["projectCharges"]>[number];
+
+function summarizeGrouped(
+  ids: string[],
+  scopes: ApprovalScopeQuote[],
+  charges: ApprovalCharge[],
+): Map<string, ReturnType<typeof summarize>> {
+  const scopeGroups = new Map<string, ApprovalScopeQuote[]>();
+  const chargeGroups = new Map<string, ApprovalCharge[]>();
+  for (const scope of scopes) {
+    const group = scopeGroups.get(scope.approval_version_id) || [];
+    group.push(scope);
+    scopeGroups.set(scope.approval_version_id, group);
+  }
+  for (const charge of charges) {
+    const group = chargeGroups.get(charge.approval_version_id) || [];
+    group.push(charge);
+    chargeGroups.set(charge.approval_version_id, group);
+  }
+  const summaries = new Map<string, ReturnType<typeof summarize>>();
+  for (const key of ids)
+    summaries.set(key, summarize(scopeGroups.get(key) || [], chargeGroups.get(key) || []));
+  return summaries;
+}
 export function createPricing(
   repository: PricingRepository,
   rules: PriceRuleService,
@@ -435,24 +460,16 @@ export function createPricing(
       return summarize(repository.scopeQuotes(approvalId), repository.charges(approvalId));
     },
     projectSummaries(projectId: string, approvalIds: string[]) {
-      const scopes = repository.projectScopeQuotes(projectId);
-      const charges = repository.projectCharges(projectId);
-      const scopeGroups = new Map<string, typeof scopes>();
-      const chargeGroups = new Map<string, typeof charges>();
-      for (const scope of scopes) {
-        const group = scopeGroups.get(scope.approval_version_id) || [];
-        group.push(scope);
-        scopeGroups.set(scope.approval_version_id, group);
-      }
-      for (const charge of charges) {
-        const group = chargeGroups.get(charge.approval_version_id) || [];
-        group.push(charge);
-        chargeGroups.set(charge.approval_version_id, group);
-      }
-      const summaries = new Map<string, ReturnType<typeof summarize>>();
-      for (const key of approvalIds)
-        summaries.set(key, summarize(scopeGroups.get(key) || [], chargeGroups.get(key) || []));
-      return summaries;
+      return summarizeGrouped(
+        approvalIds, repository.projectScopeQuotes(projectId),
+        repository.projectCharges(projectId),
+      );
+    },
+    summariesForApprovals(approvalIds: string[]) {
+      return summarizeGrouped(
+        approvalIds, repository.scopeQuotesForApprovals(approvalIds),
+        repository.chargesForApprovals(approvalIds),
+      );
     },
   };
 }

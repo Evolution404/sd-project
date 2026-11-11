@@ -80,6 +80,8 @@ onMounted(refreshDashboard);
       <div class="section-caption">业务运行概览</div>
       <h1>工作台</h1>
       <p>专业需求、项目批准、实际费用与结算的当前情况。</p>
+    </div>
+    <div class="page-heading-actions">
       <ElButton size="small" @click="refreshDashboard" :loading="loading">刷新待办与预警</ElButton>
     </div>
   </div>

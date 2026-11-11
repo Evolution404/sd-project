@@ -72,6 +72,40 @@ export function financeReadRepository(store: Store) {
         events: eventGroups.get(version.id) || [],
       }));
     },
+    portfolioFinanceTotals(projectIds: string[]): (FinanceTotals & { project_id: string })[] {
+      if (!projectIds.length) return [];
+      return store.query(`SELECT p.id AS project_id,
+        COALESCE(actual.amount_fen,0) AS actual_cost_fen,
+        COALESCE(settled.amount_fen,0) AS settlement_fen,
+        COALESCE(reconciled.amount_fen,0) AS reconciled_cost_fen
+        FROM projects p
+        LEFT JOIN (SELECT project_id,SUM(amount_fen) AS amount_fen
+          FROM v_cost_current WHERE status='active' GROUP BY project_id) actual
+          ON actual.project_id=p.id
+        LEFT JOIN (SELECT v.project_id,SUM(i.amount_fen) AS amount_fen
+          FROM v_settlement_effective_versions v
+          JOIN settlement_item_versions i ON i.settlement_version_id=v.id
+          WHERE v.change_type<>'void' GROUP BY v.project_id) settled
+          ON settled.project_id=p.id
+        LEFT JOIN (SELECT project_id,SUM(reconciled_cost_fen) AS amount_fen
+          FROM v_effective_cost_reconciliations GROUP BY project_id) reconciled
+          ON reconciled.project_id=p.id
+        WHERE p.id IN (SELECT value FROM json_each(?))`,
+        JSON.stringify(projectIds)) as (FinanceTotals & { project_id: string })[];
+    },
+    portfolioFinanceDemands(approvalIds: string[]): (FinanceDemandTotal & { approval_version_id: string })[] {
+      if (!approvalIds.length) return [];
+      return store.query(`SELECT sc.approval_version_id,sc.project_scope_id,sc.demand_id,
+        d.demand_no,sc.quantity_scaled AS approved_quantity_scaled,
+        COALESCE(SUM(r.resolved_quantity_scaled),0) AS resolved_quantity_scaled
+        FROM project_approval_scope_versions sc
+        JOIN demands d ON d.id=sc.demand_id
+        LEFT JOIN v_effective_demand_resolutions r
+          ON r.project_scope_id=sc.project_scope_id
+        WHERE sc.approval_version_id IN (SELECT value FROM json_each(?))
+        GROUP BY sc.id ORDER BY sc.approval_version_id,sc.rowid`,
+        JSON.stringify(approvalIds)) as (FinanceDemandTotal & { approval_version_id: string })[];
+    },
     projectFinanceTotals(projectId: string): FinanceTotals {
       const row = store.get(`SELECT
         (SELECT COALESCE(SUM(c.amount_fen),0) FROM v_cost_current c

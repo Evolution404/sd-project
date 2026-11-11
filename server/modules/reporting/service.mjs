@@ -1,6 +1,6 @@
 import { authorize } from "../../platform/auth/service.js";
 import { safeAmount } from "../pricing/calculation.js";
-export function createReporting(repo, catalog, demands, projects, finance) {
+export function createReporting(repo, projects, finance) {
   function sum(rows, key) {
     return safeAmount(
       rows.reduce((total, row) => total + BigInt(row[key] || 0), 0n),
@@ -9,27 +9,21 @@ export function createReporting(repo, catalog, demands, projects, finance) {
   return {
     dashboard(actor) {
       authorize(actor, "read");
-      const portfolio = projects.list(),
-        demandRows = demands.list(),
-        costs = repo
-          .list("v_cost_current")
-          .filter((cost) => cost.status === "active");
+      const portfolio = projects.dashboardPortfolio(),
+        demandCounts = repo.dashboardDemandCounts(),
+        costs = repo.dashboardActiveCosts();
       const today = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Shanghai",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
       }).format(new Date());
-      const items = portfolio.map((project) => ({
-        id: project.id,
-        code: project.code,
-        name: project.name,
-        status: project.status,
-        framework_id: project.framework_id,
-        planned_end_on: project.planned_end_on,
-        ...finance.summary(project.id),
+      const portfolioSummaries = finance.summariesForPortfolio(portfolio);
+      const items = portfolio.map(({ approval_version_id, approved_budget_fen, ...project }) => ({
+        ...project,
+        ...portfolioSummaries.get(project.id),
       }));
-      const frameworks = catalog.list("frameworks").map((framework) => {
+      const frameworks = repo.dashboardFrameworks().map((framework) => {
         const children = items.filter(
             (project) => project.framework_id === framework.id,
           ),
@@ -104,10 +98,8 @@ export function createReporting(repo, catalog, demands, projects, finance) {
         return messages;
       });
       return {
-        demands: demandRows.length,
-        pending_demands: demandRows.filter(
-          (demand) => demand.status === "pending",
-        ).length,
+        demands: demandCounts.total,
+        pending_demands: demandCounts.pending,
         projects: portfolio.length,
         active_projects: portfolio.filter(
           (project) => project.status === "approved",

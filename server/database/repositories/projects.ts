@@ -52,6 +52,17 @@ export interface ProjectCostNode extends Record<string, unknown> {
   deleted: boolean;
 }
 
+export interface ProjectDashboardBase {
+  id: string;
+  code: string;
+  name: string;
+  status: string;
+  framework_id: string;
+  planned_end_on: string | null;
+  approval_version_id: string | null;
+  approved_budget_fen: number | null;
+}
+
 export function projectReadRepository(store: Store) {
   return {
     projectScopes(projectId: string): ProjectScopeProjection[] {
@@ -120,6 +131,16 @@ export function projectReadRepository(store: Store) {
         ...approval,
         scopes: scopeGroups.get(approval.id) || [],
       }));
+    },
+    projectDashboardPortfolio(): ProjectDashboardBase[] {
+      return store.query(`SELECT p.id,p.code,m.name,p.status,p.framework_id,
+        m.planned_end_on,approved.approval_version_id,approved.approved_budget_fen
+        FROM projects p
+        JOIN v_project_management_current m ON m.project_id=p.id
+        LEFT JOIN v_project_current_approval approved ON approved.project_id=p.id
+        WHERE NOT EXISTS(SELECT 1 FROM audit_events a
+          WHERE a.entity='projects' AND a.entity_id=p.id AND a.action='delete')
+        ORDER BY p.created_at,p.id`) as ProjectDashboardBase[];
     },
     projectSummaryBasis(projectId: string) {
       return store.query(`SELECT p.id,ap.approval_version_id,ap.approved_budget_fen

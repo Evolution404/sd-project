@@ -6,6 +6,7 @@ import {
   integer,
 } from "../../shared/errors/business-error.js";
 import { safeAmount } from "../pricing/calculation.js";
+import { financialSummary } from "./summary.js";
 export function createFinance(repo, catalog, projects, pricing, hierarchies) {
   function activeLeaf(project, nodeId) {
     const node = project.cost_nodes.find((item) => item.id === nodeId);
@@ -381,44 +382,37 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
   }
   function summary(projectId) {
     const basis = projects.summaryBasis(projectId);
-    const raw = repo.projectFinanceTotals(projectId);
-    const actual = safeAmount(BigInt(raw.actual_cost_fen));
-    const settled = safeAmount(BigInt(raw.settlement_fen));
-    const reconciled = safeAmount(BigInt(raw.reconciled_cost_fen));
-    const approvalId = basis.approval_version_id;
-    const budget = basis.approved_budget_fen;
-    const reference = approvalId ? pricing.summary(approvalId) : null;
-    const referenceTotal = reference?.total_fen ?? null;
-    return {
-      reference_total_fen: referenceTotal,
-      reference_complete: reference?.complete || false,
-      reference_subtotal_fen: reference?.subtotal_fen ?? null,
-      reference_budget_difference_fen: referenceTotal !== null && budget !== null
-        ? referenceTotal - budget : null,
-      actual_reference_difference_fen: referenceTotal !== null
-        ? actual - referenceTotal : null,
-      approved_budget_fen: budget,
-      actual_cost_fen: actual,
-      settlement_fen: settled,
-      reconciled_cost_fen: reconciled,
-      unreconciled_cost_fen: actual - reconciled,
-      budget_difference_fen: budget !== null ? actual - budget : null,
-      demands: (approvalId ? repo.projectFinanceDemands(approvalId) : []).map(scope => {
-        const solved = safeAmount(BigInt(scope.resolved_quantity_scaled));
-        return {
-          project_scope_id: scope.project_scope_id,
-          demand_id: scope.demand_id,
-          demand_no: scope.demand_no,
-          approved_quantity_scaled: scope.approved_quantity_scaled,
-          resolved_quantity_scaled: solved,
-          remaining_quantity_scaled: Math.max(0, scope.approved_quantity_scaled - solved),
-          excess_quantity_scaled: Math.max(0, solved - scope.approved_quantity_scaled),
-        };
-      }),
-    };
+    return financialSummary(
+      basis,
+      repo.projectFinanceTotals(projectId),
+      basis.approval_version_id ? repo.projectFinanceDemands(basis.approval_version_id) : [],
+      basis.approval_version_id ? pricing.summary(basis.approval_version_id) : null,
+    );
+  }
+  function summariesForPortfolio(portfolio) {
+    if (!portfolio.length) return new Map();
+    const ids = portfolio.map(project => project.id);
+    const approvalIds = portfolio
+      .map(project => project.approval_version_id).filter(Boolean);
+    const totals = new Map(repo.portfolioFinanceTotals(ids)
+      .map(row => [row.project_id, row]));
+    const demands = new Map();
+    for (const row of repo.portfolioFinanceDemands(approvalIds)) {
+      const group = demands.get(row.approval_version_id) || [];
+      group.push(row);
+      demands.set(row.approval_version_id, group);
+    }
+    const references = pricing.summariesForApprovals(approvalIds);
+    return new Map(portfolio.map(project => [project.id, financialSummary(
+      project,
+      totals.get(project.id) || { actual_cost_fen: 0, settlement_fen: 0, reconciled_cost_fen: 0 },
+      demands.get(project.approval_version_id) || [],
+      references.get(project.approval_version_id) || null,
+    )]));
   }
   return {
     search: (kind, query) => repo.searchFinance(kind, query),
+    summariesForPortfolio,
     node,
     cost,
     settlement,
