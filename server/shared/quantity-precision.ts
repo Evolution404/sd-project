@@ -14,11 +14,13 @@ export function validateQuantityPrecision(value: unknown): QuantityPrecision {
   return value as QuantityPrecision;
 }
 
-/** Development phase: unconfigured precision is integral (0); no legacy 4-decimal fallback. */
+/** A unit's adopted formal version always contains an explicit quantity precision. */
 export function quantityPrecisionFromFields(fieldsJson: string): QuantityPrecision {
-  const fields: unknown = JSON.parse(fieldsJson || "[]");
-  if (!fields || typeof fields !== "object" || Array.isArray(fields) ||
-      !Object.hasOwn(fields, "quantity_precision")) return 0;
+  const fields: unknown = JSON.parse(fieldsJson);
+  requireValue(fields !== null && typeof fields === "object" && !Array.isArray(fields) &&
+    Object.hasOwn(fields, "quantity_precision"),
+    "计量单位正式版本缺少数量精度，请重建开发测试数据", 422,
+    { quantity_precision: "正式单位版本必须明确整数或0至4位小数" });
   return validateQuantityPrecision((fields as Record<string, unknown>).quantity_precision);
 }
 

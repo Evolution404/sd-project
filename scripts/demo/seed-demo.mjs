@@ -178,6 +178,7 @@ function populate(system, password) {
       operation_id: birdOperation.id,
       problem_description: "【演示】220kV青峰线15、16号杆塔缺少防鸟装置",
       completion_standard: "补装防鸟装置并验收",
+      materials: [{ material_id: birdMaterial.id, quantity_scaled: 50000 }],
       work_locations: [
         {
           location_kind: "physical_tower",

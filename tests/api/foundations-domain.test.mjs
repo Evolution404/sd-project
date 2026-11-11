@@ -6,7 +6,7 @@ import { parseListQuery } from "../../dist/server/platform/http/list-query.js";
 
 test("dictionary revisions preserve previously recorded order and extension facts", (t) => {
   const { s, user, unit } = fixture(t);
-  const custom = JSON.stringify({ legacy_dimension: "长度" });
+  const custom = JSON.stringify({ dimension: "长度", quantity_precision: 0 });
   s.repo.insert("dictionary_item_versions", {
     id: id(),
     item_id: unit.id,
@@ -25,7 +25,7 @@ test("dictionary revisions preserve previously recorded order and extension fact
     unit.id,
   );
   assert.equal(revised.sort_order, 7);
-  assert.deepEqual(JSON.parse(revised.fields_json), { legacy_dimension: "长度", quantity_precision: 0 });
+  assert.deepEqual(JSON.parse(revised.fields_json), { dimension: "长度", quantity_precision: 0 });
   assert.equal(revised.version, 3);
   assert.equal(
     s.catalog.get("units", unit.id).current_version_id,

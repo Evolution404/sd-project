@@ -9,10 +9,10 @@ test("formal unit versions validate precision and preserve historic extension fi
   const { s, user, unit, operation } = fixture(t);
   const old = s.dictionaries.getDictionary("units", unit.id);
   assert.equal(old.quantity_precision, 0, "new unit defaults to integer");
-  assert.equal(quantityPrecisionFromFields("[]"), 0, "development stage has no legacy decimal fallback");
-  assert.equal(quantityPrecisionFromFields('{"legacy_dimension":"length"}'), 0);
-  assert.deepEqual(JSON.parse(unitFieldsWithPrecision('{"legacy_dimension":"length"}', 2)),
-    { legacy_dimension: "length", quantity_precision: 2 });
+  assert.throws(() => quantityPrecisionFromFields("[]"), /正式版本缺少数量精度/);
+  assert.throws(() => quantityPrecisionFromFields('{}'), /正式版本缺少数量精度/);
+  assert.deepEqual(JSON.parse(unitFieldsWithPrecision('{"dimension":"length"}', 2)),
+    { dimension: "length", quantity_precision: 2 });
   assert.throws(() => assertQuantityPrecision(5000, old.fields_json, "套", "quantity_scaled"),
     e => e.status === 422 && /整数/.test(e.message) && !!e.fields.quantity_scaled);
   assert.equal(assertQuantityPrecision(30000, old.fields_json, "套", "quantity_scaled"), 30000);

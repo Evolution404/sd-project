@@ -70,11 +70,13 @@ test("new operation versions adopt revised unit precision while existing demand 
   }, unit.id), /0至4/);
 });
 
-test("development-stage missing precision is integral and corrected on the next unit version", t => {
+test("all formal unit versions declare precision; new units default to integer 0", t => {
   const { s, user, unit } = fixture(t);
-  assert.equal(quantityPrecisionFromFields("[]"), 0);
-  assert.equal(quantityPrecisionFromFields("{}"), 0);
-  assert.throws(() => assertQuantityPrecision(5000, "[]", "套", "quantity_scaled"), /整数/);
+  for (const missing of ["[]", "{}", "null"]) {
+    assert.throws(() => quantityPrecisionFromFields(missing), /正式版本缺少数量精度/);
+  }
+  const original = s.dictionaries.getDictionary("units", unit.id);
+  assert.deepEqual(JSON.parse(original.fields_json), { quantity_precision: 0 });
   const revision = s.dictionaries.saveDictionary(user, "units", {
     name: "已明确补齐的套", expected_version: 1,
   }, unit.id);
