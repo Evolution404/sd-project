@@ -57,3 +57,32 @@ test("system management API delegates authenticated users, IP, audit and permiss
   const audit = await read("/api/audit");
   assert.ok(audit.items.some((row) => row.entity === "manual" && row.action === "note"));
 });
+
+test("management revisions protect last administrator and preserve corrected audit history", (t) => {
+  const { s, user } = fixture(t);
+  const own = s.management.users(user).find(row => row.id === user.id);
+  assert.equal(own.role, "admin");
+  assert.throws(() => s.management.saveUser(user, {}, own.id, "DELETE"), /必须保留一个有效管理员/);
+  assert.equal(s.management.users(user).find(row => row.id === own.id).status, "active");
+  assert.equal(s.management.audits(user).some(row => row.entity === "users" &&
+    row.entity_id === own.id && row.action === "delete"), false);
+
+  const created = s.management.saveUser(user, {
+    username: "历史审计核验", password: "test-credential",
+    role: "viewer", status: "active",
+  });
+  const history = s.management.audits(user);
+  const creation = history.find(row => row.entity === "users" &&
+    row.entity_id === created.id && row.action === "create");
+  assert.ok(creation);
+  assert.equal(creation.actor_username, user.username);
+  assert.equal(creation.after_json.includes("test-credential"), false);
+
+  s.management.annotateAudit(user, { message: "核对说明" }, creation.id, "POST");
+  assert.equal(s.management.audits(user, false, creation.id).decisions[0].action, "correct");
+  s.management.annotateAudit(user, {}, creation.id, "DELETE");
+  assert.equal(s.management.audits(user).some(row => row.id === creation.id), false);
+  assert.equal(s.management.audits(user, true).some(row => row.id === creation.id), true);
+  assert.equal(s.management.audits(user, false, creation.id).decisions.length, 2);
+  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+});

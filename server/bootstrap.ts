@@ -27,7 +27,8 @@ import { pricingRepository } from "./database/repositories/pricing.js";
 import { createProjects } from "./modules/projects/service.mjs";
 import { createSources } from "./modules/demands/sources.js";
 import { createReporting } from "./modules/reporting/service.mjs";
-import { createManagement } from "./modules/management/service.mjs";
+import { createManagement } from "./modules/management/service.js";
+import { managementRepository } from "./database/repositories/management.js";
 import { createFinance } from "./modules/finance/service.mjs";
 import { requireValue } from "./shared/errors/business-error.js";
 import type { Actor } from "./shared/types/contracts.js";
@@ -57,7 +58,7 @@ export function createSystem(dataDir?: string) {
 
   return {
     database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, demands, pricing, projects, finance, organizations,
-    management: createManagement({ repo, identity, auth, catalog }),
+    management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {
       requireValue(typeof key === "string" && key.length >= 8 && key.length <= 200,
