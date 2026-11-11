@@ -29,6 +29,11 @@ z.extractall(out)
   assert.equal(manifest.package_mode,"demo");
   assert.equal(manifest.schema_version,113);
   assert.equal(manifest.sample_data_included,true);
+  assert.equal(manifest.ps1_utf8_bom,false,
+    "demo does not ship the formal first-run PowerShell script");
+  assert.equal(manifest.data_location,"./data");
+  assert.equal(manifest.git_commit,receipt.git_commit);
+  assert.equal(existsSync(join(stage,"scripts/first-run.ps1")),false);
   assert.equal(manifest.demo_ip_restriction_enabled,false);
   assert.equal(digest(join(stage,"runtime/node.exe")),manifest.runtime_node_exe_sha256);
   assert.equal(readFileSync(join(stage,"runtime/node.exe")).toString("ascii",0,2),"MZ");

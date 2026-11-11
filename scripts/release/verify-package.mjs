@@ -69,6 +69,10 @@ const manifest = JSON.parse(
 );
 assert.equal(manifest.schema_version, 113);
 assert.equal(manifest.git_commit, receipt.git_commit);
+assert.equal(manifest.ps1_utf8_bom, true,
+  "formal release must include its PowerShell 5.1 BOM entrypoint");
+assert.equal(manifest.data_location, "./data");
+assert.equal(manifest.worktree_dirty, false);
 const shipped = spawnSync(
   "git",
   [

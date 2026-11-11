@@ -235,7 +235,7 @@ const manifest = {
   runtime_archive_sha256: entry[0],
   runtime_node_exe_sha256: digestFile(runtime),
   frontend_index_sha256: digestFile(join(stage, "dist", "web", "index.html")),
-  ps1_utf8_bom: true,
+  ps1_utf8_bom: !demoMode,
   cmd_ascii_only: true,
   data_location: "./data",
   ...(demoMode ? {
