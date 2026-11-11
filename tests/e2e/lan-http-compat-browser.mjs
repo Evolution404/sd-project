@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
-import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 
 // A normal LAN HTTP origin has getRandomValues() but no randomUUID().
 // Emulate that API shape before any application JS runs.

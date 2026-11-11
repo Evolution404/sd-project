@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { createExchange } from "../../dist/server/modules/exchange/service.mjs";
-import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
+import { createExchange } from "../../dist/server/modules/exchange/service.js";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 
 test("Excel preflight rejects fractional sets by row, commits only legitimate selection, then supports corrected retry", async t => {
   const {s,user,operation,towers}=fixture(t);

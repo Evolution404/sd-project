@@ -610,6 +610,9 @@ export function createDemands(
   return {
     get,
     normalize,
+    findDuplicates(operationId: string, locations: DemandLocation[], exceptId?:string) {
+      return repo.duplicates(operationId, locations, exceptId);
+    },
     save,
     search(query: ListQuery): Page<DemandListItem> {
       const result = repo.search(query);

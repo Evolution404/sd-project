@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { makeWorkbook, parseWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
+import { makeWorkbook, parseWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 import { columnIndex } from "../workbook-helpers.mjs";
 import ExcelJS from "exceljs";
 

@@ -1,4 +1,4 @@
-import { layouts } from '../dist/server/modules/exchange/workbook.mjs';
+import { layouts } from '../dist/server/modules/exchange/workbook.js';
 
 export function columnIndex(sheet, key) {
   const definition = Object.values(layouts).flat().find(item => item.name === sheet.name);

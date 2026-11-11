@@ -1,13 +1,14 @@
 import ExcelJS from "exceljs";
 import { scaledDecimal, decimalText } from "../../shared/decimal.js";
 import { requireValue } from "../../shared/errors/business-error.js";
+import type { WorkbookKind, WorkbookReportKind, WorkbookRow, WorkbookIssue, ParsedWorkbookRow, ParsedWorkbook, WorkbookRows, WorkbookLayouts, WorkbookSheetDefinition, WorkbookOptions } from "../../shared/types/exchange.js";
 export const MAX_BYTES = 12 * 1024 * 1024,
   MAX_ROWS = 25000,
   MAX_DOCUMENTS = 5000;
 export const KEEP = "__KEEP__",
   CLEAR = "__CLEAR__",
   DELETE = "delete";
-const decimalPlaces = {
+const decimalPlaces: Record<string,number> = {
   transmission_center_length_mm: 3,
   height_scaled: 4,
   quantity_scaled: 4,
@@ -17,7 +18,7 @@ const decimalPlaces = {
 };
 // Business-readable Excel values; official identity/version columns remain
 // in the workbook (hidden), so maintenance export can roundtrip safely.
-const businessChoices = {
+const businessChoices: Record<string,Record<string,string>> = {
   line_kind: { main: "主线", branch: "支线" },
   status: { active: "在用", inactive: "停用", retired: "退役", draft: "草稿" },
   location_kind: {
@@ -56,10 +57,10 @@ const technicalColumns = new Set([
   "field_key",
   "factor_id",
 ]);
-function externalChoice(key, value) {
-  return businessChoices[key]?.[value] || value;
+function externalChoice(key:string, value:unknown):unknown {
+  return typeof value === "string" ? businessChoices[key]?.[value] || value : value;
 }
-function internalChoice(key, value) {
+function internalChoice(key:string, value:unknown):unknown {
   if (!businessChoices[key] || typeof value !== "string") return value;
   const match = Object.entries(businessChoices[key]).find(
     ([, text]) => text === value,
@@ -67,7 +68,7 @@ function internalChoice(key, value) {
   return match ? match[0] : value;
 }
 
-export const layouts = {
+export const layouts: WorkbookLayouts = {
   assets: [
     {
       name: "线路",
@@ -277,7 +278,7 @@ for (const [kind, sheets] of Object.entries(layouts))
   for (const sheet of sheets)
     if (kind !== "assets" && sheet.key !== "documents")
       sheet.columns.push("document_row");
-const labels = {
+const labels: Record<string,string> = {
   line_kind: "线路类型",
   parent_line_name: "所属主线名称（支线填写）",
   parent_voltage_name: "所属主线电压等级（重名时填写）",
@@ -367,7 +368,7 @@ const labels = {
   evidence: "事实依据",
   resolved_quantity_scaled: "本次新增解决量（万分之一单位）",
 };
-function businessHeader(key, kind) {
+function businessHeader(key:string, kind:WorkbookKind):string {
   // Identity/version columns stay hidden; ordinary equipment users see only
   // Chinese business fields, never technical implementation keys.
   if (kind === "assets") {
@@ -382,7 +383,7 @@ function businessHeader(key, kind) {
       : "工作数量";
   return labels[key] || key;
 }
-const requiredColumns = {
+const requiredColumns: Partial<Record<WorkbookKind,Record<string,string[]>>> = {
   assets: { documents: ["name", "voltage_name"], towers: ["line_name", "tower_no"], spans: ["line_name", "start_tower_no", "end_tower_no"] },
   demands: { documents: ["operation_name", "problem_description"], work_locations: ["location_kind", "quantity_scaled"], materials: ["material_name", "quantity_scaled"], sources: ["description"] },
   settlements: { items: ["cost_node_path", "amount_fen", "evidence"], resolutions: ["demand_description", "resolved_quantity_scaled", "evidence"] },
@@ -391,23 +392,23 @@ const conditionalColumns = new Set([
   "parent_line_name", "junction_tower_no", "sharing_line_name", "sharing_tower_no",
   "document_row", "location_row", "field_name", "factor_name", "value",
 ]);
-function headerRequirement(kind, definition, key) {
+function headerRequirement(kind:WorkbookKind, definition:WorkbookSheetDefinition, key:string):string {
   if (requiredColumns[kind]?.[definition.key]?.includes(key)) return "新增必填";
   if (conditionalColumns.has(key) || (kind === "demands" && definition.key === "work_locations"
     && ["line_name", "tower_no", "end_tower_no", "asset_no"].includes(key))) return "条件必填";
   return "";
 }
 export function issue(
-  sheet,
-  row,
-  field,
-  value,
-  reason,
+  sheet:string,
+  row:number,
+  field:string,
+  value:unknown,
+  reason:string,
   suggestion = "修正后重新上传",
-) {
+):WorkbookIssue {
   return { sheet, row, field, raw_value: value, reason, suggestion };
 }
-function cellValue(cell) {
+function cellValue(cell:ExcelJS.Cell):unknown {
   const value = cell.value;
   requireValue(
     !(
@@ -424,7 +425,7 @@ function cellValue(cell) {
   );
   return value;
 }
-export async function parseWorkbook(buffer, kind) {
+export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<ParsedWorkbook> {
   requireValue(
     buffer.length > 0 && buffer.length <= MAX_BYTES,
     "Excel文件须在12MB以内",
@@ -475,7 +476,9 @@ export async function parseWorkbook(buffer, kind) {
   }
   const workbook = new ExcelJS.Workbook();
   try {
-    await workbook.xlsx.load(buffer);
+    // ExcelJS declares a pre-Node24 Buffer signature; the bytes have already passed ZIP checks.
+    const compatibleBytes = buffer as unknown as Parameters<typeof workbook.xlsx.load>[0];
+    await workbook.xlsx.load(compatibleBytes);
   } catch {
     requireValue(false, "Excel文件损坏或格式无效");
   }
@@ -485,8 +488,8 @@ export async function parseWorkbook(buffer, kind) {
   );
   const layout = layouts[kind];
   requireValue(layout, "未知交换类型");
-  const rows = {},
-    issues = [];
+  const rows:WorkbookRows = {documents:[]},
+    issues:WorkbookIssue[] = [];
   let count = 0;
   for (const definition of layout) {
     const sheet = workbook.getWorksheet(definition.name);
@@ -499,7 +502,7 @@ export async function parseWorkbook(buffer, kind) {
       continue;
     }
     requireValue(sheet.columnCount <= 80, "工作表列数超出限制");
-    const headers = new Map();
+    const headers = new Map<number,string>();
     sheet.getRow(1).eachCell((cell, column) => {
       const visible = String(cell.value || "").trim().replace(/^(新增必填|条件必填)\s*\n/, "");
       const namedColumns = workbook.definedNames.getNames(`${sheet.name}!${cell.address}`)
@@ -509,6 +512,7 @@ export async function parseWorkbook(buffer, kind) {
       const canonical = namedColumns[0] || definition.columns.find(
         (columnKey) => visible === businessHeader(columnKey, kind),
       );
+      requireValue(typeof canonical === "string", "无法确认Excel表头业务字段",422);
       requireValue(
         definition.columns.includes(canonical),
         "未知列 " + definition.name + "." + visible,
@@ -523,7 +527,7 @@ export async function parseWorkbook(buffer, kind) {
       if (rowNumber === 1) return;
       count++;
       requireValue(count <= MAX_ROWS, "工作簿业务行数超过25000");
-      const data = { _sheet: definition.name, _row: rowNumber };
+      const data:ParsedWorkbookRow = { _sheet: definition.name, _row: rowNumber };
       for (const [column, key] of headers) {
         try {
           const value = cellValue(row.getCell(column));
@@ -543,7 +547,7 @@ export async function parseWorkbook(buffer, kind) {
               rowNumber,
               kind === "assets" ? businessHeader(key, kind) : key,
               String(row.getCell(column).value),
-              error.message,
+              error instanceof Error ? error.message : "工作簿单元格校验失败",
             ),
           );
         }
@@ -557,7 +561,11 @@ export async function parseWorkbook(buffer, kind) {
   );
   return { rows, issues };
 }
-export async function makeWorkbook(kind, rows = {}, options = {}) {
+function formatScaledCell(value:unknown,places:number):string {
+  requireValue(typeof value === "number" && Number.isSafeInteger(value), "Excel数字列的数据必须是安全整数");
+  return decimalText(value,places);
+}
+export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string,WorkbookRow[]>> = {}, options:WorkbookOptions = {}):Promise<Buffer> {
   requireValue(layouts[kind], "未知交换类型");
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
@@ -596,10 +604,10 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
         : 26,
     }));
     for (const column of sheet.columns) {
-      column.hidden = technicalColumns.has(column.key);
+      column.hidden = technicalColumns.has(column.key ?? "");
       column.style = {
         ...column.style,
-        protection: { locked: technicalColumns.has(column.key) },
+        protection: { locked: technicalColumns.has(column.key ?? "") },
       };
     }
     sheet.views = [{ state: "frozen", ySplit: 1 }];
@@ -611,7 +619,8 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
       if (!businessChoices[key]) continue;
       const options = Object.values(businessChoices[key]).join(",");
       const letter = sheet.getColumn(index + 1).letter;
-      sheet.dataValidations.add(letter + "2:" + letter + "5001", {
+      const validations = sheet as ExcelJS.Worksheet & {dataValidations:{add(range:string, validation:ExcelJS.DataValidation):void}};
+      validations.dataValidations.add(letter + "2:" + letter + "5001", {
         type: "list",
         allowBlank: true,
         showErrorMessage: false,
@@ -626,14 +635,14 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
       fgColor: { argb: "FF23434E" },
     };
     for (const data of rows[definition.key] || []) {
-      const row = {};
+      const row:Record<string,unknown> = {};
       for (const key of definition.columns) {
         const value = data[key];
         row[key] =
           value == null
             ? null
             : decimalPlaces[key]
-              ? decimalText(value, decimalPlaces[key])
+              ? formatScaledCell(value, decimalPlaces[key])
               : typeof value === "object"
                 ? JSON.stringify(value)
                 : externalChoice(key, value);
@@ -641,7 +650,7 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
       sheet.addRow(row);
     }
     if (!options.report)
-      await sheet.protect(undefined, {
+      await sheet.protect("", {
         selectLockedCells: true,
         selectUnlockedCells: true,
         insertRows: true,
@@ -676,7 +685,7 @@ export async function makeWorkbook(kind, rows = {}, options = {}) {
   }
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
-export async function errorsWorkbook(issues) {
+export async function errorsWorkbook(issues:WorkbookIssue[]):Promise<Buffer> {
   const workbook = new ExcelJS.Workbook(),
     sheet = workbook.addWorksheet("问题清单");
   sheet.columns = [
@@ -702,7 +711,7 @@ export async function errorsWorkbook(issues) {
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
-export async function makeBusinessReport(kind, records, positions = []) {
+export async function makeBusinessReport(kind:WorkbookReportKind, records:Record<string,unknown>[], positions:Record<string,unknown>[] = []):Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
   const marker = workbook.addWorksheet("报表标记");
@@ -710,7 +719,7 @@ export async function makeBusinessReport(kind, records, positions = []) {
   marker.addRow([
     "业务报表用于统计、审核与打印。维护回导请下载数据维护工作簿。",
   ]);
-  function addSheet(name, rows) {
+  function addSheet(name:string, rows:Record<string,unknown>[]) {
     const sheet = workbook.addWorksheet(name);
     const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
     if (!headers.length) headers.push("当前筛选结果为空");

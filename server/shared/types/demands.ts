@@ -168,6 +168,7 @@ export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand,
 export interface DemandService {
   get(id: string, includeDeleted?: boolean): DemandRecord;
   normalize(input: unknown, previous?: DemandRecord | null): NormalizedDemand;
+  findDuplicates(operationId: string, locations: DemandLocationKey[], exceptId?: string): {id:string;demand_no:string}[];
   save(actor: Actor, input: unknown, key?: string, context?: { batchId?: string }): DemandRecord;
   search(query: ListQuery): Page<DemandListItem>;
   list(includeDeleted?: boolean): DemandListItem[];

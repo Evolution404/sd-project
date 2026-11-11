@@ -4,27 +4,38 @@ import {
   makeBusinessReport,
   errorsWorkbook,
   issue,
-  MAX_DOCUMENTS,
-} from "./workbook.mjs";
-import { createAssetExchange } from "./assets.mjs";
+} from "./workbook.js";
+import { createAssetExchange } from "./assets.js";
 import { createReferences } from "./references.js";
-import { decimalText } from "../../shared/decimal.js";
 import { cleanRow as clean, detailIdentity as identity, mergeDetails, differences } from "./details.js";
 import { validateFeatureValue } from "../pricing/features.js";
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
-export function createExchange(system) {
-  const { repo, catalog, demands, finance } = system;
+import type {System} from "../../bootstrap.js";
+import type {Actor} from "../../shared/types/contracts.js";
+import type {DemandRecord} from "../../shared/types/demands.js";
+import type {ParsedWorkbook,ParsedWorkbookRow,WorkbookKind,WorkbookIssue,ExchangeCommitResult,
+  ExchangeMode,ExchangePreviewOptions,ExchangeExportOptions,
+  ExchangePreviewDocument,ExchangePrepareResult,ExchangeCommitInput} from "../../shared/types/exchange.js";
+import {BusinessError} from "../../shared/errors/business-error.js";
+import {isObject} from "../../shared/types/contracts.js";
+import type {DetailKind} from "./details.js";
+import type {OperationField,PricingFeatureDeclaration} from "../../shared/types/work-standards.js";
+import {validateFactorDefinition} from "../pricing/features.js";
+import {financeSettlementDraft} from "../finance/requests.js";
+import {createExchangeExporter} from "./export.js";
+export function createExchange(system:System) {
+  const { exchangePersistence, catalog, demands, finance } = system;
   const assets = createAssetExchange(system);
-  let references;
+  let references = createReferences(system);
   let matchingMs = 0;
-  function resolveDetails(kind, row, projectId, existing) {
+  function resolveDetails(kind:string, row:ParsedWorkbookRow, projectId:string|null|undefined, existing:DemandRecord|null) {
     const value = { ...row };
     const started = performance.now();
     if (kind === "work_locations") {
       const adopted = existing?.work_locations.find(
         (location) =>
-          identity("work_locations", location) ===
+          identity("work_locations", {...location}) ===
           identity("work_locations", value),
       );
       const frozen =
@@ -33,7 +44,10 @@ export function createExchange(system) {
           row.line_name === adopted.location_snapshot_json.line_name) &&
         (!row.tower_no ||
           row.tower_no === adopted.location_snapshot_json.tower_no);
-      if (!frozen) Object.assign(value, references.location(value));
+      if (!frozen) {
+        requireValue(value.location_kind==="physical_tower" || value.location_kind==="logical_tower" || value.location_kind==="span", "请填写位置类型");
+        Object.assign(value, references.location({...value,location_kind:value.location_kind}));
+      }
     }
     if (
       kind === "materials" &&
@@ -57,38 +71,44 @@ export function createExchange(system) {
         },
       ).id;
     matchingMs += performance.now() - started;
-    if (kind === "items" && value.cost_node_path)
+    if (kind === "items" && value.cost_node_path) {
+      requireValue(typeof projectId==="string", "选择结算所属子项目");
       value.cost_node_id = references.costNode(projectId, value.cost_node_path).id;
-    if (["items", "resolutions"].includes(kind) && value.demand_description)
+    }
+    if (["items", "resolutions"].includes(kind) && value.demand_description) {
+      requireValue(typeof projectId==="string", "选择结算所属子项目");
       value.project_scope_id = references.scope(
         projectId,
         value.demand_description,
         value.project_scope_id,
       ).id;
+    }
     return value;
   }
-  function prepare(kind, parsed, mode, projectId) {
+  function prepare(kind:"demands"|"settlements",parsed:ParsedWorkbook,mode:ExchangeMode, projectId:string|null|undefined):ExchangePrepareResult {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
     references = createReferences(system);
     matchingMs = 0;
     const preparationStarted = performance.now();
     let validationMs = 0;
     const numberKey = kind === "demands" ? "demand_no" : "number",
-      grouped = new Map(),
-      sourceByPosition = new Map();
+      grouped = new Map<string,Map<string,ParsedWorkbookRow[]>>(),
+      sourceByPosition = new Map<string,ParsedWorkbookRow>();
     for (const [sheet, rows] of Object.entries(parsed.rows)) {
-      const groups = new Map();
+      const groups = new Map<string,ParsedWorkbookRow[]>();
       for (const row of rows) {
-        if (!groups.has(row[numberKey])) groups.set(row[numberKey], []);
-        groups.get(row[numberKey]).push(row);
+        const businessNumber=String(row[numberKey]??"");
+        const group=groups.get(businessNumber)??[];
+        group.push(row);
+        groups.set(businessNumber,group);
         sourceByPosition.set(row._sheet + "\0" + row._row, row);
       }
       grouped.set(sheet, groups);
     }
-    const rowsFor = (sheet, number) => grouped.get(sheet)?.get(number) || [];
-    const issues = [...parsed.issues],
-      documents = [],
-      numbers = new Set();
+    const rowsFor = (sheet:string, number:string):ParsedWorkbookRow[] => grouped.get(sheet)?.get(number) || [];
+    const issues:WorkbookIssue[] = [...parsed.issues],
+      documents:ExchangePreviewDocument[] = [],
+      numbers = new Set<string>();
     for (const root of parsed.rows.documents) {
       const number = root[numberKey];
       try {
@@ -98,16 +118,14 @@ export function createExchange(system) {
         );
         requireValue(!numbers.has(number), "文件内业务编号重复");
         numbers.add(number);
-        const existing = root.id
-          ? kind === "demands"
-            ? demands.get(root.id)
-            : finance.settlement(root.id)
-          : null;
+        const existingDemand = kind==="demands" && root.id ? demands.get(root.id) : null;
+        const existingSettlement = kind==="settlements" && root.id ? finance.settlement(root.id) : null;
+        const existing = existingDemand || existingSettlement;
         const matchingStarted = performance.now();
         if (
           kind === "demands" &&
           root.operation_name &&
-          (!existing || root.operation_name !== existing.operation_snapshot)
+          (!existingDemand || root.operation_name !== existingDemand.operation_snapshot)
         )
           root.operation_id = references.named(
             "operations",
@@ -132,18 +150,17 @@ export function createExchange(system) {
         }
         matchingMs += performance.now() - matchingStarted;
         requireValue(
-          !existing || existing[numberKey] === number,
+          !existing || (kind==="demands" ? existingDemand?.demand_no===number : existingSettlement?.number===number),
           "业务编号与稳定标识不一致",
         );
         if (kind === "demands" && !existing)
           requireValue(
-            !repo.find("demands", "demand_no", number),
+            !exchangePersistence.demandNumberExists(number),
             "业务编号已存在，更新必须携带稳定标识",
           );
         if (kind === "settlements" && !existing)
           requireValue(
-            !repo.where("settlements", { project_id: root.project_id, number })
-              .length,
+            !exchangePersistence.settlementNumberExists(root.project_id, number),
             "结算编号已存在，更新须携带稳定标识",
           );
         requireValue(
@@ -154,28 +171,25 @@ export function createExchange(system) {
         if (existing)
           expectedVersion(
             kind === "demands"
-              ? existing.current_version
-              : existing.version?.version_no || 0,
+              ? existingDemand?.current_version
+              : existingSettlement?.version?.version_no || 0,
             root.expected_version,
           );
-        if (kind === "settlements" && existing)
+        if (kind === "settlements" && existingSettlement)
           expectedVersion(
-            existing.draft?.edit_version || 0,
+            existingSettlement.draft?.edit_version || 0,
             root.expected_edit_version,
           );
         if (projectId)
           requireValue(
-            (root.project_id || existing?.project_id) === projectId,
+            (root.project_id || existingSettlement?.project_id) === projectId,
             "文件单据不属于当前子项目",
           );
-        const payload = {
-          ...(kind === "demands" ? existing : existing?.draft?.document || {}),
+        const payload:Record<string,unknown> = {
+          ...(kind === "demands" ? existingDemand : existingSettlement?.draft?.document || {}),
           ...clean(root),
         };
-        const detailKeys =
-          kind === "demands"
-            ? ["work_locations", "materials"]
-            : ["items", "resolutions"];
+        const detailKeys:DetailKind[] = kind==="demands" ? ["work_locations","materials"] : ["items","resolutions"];
         for (const key of detailKeys) {
           for (const row of rowsFor(key, number)) {
             try {
@@ -184,8 +198,8 @@ export function createExchange(system) {
                 resolveDetails(
                   key,
                   row,
-                  payload.project_id || existing?.project_id,
-                  existing,
+                  typeof payload.project_id==="string" ? payload.project_id : existingSettlement?.project_id,
+                  existingDemand,
                 ),
               );
             } catch (error) {
@@ -199,7 +213,7 @@ export function createExchange(system) {
                       ? "material_name"
                       : "cost_node_path",
                   clean(row),
-                  error.message,
+                  error instanceof Error ? error.message : "明细校验失败",
                 ),
               );
               throw error;
@@ -217,7 +231,9 @@ export function createExchange(system) {
               value.site_features_json = JSON.parse(value.site_features_json);
             return value;
           });
-          payload[key] = mergeDetails(key, payload[key] || [], rows);
+          const priorDetails=payload[key];
+          requireValue(priorDetails === undefined || (Array.isArray(priorDetails) && priorDetails.every(isObject)), "既有正式明细结构错误", 422);
+          payload[key] = mergeDetails(key, Array.isArray(priorDetails) ? priorDetails : [], rows);
         }
         for (const key of detailKeys) {
           const sourceRows = rowsFor(key, number);
@@ -239,17 +255,12 @@ export function createExchange(system) {
                   ? "physical_tower_id"
                   : "logical_tower_id";
             try {
-              catalog.get(
-                row.location_kind === "span"
-                  ? "spans"
-                  : row.location_kind === "physical_tower"
-                    ? "physical"
-                    : "towers",
-                row[key],
-              );
+              const equipmentKind=row.location_kind==="span" ? "spans" : row.location_kind==="physical_tower" ? "physical" : "towers";
+              requireValue(typeof row[key]==="string" && row[key], "作业位置身份不存在",404);
+              system.equipment.get(equipmentKind,row[key]);
             } catch (error) {
               issues.push(
-                issue(row._sheet, row._row, key, row[key], error.message),
+                issue(row._sheet, row._row, key, row[key], error instanceof Error ? error.message : "设备身份校验失败"),
               );
             }
           }
@@ -259,35 +270,28 @@ export function createExchange(system) {
                 delete value.demand_no;
                 return value;
               })
-            : existing?.sources || [];
-          for (const source of payload.sources)
+            : existingDemand?.sources || [];
+          const sourceInputs=payload.sources;
+          requireValue(Array.isArray(sourceInputs) && sourceInputs.every(isObject), "需求来源格式无效");
+          for (const source of sourceInputs)
             if (source.id) {
-              const original = repo.find("source_records", "id", source.id);
-              requireValue(original, "来源标识不存在");
+              requireValue(typeof source.id === "string", "来源身份必须是字符串");
+              requireValue(exchangePersistence.sourceExists(source.id), "来源标识不存在");
               requireValue(
-                !repo
-                  .auditFor("sources", source.id)
-                  .some((event) =>
-                    ["delete", "correct"].includes(event.action),
-                  ),
+                !exchangePersistence.sourceHasSupersedingAudit(source.id),
                 "来源已有更正或删除，须刷新后重新核对",
                 409,
               );
             }
-          const operation = catalog.get(
-            "operations",
+          requireValue(typeof payload.operation_id === "string", "请选择作业操作类型");
+          const operation = catalog.get("operations",payload.operation_id,Boolean(existingDemand));
+          const adopted = exchangePersistence.operationAdoptedVersion(
             payload.operation_id,
-            Boolean(existing),
+            typeof payload.operation_version === "number" ? payload.operation_version : (existingDemand?.operation_version || operation.version),
           );
-          const adopted = repo.where("operation_versions", {
-            operation_id: payload.operation_id,
-            version:
-              payload.operation_version ||
-              existing?.operation_version ||
-              operation.version,
-          })[0];
-          const definitions = JSON.parse(adopted.fields_json);
-          const declaredFeatures = JSON.parse(adopted.pricing_features_json);
+          requireValue(adopted && typeof adopted.fields_json === "string" && typeof adopted.pricing_features_json === "string", "正式操作定义的采用版本缺失",409);
+          const definitions:OperationField[] = JSON.parse(adopted.fields_json);
+          const declaredFeatures:PricingFeatureDeclaration[] = JSON.parse(adopted.pricing_features_json);
           for (const row of rowsFor("site_features", number)) {
             try {
               const locationRows = rowsFor("work_locations", number);
@@ -299,11 +303,9 @@ export function createExchange(system) {
                   ? locationRows[0]
                   : null;
               requireValue(sourceRow, "请填写本需求作业位置的工作表行号");
-              const location = payload.work_locations.find(
-                (location) =>
-                  identity("work_locations", location) ===
-                  identity("work_locations", sourceRow),
-              );
+              const workLocations=payload.work_locations;
+              requireValue(Array.isArray(workLocations) && workLocations.every(isObject),"正式作业位置结构不合法");
+              const location = workLocations.find((item) => identity("work_locations", item) === identity("work_locations", sourceRow));
               requireValue(location, "现场特征未对应本需求真实位置");
               const candidates = declaredFeatures
                 .map((feature) => ({
@@ -322,16 +324,14 @@ export function createExchange(system) {
               const { factor, feature: declared } = candidates[0];
               const factorCode = factor.code;
               requireValue(declared, "价格特征不属于本需求采用的正式操作定义");
-              const version = repo.where("dictionary_item_versions", {
-                  item_id: factor.id,
-                  version: declared.factor_version,
-                })[0],
-                definition = JSON.parse(version.fields_json),
-                actualLocation = location;
-              const actual =
-                typeof actualLocation.site_features_json === "string"
-                  ? JSON.parse(actualLocation.site_features_json)
-                  : { ...(actualLocation.site_features_json || {}) };
+              const version = exchangePersistence.factorAdoptedVersion(
+                factor.id, declared.factor_version);
+              requireValue(version,"价格特征冻结版本不存在",409);
+              const definition = validateFactorDefinition(JSON.parse(version.fields_json));
+              const rawFeatures=location.site_features_json;
+              const decodedFeatures:unknown = typeof rawFeatures==="string" ? JSON.parse(rawFeatures) : (rawFeatures ?? {});
+              requireValue(isObject(decodedFeatures),"现场价格特征结构无效");
+              const actual:Record<string,unknown>={...decodedFeatures};
               if (row.value === undefined) continue;
               if (row.value === null) delete actual[factorCode];
               else {
@@ -350,18 +350,19 @@ export function createExchange(system) {
                   value,
                 };
               }
-              actualLocation.site_features_json = actual;
+              location.site_features_json = actual;
             } catch (error) {
               issues.push(
-                issue(row._sheet, row._row, "value", row.value, error.message),
+                issue(row._sheet, row._row, "value", row.value, error instanceof Error ? error.message : "价格特征未通过验证"),
               );
               throw error;
             }
           }
 
-          payload.custom_fields = {
-            ...(existing?.custom_fields || payload.custom_fields || {}),
-          };
+          const originalCustom=existingDemand?.custom_fields ?? payload.custom_fields ?? {};
+          requireValue(isObject(originalCustom), "补充字段必须为对象");
+          const customFields:Record<string,unknown>={...originalCustom};
+          payload.custom_fields=customFields;
           for (const row of rowsFor("custom_fields", number)) {
             const definition = definitions.find((field) =>
               row.field_key
@@ -383,61 +384,60 @@ export function createExchange(system) {
             }
             if (value !== null && definition.type === "boolean") {
               requireValue(
-                [true, false, "是", "否", "true", "false", "1", "0"].includes(
-                  value,
-                ),
+                ([true, false, "是", "否", "true", "false", "1", "0"] as unknown[]).includes(value),
                 "是或否字段取值错误",
               );
-              value = [true, "是", "true", "1"].includes(value);
+              value = ([true, "是", "true", "1"] as unknown[]).includes(value);
             }
-            payload.custom_fields[definition.key] = value;
+            customFields[definition.key] = value;
           }
           const validationStarted = performance.now();
-          normalized = demands.normalize(payload, existing);
-          const duplicates = repo.demandDuplicates(
+          normalized = demands.normalize(payload, existingDemand);
+          const duplicates = demands.findDuplicates(
             normalized.operation_id,
             normalized.work_locations,
-            existing?.id,
+            existingDemand?.id,
           );
           requireValue(
             !duplicates.length,
             "存在同操作同位置疑似重复需求，须在线复核后处理",
             409,
-            { duplicates },
+            { duplicates:duplicates.map(item=>item.demand_no) },
           );
           validationMs += performance.now() - validationStarted;
           Object.assign(payload, normalized);
-        } else
-          finance.validateDraft(
-            payload.project_id || existing.project_id,
-            payload,
-          );
+        } else {
+          const settlementProject=typeof payload.project_id==="string" && payload.project_id ? payload.project_id : existingSettlement?.project_id;
+          requireValue(settlementProject,"请明确结算所属子项目");
+          finance.validateDraft(settlementProject,financeSettlementDraft(payload));
+        }
         const change = differences(
-          kind === "demands" && existing
-            ? demands.normalize(existing, existing)
-            : existing?.draft?.document || {},
-          kind === "demands" ? normalized : payload,
+          kind === "demands" && existingDemand
+            ? {...demands.normalize(existingDemand, existingDemand)}
+            : {...(existingSettlement?.draft?.document || {})},
+          kind === "demands" && normalized ? {...normalized} : payload,
         );
         if (
           kind === "demands" &&
-          existing &&
+          existingDemand &&
+          Array.isArray(payload.sources) &&
           payload.sources.some(
-            (source) =>
+            (source:unknown) => isObject(source) && (
               !source.id ||
-              !existing.sources.some(
+              !existingDemand.sources.some(
                 (old) =>
                   old.id === source.id &&
-                  ["description", "discovered_on"].every(
+                  (["description","discovered_on"] as const).every(
                     (field) =>
                       source[field] === undefined ||
                       source[field] === old[field],
                   ),
-              ),
+              )) ,
           )
         )
           change.push({
             field: "sources",
-            before: existing.sources,
+            before: existingDemand.sources,
             after: payload.sources,
           });
         documents.push({
@@ -458,12 +458,12 @@ export function createExchange(system) {
           issue(
             root._sheet,
             root._row,
-            error.message.includes("版本")
+            (error instanceof Error && error.message.includes("版本"))
               ? "expected_version"
-              : Object.keys(error.fields || {})[0] ||
+              : Object.keys(error instanceof BusinessError ? error.fields : {})[0] ||
                   (kind === "demands" ? "operation_name" : "project_name"),
             root,
-            error.message,
+            error instanceof Error ? error.message : "导入文档不符合当前规则",
           ),
         );
       }
@@ -471,7 +471,7 @@ export function createExchange(system) {
     for (const [key, rows] of Object.entries(parsed.rows))
       if (key !== "documents")
         for (const row of rows)
-          if (!numbers.has(row[numberKey]))
+          if (!numbers.has(String(row[numberKey]??"")))
             issues.push(
               issue(
                 row._sheet,
@@ -481,10 +481,12 @@ export function createExchange(system) {
                 "明细未对应文件中的业务单据",
               ),
             );
-    const seenLocations = new Map();
+    const seenLocations = new Map<string,ExchangePreviewDocument>();
     for (const doc of documents)
-      if (kind === "demands" && doc.action === "create")
-        for (const loc of doc.payload.work_locations) {
+      if (kind === "demands" && doc.action === "create") {
+        const locations=doc.payload.work_locations;
+        requireValue(Array.isArray(locations) && locations.every(isObject),"新增需求的位置列表无效");
+        for (const loc of locations) {
           const key =
               doc.payload.operation_id + "/" + identity("work_locations", loc),
             previous = seenLocations.get(key);
@@ -509,10 +511,11 @@ export function createExchange(system) {
             );
           } else seenLocations.set(key, doc);
         }
-    const invalidNumbers = new Set();
+      }
+    const invalidNumbers = new Set<string>();
     for (const problem of issues) {
       const source = sourceByPosition.get(problem.sheet + "\0" + problem.row);
-      if (source) invalidNumbers.add(source[numberKey]);
+      if (source) invalidNumbers.add(String(source[numberKey] ?? ""));
     }
     return {
       documents: documents.filter((doc) => !invalidNumbers.has(doc.number)),
@@ -528,7 +531,7 @@ export function createExchange(system) {
       issues,
     };
   }
-  async function preview(actor, kind, buffer, options = {}) {
+  async function preview(actor:Actor,kind:WorkbookKind,buffer:Buffer,options:ExchangePreviewOptions = {}) {
     if (kind === "assets") return assets.preview(actor, buffer, options);
     authorize(actor, "write");
     requireValue(["demands", "settlements"].includes(kind), "未知交换类型");
@@ -585,7 +588,7 @@ export function createExchange(system) {
         ...prepared,
       };
     // A draft batch is an import work-in-progress, never a formal business fact.
-    repo.insert("demand_batches", {
+    exchangePersistence.createBatch({
       id: token,
       draft_json: JSON.stringify(body),
       created_by: actor.id,
@@ -603,7 +606,7 @@ export function createExchange(system) {
       summary: counts(prepared),
     };
   }
-  function counts(prepared) {
+  function counts(prepared:ExchangePrepareResult) {
     return {
       documents: prepared.document_count,
       invalid_documents: prepared.invalid_document_count,
@@ -619,14 +622,14 @@ export function createExchange(system) {
         .length,
     };
   }
-  function commit(actor, token, input) {
+  function commit(actor:Actor,token:string,input:ExchangeCommitInput) {
     authorize(actor, "write");
     return system.idempotent(
       actor,
       input.request_key,
       { token, atomic: Boolean(input.atomic) },
       () => {
-        const batch = repo.find("demand_batches", "id", token);
+        const batch = exchangePersistence.batch(token);
         requireValue(
           batch && batch.created_by === actor.id,
           "预检批次不存在",
@@ -639,38 +642,31 @@ export function createExchange(system) {
             body.kind === "assets"
               ? assets.prepare(body.parsed, body.mode)
               : prepare(body.kind, body.parsed, body.mode, body.projectId),
-          results = [],
-          failures = [...prepared.issues];
+          results:ExchangeCommitResult["results"] = [],
+          failures:WorkbookIssue[] = [...prepared.issues];
         requireValue(
           !input.atomic || !failures.length,
           "整批提交包含预检错误，全部未写入",
           422,
-          { issues: failures },
+          { issues: failures.map(problem => `${problem.sheet} 第${problem.row}行：${problem.reason}`) },
         );
         const execute = () => {
           for (const document of prepared.documents) {
             try {
-              const result = repo.transaction(() => {
+              const result = system.database.transaction(() => {
                 if (document.action === "unchanged")
                   return { id: document.id, unchanged: true };
-                if (body.kind === "assets")
-                  return assets.execute(actor, document);
+                if ("kind" in document) return assets.execute(actor, document);
                 if (body.kind === "demands")
-                  return demands.save(actor, document.payload, document.id, {
-                    batchId: token,
-                  });
-                return finance.saveDraft(
-                  actor,
-                  document.payload.project_id,
-                  document.payload,
-                  document.id,
-                );
+                  return demands.save(actor, document.payload, document.id || undefined, {batchId:token});
+                const projectId=document.payload.project_id;
+                requireValue(typeof projectId==="string" && projectId.length>0,"结算导入缺少项目身份");
+                return finance.saveDraft(actor,projectId,financeSettlementDraft(document.payload),document.id||undefined);
               });
-              results.push({
-                number: result.demand_no || result.number || document.number,
-                id: result.id,
-                action: document.action,
-              });
+              requireValue(typeof result.id==="string","提交后业务身份无效");
+              const resultNumber = "demand_no" in result && typeof result.demand_no==="string" ? result.demand_no
+                : "number" in result && typeof result.number==="string" ? result.number : document.number;
+              results.push({number:resultNumber,id:result.id,action:document.action});
             } catch (error) {
               if (input.atomic) throw error;
               failures.push(
@@ -679,7 +675,7 @@ export function createExchange(system) {
                   document.row,
                   "document",
                   document.number,
-                  error.message,
+                  error instanceof Error ? error.message : "批量提交失败",
                 ),
               );
             }
@@ -698,10 +694,8 @@ export function createExchange(system) {
           submitted_at: now(),
           kind: body.kind,
         };
-        repo.update("demand_batches", "id", token, {
-          status: "submitted",
+        exchangePersistence.submitBatch(token, batch.version, {
           draft_json: JSON.stringify({ ...body, result }),
-          version: batch.version + 1,
           updated_at: now(),
           idempotency_key: input.request_key,
           payload_sha256: body.sha256,
@@ -711,292 +705,34 @@ export function createExchange(system) {
       },
     );
   }
-  function lookupRows() {
-    return [
-      "operations",
-      "physical",
-      "towers",
-      "spans",
-      "materials",
-      "lines",
-      "units",
-    ].flatMap((kind) =>
-      catalog
-        .list(kind)
-        .filter((row) => !["inactive", "retired"].includes(row.status))
-        .map((row) => ({
-          kind: catalog.definitions[kind].title,
-          id: row.id,
-          name: row.label,
-          model: row.model,
-          specification: row.specification,
-        })),
-    );
-  }
-  async function exportData(actor, kind, options = {}) {
-    if (kind === "assets") return assets.exportData(actor, options);
-    authorize(actor, "read");
-    const exportReferences = createReferences(system);
-    let records =
-      kind === "demands" ? demands.list() : finance.allSettlements();
-    if (options.projectId)
-      records = records.filter(
-        (record) => record.project_id === options.projectId,
-      );
-    if (options.ids?.length)
-      records = records.filter((x) => options.ids.includes(x.id));
-    if (options.query)
-      records = records.filter((x) =>
-        JSON.stringify(x).includes(options.query),
-      );
-    requireValue(
-      records.length <= MAX_DOCUMENTS,
-      "导出超过5000张，请收窄筛选条件",
-    );
-    if (options.report) {
-      const businessLabels = system.catalog.displayLabels();
-      const statuses = {
-        pending: "待确认",
-        active: "有效",
-        returned: "退回",
-        cancelled: "已取消",
-        submit: "待审核",
-        approve: "已批准",
-        return: "已退回",
-        reject: "已驳回",
-      };
-      if (kind === "demands") {
-        const detailed = records.map((record) => demands.get(record.id));
-        return makeBusinessReport(
-          kind,
-          detailed.map((record) => ({
-            需求编号: record.demand_no,
-            操作类型: record.operation_snapshot,
-            作业对象: record.work_object_snapshot,
-            问题描述: record.problem_description,
-            验收标准: record.completion_standard,
-            工作量: decimalText(record.quantity_scaled, 4),
-            计量单位: record.unit_snapshot,
-            需求状态: statuses[record.status],
-            位置数量: record.work_locations.length,
-            正式版本: record.current_version,
-            来源依据: record.sources
-              .map((source) => source.description)
-              .join("；"),
-          })),
-          detailed.flatMap((record) =>
-            record.work_locations.map((location) => ({
-              需求编号: record.demand_no,
-              线路: location.location_snapshot_json.line_name,
-              作业位置:
-                location.location_snapshot_json.location_label ||
-                location.location_snapshot_json.physical_code ||
-                location.location_snapshot_json.tower_no ||
-                location.span_id,
-              工作量: decimalText(location.quantity_scaled, 4),
-              计量单位: record.unit_snapshot,
-              作业方式:
-                location.work_mode === "outage"
-                  ? "停电"
-                  : location.work_mode === "non_outage"
-                    ? "不停电"
-                    : "未明确",
-              现场特征: Object.entries(location.site_features_json)
-                .map(
-                  ([code, fact]) =>
-                    (businessLabels[code + "@" + fact.factor_version] ||
-                      "历史价格特征") +
-                    "=" +
-                    fact.value,
-                )
-                .join(" / "),
-            })),
-          ),
-        );
+  function lookupRows():Record<string,unknown>[] {
+    type LookupRecord={id:string;label:string;status:string;model?:string;specification?:string};
+    const result:Record<string,unknown>[]=[];
+    const group=(title:string,records:LookupRecord[])=>{
+      for(const record of records){
+        if(record.status==="inactive"||record.status==="retired")continue;
+        result.push({kind:title,id:record.id,name:record.label,
+          model:record.model,specification:record.specification});
       }
-      const sum = (items, key) =>
-        items.reduce((total, item) => total + BigInt(item[key] || 0), 0n);
-      return makeBusinessReport(
-        kind,
-        records.map((record) => {
-          const project = system.projects.get(record.project_id),
-            effective = repo.where("v_settlement_effective_versions", {
-              settlement_id: record.id,
-            })[0],
-            approvedItems =
-              effective && effective.change_type !== "void"
-                ? repo.where("settlement_item_versions", {
-                    settlement_version_id: effective.id,
-                  })
-                : [],
-            resolved =
-              effective && effective.change_type !== "void"
-                ? repo.where("settlement_scope_results", {
-                    settlement_version_id: effective.id,
-                  })
-                : [];
-          return {
-            结算编号: record.number,
-            子项目编号: project.code,
-            子项目当前名称: project.name,
-            最新正式版本: record.version?.version_no || 0,
-            最新审核状态: statuses[record.review?.action] || "未提交",
-            草稿状态: record.draft ? "有草稿" : "无草稿",
-            "本次草稿金额（元）": record.draft
-              ? decimalText(sum(record.draft.document.items, "amount_fen"), 2)
-              : "",
-            "当前已批准金额（元）": decimalText(
-              sum(approvedItems, "amount_fen"),
-              2,
-            ),
-            当前新增解决量: decimalText(
-              sum(resolved, "resolved_quantity_scaled"),
-              4,
-            ),
-            结算日期:
-              record.version?.settlement_on ||
-              record.draft?.document.settlement_on ||
-              "",
-            结算依据:
-              record.version?.basis || record.draft?.document.basis || "",
-          };
-        }),
-      );
-    }
-    const rows = {
-      documents: [],
-      work_locations: [],
-      materials: [],
-      sources: [],
-      items: [],
-      resolutions: [],
-      custom_fields: [],
-      site_features: [],
     };
-    for (let record of records) {
-      if (kind === "demands") record = demands.get(record.id);
-      else record.project_name = system.projects.get(record.project_id).name;
-      if (kind === "demands") {
-        rows.documents.push({
-          ...record,
-          expected_version: record.current_version,
-          operation_name: record.operation_snapshot,
-        });
-        rows.work_locations.push(
-          ...record.work_locations.map((x) => ({
-            ...x,
-            demand_no: record.demand_no,
-            specification: x.location_snapshot_json?.specification || "",
-            action: "upsert",
-            line_name: x.location_snapshot_json.line_name,
-            tower_no: x.location_snapshot_json.tower_no || undefined,
-            asset_no: x.physical_tower_id
-              ? catalog.get("physical", x.physical_tower_id, true).asset_no
-              : undefined,
-          })),
-        );
-        for (const location of record.work_locations) {
-          const locationRow =
-            rows.work_locations.length -
-            record.work_locations.length +
-            record.work_locations.indexOf(location) +
-            2;
-          for (const [code, feature] of Object.entries(
-            location.site_features_json || {},
-          ))
-            rows.site_features.push({
-              demand_no: record.demand_no,
-              location_row: locationRow,
-              location_kind: location.location_kind,
-              factor_id: repo.where("dictionary_items", {
-                type_id: "price_factor",
-                code,
-              })[0].id,
-              factor_name: repo.where("dictionary_item_versions", {
-                item_id: repo.where("dictionary_items", {
-                  type_id: "price_factor",
-                  code,
-                })[0].id,
-                version: feature.factor_version,
-              })[0].name,
-              value: feature.value,
-            });
-        }
-        rows.materials.push(
-          ...record.materials.map((x) => ({
-            material_name: x.material_name,
-            material_model: x.model,
-            material_specification: x.specification,
-            ...x,
-            demand_no: record.demand_no,
-            action: "upsert",
-          })),
-        );
-        for (const field of JSON.parse(record.field_definitions_json || "[]"))
-          if (record.custom_fields?.[field.key] !== undefined)
-            rows.custom_fields.push({
-              demand_no: record.demand_no,
-              field_key: field.key,
-              field_name: field.label,
-              value: record.custom_fields[field.key],
-            });
-        rows.sources.push(
-          ...record.sources.map((x) => ({ ...x, demand_no: record.demand_no })),
-        );
-      } else {
-        const doc = record.draft?.document || record.version || {};
-        rows.documents.push({
-          ...doc,
-          id: record.id,
-          number: record.number,
-          project_name: record.project_name,
-          project_id: record.project_id,
-          expected_version: record.version?.version_no || 0,
-          expected_edit_version: record.draft?.edit_version || 0,
-        });
-        rows.items.push(
-          ...(record.draft?.document.items || record.items).map((x) => ({
-            ...x,
-            number: record.number,
-            cost_node_path: x.cost_node_id
-              ? exportReferences.costPath(record.project_id, x.cost_node_id)
-              : undefined,
-            demand_description: x.project_scope_id
-              ? system.demands.get(
-                  repo.find("project_demand_scopes", "id", x.project_scope_id)
-                    .demand_id,
-                  true,
-                ).problem_description
-              : undefined,
-            action: "upsert",
-          })),
-        );
-        rows.resolutions.push(
-          ...(record.draft?.document.resolutions || record.resolutions).map(
-            (x) => ({
-              ...x,
-              number: record.number,
-              demand_description: system.demands.get(
-                repo.find("project_demand_scopes", "id", x.project_scope_id)
-                  .demand_id,
-                true,
-              ).problem_description,
-              action: "upsert",
-            }),
-          ),
-        );
-      }
-    }
-    return makeWorkbook(kind, rows, {
-      report: options.report,
-      lookups: lookupRows(),
-    });
+    group("操作类型",system.standards.operations());
+    group("物理杆塔",system.equipment.list("physical"));
+    group("逻辑杆塔",system.equipment.list("towers"));
+    group("档距",system.equipment.list("spans"));
+    group("物资",system.materials.list());
+    group("线路",system.equipment.list("lines"));
+    group("计量单位",system.dictionaries.list("units"));
+    return result;
+  }
+  const exporter=createExchangeExporter(system,lookupRows);
+  async function exportData(actor:Actor,kind:WorkbookKind,options:ExchangeExportOptions={}):Promise<Buffer> {
+    return kind==="assets" ? assets.exportData(actor,options):exporter(actor,kind,options);
   }
   return {
     preview,
     commit,
     exportData,
-    template(actor, kind, projectId) {
+    template(actor:Actor,kind:WorkbookKind,projectId?:string|null) {
       authorize(actor, "read");
       if (kind === "assets") return makeWorkbook("assets");
       const project = projectId ? system.projects.get(projectId) : null;
@@ -1017,12 +753,17 @@ export function createExchange(system) {
         { lookups: lookupRows() },
       );
     },
-    results(actor, token) {
+    results(actor:Actor,token:string) {
       authorize(actor, "read");
-      const batch = repo.find("demand_batches", "id", token);
+      const batch = exchangePersistence.batch(token);
       requireValue(batch && batch.created_by === actor.id, "批次不存在", 404);
-      const result = JSON.parse(batch.draft_json).result;
-      requireValue(result, "批次尚未提交", 409);
+      const body:unknown=JSON.parse(batch.draft_json);
+      requireValue(isObject(body)&&isObject(body.result),"批次尚未提交",409);
+      const rawResult=body.result;
+      requireValue(Array.isArray(rawResult.results)&&rawResult.results.every(isObject)&&
+        Array.isArray(rawResult.issues)&&rawResult.issues.every(isObject)&&
+        typeof rawResult.submitted_at==="string","正式批次结果结构无效",409);
+      const result=rawResult as unknown as ExchangeCommitResult;
       return makeBusinessReport("exchange", [
         ...result.results.map((row) => ({
           业务编号: row.number,
@@ -1049,12 +790,18 @@ export function createExchange(system) {
         })),
       ]);
     },
-    errors(actor, token) {
+    errors(actor:Actor,token:string) {
       authorize(actor, "read");
-      const batch = repo.find("demand_batches", "id", token);
+      const batch = exchangePersistence.batch(token);
       requireValue(batch && batch.created_by === actor.id, "批次不存在", 404);
-      const body = JSON.parse(batch.draft_json);
-      return errorsWorkbook(body.result?.issues || body.issues);
+      const body:unknown = JSON.parse(batch.draft_json);
+      requireValue(isObject(body),"预检批次结构无效",409);
+      const chosen = isObject(body.result) ? body.result.issues : body.issues;
+      requireValue(Array.isArray(chosen)&&chosen.every(row=>isObject(row)&&
+        typeof row.sheet==="string"&&typeof row.row==="number"&&typeof row.field==="string"&&
+        typeof row.reason==="string"&&typeof row.suggestion==="string"),
+        "预检失败列表格式无效",409);
+      return errorsWorkbook(chosen as WorkbookIssue[]);
     },
   };
 }

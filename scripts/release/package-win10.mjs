@@ -190,7 +190,7 @@ const proc = spawnSync("python3", ["-c", python, stage, pendingZip], {
   stdio: "inherit",
 });
 if (proc.status !== 0) throw Error("ZIP creation failed");
-const verify = `import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad\nfiles=set(z.namelist());need={'runtime/node.exe','scripts/first-run.ps1','启动服务.cmd','初始化管理员.cmd','dist/server/main.js','dist/server/database/connection.js','dist/server/database/schema/schema113.sql','dist/server/modules/exchange/service.mjs','dist/web/index.html','BUILD-MANIFEST.json'};assert need.issubset(files),str(need-files)\nassert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')\nassert all(x<128 for x in z.read('启动服务.cmd'))\nassert not any(x.startswith('data/') for x in files), 'ZIP must not contain runtime data'\nassert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')\nprint('ZIP_OK files:',len(files))\n`;
+const verify = `import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad\nfiles=set(z.namelist());need={'runtime/node.exe','scripts/first-run.ps1','启动服务.cmd','初始化管理员.cmd','dist/server/main.js','dist/server/database/connection.js','dist/server/database/schema/schema113.sql','dist/server/modules/exchange/service.js','dist/web/index.html','BUILD-MANIFEST.json'};assert need.issubset(files),str(need-files)\nassert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')\nassert all(x<128 for x in z.read('启动服务.cmd'))\nassert not any(x.startswith('data/') for x in files), 'ZIP must not contain runtime data'\nassert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')\nprint('ZIP_OK files:',len(files))\n`;
 const check = spawnSync("python3", ["-c", verify, pendingZip], {
   encoding: "utf8",
 });

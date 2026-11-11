@@ -5,7 +5,7 @@ import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
-import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 const cleanup = [],
   { s, user, operation, towers } = fixture({
     after: (action) => cleanup.push(action),

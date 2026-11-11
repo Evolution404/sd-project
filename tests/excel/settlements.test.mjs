@@ -2,8 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import { approvedFixture } from "../helpers.mjs";
-import { createExchange } from "../../dist/server/modules/exchange/service.mjs";
-import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
+import { createExchange } from "../../dist/server/modules/exchange/service.js";
+import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 test("settlement workbook creates draft only, preserves independent resolution and revises approved history", async (t) => {
   const { s, user, project, scope, approval, node } = approvedFixture(t),
     exchange = createExchange(s);

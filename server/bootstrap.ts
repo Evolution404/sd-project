@@ -19,6 +19,7 @@ import { createOrganizations } from "./modules/organizations/service.js";
 import { openDatabase } from "./database/connection.js";
 import { createStore } from "./database/repositories/store.js";
 import { businessRepository } from "./database/repositories/business.js";
+import { exchangePersistenceRepository } from "./database/repositories/exchange-persistence.js";
 import { demandRepository } from "./database/repositories/demands.js";
 import { identityRepository } from "./database/repositories/identity.js";
 import { createAuth, digest, now } from "./platform/auth/service.js";
@@ -43,6 +44,7 @@ export function createSystem(dataDir?: string) {
   const database = openDatabase(dataDir);
   const store = createStore(database);
   const repo = businessRepository(store);
+  const exchangePersistence = exchangePersistenceRepository(store);
   const quantityUnits = quantityUnitRepository(store);
   const identity = identityRepository(store);
   const auth = createAuth(identity, database);
@@ -66,7 +68,7 @@ export function createSystem(dataDir?: string) {
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
-    database, repo, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
+    database, repo, exchangePersistence, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
     management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

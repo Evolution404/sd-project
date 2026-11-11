@@ -1,25 +1,35 @@
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
 import { createReferences } from "./references.js";
+import type { System } from "../../bootstrap.js";
+import type { Actor } from "../../shared/types/contracts.js";
+import type { EquipmentRecord } from "../../shared/types/equipment.js";
+import type { EquipmentCatalogKind } from "../../shared/types/equipment.js";
+import { BusinessError } from "../../shared/errors/business-error.js";
+import type { ParsedWorkbook, WorkbookRow, AssetPreviewDocument, AssetPrepareResult, AssetExchangeKind, ExchangeMode, ExchangePreviewOptions, ExchangeExportOptions, AssetPreviewChange } from "../../shared/types/exchange.js";
 import {
   parseWorkbook,
   makeWorkbook,
   makeBusinessReport,
   issue,
   MAX_DOCUMENTS,
-} from "./workbook.mjs";
+} from "./workbook.js";
 
-export function createAssetExchange(system) {
-  const { catalog, repo } = system;
+export function createAssetExchange(system: System) {
+  const { catalog, exchangePersistence, equipment } = system;
   const physicalKeys = catalog.definitions.physical.fields
-    .map((field) => field.key)
+    .map((field) => field.key as keyof EquipmentRecord)
     .filter((key) => key !== "status");
+  function resolveEquipment(kind:EquipmentCatalogKind, key:string|null|undefined, includeDeleted=false):EquipmentRecord {
+    requireValue(typeof key==="string" && key.length>0,"设备正式身份不存在",404);
+    return equipment.get(kind,key,includeDeleted);
+  }
   // Resolve human business labels only at execution time. Earlier rows in
   // the same workbook may create the referenced line or tower transactionally.
-  function input(document) {
+  function input(document:Pick<AssetPreviewDocument,"kind"|"payload">):WorkbookRow {
     const row = document.payload,
       refs = createReferences(system);
-    const values = { ...row, expected_version: row.expected_version };
+    const values:WorkbookRow = { ...row, expected_version: row.expected_version };
     if (document.kind === "physical") {
       // A physical entity has no parent line; identity remains server-owned.
       return values;
@@ -38,7 +48,7 @@ export function createAssetExchange(system) {
       if (row.junction_tower_no) {
         requireValue(values.parent_line_id, "请先填写支线所属主线");
         const junction = refs.unique(
-          catalog.list("towers").filter(
+          equipment.list("towers").filter(
             (tower) => tower.line_id === values.parent_line_id &&
               tower.tower_no === String(row.junction_tower_no) &&
               tower.status === "active",
@@ -52,12 +62,12 @@ export function createAssetExchange(system) {
       const line = refs.line(row.line_name, row.voltage_name, row.line_id);
       values.line_id = line.id;
       requireValue(row.start_tower_no && row.end_tower_no, "请填写档距两端杆塔号");
-      const endpoint = (number, name, voltage, prior) => {
+      const endpoint = (number:string, name?:string|null, voltage?:string|null, prior?:string|null) => {
         const selectedLine = name
           ? refs.line(name, voltage)
           : line;
         return refs.unique(
-          catalog.list("towers").filter(
+          equipment.list("towers").filter(
             (tower) => tower.line_id === selectedLine.id &&
               tower.tower_no === String(number) &&
               tower.status !== "retired",
@@ -88,7 +98,7 @@ export function createAssetExchange(system) {
           row.sharing_line_name, row.sharing_voltage_name,
         );
         const shared = refs.unique(
-          catalog.list("towers").filter(
+          equipment.list("towers").filter(
             (tower) => tower.line_id === sharedLine.id &&
               tower.tower_no === String(row.sharing_tower_no),
           ),
@@ -105,29 +115,29 @@ export function createAssetExchange(system) {
     }
     return values;
   }
-  function prepare(parsed, mode = "mixed") {
+  function prepare(parsed:ParsedWorkbook, mode:ExchangeMode = "mixed"):AssetPrepareResult {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
     const lines = parsed.rows.documents || [],
       physical = parsed.rows.physical || [],
       towers = parsed.rows.towers || [],
       spans = parsed.rows.spans || [],
       source = [
-        ...lines.map((row) => ({ kind: "lines", row })),
-        ...physical.map((row) => ({ kind: "physical", row })),
-        ...towers.map((row) => ({ kind: "towers", row })),
-        ...spans.map((row) => ({ kind: "spans", row })),
+        ...lines.map((row) => ({ kind: "lines" as const, row })),
+        ...physical.map((row) => ({ kind: "physical" as const, row })),
+        ...towers.map((row) => ({ kind: "towers" as const, row })),
+        ...spans.map((row) => ({ kind: "spans" as const, row })),
       ],
       issues = [...parsed.issues],
-      documents = [];
+      documents:AssetPreviewDocument[] = [];
     requireValue(source.length <= MAX_DOCUMENTS, "单批最多5000条完整台账记录");
 
-    const savedLines = catalog.list("lines"),
-      savedTowers = catalog.list("towers"),
-      savedSpans = catalog.list("spans");
-    const savedVoltage = (line) => (
-      catalog.get("voltages", line.voltage_level_id, true).name
+    const savedLines = equipment.list("lines"),
+      savedTowers = equipment.list("towers"),
+      savedSpans = equipment.list("spans");
+    const savedVoltage = (line:EquipmentRecord) => (
+      resolveEquipment("voltages", line.voltage_level_id, true).name
     );
-    const candidateLines = (name, voltage) => {
+    const candidateLines = (name:string, voltage?:string|null) => {
       const proposed = lines.filter((row) => row.name === name &&
         (!voltage || row.voltage_name === voltage));
       const stored = savedLines.filter((row) => row.name === name &&
@@ -135,7 +145,7 @@ export function createAssetExchange(system) {
         row.status !== "retired");
       return { proposed, stored };
     };
-    const lineExists = (name, voltage, field) => {
+    const lineExists = (name:string, voltage:string|null|undefined, field:string) => {
       requireValue(name, "请填写" + field);
       const { proposed, stored } = candidateLines(name, voltage);
       const ids = new Set([...proposed.filter((row) => row.id).map((row) => row.id),
@@ -150,7 +160,7 @@ export function createAssetExchange(system) {
       );
       return proposed[0] || stored[0];
     };
-    const towerExists = (lineName, voltage, towerNo, field) => {
+    const towerExists = (lineName:string, voltage:string|null|undefined, towerNo:string, field:string) => {
       const line = lineExists(lineName, voltage, field + "所属线路");
       requireValue(towerNo, "请填写" + field + "杆塔号");
       const lineId = line.id;
@@ -174,12 +184,12 @@ export function createAssetExchange(system) {
     };
     for (const { kind, row } of source) {
       try {
-        const existing = row.id ? catalog.get(kind, row.id) : null;
+        const existing = row.id ? resolveEquipment(kind, row.id) : null;
         const status = catalog.definitions[kind].fields.find(
           (field) => field.key === "status",
         );
         requireValue(
-          row.status === undefined || status.options.includes(row.status),
+          row.status === undefined || (typeof row.status === "string" && Boolean(status?.options?.includes(row.status))),
           "状态未匹配可选业务值",
           422,
           { status: "请选择在用、停用、退役或适用的草稿状态" },
@@ -279,7 +289,7 @@ export function createAssetExchange(system) {
           // A span must connect two towers of its own circuit, except for
           // the single documented main-line junction of a branch circuit.
           // Never infer topology from tower numbering or row order.
-          const belongs = (name, voltage) =>
+          const belongs = (name:string|null|undefined, voltage:string|null|undefined) =>
             name === row.line_name &&
             (!voltage || !row.voltage_name || voltage === row.voltage_name);
           const startOwn = belongs(startLine, row.start_voltage_name),
@@ -292,11 +302,11 @@ export function createAssetExchange(system) {
             const parent = line.parent_line_name
               ? line.parent_line_name
               : line.parent_line_id
-                ? catalog.get("lines", line.parent_line_id).name : null;
+                ? resolveEquipment("lines", line.parent_line_id).name : null;
             const junction = line.junction_tower_no
               ? String(line.junction_tower_no)
               : line.junction_tower_id
-                ? String(catalog.get("towers", line.junction_tower_id).tower_no)
+                ? String(resolveEquipment("towers", line.junction_tower_id).tower_no)
                 : null;
             requireValue(parent && junction &&
               (startOwn
@@ -315,10 +325,10 @@ export function createAssetExchange(system) {
               "两杆塔间已有档距，请使用维护导出更新",
             );
         }
-        const payload = { ...row };
+        const payload:WorkbookRow = { ...row };
         delete payload._sheet;
         delete payload._row;
-        let changes = [];
+        let changes:AssetPreviewChange[] = [];
         if (existing) {
           let resolved, deferred = false;
           try {
@@ -330,14 +340,16 @@ export function createAssetExchange(system) {
             deferred = true;
           }
           changes = catalog.definitions[kind].fields
-            .filter((field) => resolved[field.key] !== undefined &&
-              (field.type === "text"
-                ? String(resolved[field.key] ?? "") !==
-                  String(existing[field.key] ?? "")
-                : resolved[field.key] !== existing[field.key]))
+            .filter((field) => {
+              const key=field.key as keyof EquipmentRecord;
+              return resolved[field.key] !== undefined &&
+                (field.type === "text"
+                  ? String(resolved[field.key] ?? "") !== String(existing[key] ?? "")
+                  : resolved[field.key] !== existing[key]);
+            })
             .map((field) => ({
               field: field.key,
-              before: existing[field.key],
+              before: existing[field.key as keyof EquipmentRecord],
               after: resolved[field.key],
             }));
           if (!changes.length && deferred && (
@@ -353,7 +365,7 @@ export function createAssetExchange(system) {
         documents.push({
           kind, payload, id: row.id || null,
           number: kind === "lines"
-            ? row.name
+            ? String(row.name || "")
             : kind === "physical"
               ? (row.asset_no || row.tower_type || row.model || "独立物理杆塔")
             : kind === "towers"
@@ -368,43 +380,47 @@ export function createAssetExchange(system) {
       } catch (error) {
         issues.push(issue(
           row._sheet, row._row,
-          Object.keys(error.fields || {})[0] ||
+          Object.keys(error instanceof BusinessError ? error.fields : {})[0] ||
             (kind === "lines" ? "name" :
               kind === "physical" ? "tower_type" :
               kind === "towers" ? "tower_no" : "start_tower_no"),
-          row, error.message,
+          row, error instanceof Error ? error.message : "台账预检失败",
         ));
       }
     }
     // A maintenance logical-tower row may modify physical properties. Record
     // that mutation against the stable physical entity, never on the logical
     // entity or a second physical record. All edits share one formal history.
-    const physicalUpdates = new Map(
-      documents.filter((doc) => doc.kind === "physical" && doc.id)
-        .map((doc) => [doc.id, doc]),
+    const physicalUpdates = new Map<string,AssetPreviewDocument>(
+      documents.filter((doc) => doc.kind === "physical" && Boolean(doc.id))
+        .map((doc) => [doc.id as string, doc]),
     );
     for (const logicalDocument of documents.filter((doc) =>
       doc.kind === "towers" && doc.id)) {
       const physicalId = savedTowers.find((row) =>
         row.id === logicalDocument.id)?.physical_tower_id;
       const existingPhysical = physicalId
-        ? catalog.get("physical", physicalId, true) : null;
+        ? resolveEquipment("physical", physicalId, true) : null;
       if (!existingPhysical) continue;
+      requireValue(physicalId, "关联物理杆塔身份缺失",404);
       const physicalChanges = physicalKeys.filter((key) =>
         logicalDocument.payload[key] !== undefined &&
         logicalDocument.payload[key] !== existingPhysical[key]);
       if (!physicalChanges.length) continue;
       let physicalDoc = physicalUpdates.get(physicalId);
       if (!physicalDoc) {
-        physicalDoc = {
+        const updatedIdentity:AssetPreviewDocument = {
           kind: "physical", id: physicalId,
           payload: { id: physicalId, expected_version: existingPhysical.version },
           sheet: logicalDocument.sheet, row: logicalDocument.row,
-          number: existingPhysical.asset_no || existingPhysical.tower_type || "物理杆塔", action: "update", changes: [],
+          number: existingPhysical.asset_no || existingPhysical.tower_type || "物理杆塔",
+          action: "update", changes: [],
         };
-        documents.splice(documents.indexOf(logicalDocument), 0, physicalDoc);
-        physicalUpdates.set(physicalId, physicalDoc);
+        documents.splice(documents.indexOf(logicalDocument), 0, updatedIdentity);
+        physicalUpdates.set(physicalId, updatedIdentity);
+        physicalDoc = updatedIdentity;
       }
+      requireValue(physicalDoc, "未能建立物理杆塔正式变更",409);
       for (const key of physicalChanges) {
         const value = logicalDocument.payload[key];
         const priorChange = physicalDoc.changes.find((change) => change.field === key);
@@ -413,7 +429,8 @@ export function createAssetExchange(system) {
             "同一物理杆塔存在互相矛盾的实物属性修改，请统一填写"));
           continue;
         }
-        physicalDoc.payload[key] = value;
+        const changedValues:Record<string,unknown> = physicalDoc.payload;
+        changedValues[key] = value;
         if (!priorChange) physicalDoc.changes.push({
           field: key, before: existingPhysical[key], after: value,
         });
@@ -422,7 +439,7 @@ export function createAssetExchange(system) {
     }
     // Reject all rows of a duplicated business object, rather than silently
     // choosing one of the duplicated lines, towers or span endpoints.
-    const duplicates = new Map();
+    const duplicates = new Map<string,AssetPreviewDocument[]>();
     for (const doc of documents) {
       const row = doc.payload;
       const key = doc.kind === "lines"
@@ -437,8 +454,9 @@ export function createAssetExchange(system) {
               (row.start_line_name || row.line_name) + "/" + row.start_tower_no,
               (row.end_line_name || row.line_name) + "/" + row.end_tower_no,
             ].sort()]);
-      if (!duplicates.has(key)) duplicates.set(key, []);
-      duplicates.get(key).push(doc);
+      const group = duplicates.get(key) ?? [];
+      group.push(doc);
+      duplicates.set(key,group);
     }
     for (const group of duplicates.values())
       if (group.length > 1)
@@ -447,23 +465,23 @@ export function createAssetExchange(system) {
             doc.number, "当前文件同一业务对象重复，请合并或删除重复行"));
     // Respect dependencies even when the rows appear in arbitrary worksheet
     // order: main line -> junction tower -> branch -> branch tower -> spans.
-    const matchLineDocs = (name, voltage) =>
+    const matchLineDocs = (name:string, voltage?:string|null) =>
       documents.filter((doc) => doc.kind === "lines" &&
         doc.payload.name === name &&
         (!voltage || doc.payload.voltage_name === voltage));
-    const matchTowerDocs = (line, voltage, towerNo) =>
+    const matchTowerDocs = (line:string, voltage:string|null|undefined, towerNo:string) =>
       documents.filter((doc) => doc.kind === "towers" &&
         doc.payload.line_name === line &&
         (!voltage || !doc.payload.voltage_name ||
           doc.payload.voltage_name === voltage) &&
         String(doc.payload.tower_no) === String(towerNo));
-    const dependencyMap = new Map();
-    const dependencyFailures = new Set();
+    const dependencyMap = new Map<AssetPreviewDocument,Set<AssetPreviewDocument>>();
+    const dependencyFailures = new Set<AssetPreviewDocument>();
     for (const doc of documents) {
       try {
-        const deps = new Set(),
+        const deps = new Set<AssetPreviewDocument>(),
           row = doc.payload;
-        const lineDependency = (name, voltage, description) => {
+        const lineDependency = (name:string|null|undefined, voltage:string|null|undefined, description:string) => {
           if (!name) return;
           const candidates = matchLineDocs(name, voltage);
           requireValue(candidates.length <= 1,
@@ -473,8 +491,9 @@ export function createAssetExchange(system) {
             deps.add(candidates[0]);
           }
         };
-        const towerDependency = (line, voltage, no, description) => {
+        const towerDependency = (line:string|null|undefined, voltage:string|null|undefined, no:string|null|undefined, description:string) => {
           if (!no) return;
+          requireValue(line, description+"必须指定线路");
           const candidates = matchTowerDocs(line, voltage, no);
           requireValue(candidates.length <= 1,
             description + "在当前文件中重复");
@@ -508,12 +527,12 @@ export function createAssetExchange(system) {
         dependencyMap.set(doc, deps);
       } catch (error) {
         issues.push(issue(doc.sheet, doc.row, "relationship",
-          doc.number, error.message));
+          doc.number, error instanceof Error ? error.message : "设备关联校验失败"));
         dependencyFailures.add(doc);
       }
     }
-    const visiting = new Set(), visited = new Set(), ordered = [];
-    function visit(doc) {
+    const visiting = new Set<AssetPreviewDocument>(), visited = new Set<AssetPreviewDocument>(), ordered:AssetPreviewDocument[] = [];
+    function visit(doc:AssetPreviewDocument):void {
       if (visited.has(doc) || dependencyFailures.has(doc)) return;
       if (visiting.has(doc)) {
         dependencyFailures.add(doc);
@@ -548,7 +567,7 @@ export function createAssetExchange(system) {
       invalid_document_count: invalidRows.size,
     };
   }
-  async function preview(actor, buffer, options = {}) {
+  async function preview(actor:Actor, buffer:Buffer, options:ExchangePreviewOptions = {}) {
     authorize(actor, "admin");
     const started = performance.now(),
       parsed = await parseWorkbook(buffer, "assets"),
@@ -562,7 +581,7 @@ export function createAssetExchange(system) {
       parsed,
       ...prepared,
     };
-    repo.insert("demand_batches", {
+    exchangePersistence.createBatch({
       id: token,
       draft_json: JSON.stringify(body),
       created_by: actor.id,
@@ -596,66 +615,66 @@ export function createAssetExchange(system) {
       },
     };
   }
-  async function exportData(actor, options = {}) {
+  async function exportData(actor:Actor, options:ExchangeExportOptions = {}):Promise<Buffer> {
     authorize(actor, "read");
-    const rows = { documents: [], physical: [], towers: [], spans: [] },
+    const rows:Record<"documents"|"physical"|"towers"|"spans",WorkbookRow[]> = { documents: [], physical: [], towers: [], spans: [] },
       selected = new Set(options.ids || []),
       selectedLineIds = new Set(
-        catalog.list("lines").filter((row) => selected.has(row.id))
+        equipment.list("lines").filter((row) => selected.has(row.id))
           .map((row) => row.id),
       );
-    const accept = (kind, record) => (
+    const accept = (kind:AssetExchangeKind, record:EquipmentRecord):boolean => (
       (!options.query || record.label.includes(options.query) ||
-        (kind !== "lines" && catalog.get("lines", record.line_id).name
-          .includes(options.query))) &&
+        (kind !== "lines" && Boolean(resolveEquipment("lines", record.line_id).name?.includes(options.query)))) &&
       (!selected.size || selected.has(record.id) ||
-        (kind !== "lines" && selectedLineIds.has(record.line_id)))
+        (kind !== "lines" && Boolean(record.line_id && selectedLineIds.has(record.line_id))))
     );
-    for (const kind of ["lines", "towers", "spans"])
-      for (const record of catalog.list(kind)) {
+    for (const kind of ["lines", "towers", "spans"] as const)
+      for (const record of equipment.list(kind)) {
         if (!accept(kind, record)) continue;
-        const value = { ...record, expected_version: record.version };
+        const value:WorkbookRow = { ...record, expected_version: record.version };
         if (kind === "lines") {
-          value.voltage_name = catalog.get(
+          value.voltage_name = resolveEquipment(
             "voltages", record.voltage_level_id, true,
           ).name;
           if (record.parent_line_id) {
-            const parent = catalog.get("lines", record.parent_line_id, true);
+            const parent = resolveEquipment("lines", record.parent_line_id, true);
             value.parent_line_name = parent.name;
-            value.parent_voltage_name = catalog.get(
+            value.parent_voltage_name = resolveEquipment(
               "voltages", parent.voltage_level_id, true,
             ).name;
           }
           if (record.junction_tower_id)
-            value.junction_tower_no = catalog.get(
+            value.junction_tower_no = resolveEquipment(
               "towers", record.junction_tower_id, true,
             ).tower_no;
         } else {
-          const line = catalog.get("lines", record.line_id, true);
+          const line = resolveEquipment("lines", record.line_id, true);
           value.line_name = line.name;
           if (kind === "towers" && record.physical_tower_id) {
-            const physical = catalog.get("physical", record.physical_tower_id, true);
-            for (const key of physicalKeys) value[key] = physical[key];
+            const physical = resolveEquipment("physical", record.physical_tower_id, true);
+            const actualProperties:Record<string,unknown> = value;
+            for (const key of physicalKeys) actualProperties[key] = physical[key];
           }
-          value.voltage_name = catalog.get(
+          value.voltage_name = resolveEquipment(
             "voltages", line.voltage_level_id, true,
           ).name;
           if (kind === "spans") {
-            const start = catalog.get("towers", record.start_tower_id, true),
-              end = catalog.get("towers", record.end_tower_id, true);
+            const start = resolveEquipment("towers", record.start_tower_id, true),
+              end = resolveEquipment("towers", record.end_tower_id, true);
             value.start_tower_no = start.tower_no;
             value.end_tower_no = end.tower_no;
             if (start.line_id !== line.id) {
-              const startLine = catalog.get("lines", start.line_id, true);
+              const startLine = resolveEquipment("lines", start.line_id, true);
               value.start_line_name = startLine.name;
-              value.start_voltage_name = catalog.get(
+              value.start_voltage_name = resolveEquipment(
                 "voltages", startLine.voltage_level_id, true,
               ).name;
             }
             if (end.line_id !== line.id) {
-              const endLine = catalog.get("lines", end.line_id, true);
+              const endLine = resolveEquipment("lines", end.line_id, true);
               value.end_line_name = endLine.name;
-              value.end_voltage_name = catalog.get(
+              value.end_voltage_name = resolveEquipment(
                 "voltages", endLine.voltage_level_id, true,
               ).name;
             }
@@ -664,12 +683,12 @@ export function createAssetExchange(system) {
         rows[kind === "lines" ? "documents" : kind].push(value);
       }
     const includedPhysical = new Set(rows.towers.map((tower) => tower.physical_tower_id).filter(Boolean));
-    for (const physicalTower of catalog.list("physical")) {
+    for (const physicalTower of equipment.list("physical")) {
       if (selected.size && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id)) continue;
       if (options.query && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id) &&
           ![physicalTower.tower_type, physicalTower.model, physicalTower.tower_code,
             physicalTower.related_lines, physicalTower.related_towers].some((value) =>
-              String(value || "").includes(options.query))) continue;
+              String(value || "").includes(options.query ?? ""))) continue;
       rows.physical.push({ ...physicalTower, expected_version: physicalTower.version });
     }
     if (options.report)
@@ -705,9 +724,9 @@ export function createAssetExchange(system) {
   return {
     preview,
     prepare,
-    execute(actor, document) {
+    execute(actor:Actor, document:AssetPreviewDocument) {
       authorize(actor, "admin");
-      return catalog.save(actor, document.kind, input(document), document.id);
+      return catalog.save(actor, document.kind, input(document), document.id || undefined);
     },
     exportData,
   };
