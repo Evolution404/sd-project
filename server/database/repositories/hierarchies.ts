@@ -214,3 +214,4 @@ export function hierarchyRepository(store: ReturnType<typeof createStore>) {
     },
   };
 }
+export type HierarchyRepository = ReturnType<typeof hierarchyRepository>;

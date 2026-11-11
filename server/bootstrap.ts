@@ -29,13 +29,13 @@ import { createFunding } from "./modules/funding/service.js";
 import { createDemands } from "./modules/demands/service.js";
 import { createPricing } from "./modules/pricing/service.js";
 import { pricingRepository } from "./database/repositories/pricing.js";
-import { createProjects } from "./modules/projects/service.mjs";
+import { createProjects } from "./modules/projects/service.js";
 import { createSources } from "./modules/demands/sources.js";
 import { createReporting } from "./modules/reporting/service.js";
 import { reportingReadRepository } from "./database/repositories/reporting.js";
 import { createManagement } from "./modules/management/service.js";
 import { managementRepository } from "./database/repositories/management.js";
-import { createFinance } from "./modules/finance/service.mjs";
+import { createFinance } from "./modules/finance/service.js";
 import { requireValue } from "./shared/errors/business-error.js";
 import type { Actor } from "./shared/types/contracts.js";
 
@@ -59,7 +59,7 @@ export function createSystem(dataDir?: string) {
   const demandRecords = demandRepository(store);
   const demands = createDemands(demandRecords, catalog, database);
   const pricing = createPricing(pricingRepository(store), priceRules, standards, database, audit);
-  const projects = createProjects(repo, catalog, demands, pricing, quantityUnits);
+  const projects = createProjects(repo, catalog, demands, pricing, quantityUnits, funding);
   const hierarchies = hierarchyRepository(store);
   const finance = createFinance(repo, catalog, projects, pricing, hierarchies, quantityUnits);
   const organizations = createOrganizations(hierarchies, dictionaries, database);

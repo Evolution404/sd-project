@@ -6,53 +6,56 @@ import {
   integer,
 } from "../../shared/errors/business-error.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
-export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
-  function get(key, includeDeleted = false, currentOnly = false) {
-    const root = repo.find("projects", "id", key);
+import type { Actor, ListQuery } from "../../shared/types/contracts.js";
+import type { CatalogService } from "../catalog/service.js";
+import type { DemandService } from "../../shared/types/demands.js";
+import type { PricingService } from "../pricing/service.js";
+import type { FundingService } from "../funding/service.js";
+import type { BusinessRepository } from "../../database/repositories/business.js";
+import type { QuantityUnitRepository } from "../../database/repositories/quantity-units.js";
+import type { ProjectIdentity, ProjectManagementInput, ProjectFromDemandInput,
+  ProjectApprovalInput, ProjectLinkInput, ProjectReleaseInput,
+  ProjectVersionAction, ProjectFundingInput } from "../../shared/types/projects.js";
+
+export function createProjects(
+  repo: BusinessRepository,
+  catalog: CatalogService,
+  demands: DemandService,
+  pricing: PricingService,
+  quantityUnits: QuantityUnitRepository,
+  funding: FundingService,
+) {
+  function get(key: string, includeDeleted = false, currentOnly = false) {
+    const root = repo.projectIdentity(key);
     requireValue(
-      root && (includeDeleted || !repo.isDeleted("projects", key)),
+      root && (includeDeleted || !repo.projectDeleted(key)),
       "项目不存在或已删除",
       404,
     );
-    const profile = repo.latest(
-        "project_management_versions",
-        "project_id",
-        key,
-      ),
+    const profile = repo.latestProjectProfile(key),
       approval =
-        repo
-          .where("project_approval_versions", {
-            project_id: key,
-            status: "approved",
-          })
-          .sort((a, b) => b.version_no - a.version_no)[0] || null;
+        repo.latestApprovedProject(key) || null;
+    requireValue(profile, "项目档案版本不存在", 404);
     const scopes = repo.projectScopes(key);
     return {
       ...profile,
       ...root,
-      deleted: repo.isDeleted("projects", key),
+      deleted: repo.projectDeleted(key),
       category_name: profile.category_id
-        ? repo.where("dictionary_item_versions", {
-            item_id: profile.category_id,
-            version: profile.category_version,
-          })[0]?.name
+        ? repo.categoryVersionName(profile.category_id, profile.category_version ?? 0)
         : null,
       managing_unit_name: profile.managing_unit_version_id
-        ? repo.find(
-            "organizational_unit_versions",
-            "id",
-            profile.managing_unit_version_id,
-          )?.name
+        ? repo.projectOrganizationVersion(profile.managing_unit_version_id)?.name
         : null,
       owner_username: profile.owner_id
-        ? repo.find("users", "id", profile.owner_id)?.username
+        ? repo.projectAccount(profile.owner_id)?.username
         : null,
       manager_username: profile.manager_id
-        ? repo.find("users", "id", profile.manager_id)?.username
+        ? repo.projectAccount(profile.manager_id)?.username
         : null,
       profile_version: profile.version_no,
       funding:
-        repo.latest("project_funding_versions", "project_id", key) || null,
+        repo.latestProjectFunding(key) || null,
       approval,
       scopes,
       approvals: (() => {
@@ -63,10 +66,17 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
       })(),
       cost_nodes: repo.projectCostNodes(key),
-      changes: repo.where("project_change_orders", { project_id: key }),
+      changes: repo.projectChanges(key),
     };
   }
-  function save(actor, input, key) {
+  function adoptedOrganization(orgId:string|null,versionId:string|null) {
+    requireValue(orgId && versionId,"项目归口单位缺少已采用正式版本",409);
+    const record = repo.projectOrganizationVersion(versionId);
+    requireValue(record && record.unit_id === orgId,
+      "项目归口单位历史采用版本不存在",409);
+    return {...record,id:orgId,unit_version_id:versionId};
+  }
+  function save(actor: Actor, input: ProjectManagementInput, key?: string) {
     authorize(actor, "write");
     return repo.transaction(() => {
       const previous = key ? get(key) : null;
@@ -75,9 +85,10 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
       const projectId = key || id(),
         timestamp = now();
       if (!previous) {
-        const framework = catalog.get("frameworks", input.framework_id);
+        requireValue(typeof input.framework_id === "string" && input.framework_id.length > 0, "请选择年度框架");
+        const framework = funding.get("frameworks", input.framework_id);
         requireValue(framework.status === "active", "框架已停用");
-        repo.insert("projects", {
+        repo.createProject({
           id: projectId,
           code: documentCode("XM", projectId),
           framework_id: framework.id,
@@ -85,13 +96,13 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
           created_at: timestamp,
         });
       }
-      for (const key of ["owner_id", "manager_id"])
+      for (const key of ["owner_id", "manager_id"] as const)
         if (input[key] && input[key] !== previous?.[key]) {
-          const user = repo.find("users", "id", input[key]);
+          const user = repo.projectAccount(input[key]);
           requireValue(
             user &&
               user.status === "active" &&
-              !repo.isDeleted("users", user.id),
+              !user.deleted,
             "请选择有效责任人或管理人员",
           );
         }
@@ -100,14 +111,10 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
           : null,
         organization = input.managing_unit_id
           ? previous?.managing_unit_id === input.managing_unit_id
-            ? {
-                ...repo.find("organizational_unit_versions", "id", previous.managing_unit_version_id),
-                id: previous.managing_unit_id,
-                unit_version_id: previous.managing_unit_version_id,
-              }
+            ? adoptedOrganization(previous.managing_unit_id, previous.managing_unit_version_id)
             : catalog.get("organizations", input.managing_unit_id)
           : null;
-      repo.insert("project_management_versions", {
+      repo.appendProfile({
         id: id(),
         project_id: projectId,
         version_no: (previous?.profile_version || 0) + 1,
@@ -137,11 +144,12 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
       return get(projectId);
     });
   }
-  function stage(actor, key, stageName, permission, version) {
+  function stage(actor: Actor, key: string,
+    stageName: "stocked" | "approved" | "closed", permission: string, version: number) {
     authorize(actor, permission);
     const p = get(key);
     expectedVersion(p.version, version);
-    repo.insert("project_stage_events", {
+    repo.appendStage({
       id: id(),
       project_id: key,
       stage: stageName,
@@ -151,11 +159,13 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
     });
     return get(key);
   }
-  function approvalChangeSummary(project, input) {
-    if (!project.approval) return [];
-    const previous = project.approvals.find(x => x.id === project.approval.id);
+  function approvalChangeSummary(project: ReturnType<typeof get>, input: ProjectApprovalInput): string[] {
+    const adoptedApproval = project.approval;
+    if (!adoptedApproval) return [];
+    const previous = project.approvals.find(x => x.id === adoptedApproval.id);
+    requireValue(previous, "批准基线历史不存在", 409);
     const reasons = [];
-    if (project.approval.approved_budget_fen !== input.approved_budget_fen)
+    if (adoptedApproval.approved_budget_fen !== input.approved_budget_fen)
       reasons.push("批准预算发生变化");
     for (const original of previous.scopes) {
       const selected = (input.scopes || []).find(
@@ -188,7 +198,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
       reasons.push("新增批准需求范围");
     return reasons;
   }
-  function approvalDraft(actor, key, input) {
+  function approvalDraft(actor: Actor, key: string, input: ProjectApprovalInput) {
     authorize(actor, "write");
     return repo.transaction(() => {
       const project = get(key);
@@ -215,7 +225,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
       if (version > 1) {
         requireValue(previous, "缺少正式批准基线");
         changeId = id();
-        repo.insert("project_change_orders", {
+        repo.proposeChange({
           id: changeId,
           project_id: key,
           code: input.change_code || `BG-${id()}`,
@@ -226,7 +236,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
           reason: input.reason || "",
         });
       }
-      repo.insert("project_approval_versions", {
+      repo.createApproval({
         id: approvalId,
         project_id: key,
         version_no: version,
@@ -284,7 +294,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
           0,
         );
         const scopeId = id();
-        repo.insert("project_approval_scope_versions", {
+        repo.appendApprovalScope({
           id: scopeId,
           approval_version_id: approvalId,
           project_scope_id: scope.id,
@@ -297,7 +307,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         });
         if (demand.work_locations.length > 1)
           for (const loc of locations)
-            repo.insert("project_approval_work_locations", {
+            repo.appendApprovalPosition({
               approval_scope_version_id: scopeId,
               demand_id: demand.id,
               demand_version: demand.current_version,
@@ -325,10 +335,10 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
               material_id: format.material_id,
               created_at: timestamp,
             };
-            repo.insert("project_scope_materials", identity);
+            repo.createProjectMaterial(identity);
             materialLinks.set(materialLinkKey, identity);
           }
-          repo.insert("project_approval_material_items", {
+          repo.appendApprovedMaterial({
             id: id(),
             approval_version_id: approvalId,
             project_scope_id: scope.id,
@@ -352,28 +362,17 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
   // Agreement balances are a budget *comparison*, not a funds-allocation
   // ledger. Only the latest funding link and latest formally approved project
   // budget contribute to the reference figures.
-  function agreementOptions(key) {
+  function agreementOptions(key: string) {
     const project = get(key);
     const selectedId = project.funding?.agreement_id || null;
     const currentDate = today();
-    const budgets = new Map(repo.list("v_project_current_approval").map(
-      row => [row.project_id, row.approved_budget_fen ?? 0],
-    ));
-    const links = repo.list("v_project_funding_current");
-    const linked = new Map();
-    for (const link of links) {
-      if (!link.agreement_id || repo.isDeleted("projects", link.project_id))
-        continue;
-      const entry = linked.get(link.agreement_id) || {
-        projects: 0, approved_budget_fen: 0,
-      };
-      entry.projects += 1;
-      entry.approved_budget_fen += budgets.get(link.project_id) || 0;
-      requireValue(Number.isSafeInteger(entry.approved_budget_fen),
+    const linked = new Map(repo.agreementUsageTotals().map(row => {
+      requireValue(Number.isSafeInteger(row.approved_budget_fen),
         "关联项目预算汇总超出安全范围");
-      linked.set(link.agreement_id, entry);
-    }
-    const agreements = catalog.list("agreements", true)
+      return [row.agreement_id,
+        {projects:row.projects,approved_budget_fen:row.approved_budget_fen}] as const;
+    }));
+    const agreements = funding.list("agreements", true)
       .filter(agreement => agreement.framework_id === project.framework_id)
       .map(agreement => {
         const eligible = !agreement.deleted && agreement.status === "active" &&
@@ -410,7 +409,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
     save,
     approvalDraft,
     agreementOptions,
-    search(query) {
+    search(query: ListQuery) {
       const result = repo.searchProjects(query);
       return { ...result, items: result.items.map(({ approval_json, scopes_json, funding_json, ...row }) => ({
         ...row, approval: approval_json ? JSON.parse(approval_json) : null,
@@ -421,35 +420,35 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
     dashboardPortfolio() {
       return repo.projectDashboardPortfolio();
     },
-    workspace(key, includeDeleted = false) {
+    workspace(key: string, includeDeleted = false) {
       return get(key, includeDeleted, true);
     },
-    approvalCandidates(key) {
+    approvalCandidates(key: string) {
       get(key, true, true);
       return repo.projectApprovalCandidates(key);
     },
-    approvalHistory(key) {
+    approvalHistory(key: string) {
       get(key, true, true);
       const approvals = repo.projectApprovalHistory(key);
       const summaries = pricing.projectSummaries(key, approvals.map(ap => ap.id));
       return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
     },
-    summaryBasis(key) {
+    summaryBasis(key: string) {
       const basis = repo.projectSummaryBasis(key);
       requireValue(basis, "项目不存在或已删除", 404);
       return basis;
     },
     list(includeDeleted = false) {
-      const deleted = repo.deleted("projects");
+      const deleted = repo.deletedProjectIds();
       return repo
-        .list("projects")
+        .list<ProjectIdentity>("projects")
         .filter((x) => includeDeleted || !deleted.has(x.id))
         .map((x) => ({
           ...get(x.id, includeDeleted),
           deleted: deleted.has(x.id),
         }));
     },
-    createFromDemand(actor, input) {
+    createFromDemand(actor: Actor, input: ProjectFromDemandInput) {
       authorize(actor, "write");
       // One application use case and one database transaction: no orphaned
       // project if the final demand-link check rejects a stale version.
@@ -467,12 +466,12 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         });
       });
     },
-    stock(actor, key, input) {
+    stock(actor: Actor, key: string, input: ProjectVersionAction) {
       return repo.transaction(() =>
         stage(actor, key, "stocked", "project.stock", input.expected_version),
       );
     },
-    link(actor, key, input) {
+    link(actor: Actor, key: string, input: ProjectLinkInput) {
       authorize(actor, "write");
       return repo.transaction(() => {
         const project = get(key);
@@ -482,13 +481,9 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         const existing = project.scopes.find((x) => x.demand_id === demand.id),
           timestamp = now();
         if (existing) {
-          const last = repo.latest(
-            "project_demand_link_events",
-            "project_scope_id",
-            existing.id,
-            "event_seq",
-          );
-          repo.insert("project_demand_link_events", {
+          const last = repo.latestDemandLinkEvent(existing.id);
+          requireValue(last, "关联历史不存在", 409);
+          repo.appendDemandLink({
             id: id(),
             project_scope_id: existing.id,
             event_seq: last.event_seq + 1,
@@ -498,7 +493,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
             reason: input.reason || "",
           });
         } else
-          repo.insert("project_demand_scopes", {
+          repo.createDemandScope({
             id: id(),
             project_id: key,
             demand_id: demand.id,
@@ -521,21 +516,17 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return get(key);
       });
     },
-    release(actor, key, scopeId, input) {
+    release(actor: Actor, key: string, scopeId: string, input: ProjectReleaseInput) {
       authorize(actor, "write");
       return repo.transaction(() => {
         const project = get(key, true);
         if (project.deleted) authorize(actor, "admin");
         const scope = project.scopes.find((x) => x.id === scopeId);
         requireValue(scope, "关联不存在", 404);
-        const last = repo.latest(
-          "project_demand_link_events",
-          "project_scope_id",
-          scopeId,
-          "event_seq",
-        );
+        const last = repo.latestDemandLinkEvent(scopeId);
+        requireValue(last, "关联历史不存在", 409);
         expectedVersion(last.event_seq, input.expected_event_seq);
-        repo.insert("project_demand_link_events", {
+        repo.appendDemandLink({
           id: id(),
           project_scope_id: scopeId,
           event_seq: last.event_seq + 1,
@@ -547,7 +538,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return get(key, true);
       });
     },
-    fund(actor, key, input) {
+    fund(actor: Actor, key: string, input: ProjectFundingInput) {
       authorize(actor, "write");
       return repo.transaction(() => {
         const project = get(key);
@@ -561,11 +552,10 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         requireValue(agreementId !== (project.funding?.agreement_id || null),
           "资金归属未变化，无需重复保存", 409);
         if (agreementId) {
-          const agreement = catalog.get("agreements", agreementId);
+          const agreement = funding.get("agreements", agreementId);
           requireValue(agreement.framework_id === project.framework_id,
             "所选执行协议必须属于子项目所在年度框架", 422);
-          requireValue(agreement.status === "active" &&
-            !repo.isDeleted("agreements", agreementId),
+          requireValue(agreement.status === "active",
             "执行协议已停用或删除，请选择有效协议", 422);
           const date = today();
           requireValue(
@@ -573,7 +563,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
             (!agreement.effective_to || agreement.effective_to >= date),
             "执行协议尚未生效或已过期，请选择当前有效协议", 422);
         }
-        repo.insert("project_funding_versions", {
+        repo.appendFunding({
           id: id(),
           project_id: key,
           version_no: (project.funding?.version_no || 0) + 1,
@@ -585,7 +575,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return get(key);
       });
     },
-    approve(actor, key, approvalId, input) {
+    approve(actor: Actor, key: string, approvalId: string, input: ProjectVersionAction) {
       return repo.transaction(() => {
         const project = get(key),
           approval = project.approvals.find((ap) => ap.id === approvalId);
@@ -596,13 +586,13 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
           approval.version_no === 1 ? "project.approve" : "change.approve",
         );
         if (approval.change_order_id)
-          repo.update("project_change_orders", "id", approval.change_order_id, {
+          repo.decideChange(approval.change_order_id, {
             status: "approved",
             decided_by: actor.id,
             decided_at: now(),
             decision_reason: input.reason || "",
           });
-        repo.update("project_approval_versions", "id", approvalId, {
+        repo.decideApproval(approvalId, {
           status: "approved",
           approved_by: actor.id,
           approved_at: now(),
@@ -612,7 +602,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return get(key);
       });
     },
-    discardApproval(actor, key, approvalId) {
+    discardApproval(actor: Actor, key: string, approvalId: string) {
       authorize(actor, "write");
       return repo.transaction(() => {
         const approval = get(key).approvals.find((x) => x.id === approvalId);
@@ -625,11 +615,11 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
           approval,
           { status: "withdrawn" },
         );
-        repo.update("project_approval_versions", "id", approvalId, {
+        repo.decideApproval(approvalId, {
           status: "withdrawn",
         });
         if (approval.change_order_id)
-          repo.update("project_change_orders", "id", approval.change_order_id, {
+          repo.decideChange(approval.change_order_id, {
             status: "rejected",
             decided_by: actor.id,
             decided_at: now(),
@@ -638,7 +628,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return get(key);
       });
     },
-    remove(actor, key, input) {
+    remove(actor: Actor, key: string, input: ProjectVersionAction) {
       authorize(actor, "admin");
       return repo.transaction(() => {
         const project = get(key);
@@ -655,9 +645,10 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
         return { deleted: true };
       });
     },
-    history(key) {
+    history(key: string) {
       get(key, true);
       return repo.projectFullHistory(key);
     },
   };
 }
+export type ProjectService = ReturnType<typeof createProjects>;

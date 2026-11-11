@@ -1,8 +1,12 @@
 import { isObject } from "../../shared/types/contracts.js";
 import { projectActionHints } from "./actions.js";
+import { parseProjectFromDemand, parseProjectVersion, parseProjectLink, parseProjectRelease,
+  parseProjectFunding, parseProjectApproval, parseProjectManagement } from "./requests.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
+import { financeDeleteNode, financeVersion, financeCostNode,
+  financeActualCost, financeSettlementDraft } from "../finance/requests.js";
 export async function handleProjects(context: RouteContext): Promise<{
     result: unknown;
 } | undefined> {
@@ -13,7 +17,7 @@ export async function handleProjects(context: RouteContext): Promise<{
         case "projects":
             if (key === "from-demand") {
                 requireValue(!read && method === "POST", "仅支持建立并承接子项目", 405);
-                result = mutate("write", () => system.projects.createFromDemand(actor, input));
+                result = mutate("write", () => system.projects.createFromDemand(actor, parseProjectFromDemand(input)));
                 break;
             }
             if (sub === "cost-tree") {
@@ -48,37 +52,37 @@ export async function handleProjects(context: RouteContext): Promise<{
                                             ? page(system.finance.settlements(key), url.searchParams)
                                             : system.projects.workspace(key, deleted);
             else if (method === "DELETE" && !sub)
-                result = mutate("admin", () => system.projects.remove(actor, key, input));
+                result = mutate("admin", () => system.projects.remove(actor, key, parseProjectVersion(input)));
             else if (sub === "stock")
-                result = mutate("project.stock", () => system.projects.stock(actor, key, input));
+                result = mutate("project.stock", () => system.projects.stock(actor, key, parseProjectVersion(input)));
             else if (sub === "link")
-                result = mutate("write", () => system.projects.link(actor, key, input));
+                result = mutate("write", () => system.projects.link(actor, key, parseProjectLink(input)));
             else if (sub === "release")
-                result = mutate("write", () => system.projects.release(actor, key, subKey, input));
+                result = mutate("write", () => system.projects.release(actor, key, subKey, parseProjectRelease(input)));
             else if (sub === "funding")
-                result = mutate("write", () => system.projects.fund(actor, key, input));
+                result = mutate("write", () => system.projects.fund(actor, key, parseProjectFunding(input)));
             else if (sub === "approvals" && method === "DELETE")
                 result = mutate("write", () => system.projects.discardApproval(actor, key, subKey));
             else if (sub === "approvals" && action === "approve")
                 result = mutate(system.projects.get(key).approval
                     ? "change.approve"
-                    : "project.approve", () => system.projects.approve(actor, key, subKey, input));
+                    : "project.approve", () => system.projects.approve(actor, key, subKey, parseProjectVersion(input)));
             else if (sub === "approvals")
-                result = mutate("write", () => system.projects.approvalDraft(actor, key, input));
+                result = mutate("write", () => system.projects.approvalDraft(actor, key, parseProjectApproval(input)));
             else if (sub === "nodes" && method === "DELETE")
-                result = mutate("admin", () => system.finance.removeNode(actor, key, subKey, input));
+                result = mutate("admin", () => system.finance.removeNode(actor, key, subKey, financeDeleteNode(input)));
             else if (sub === "costs" && method === "DELETE")
-                result = mutate("admin", () => system.finance.removeCost(actor, key, subKey, input));
+                result = mutate("admin", () => system.finance.removeCost(actor, key, subKey, financeVersion(input)));
             else if (sub === "nodes")
-                result = mutate("write", () => system.finance.node(actor, key, input, subKey));
+                result = mutate("write", () => system.finance.node(actor, key, financeCostNode(input), subKey));
             else if (sub === "costs")
-                result = mutate("cost.confirm", () => system.finance.cost(actor, key, input, subKey));
+                result = mutate("cost.confirm", () => system.finance.cost(actor, key, financeActualCost(input), subKey));
             else if (sub === "settlements")
-                result = mutate("write", () => system.finance.saveDraft(actor, key, input, subKey));
+                result = mutate("write", () => system.finance.saveDraft(actor, key, financeSettlementDraft(input), subKey));
             else if (sub === "close")
-                result = mutate("project.close", () => system.finance.close(actor, key, input));
+                result = mutate("project.close", () => system.finance.close(actor, key, parseProjectVersion(input)));
             else
-                result = mutate("write", () => system.projects.save(actor, input, key));
+                result = mutate("write", () => system.projects.save(actor, parseProjectManagement(input), key));
             break;
     }
     return { result };

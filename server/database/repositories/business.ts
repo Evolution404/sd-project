@@ -1,7 +1,9 @@
 import { businessLists } from "../queries/business-lists.js";
 import { projectReadRepository } from "./projects.js";
 import { projectHistoryRepository } from "./project-history.js";
+import { projectCommandRepository } from "./project-commands.js";
 import { financeReadRepository } from "./finance.js";
+import { financeCommandRepository } from "./finance-commands.js";
 import { exchangeReferenceRepository } from "./exchange.js";
 import { reportingReadRepository } from "./reporting.js";
 import type { Store, SqlRow } from "./store.js";
@@ -22,8 +24,10 @@ export function businessRepository(store: Store) {
   return {
     ...store,
     ...projectReadRepository(store),
+    ...projectCommandRepository(store),
     ...projectHistoryRepository(store),
     ...financeReadRepository(store),
+    ...financeCommandRepository(store),
     ...exchangeReferenceRepository(store),
     ...reportingReadRepository(store),
     searchFinance:lists.finance,

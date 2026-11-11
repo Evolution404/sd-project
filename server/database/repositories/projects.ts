@@ -1,6 +1,8 @@
 import type { createStore } from "./store.js";
+import type { ProjectIdentity, ProjectProfileVersion, ProjectFundingVersion,
+  ProjectApprovalVersion } from "../../shared/types/projects.js";
 
-type Store = Pick<ReturnType<typeof createStore>, "query">;
+type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
 
 export interface CurrentProjectBinding {
   project_scope_id: string;
@@ -12,49 +14,70 @@ export interface CurrentProjectBinding {
 }
 export interface ProjectScopeProjection {
   id: string;
+  project_id: string;
+  demand_id: string;
+  demand_version: number;
+  proposed_quantity_scaled: number;
+  proposed_amount_fen: number | null;
+  note: string;
+  created_at: string;
   demand_no: string;
   demand_status: string;
   binding: CurrentProjectBinding | null;
-  [key: string]: unknown;
 }
 
 export interface ProjectScopeMaterialLink {
   id: string;
   project_scope_id: string;
   material_id: string;
+  created_at: string;
 }
-interface ScopeRow extends Record<string, unknown> {
-  id: string;
+interface ScopeRow extends Omit<ProjectScopeProjection, "binding"> {
   binding_json: string | null;
-  demand_no: string;
-  demand_status: string;
 }
-export interface ApprovedMaterialSnapshot extends Record<string, unknown> {
+export interface ApprovedMaterialSnapshot {
+  id: string;
   approval_version_id: string;
   project_scope_id: string;
   material_id: string;
+  material_version_id: string;
+  project_material_id: string;
+  approved_quantity_scaled: number;
+  item_no: number;
+  unit_id: string;
+  unit_version: number;
+  unit_snapshot: string;
 }
-export interface ApprovedLocationSnapshot extends Record<string, unknown> {
+export interface ApprovedLocationSnapshot {
   approval_scope_version_id: string;
+  location_item_no: number;
+  approved_quantity_scaled: number;
 }
-interface ApprovedScopeRow extends Record<string, unknown> {
+interface ApprovedScopeRow {
   id: string;
   approval_version_id: string;
   project_scope_id: string;
+  demand_id: string;
+  demand_version: number;
+  quantity_scaled: number;
+  approved_amount_fen: number | null;
   demand_no: string;
 }
 export interface ApprovedScope extends ApprovedScopeRow {
   materials: ApprovedMaterialSnapshot[];
   locations: ApprovedLocationSnapshot[];
 }
-export interface ProjectApprovalHistory extends Record<string, unknown> {
-  id: string;
-  version_no: number;
-  status: string;
+export interface ProjectApprovalHistory extends ProjectApprovalVersion {
   scopes: ApprovedScope[];
 }
-export interface ProjectCostNode extends Record<string, unknown> {
+export interface ProjectCostNode {
   id: string;
+  project_id: string;
+  parent_id: string | null;
+  current_version_id: string;
+  version_no: number;
+  name: string;
+  status: "active" | "inactive";
   deleted: boolean;
 }
 
@@ -92,12 +115,82 @@ export interface ProjectDashboardBase {
   approved_budget_fen: number | null;
 }
 
+export interface ProjectChangeOrderRow {
+  id:string; project_id:string; code:string; base_approval_version_id:string;
+  proposal_json:string; created_by:string; created_at:string; reason:string;
+  status:string; decided_by:string|null; decided_at:string|null; decision_reason:string;
+}
+export interface ProjectAccountRow {
+  id:string; username:string; status:string; deleted:number;
+}
+export interface OrganizationVersionRow {
+  id:string; unit_id:string; version_no:number; name:string;
+  parent_unit_id:string|null; status:string;
+}
+export interface AgreementUsageTotals {
+  agreement_id:string; projects:number; approved_budget_fen:number;
+}
 export function projectReadRepository(store: Store) {
   return {
     /** One read for all existing scope-material identities in a new approval. */
+    projectIdentity(id:string):ProjectIdentity|undefined {
+      return store.get<ProjectIdentity>("SELECT * FROM projects WHERE id=?",id);
+    },
+    projectDeleted(id:string):boolean {
+      return Boolean(store.get("SELECT 1 FROM audit_events WHERE entity='projects' AND entity_id=? AND action='delete' LIMIT 1",id));
+    },
+    deletedProjectIds():Set<string> {
+      return new Set(store.query<{entity_id:string}>(
+        "SELECT entity_id FROM audit_events WHERE entity='projects' AND action='delete'").map(row=>row.entity_id));
+    },
+    latestProjectProfile(projectId:string):ProjectProfileVersion|undefined {
+      return store.get<ProjectProfileVersion>(
+        "SELECT * FROM project_management_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1",projectId);
+    },
+    latestApprovedProject(projectId:string):ProjectApprovalVersion|undefined {
+      return store.get<ProjectApprovalVersion>(
+        "SELECT * FROM project_approval_versions WHERE project_id=? AND status='approved' ORDER BY version_no DESC LIMIT 1",projectId);
+    },
+    categoryVersionName(itemId:string,version:number):string|null {
+      return store.get<{name:string}>(
+        "SELECT name FROM dictionary_item_versions WHERE item_id=? AND version=?",itemId,version)?.name??null;
+    },
+    projectOrganizationVersion(id:string):OrganizationVersionRow|undefined {
+      return store.get<OrganizationVersionRow>("SELECT * FROM organizational_unit_versions WHERE id=?",id);
+    },
+    projectAccount(id:string):ProjectAccountRow|undefined {
+      return store.get<ProjectAccountRow>(`SELECT u.id,u.username,u.status,
+        EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='users' AND a.entity_id=u.id AND a.action='delete') AS deleted
+        FROM users u WHERE u.id=?`,id);
+    },
+    latestProjectFunding(projectId:string):ProjectFundingVersion|undefined {
+      return store.get<ProjectFundingVersion>(
+        "SELECT * FROM project_funding_versions WHERE project_id=? ORDER BY version_no DESC LIMIT 1",projectId);
+    },
+    projectChanges(projectId:string):ProjectChangeOrderRow[] {
+      return store.query<ProjectChangeOrderRow>(
+        "SELECT * FROM project_change_orders WHERE project_id=? ORDER BY created_at,id",projectId);
+    },
+    latestDemandLinkEvent(scopeId:string):{event_seq:number}|undefined {
+      return store.get<{event_seq:number}>(
+        "SELECT event_seq FROM project_demand_link_events WHERE project_scope_id=? ORDER BY event_seq DESC LIMIT 1",scopeId);
+    },
+    agreementUsageTotals():AgreementUsageTotals[] {
+      return store.query<AgreementUsageTotals>(`SELECT funding.agreement_id,
+        COUNT(*) AS projects,COALESCE(SUM(approval.approved_budget_fen),0) AS approved_budget_fen
+        FROM v_project_funding_current funding
+        JOIN projects project ON project.id=funding.project_id
+        LEFT JOIN v_project_current_approval approval ON approval.project_id=project.id
+        WHERE funding.agreement_id IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM audit_events audit WHERE audit.entity='projects'
+            AND audit.entity_id=project.id AND audit.action='delete'
+        )
+        GROUP BY funding.agreement_id`);
+    },
+
     projectScopeMaterialLinks(scopeIds: readonly string[]): Map<string, ProjectScopeMaterialLink> {
       if (!scopeIds.length) return new Map();
-      const links = store.query(`SELECT id,project_scope_id,material_id
+      const links = store.query(`SELECT id,project_scope_id,material_id,created_at
         FROM project_scope_materials
         WHERE project_scope_id IN (SELECT value FROM json_each(?))`,
         JSON.stringify([...new Set(scopeIds)])) as ProjectScopeMaterialLink[];
@@ -133,7 +226,7 @@ export function projectReadRepository(store: Store) {
         : "";
       const approvals = store.query(`SELECT ap.* FROM project_approval_versions ap
         WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no`, projectId) as
-        { id: string; version_no: number; status: string; [key: string]: unknown }[];
+        ProjectApprovalVersion[];
       if (!approvals.length) return [];
       const scopes = store.query(`SELECT sc.*, d.demand_no FROM project_approval_scope_versions sc
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
@@ -219,7 +312,7 @@ export function projectReadRepository(store: Store) {
         SELECT 1 FROM audit_events a
         WHERE a.entity='cost_nodes' AND a.entity_id=n.id AND a.action='delete'
       ) AS deleted FROM v_project_cost_node_current n WHERE n.project_id=?`, projectId) as
-        { id: string; deleted: number; [key: string]: unknown }[];
+        (Omit<ProjectCostNode, "deleted"> & { deleted: number })[];
       return rows.map(node => ({ ...node, deleted: Boolean(node.deleted) }));
     },
   };

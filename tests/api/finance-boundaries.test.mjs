@@ -172,5 +172,19 @@ test("nested settlement and reconciliation histories enforce owning project for 
     () => s.finance.reconciliationHistoryForProject(other.id, "missing-id"),
     /核对记录不存在/,
   );
+  // A valid cost and a valid settlement from different projects cannot be paired.
+  const secondNode = s.finance.node(user, other.id, {name:"另一项目末级费用科目"});
+  const secondCost = s.finance.cost(user, other.id, {
+    cost_node_id:secondNode.id,title:"另一项目真实费用",amount_fen:9000,
+    occurred_on:"2026-11-11",evidence:"另一项目凭证",
+  });
+  assert.throws(() => s.finance.reconciliation(user, {
+    expected_version:0,cost_version_id:secondCost.id,
+    settlement_item_version_id:bill.items[0].id,
+    reconciled_cost_fen:1000,reconciled_settlement_fen:1000,
+    evidence:"跨项目非法核对",
+  }), /费用与结算不属于同一项目/);
+  assert.equal(s.finance.reconciliations(other.id).length,0,
+    "cross-project rejection must not leave a reconciliation fact");
   assert.equal(s.repo.integrity().foreignKeys.length, 0);
 });
