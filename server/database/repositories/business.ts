@@ -1,5 +1,6 @@
 import { businessLists } from "../queries/business-lists.js";
 import { projectReadRepository } from "./projects.js";
+import { projectHistoryRepository } from "./project-history.js";
 import { financeReadRepository } from "./finance.js";
 import { exchangeReferenceRepository } from "./exchange.js";
 import { reportingReadRepository } from "./reporting.js";
@@ -21,6 +22,7 @@ export function businessRepository(store: Store) {
   return {
     ...store,
     ...projectReadRepository(store),
+    ...projectHistoryRepository(store),
     ...financeReadRepository(store),
     ...exchangeReferenceRepository(store),
     ...reportingReadRepository(store),

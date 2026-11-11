@@ -657,53 +657,7 @@ export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
     },
     history(key) {
       get(key, true);
-      return {
-        approvals: repo
-          .where("project_approval_versions", { project_id: key })
-          .map((approval) => ({
-            ...approval,
-            scopes: repo.where("project_approval_scope_versions", {
-              approval_version_id: approval.id,
-            }),
-          })),
-        costs: repo.where("cost_entries", { project_id: key }).map((entry) => ({
-          ...entry,
-          versions: repo.where("cost_versions", { entry_id: entry.id }),
-        })),
-        settlements: repo
-          .where("settlements", { project_id: key })
-          .map((bill) => ({
-            ...bill,
-            versions: repo
-              .where("settlement_versions", { settlement_id: bill.id })
-              .map((version) => ({
-                ...version,
-                items: repo.where("settlement_item_versions", {
-                  settlement_version_id: version.id,
-                }),
-                resolutions: repo.where("settlement_scope_results", {
-                  settlement_version_id: version.id,
-                }),
-                events: repo.where("settlement_review_events", {
-                  settlement_version_id: version.id,
-                }),
-              })),
-          })),
-        profiles: repo.where("project_management_versions", {
-          project_id: key,
-        }),
-        funding: repo.where("project_funding_versions", { project_id: key }),
-        stages: repo.where("project_stage_events", { project_id: key }),
-        closures: repo.where("project_closures", { project_id: key }),
-        cost_nodes: repo
-          .where("project_cost_nodes", { project_id: key })
-          .map((node) => ({
-            ...node,
-            versions: repo.where("project_cost_node_versions", {
-              node_id: node.id,
-            }),
-          })),
-      };
+      return repo.projectFullHistory(key);
     },
   };
 }
