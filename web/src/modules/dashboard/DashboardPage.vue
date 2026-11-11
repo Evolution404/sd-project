@@ -3,11 +3,21 @@ import { computed, ref, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
-import { api, type Row, money, statusText } from "../../shared/api/client";
+import { api, money, statusText } from "../../shared/api/client";
+import type { ReportingService } from "../../../../server/modules/reporting/service";
+type Dashboard = ReturnType<ReportingService["dashboard"]>;
+type DashboardRow = Dashboard["portfolio"][number] | Dashboard["alerts"][number] |
+  Dashboard["frameworks"][number] | Dashboard["months"][number] | Dashboard["quarters"][number];
 
-const dashboard = ref<Row>({
-  portfolio: [], alerts: [], frameworks: [], months: [], quarters: [],
+const dashboard = ref<Dashboard>({
+  demands: 0, pending_demands: 0, projects: 0, active_projects: 0,
+  as_of: "", portfolio: [], alerts: [], frameworks: [], months: [], quarters: [],
 });
+function metricValue(key: string): number {
+  if (key === "demands" || key === "pending_demands" ||
+      key === "projects" || key === "active_projects") return dashboard.value[key];
+  return 0;
+}
 const loading = ref(true);
 const router = useRouter();
 function openMetric(key: string) {
@@ -24,7 +34,7 @@ function openProject(projectId: string) {
 }
 async function refreshDashboard() {
   loading.value = true;
-  try { dashboard.value = await api("/dashboard"); }
+  try { dashboard.value = await api<Dashboard>("/dashboard"); }
   catch (error) { ElMessage.error((error as Error).message); }
   finally { loading.value = false; }
 }
@@ -59,18 +69,18 @@ const quarterColumns: TableColumn[] = [
   { key: "cumulative_actual_fen", label: "累计实际费用", minWidth: 155 },
   { key: "annual_limit_fen", label: "年度额度", minWidth: 155 },
 ];
-const alertRows = computed<Row[]>(() => (dashboard.value.alerts || []).map((item: Row, i: number) => ({
+const alertRows = computed(() => dashboard.value.alerts.map((item, i) => ({
   ...item,
-  id: item.id || "alert-" + i,
+  id: "alert-" + i,
   difference: item.difference_fen == null ? item.planned_end_on : "¥" + money(item.difference_fen),
 })));
-function display(row: Row, col: TableColumn) {
-  const value = row[col.key];
+function display(row: DashboardRow, col: TableColumn): string {
+  const value: unknown = Object.entries(row).find(([name]) => name === col.key)?.[1];
   if (value === undefined || value === null || value === "") return "—";
-  if (col.key === "status") return statusText[value] || value;
-  if (col.key.endsWith("_fen")) return "¥" + money(value);
-  if (col.key === "target_percent") return value + "%";
-  return value;
+  if (col.key === "status") return statusText[String(value)] || String(value);
+  if (col.key.endsWith("_fen") && typeof value === "number") return "¥" + money(value);
+  if (col.key === "target_percent" && typeof value === "number") return value + "%";
+  return String(value);
 }
 onMounted(refreshDashboard);
 </script>
@@ -94,7 +104,7 @@ onMounted(refreshDashboard);
     ]" :key="metric.key" class="metric metric-action" text
       :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
       <span>{{ metric.label }}</span>
-      <strong>{{ dashboard[metric.key] || 0 }}</strong>
+      <strong>{{ metricValue(metric.key) }}</strong>
     </ElButton>
   </div>
   <div class="panel">

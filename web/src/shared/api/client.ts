@@ -65,7 +65,7 @@ export const money = (value: number | null | undefined) =>
   value == null ? "未核定" : displayFixed(value, 2);
 export const quantity = (value: number | undefined) =>
   displayFixed(value || 0, 4, true);
-export const statusText: Row = {
+export const statusText: Record<string, string> = {
   straight: "直线",
   tension: "耐张",
   create: "新增",

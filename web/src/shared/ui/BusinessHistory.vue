@@ -1,24 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
-import { api, type Row } from "../api/client";
+import { api } from "../api/client";
+import type { Actor } from "../../../../server/shared/types/contracts";
+import type { CatalogKind, CatalogFormDefinition } from "../../../../server/shared/types/catalog";
 import { fieldName, factText, visibleFact } from "../utils/display";
 const props = defineProps<{ value: unknown }>();
-const labels = ref<Row>({}),
-  actors = ref<Row>({});
+const labels = ref<Record<string, string>>({}),
+  actors = ref<Record<string, string>>({});
 const sections = computed(() =>
   Array.isArray(props.value)
     ? [["versions", props.value]]
-    : Object.entries((props.value || {}) as Row),
+    : Object.entries((props.value || {}) as Record<string, unknown>),
 );
 const records = (value: unknown): unknown[] =>
   Array.isArray(value) ? value : [value];
 onMounted(async () => {
   const [definitions, people, businessLabels] = await Promise.all([
-    api("/catalogs"),
-    api<Row[]>("/actors?history=true"),
-    api("/display-labels"),
+    api<Record<CatalogKind, CatalogFormDefinition>>("/catalogs"),
+    api<Actor[]>("/actors?history=true"),
+    api<Record<string,string>>("/display-labels"),
   ]);
-  for (const definition of Object.values(definitions) as Row[])
+  for (const definition of Object.values(definitions))
     for (const field of [...definition.rootFields, ...definition.fields])
       labels.value[field.key] = field.label;
   Object.assign(labels.value, businessLabels);

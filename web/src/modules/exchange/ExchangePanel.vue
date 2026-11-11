@@ -2,8 +2,9 @@
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 import { ref, computed, onUnmounted } from "vue";
-import { ElMessage } from "element-plus";
-import { api, download, type Row } from "../../shared/api/client";
+import { ElMessage, type UploadFile } from "element-plus";
+import type { ExchangePreviewDocument, ExchangeCommitResult, WorkbookIssue, ExchangeMode } from "../../../../server/shared/types/exchange";
+import { api, download } from "../../shared/api/client";
 import { newClientId } from "../../shared/utils/id";
 import { fieldName, factText, visibleFact } from "../../shared/utils/display";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -13,13 +14,32 @@ const props = defineProps<{
   query?: string;
   projectId?: string;
 }>();
+interface ExchangePreviewResponse {
+  token: string;
+  documents: ExchangePreviewDocument[];
+  issues: WorkbookIssue[];
+  timings_ms: { parse: number; total: number };
+  summary: {
+    documents: number;
+    invalid_documents: number;
+    duplicate_issues: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    conflicts: number;
+  };
+}
+type ExchangeDisplayRow = ExchangePreviewDocument | WorkbookIssue;
+function rowField(row: ExchangeDisplayRow, key: string): unknown {
+  return Object.entries(row).find(([field]) => field === key)?.[1];
+}
 const emit = defineEmits(["changed"]);
 const dialog = ref(false),
-  mode = ref("mixed"),
+  mode = ref<ExchangeMode>("mixed"),
   atomic = ref(props.kind === "assets"),
-  preview = ref<Row | null>(null),
+  preview = ref<ExchangePreviewResponse | null>(null),
   busy = ref(false),
-  result = ref<Row | null>(null),
+  result = ref<ExchangeCommitResult | null>(null),
   requestKey = ref("");
 const phase = ref(""),
   elapsedSeconds = ref(0),
@@ -74,20 +94,22 @@ const documentFilters = ref<Record<string, string>>({}),
   issueFilters = ref<Record<string, string>>({}),
   documentSort = ref({ key: "", order: "" }),
   issueSort = ref({ key: "", order: "" });
-function filteredSorted(items: Row[], filters: Record<string, string>, sort: { key: string; order: string }) {
+function filteredSorted<T extends ExchangeDisplayRow>(items: T[], filters: Record<string, string>, sort: { key: string; order: string }): T[] {
   const active = Object.entries(filters).filter(([, value]) => value.trim());
   const result = items.filter(item => active.every(([key, value]) =>
-    String(item[key] ?? "").toLocaleLowerCase("zh-CN").includes(value.trim().toLocaleLowerCase("zh-CN"))));
+    String(rowField(item, key) ?? "").toLocaleLowerCase("zh-CN")
+      .includes(value.trim().toLocaleLowerCase("zh-CN"))));
   if (sort.key && sort.order) result.sort((left, right) => {
-    const a = left[sort.key], b = right[sort.key];
+    const a = rowField(left, sort.key);
+    const b = rowField(right, sort.key);
     const diff = typeof a === "number" && typeof b === "number"
       ? a - b : String(a ?? "").localeCompare(String(b ?? ""), "zh-CN", { numeric: true });
     return sort.order === "ascending" ? diff : -diff;
   });
   return result;
 }
-const allDocuments = computed<Row[]>(() => preview.value?.documents || []);
-const allIssues = computed<Row[]>(() => result.value?.issues || preview.value?.issues || []);
+const allDocuments = computed<ExchangePreviewDocument[]>(() => preview.value?.documents || []);
+const allIssues = computed<WorkbookIssue[]>(() => result.value?.issues || preview.value?.issues || []);
 const filteredDocuments = computed(() =>
   filteredSorted(allDocuments.value, documentFilters.value, documentSort.value));
 const filteredIssues = computed(() =>
@@ -110,11 +132,12 @@ function onIssuesFilter(value: Record<string, string>) {
   issueFilters.value = value;
   issuePage.value = 1;
 }
-function predictedResult(row: Row) {
+function predictedResult(row: ExchangePreviewDocument) {
   if (row.action === "unchanged") return "保持原值";
   if (props.kind === "assets") return "保存完整台账";
   if (props.kind === "settlements") return "保存结算草稿";
-  return "需求第 " + ((row.payload?.expected_version || 0) + 1) + " 版";
+  const previous = row.payload.expected_version;
+  return "需求第 " + ((typeof previous === "number" ? previous : 0) + 1) + " 版";
 }
 async function exportFile(report = false, selected = false) {
   const query = new URLSearchParams({
@@ -128,7 +151,7 @@ async function exportFile(report = false, selected = false) {
     `/exchange/${props.kind}/export?${query}`,
   );
 }
-async function upload(file: Row) {
+async function upload(file: UploadFile) {
   beginPhase("正在上传和预检 Excel 数据");
   previewController = new AbortController();
   canCancelPreview.value = true;
@@ -157,7 +180,7 @@ async function upload(file: Row) {
     );
     const value = await response.json();
     if (!response.ok) throw new Error(value.message);
-    preview.value = value;
+    preview.value = value as ExchangePreviewResponse;
     requestKey.value = newClientId();
     // Show errors immediately instead of leaving them hidden behind the first tab.
     activePreviewTab.value = value.issues?.length ? 'issues' : 'documents';
@@ -173,7 +196,7 @@ async function upload(file: Row) {
 async function commit() {
   beginPhase("正在原子提交业务单据");
   try {
-    result.value = await api(
+    result.value = await api<ExchangeCommitResult>(
       `/exchange/${preview.value!.token}/commit`,
       "POST",
       { request_key: requestKey.value, atomic: atomic.value },
@@ -290,12 +313,12 @@ async function commit() {
                 <span v-if="column.key === 'action'">{{ row.action === 'create' ? '新增' : row.action === 'update' ? '修改' : '保持原值' }}</span>
                 <span v-else-if="column.key === 'expectedResult'">{{ predictedResult(row) }}</span>
                 <div v-else-if="column.key === 'changes'">
-                  <div v-for="change in (row.changes || []).filter((item: Row) => visibleFact(item.field))" :key="change.field">
+                  <div v-for="change in (row.changes || []).filter((item: {field:string}) => visibleFact(item.field))" :key="change.field">
                     <strong>{{ fieldName(change.field) }}</strong>
                     {{ factText(change.before, change.field) }} → {{ factText(change.after, change.field) }}
                   </div>
                 </div>
-                <span v-else>{{ row[column.key] ?? '—' }}</span>
+                <span v-else>{{ rowField(row, column.key) ?? '—' }}</span>
               </template>
             </BusinessTable><ElPagination
             v-model:current-page="documentPage"
@@ -310,7 +333,7 @@ async function commit() {
               <template #cell="{ row, column }">
                 <span v-if="column.key === 'field'">{{ fieldName(row.field) }}</span>
                 <span v-else-if="column.key === 'raw_value'">{{ factText(row.raw_value, row.field) }}</span>
-                <span v-else>{{ row[column.key] ?? '—' }}</span>
+                <span v-else>{{ rowField(row, column.key) ?? '—' }}</span>
               </template>
             </BusinessTable><ElPagination
             v-model:current-page="issuePage"

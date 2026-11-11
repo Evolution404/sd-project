@@ -3,12 +3,13 @@ import RowActions from "../../shared/ui/RowActions.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 import { ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
-import { api, download, type Row } from "../../shared/api/client";
+import { ElMessage, ElMessageBox, type UploadFile } from "element-plus";
+import type { EvidenceRecord } from "../../../../server/database/repositories/evidence";
+import { api, download } from "../../shared/api/client";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 const props = defineProps<{ ownerKind: string; ownerId: string }>();
 const includeDeleted = ref(false);
-const rows = ref<Row[]>([]),
+const rows = ref<EvidenceRecord[]>([]),
   busy = ref(false);
 const evidenceColumns: TableColumn[] = [
   { key: "filename", label: "文件名称", minWidth: 220 },
@@ -19,14 +20,15 @@ const evidenceColumns: TableColumn[] = [
 let requestSequence = 0;
 async function load() {
   const sequence = ++requestSequence;
-  const response = await api<Row[]>(
+  const response = await api<EvidenceRecord[]>(
     `/evidence?owner_kind=${props.ownerKind}&owner_id=${props.ownerId}&deleted=${includeDeleted.value}`,
   );
   if (sequence === requestSequence) rows.value = response;
 }
-async function upload(file: Row) {
+async function upload(file: UploadFile) {
   busy.value = true;
   try {
+    if (!file.raw) throw Error("未选择有效附件文件");
     const data = new Uint8Array(await file.raw.arrayBuffer());
     if (data.length > 10 * 1024 * 1024) throw Error("附件不能超过10MB");
     let binary = "";
@@ -46,7 +48,7 @@ async function upload(file: Row) {
     busy.value = false;
   }
 }
-async function remove(row: Row) {
+async function remove(row: EvidenceRecord) {
   await ElMessageBox.confirm(
     "从正常附件列表移除，原证据和关联历史保留。",
     "删除附件",
@@ -54,7 +56,7 @@ async function remove(row: Row) {
   await api("/evidence/" + row.id, "DELETE", {});
   await load();
 }
-async function revise(row: Row) {
+async function revise(row: EvidenceRecord) {
   try {
     const { value } = await ElMessageBox.prompt(
       "填写附件说明，原始文件保持归档。",
@@ -93,7 +95,7 @@ watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void l
         <ElTag v-else-if="column.key === 'deleted'" :type="row.deleted ? 'info' : 'success'" effect="plain">
           {{ row.deleted ? '已删除' : '有效' }}
         </ElTag>
-        <span v-else>{{ row[column.key] || '—' }}</span>
+        <span v-else>{{ Object.entries(row).find(([key]) => key === column.key)?.[1] || '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[

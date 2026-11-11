@@ -1,4 +1,4 @@
-import { money, quantity, statusText, type Row } from "../api/client";
+import { money, quantity, statusText } from "../api/client";
 export const fieldNames: Record<string, string> = {
   work_locations: "作业位置及各位置工作量",
   materials: "预计物资",
@@ -188,13 +188,13 @@ export function visibleFact(key: string) {
     )
   );
 }
-export const fieldName = (name: string, labels: Row = {}) =>
+export const fieldName = (name: string, labels: Record<string, string> = {}) =>
   labels[name] || fieldNames[name] || name;
 export function factText(
   value: unknown,
   field = "",
-  labels: Row = {},
-  actors: Row = {},
+  labels: Record<string, string> = {},
+  actors: Record<string, string> = {},
   depth = 0,
 ): string {
   if (value == null || value === "") return "未填写";
@@ -234,7 +234,7 @@ export function factText(
           )
           .join("；")
       : "无明细";
-  const entries = Object.entries(value as Row).filter(([key]) =>
+  const entries = Object.entries(value).filter(([key]) =>
     visibleFact(key),
   );
   return entries.length
@@ -242,7 +242,7 @@ export function factText(
         .map(
           ([key, item]) =>
             (item && typeof item === "object" && "factor_version" in item
-              ? labels[key + "@" + (item as Row).factor_version] ||
+              ? labels[key + "@" + item.factor_version] ||
                 fieldName(key, labels)
               : fieldName(key, labels)) +
             " " +
