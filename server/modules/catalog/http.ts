@@ -1,3 +1,4 @@
+import type { CatalogRecord } from "./service.js";
 import { catalogFormDefinitions } from "./definitions.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type { RouteContext } from "../../platform/http/context.js";
@@ -39,7 +40,7 @@ export async function handleCatalog(context: RouteContext): Promise<{
                         ? system.catalog.history(key, subKey)
                         : sub
                             ? system.catalog.get(key, sub, deleted)
-                            : page(system.catalog.list(key, deleted), url.searchParams);
+                            : page<CatalogRecord>(system.catalog.list(key, deleted), url.searchParams);
             else if (method === "DELETE")
                 result = mutate("admin", () => system.catalog.remove(actor, key, sub, input.expected_version));
             else

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { catalogDefinitions } from "../dist/server/modules/catalog/service.mjs";
+import { catalogDefinitions } from "../dist/server/modules/catalog/definitions.js";
 import { layouts } from "../dist/server/modules/exchange/workbook.mjs";
 const root = resolve(import.meta.dirname, ".."),
   violations = [];

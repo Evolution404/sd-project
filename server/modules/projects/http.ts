@@ -37,9 +37,13 @@ export async function handleProjects(context: RouteContext): Promise<{
                             : sub === "summary"
                                 ? system.finance.summary(key)
                                 : sub === "costs" && subKey
-                                    ? system.finance.costHistory(subKey)
+                                    ? system.finance.costHistory(key, subKey)
                                     : sub === "costs"
                                         ? page(system.finance.costs(key, deleted), url.searchParams)
+                                        : sub === "settlements" && subKey
+                                            ? system.finance.settlementForProject(key, subKey)
+                                        : sub === "reconciliations" && subKey
+                                            ? system.finance.reconciliationHistoryForProject(key, subKey)
                                         : sub === "settlements"
                                             ? page(system.finance.settlements(key), url.searchParams)
                                             : system.projects.workspace(key, deleted);

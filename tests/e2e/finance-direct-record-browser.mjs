@@ -25,6 +25,23 @@ try {
   await page.getByLabel("用户名", { exact: true }).fill(DEMO_ACCOUNT);
   await page.getByLabel("密码", { exact: true }).fill(DEMO_PASSWORD);
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  // A valid read token cannot read another project's cost by tampering
+  // with the nested project identifier; this must fail in the API itself.
+  const firstCost = s.finance.search("costs", {
+    page: 1, page_size: 1, q: "", filters: {}, sort: "created_at",
+    direction: "desc", deleted: false,
+  }).items[0];
+  const anotherProject = s.projects.list().find(record => record.id !== firstCost.project_id);
+  assert.ok(firstCost && anotherProject);
+  const tampered = await page.evaluate(async ({ projectId, costId }) => {
+    const response = await fetch(
+      "/api/projects/" + projectId + "/costs/" + costId,
+      { credentials: "include" },
+    );
+    return { status: response.status, text: await response.text() };
+  }, { projectId: anotherProject.id, costId: firstCost.id });
+  assert.equal(tampered.status, 404,
+    "nested cost history must enforce project ownership even when the viewer has login access");
   await page.getByRole("radio", { name: "按项目办理", exact: true }).waitFor();
   assert.equal(await page.getByRole("radio", { name: "按项目办理" }).isChecked(), true);
   await page.locator(".el-radio-button").filter({ hasText: "跨项目查询" }).click();

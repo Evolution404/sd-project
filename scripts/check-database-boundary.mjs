@@ -13,7 +13,7 @@ function filesUnder(dir) {
   }
   return result;
 }
-const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs", "scripts/restore.mjs", "scripts/upgrade-equipment-fields.mjs", "scripts/upgrade-schema113.mjs", "scripts/demo/start-demo.mjs", "scripts/demo/seed-demo.mjs"];
+const protectedScripts = ["scripts/init-admin.mjs", "scripts/backup.mjs", "scripts/restore.mjs", "scripts/demo/start-demo.mjs", "scripts/demo/seed-demo.mjs"];
 const sources = [
   ...protectedDirectories.flatMap(filesUnder).filter(path => !path.startsWith("server/database/")),
   ...protectedScripts,

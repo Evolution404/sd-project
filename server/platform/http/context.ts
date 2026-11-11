@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { System } from "../../bootstrap.js";
 import type { Actor, Page } from "../../shared/types/contracts.js";
-import type { createEvidence } from "../files/service.mjs";
+import type { createEvidence } from "../files/service.js";
 import type { createExchange } from "../../modules/exchange/service.mjs";
 
 export interface RouteContext {

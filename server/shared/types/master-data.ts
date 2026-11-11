@@ -14,6 +14,8 @@ export interface DictionaryItem {
   sort_order: number;
   fields_json: string;
   changed_by: string;
+  /** Read projection; exact rule is persisted in versioned fields_json. */
+  quantity_precision?: number;
   changed_at: string;
   updated_at: string;
   created_at: string;
@@ -30,6 +32,7 @@ export interface DictionaryVersion {
   sort_order: number;
   fields_json: string;
   reason: string;
+  quantity_precision?: number;
   changed_by: string;
   changed_at: string;
 }

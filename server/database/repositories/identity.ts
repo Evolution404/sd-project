@@ -1,5 +1,5 @@
 import type { Actor, Role } from "../../shared/types/contracts.js";
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 
 export interface UserRecord {
   id: string;
@@ -42,9 +42,9 @@ export function identityRepository(store: ReturnType<typeof createStore>) {
     removeSession: (hash: string) => store.remove("sessions", "token_hash", hash),
     revoke: (id: string) => store.run("DELETE FROM sessions WHERE user_id=?", id),
     allowed: (ip: string) => Boolean(store.find("allowed_ips", "ip", ip)),
-    permissions: (role: Role): string[] => store.query(
+    permissions: (role: Role): string[] => store.query<{ permission_code: string }>(
       "SELECT permission_code FROM role_permissions WHERE role=?", role,
-    ).map((row: { permission_code: string }) => row.permission_code),
+    ).map(row => row.permission_code),
     requestReceipt: (key: string) => store.find("ledger_requests", "request_key", key) as RequestReceipt | undefined,
     recordRequest(actor: Actor, key: string, hash: string, result: unknown, createdAt: string): void {
       store.insert("ledger_requests", {

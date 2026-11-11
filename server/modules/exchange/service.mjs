@@ -7,7 +7,7 @@ import {
   MAX_DOCUMENTS,
 } from "./workbook.mjs";
 import { createAssetExchange } from "./assets.mjs";
-import { createReferences } from "./references.mjs";
+import { createReferences } from "./references.js";
 import { decimalText } from "../../shared/decimal.js";
 import { cleanRow as clean, detailIdentity as identity, mergeDetails, differences } from "./details.js";
 import { validateFeatureValue } from "../pricing/features.js";

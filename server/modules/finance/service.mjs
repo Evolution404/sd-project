@@ -7,7 +7,8 @@ import {
 } from "../../shared/errors/business-error.js";
 import { safeAmount } from "../pricing/calculation.js";
 import { financialSummary } from "./summary.js";
-export function createFinance(repo, catalog, projects, pricing, hierarchies) {
+import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
+export function createFinance(repo, catalog, projects, pricing, hierarchies, quantityUnits) {
   function activeLeaf(project, nodeId) {
     const node = project.cost_nodes.find((item) => item.id === nodeId);
     requireValue(
@@ -187,18 +188,24 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
       "至少一条独立需求解决明细",
     );
     const scopes = new Set(approval.scopes.map((x) => x.project_scope_id));
+    const scopeUnits = quantityUnits.approvedScopeUnits(approval.id);
+    requireValue(scopeUnits.size === scopes.size, "批准需求的计量单位正式版本不完整", 404);
     const results = new Set();
-    for (const r of input.resolutions) {
+    for (const [index, r] of input.resolutions.entries()) {
       requireValue(scopes.has(r.project_scope_id), "解决需求不属于本批准范围");
       requireValue(
         !results.has(r.project_scope_id),
         "同一需求不能重复累计解决数量",
       );
       results.add(r.project_scope_id);
-      integer(r.resolved_quantity_scaled, "本次新增解决数量");
+      const rule = scopeUnits.get(r.project_scope_id);
+      requireValue(rule, "解决需求采用的单位不存在", 404);
+      assertQuantityPrecision(integer(r.resolved_quantity_scaled, "本次新增解决数量"),
+        rule.fields_json, rule.name,
+        `resolutions.${index}.resolved_quantity_scaled`);
     }
     const identities = new Set();
-    for (const item of input.items) {
+    for (const [index, item] of input.items.entries()) {
       activeLeaf(project, item.cost_node_id);
       requireValue(
         !item.project_scope_id || scopes.has(item.project_scope_id),
@@ -211,7 +218,13 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
       const identity = `${item.cost_node_id}/${item.project_scope_id || ""}`;
       requireValue(!identities.has(identity), "同一科目及需求的费用行重复");
       identities.add(identity);
-      integer(item.quantity_scaled || 0, "费用计价数量");
+      const itemQuantity = integer(item.quantity_scaled ?? 0, "费用计价数量");
+      if (item.project_scope_id) {
+        const rule = scopeUnits.get(item.project_scope_id);
+        requireValue(rule, "费用需求采用的计量单位不存在", 404);
+        assertQuantityPrecision(itemQuantity, rule.fields_json, rule.name,
+          `items.${index}.quantity_scaled`);
+      }
       integer(item.amount_fen, "本次结算金额");
       requireValue(
         item.amount_fen > 0 || item.quantity_scaled > 0,
@@ -591,6 +604,23 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
     },
     reconciliationHistory: (key) =>
       repo.where("cost_reconciliation_versions", { record_id: key }),
+    reconciliationHistoryForProject(projectId, key) {
+      const history = repo.where("cost_reconciliation_versions", { record_id: key });
+      requireValue(history.length > 0, "核对记录不存在", 404);
+      // Immutable reconciliation history retains the original cost version.
+      // Validate ownership before returning any historical version.
+      const cost = repo.find("cost_versions", "id", history[0].cost_version_id);
+      const entry = cost && repo.find("cost_entries", "id", cost.entry_id);
+      requireValue(entry && entry.project_id === projectId,
+        "核对记录不存在于当前项目", 404);
+      return history;
+    },
+    settlementForProject(projectId, key) {
+      const result = settlement(key);
+      requireValue(result.project_id === projectId,
+        "结算单不存在于当前项目", 404);
+      return result;
+    },
     removeNode(actor, projectId, key, input) {
       authorize(actor, "admin");
       return repo.transaction(() => {
@@ -653,8 +683,11 @@ export function createFinance(repo, catalog, projects, pricing, hierarchies) {
         return { deleted: true };
       });
     },
-    costHistory(key) {
-      requireValue(repo.find("cost_entries", "id", key), "费用不存在", 404);
+    costHistory(projectId, key) {
+      // The nested project route must not permit a different project's
+      // cost record to be read by substituting an entry ID in the URL.
+      const entry = repo.find("cost_entries", "id", key);
+      requireValue(entry && entry.project_id === projectId, "费用不存在于当前项目", 404);
       return repo.where("cost_versions", { entry_id: key });
     },
     removeSettlement(actor, key, input) {

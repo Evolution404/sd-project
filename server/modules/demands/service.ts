@@ -9,8 +9,8 @@ import type {
   SiteFeatures
 } from "../../shared/types/demands.js";
 import type { OperationField, PricingFeatureDeclaration } from "../../shared/types/work-standards.js";
-import type { FactorDefinition } from "../pricing/features.js";
 import { validateFeatureValue } from "../pricing/features.js";
+import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import { authorize, documentCode, id, now } from "../../platform/auth/service.js";
 import {
   requireValue,
@@ -290,32 +290,6 @@ export function createDemands(
         voltage_name: voltage?.name || null,
         voltage_code: voltage?.code || null
       };
-      for (const declared of JSON.parse(op.pricing_features_json) as PricingFeatureDeclaration[]) {
-        const factor = repo.factor(declared.factor_id);
-        requireValue(factor, "价格特征身份不存在", 404);
-        const version = repo.factorVersion(factor.id, declared.factor_version);
-        requireValue(version, "正式价格特征版本不存在", 404);
-        const definition = JSON.parse(version.fields_json) as FactorDefinition,
-
-          field = definition.asset_field,
-          value = field && Object.hasOwn(asset, field) ? asset[field as keyof typeof asset] : undefined;
-        if (
-          ["asset", "either"].includes(declared.source) &&
-          value !== undefined &&
-          value !== null
-        ) {
-          if (declared.source === "asset" && actual[factor.code])
-            requireValue(
-              actual[factor.code].value === value,
-              "现场特征与所选设备的正式台账事实不一致",
-            );
-          if (declared.source === "asset" || !actual[factor.code])
-            actual[factor.code] = {
-              factor_version: declared.factor_version,
-              value,
-            };
-        }
-      }
       for (const [code, feature] of Object.entries(actual)) {
         const factor = repo.factorByCode(code);
         requireValue(
@@ -338,7 +312,10 @@ export function createDemands(
         [key]: entity.id,
         ...(kind === "span" ? { span_version: entity.version } : {}),
         context_line_id: contextLineId,
-        quantity_scaled: integer(loc.quantity_scaled, "位置数量", 1),
+        quantity_scaled: assertQuantityPrecision(
+          integer(loc.quantity_scaled, "位置数量", 1),
+          unit.fields_json, unit.name, `work_locations.${index}.quantity_scaled`,
+        ),
         work_mode: loc.work_mode || "unspecified",
         site_features_json: actual,
         location_snapshot_json: {
@@ -390,7 +367,18 @@ export function createDemands(
         );
         return {
           material_id: master.id,
-          quantity_scaled: integer(item.quantity_scaled, "预计物资数量", 1),
+          quantity_scaled: (() => {
+            const requested = integer(item.quantity_scaled, "预计物资数量", 1);
+            // Unchanged historical quantities must not be retroactively rejected
+            // merely because the material's unit was revised later.
+            if (previous?.materials?.some((old) =>
+              old.material_id === master.id && old.quantity_scaled === requested)) return requested;
+            const unitCurrent = catalog.get("units", master.unit_id);
+            const materialUnit = repo.unitVersion(master.unit_id, unitCurrent.version);
+            requireValue(materialUnit, "物资计量单位正式版本不存在", 404);
+            return assertQuantityPrecision(requested, materialUnit.fields_json,
+              materialUnit.name, `materials.${index}.quantity_scaled`);
+          })(),
           note: item.note || "",
           item_no: index + 1,
         };

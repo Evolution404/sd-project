@@ -83,22 +83,14 @@ export function createPriceFactors(
           : input.fields_json,
         "特征定义",
       );
-      const unchangedLegacy =
-        previous &&
-        jsonDocument(previous.fields_json, "原特征定义").text === document.text;
-      const definition = validateFactorDefinition(document.value, {
-        allowLegacyAsset: Boolean(unchangedLegacy),
-      });
+      const definition = validateFactorDefinition(document.value);
       if (definition.unit_id) {
         requireValue(
           repository.unitVersion(definition.unit_id, definition.unit_version!),
           "整数计量单位版本不存在或不是正式计量单位",
         );
         const old = previous
-          ? validateFactorDefinition(
-              jsonDocument(previous.fields_json, "原特征定义").value,
-              { allowLegacyAsset: true },
-            )
+          ? validateFactorDefinition(jsonDocument(previous.fields_json, "原特征定义").value)
           : null;
         if (
           old?.unit_id !== definition.unit_id ||

@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type { PriceRuleVersion } from "../../shared/types/price-rules.js";
 import type {
   PricingDemand,

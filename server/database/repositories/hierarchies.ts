@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type {
   CostCategoryNode,
   OrganizationNode,
@@ -38,10 +38,10 @@ export function hierarchyRepository(store: ReturnType<typeof createStore>) {
       );
     },
     organizationProjectCount(ids: string[]): number {
-      return store.get(
+      return Number(store.get(
         "SELECT COUNT(*) AS total FROM v_project_management_current m WHERE m.managing_unit_id IN (SELECT value FROM json_each(?)) AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='projects' AND a.entity_id=m.project_id AND a.action='delete')",
         JSON.stringify(ids),
-      ).total as number;
+      )?.total ?? 0);
     },
     costTree(projectId: string): CostCategoryNode[] {
       const rows = store.query(
@@ -102,13 +102,13 @@ export function hierarchyRepository(store: ReturnType<typeof createStore>) {
       const parameters = [projectId, nodeId, projectId];
       const predicate =
         " WHERE c.project_id=? AND e.cost_node_id IN (SELECT id FROM subtree)";
-      const total = store.get(
+      const total = Number(store.get(
         descendants +
           "SELECT COUNT(*) AS total FROM v_cost_current c JOIN cost_entries e ON e.id=c.entry_id" +
           predicate,
         ...parameters,
         projectId,
-      ).total as number;
+      )?.total ?? 0);
       const items = store.query(
         descendants +
           costRowsSql +

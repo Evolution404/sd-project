@@ -59,9 +59,10 @@ const editor = ref(false),
   saving = ref(false),
   formRef = ref<FormInstance>();
 const fieldErrors = ref<FieldErrors>({});
-const form = ref<{ name: string; status: DefinitionStatus }>({
+const form = ref<{ name: string; status: DefinitionStatus; quantity_precision: number }>({
   name: "",
   status: "active",
+  quantity_precision: 0,
 });
 const guard = useDialogDraftGuard(() => form.value);
 let sequence = 0;
@@ -111,7 +112,10 @@ async function refresh() {
 function edit(row?: DictionaryItem) {
   editing.value = row || null;
   fieldErrors.value = {};
-  form.value = { name: row?.name || "", status: row?.status || "active" };
+  form.value = {
+    name: row?.name || "", status: row?.status || "active",
+    quantity_precision: row?.quantity_precision ?? 0,
+  };
   editor.value = true;
   guard.capture();
 }
@@ -220,6 +224,7 @@ onMounted(load);
       :loading="loading"
       :columns="[
         { key: 'name', label: '名称', minWidth: 190 },
+        ...(kind === 'units' ? [{ key: 'quantity_precision', label: '数量格式', minWidth: 130 }] : []),
         { key: 'status', label: '状态' },
       ]"
       :table-key="'catalog:' + kind"
@@ -258,6 +263,7 @@ onMounted(load);
           "
           effect="plain"
           >{{ row.deleted ? "已删除" : statusText[row.status] }}</ElTag
+        ><span v-else-if="column.key === 'quantity_precision'">{{ row.quantity_precision === 0 ? '整数' : '最多' + row.quantity_precision + '位小数' }}</span
         ><span v-else>{{ value }}</span></template
       >
       <template #actions="{ row }"
@@ -317,6 +323,7 @@ onMounted(load);
         ><ElDescriptionsItem label="状态">{{
           statusText[detail.status]
         }}</ElDescriptionsItem
+        ><ElDescriptionsItem v-if="kind === 'units'" label="允许数量格式">{{ detail.quantity_precision === 0 ? '只能填写整数' : '最多' + detail.quantity_precision + '位小数' }}</ElDescriptionsItem
         ><ElDescriptionsItem label="正式版本"
           >第{{ detail.version }}版</ElDescriptionsItem
         ></ElDescriptions
@@ -342,7 +349,19 @@ onMounted(load);
         :error="String(fieldErrors.name || '')"
         :rules="[{ required: true, message: '请填写名称' }]"
         ><ElInput v-model="form.name" /></ElFormItem
-      ><ElFormItem label="状态"
+      ><ElFormItem v-if="kind === 'units'" label="数量格式" prop="quantity_precision"
+        :error="String(fieldErrors.quantity_precision || '')">
+        <ElSelect v-model="form.quantity_precision">
+          <ElOption :value="0" label="整数（不允许小数）" />
+          <ElOption :value="1" label="最多1位小数" />
+          <ElOption :value="2" label="最多2位小数" />
+          <ElOption :value="3" label="最多3位小数" />
+          <ElOption :value="4" label="最多4位小数" />
+        </ElSelect>
+      </ElFormItem>
+      <ElAlert v-if="kind === 'units' && editing" type="info" :closable="false"
+        title="调整数量格式将生成新的单位正式版本；既有操作和需求沿用原版本，不会追溯修改。" />
+      <ElFormItem label="状态"
         ><ElSelect v-model="form.status"
           ><ElOption value="active" label="启用" /><ElOption
             value="inactive"

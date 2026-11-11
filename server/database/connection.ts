@@ -24,6 +24,12 @@ function expected(): string {
   return expectedStructure;
 }
 
+/** The same single schema authority is used at startup and during backup restore. */
+export function assertCurrentSchema(connection: DatabaseSync): void {
+  if (structure(connection) !== expected())
+    throw Error("Schema113结构与当前权威SQL不一致。请使用新独立目录或匹配的正式备份。");
+}
+
 export interface Database {
   directory: string;
   connection: DatabaseSync;
@@ -55,8 +61,7 @@ export function openDatabase(
         throw error;
       }
     }
-    if (structure(connection) !== expected())
-      throw Error("Schema113结构与当前权威SQL不一致。请使用新独立目录或匹配的正式备份。");
+    assertCurrentSchema(connection);
   } catch (error) {
     connection.close();
     throw error;

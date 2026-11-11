@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
-import { createReferences } from "../../dist/server/modules/exchange/references.mjs";
+import { createReferences } from "../../dist/server/modules/exchange/references.js";
 
 test("Excel project, demand scope and cost path use one query per index per preparation", t => {
   const { s, user, project, scope, node } = approvedFixture(t);

@@ -167,13 +167,14 @@ onUnmounted(() => {
       field.type === 'money'
         ? 2
         : field.type === 'quantity'
-          ? 4
+          ? (field.quantityPrecision ?? 4)
           : field.type === 'length_m'
             ? 3
             : field.type === 'decimal'
               ? 6
               : 0
     "
+    :step="field.type === 'quantity' ? 10 ** -(field.quantityPrecision ?? 4) : 1"
     :disabled="disabled"
     :min="field.type === 'length_m' ? 0 : undefined"
     :controls="false"

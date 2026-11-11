@@ -50,14 +50,12 @@ async function loadFocusedRecord() {
   try {
     const uri = focus.kind === "cost"
       ? `/projects/${props.project.id}/costs/${focus.id}`
-      : focus.kind === "settlement" ? `/settlements/${focus.id}`
-      : `/reconciliations/${focus.id}`;
+      : focus.kind === "settlement" ? "/projects/" + props.project.id + "/settlements/" + focus.id
+      : "/projects/" + props.project.id + "/reconciliations/" + focus.id;
     const result = await api<Row | Row[]>(uri);
     if (sequence === focusSequence) {
-      // A record can be reached only from its owning project. Verify ownership
-      // for current-version objects, without guessing at historical identities.
-      const owner = focus.kind === "settlement" ? (result as Row).project_id : null;
-      if (owner && owner !== props.project.id) throw new Error("记录不属于当前子项目");
+      // Nested endpoints enforce ownership before returning any history.
+      // The request sequence additionally protects against stale UI results.
       focusedFact.value = result;
     }
   } catch (error) {

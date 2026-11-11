@@ -6,7 +6,7 @@ import { today } from "../../dist/server/platform/auth/service.js";
 export const DEMO_ACCOUNT = "demo";
 export const DEMO_PASSWORD = "DemoOnly-2026!";
 const MARKER = "DEMO-DATA.json";
-const SEED_VERSION = 1;
+const SEED_VERSION = 2;
 
 function counts(system) {
   return {
@@ -33,11 +33,13 @@ function populate(system, password) {
     system.auth.initialize(DEMO_ACCOUNT, password);
     const { user } = system.auth.login(DEMO_ACCOUNT, password);
     const add = (kind, data) => system.catalog.save(user, kind, data);
-    const unitSet = add("units", { code: "DEMO_UNIT_SET", name: "套" });
-    const unitString = add("units", { code: "DEMO_UNIT_STRING", name: "串" });
-    const unitSection = add("units", { code: "DEMO_UNIT_SECTION", name: "处" });
-    const unitPiece = add("units", { code: "DEMO_UNIT_PIECE", name: "片" });
-    const unitMeter = add("units", { code: "DEMO_UNIT_METER", name: "米" });
+    // Every demonstration unit explicitly declares quantity precision.
+    const unitSet = add("units", { code: "DEMO_UNIT_SET", name: "套", quantity_precision: 0 });
+    const unitString = add("units", { code: "DEMO_UNIT_STRING", name: "串", quantity_precision: 0 });
+    const unitSection = add("units", { code: "DEMO_UNIT_SECTION", name: "处", quantity_precision: 0 });
+    const unitPiece = add("units", { code: "DEMO_UNIT_PIECE", name: "片", quantity_precision: 0 });
+    const unitMeter = add("units", { code: "DEMO_UNIT_METER", name: "米", quantity_precision: 2 });
+    add("units", { code: "DEMO_UNIT_AREA", name: "平方米", quantity_precision: 2 });
     const voltages = {};
     for (const voltage of ["35kV", "110kV", "220kV", "500kV", "1000kV", "±200kV", "±500kV", "±800kV"])
       voltages[voltage] = add("voltages", { name: voltage });

@@ -5,22 +5,25 @@ import { workStandardRepository } from "./database/repositories/work-standards.j
 import { createPriceFactors } from "./modules/pricing/factors.js";
 import { createWorkStandards } from "./modules/work-standards/service.js";
 import { dictionaryRepository } from "./database/repositories/dictionaries.js";
+import { quantityUnitRepository } from "./database/repositories/quantity-units.js";
 import { materialRepository } from "./database/repositories/materials.js";
 import { createDictionaries } from "./modules/dictionaries/service.js";
 import { createMaterials } from "./modules/materials/service.js";
 import { equipmentRepository } from "./database/repositories/equipment.js";
 import { auditRepository } from "./database/repositories/audit.js";
+import { evidenceRepository } from "./database/repositories/evidence.js";
 import { createAudit } from "./platform/audit/service.js";
 import { createEquipment } from "./modules/equipment/service.js";
 import { hierarchyRepository } from "./database/repositories/hierarchies.js";
 import { createOrganizations } from "./modules/organizations/service.js";
 import { openDatabase } from "./database/connection.js";
-import { createStore } from "./database/repositories/store.mjs";
-import { businessRepository } from "./database/repositories/business.mjs";
+import { createStore } from "./database/repositories/store.js";
+import { businessRepository } from "./database/repositories/business.js";
 import { demandRepository } from "./database/repositories/demands.js";
 import { identityRepository } from "./database/repositories/identity.js";
 import { createAuth, digest, now } from "./platform/auth/service.js";
-import { createCatalog } from "./modules/catalog/service.mjs";
+import { createCatalog } from "./modules/catalog/service.js";
+import { catalogLabelRepository } from "./database/repositories/catalog-labels.js";
 import { fundingRepository } from "./database/repositories/funding.js";
 import { createFunding } from "./modules/funding/service.js";
 import { createDemands } from "./modules/demands/service.js";
@@ -40,9 +43,11 @@ export function createSystem(dataDir?: string) {
   const database = openDatabase(dataDir);
   const store = createStore(database);
   const repo = businessRepository(store);
+  const quantityUnits = quantityUnitRepository(store);
   const identity = identityRepository(store);
   const auth = createAuth(identity, database);
   const audit = createAudit(auditRepository(store));
+  const evidenceStore = evidenceRepository(store);
   const equipment = createEquipment(equipmentRepository(store), database, audit);
   const dictionaries = createDictionaries(dictionaryRepository(store),database,audit);
   const materials = createMaterials(materialRepository(store),dictionaries,database,audit);
@@ -50,18 +55,18 @@ export function createSystem(dataDir?: string) {
   const standards = createWorkStandards(workStandardRepository(store),dictionaries,factors,database,audit);
   const priceRules = createPriceRules(priceRuleRepository(store),standards,equipment,database,audit);
   const funding = createFunding(fundingRepository(store), database, audit);
-  const catalog = createCatalog(repo, equipment, audit, dictionaries, materials, factors, standards, priceRules, funding);
+  const catalog = createCatalog(catalogLabelRepository(store), equipment, audit, dictionaries, materials, factors, standards, priceRules, funding);
   const demandRecords = demandRepository(store);
   const demands = createDemands(demandRecords, catalog, database);
   const pricing = createPricing(pricingRepository(store), priceRules, standards, database, audit);
-  const projects = createProjects(repo, catalog, demands, pricing);
+  const projects = createProjects(repo, catalog, demands, pricing, quantityUnits);
   const hierarchies = hierarchyRepository(store);
-  const finance = createFinance(repo, catalog, projects, pricing, hierarchies);
+  const finance = createFinance(repo, catalog, projects, pricing, hierarchies, quantityUnits);
   const organizations = createOrganizations(hierarchies, dictionaries, database);
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
-    database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
+    database, repo, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
     management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

@@ -5,7 +5,8 @@ import {
   text,
   integer,
 } from "../../shared/errors/business-error.js";
-export function createProjects(repo, catalog, demands, pricing) {
+import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
+export function createProjects(repo, catalog, demands, pricing, quantityUnits) {
   function get(key, includeDeleted = false, currentOnly = false) {
     const root = repo.find("projects", "id", key);
     requireValue(
@@ -241,6 +242,16 @@ export function createProjects(repo, catalog, demands, pricing) {
         Array.isArray(input.scopes) && input.scopes.length > 0,
         "请明确批准需求范围",
       );
+      const ruleRefs = input.scopes.map(selected => {
+        const scope = project.scopes.find(x => x.id === selected.project_scope_id);
+        requireValue(scope?.binding, "需求未由本项目关联");
+        return { demand_id: scope.demand_id, version: selected.demand_version };
+      });
+      const unitRules = quantityUnits.demandUnits(ruleRefs);
+      const materialRules = quantityUnits.materialUnits(input.scopes.flatMap(
+        selected => (selected.materials || []).map(material => material.material_id)));
+      const materialLinks = repo.projectScopeMaterialLinks(input.scopes.map(selected => selected.project_scope_id));
+
       for (const selected of input.scopes) {
         const scope = project.scopes.find(
           (x) => x.id === selected.project_scope_id,
@@ -253,6 +264,20 @@ export function createProjects(repo, catalog, demands, pricing) {
           Array.isArray(locations) && locations.length > 0,
           "请明确承接位置和数量",
         );
+        const unitRule = unitRules.get(demand.id + ":" + demand.current_version);
+        requireValue(unitRule, "需求采用的计量单位正式版本不存在", 404);
+        const locationItems = new Set(demand.work_locations.map(location => location.item_no));
+        const usedItems = new Set();
+        for (const [index, loc] of locations.entries()) {
+          requireValue(locationItems.has(loc.location_item_no) && !usedItems.has(loc.location_item_no),
+            "批准作业位置必须来自需求正式定义且不得重复", 422,
+            { [`scopes.${selected.project_scope_id}.locations.${index}`]: "请核对真实作业位置" });
+          usedItems.add(loc.location_item_no);
+          assertQuantityPrecision(integer(loc.approved_quantity_scaled, "批准位置数量", 1),
+            unitRule.fields_json, unitRule.name,
+            `scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`);
+        }
+
         const total = locations.reduce(
           (sum, loc) =>
             sum + integer(loc.approved_quantity_scaled, "批准位置数量", 1),
@@ -286,35 +311,38 @@ export function createProjects(repo, catalog, demands, pricing) {
           );
         // Material approval is explicit. No proportional derivation from demand quantities.
         for (const [index, item] of (selected.materials || []).entries()) {
-          const master = catalog.get("materials", item.material_id),
-            unit = catalog.get("units", master.unit_id);
-          let identity = repo.where("project_scope_materials", {
-            project_scope_id: scope.id,
-            material_id: master.id,
-          })[0];
+          const format = materialRules.get(item.material_id);
+          requireValue(format, "批准物资采用的计量单位不存在", 404);
+          assertQuantityPrecision(integer(item.quantity_scaled, "批准物资数量", 1),
+            format.fields_json, format.name,
+            `scopes.${selected.project_scope_id}.materials.${index}.quantity_scaled`);
+          const materialLinkKey = scope.id + ':' + format.material_id;
+          let identity = materialLinks.get(materialLinkKey);
           if (!identity) {
             identity = {
               id: id(),
               project_scope_id: scope.id,
-              material_id: master.id,
+              material_id: format.material_id,
               created_at: timestamp,
             };
             repo.insert("project_scope_materials", identity);
+            materialLinks.set(materialLinkKey, identity);
           }
           repo.insert("project_approval_material_items", {
             id: id(),
             approval_version_id: approvalId,
             project_scope_id: scope.id,
             project_material_id: identity.id,
-            material_version_id: master.material_version_id,
+            material_version_id: format.material_version_id,
             item_no: index + 1,
-            material_code_snapshot: master.code,
-            material_name: master.name,
-            material_model: master.model,
-            specification: master.specification,
+            material_code_snapshot: format.material_code,
+            material_name: format.material_name,
+            material_model: format.material_model,
+            specification: format.material_specification,
             approved_quantity_scaled: item.quantity_scaled,
-            unit_id: unit.id,
-            unit_snapshot: unit.name,
+            unit_id: format.unit_id,
+            unit_version: format.unit_version,
+            unit_snapshot: format.name,
           });
         }
       }
@@ -475,8 +503,16 @@ export function createProjects(repo, catalog, demands, pricing) {
             project_id: key,
             demand_id: demand.id,
             demand_version: demand.current_version,
-            proposed_quantity_scaled:
-              input.quantity_scaled || demand.quantity_scaled,
+            proposed_quantity_scaled: (() => {
+              const candidate = input.quantity_scaled === undefined
+                ? demand.quantity_scaled : input.quantity_scaled;
+              const rule = quantityUnits.demandUnits([
+                { demand_id: demand.id, version: demand.current_version },
+              ]).get(demand.id + ":" + demand.current_version);
+              requireValue(rule, "需求采用的单位正式版本不存在", 404);
+              return assertQuantityPrecision(integer(candidate, "承接数量", 1),
+                rule.fields_json, rule.name, "quantity_scaled");
+            })(),
             created_by: actor.id,
             created_at: timestamp,
             updated_at: timestamp,

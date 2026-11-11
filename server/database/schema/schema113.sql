@@ -414,10 +414,12 @@ CREATE TABLE demand_material_version_items (
  item_no INTEGER NOT NULL CHECK(item_no>0),
  quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
  unit_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
+ unit_version INTEGER NOT NULL CHECK(unit_version>0),
  unit_snapshot TEXT NOT NULL CHECK(length(trim(unit_snapshot))>0),
  note TEXT NOT NULL DEFAULT '',
  PRIMARY KEY(demand_id,demand_version,material_id),
  UNIQUE(demand_id,demand_version,item_no),
+ FOREIGN KEY(unit_id,unit_version) REFERENCES dictionary_item_versions(item_id,version) ON DELETE RESTRICT,
  FOREIGN KEY(demand_id,demand_version) REFERENCES demand_versions(demand_id,version) ON DELETE RESTRICT
 ) STRICT;
 
@@ -1038,7 +1040,9 @@ CREATE TABLE project_approval_material_items (
  specification TEXT NOT NULL DEFAULT '',
  approved_quantity_scaled INTEGER NOT NULL CHECK(approved_quantity_scaled>0),
  unit_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
+ unit_version INTEGER NOT NULL CHECK(unit_version>0),
  unit_snapshot TEXT NOT NULL,
+ FOREIGN KEY(unit_id,unit_version) REFERENCES dictionary_item_versions(item_id,version) ON DELETE RESTRICT,
  FOREIGN KEY(approval_version_id,project_scope_id)
   REFERENCES project_approval_scope_versions(approval_version_id,project_scope_id) ON DELETE RESTRICT,
  FOREIGN KEY(project_material_id,project_scope_id)
@@ -3073,17 +3077,18 @@ BEGIN
  -- A revision may replace the COMPLETE expected-material list. Omission
  -- means carry the prior list, never means silently erase material history.
  INSERT INTO demand_material_version_items(demand_id,demand_version,material_id,
- material_version_id,item_no,quantity_scaled,unit_id,unit_snapshot,note)
+ material_version_id,item_no,quantity_scaled,unit_id,unit_version,unit_snapshot,note)
  SELECT NEW.demand_id,NEW.version,prior.material_id,prior.material_version_id,prior.item_no,
- prior.quantity_scaled,prior.unit_id,prior.unit_snapshot,prior.note
+ prior.quantity_scaled,prior.unit_id,prior.unit_version,prior.unit_snapshot,prior.note
  FROM demand_material_version_items prior
  WHERE prior.demand_id=NEW.demand_id AND prior.demand_version=NEW.version-1
  AND json_type(NEW.snapshot_json,'$.materials') IS NULL;
  INSERT INTO demand_material_version_items(demand_id,demand_version,material_id,
- material_version_id,item_no,quantity_scaled,unit_id,unit_snapshot,note)
+ material_version_id,item_no,quantity_scaled,unit_id,unit_version,unit_snapshot,note)
  SELECT NEW.demand_id,NEW.version,json_extract(x.value,'$.material_id'),
  m.material_version_id,CAST(x.key AS INTEGER)+1,json_extract(x.value,'$.quantity_scaled'),
  m.unit_id,
+ (SELECT version FROM v_dictionary_current WHERE id=m.unit_id),
  (SELECT name FROM v_dictionary_current WHERE id=m.unit_id),
  COALESCE(json_extract(x.value,'$.note'),'')
  FROM json_each(NEW.snapshot_json,'$.materials') x
@@ -3249,7 +3254,7 @@ JOIN demand_versions v ON v.demand_id=d.id
 
 CREATE VIEW v_demand_material_current AS
 SELECT a.demand_id,a.demand_version,a.material_id,a.material_version_id,
- a.item_no,a.quantity_scaled,a.unit_id,a.unit_snapshot,a.note,
+ a.item_no,a.quantity_scaled,a.unit_id,a.unit_version,a.unit_snapshot,a.note,
  m.code AS material_code,m.name AS current_master_name,m.model AS current_master_model
 FROM demand_material_version_items a
 JOIN v_material_current m ON m.id=a.material_id
@@ -3287,9 +3292,9 @@ BEGIN SELECT RAISE(ABORT,'需求生命周期事件不可删除'); END;
 CREATE TRIGGER demand_material_v1_insert AFTER INSERT ON demand_material_items
 BEGIN
  INSERT INTO demand_material_version_items(demand_id,demand_version,material_id,
- material_version_id,item_no,quantity_scaled,unit_id,unit_snapshot,note)
+ material_version_id,item_no,quantity_scaled,unit_id,unit_version,unit_snapshot,note)
  SELECT NEW.demand_id,1,NEW.material_id,m.material_version_id,NEW.item_no,
- NEW.quantity_scaled,m.unit_id,v.name,NEW.note
+ NEW.quantity_scaled,m.unit_id,v.version,v.name,NEW.note
  FROM v_material_current m JOIN v_dictionary_current v ON v.id=m.unit_id
  WHERE m.id=NEW.material_id;
 END;
@@ -3299,6 +3304,8 @@ BEGIN
  SET item_no=NEW.item_no,material_id=NEW.material_id,quantity_scaled=NEW.quantity_scaled,
  material_version_id=(SELECT material_version_id FROM v_material_current WHERE id=NEW.material_id),
  note=NEW.note,unit_id=(SELECT unit_id FROM materials WHERE id=NEW.material_id),
+ unit_version=(SELECT v.version FROM materials m JOIN v_dictionary_current v
+ ON v.id=m.unit_id WHERE m.id=NEW.material_id),
  unit_snapshot=(SELECT v.name FROM materials m JOIN v_dictionary_current v
  ON v.id=m.unit_id WHERE m.id=NEW.material_id)
  WHERE demand_id=OLD.demand_id AND demand_version=1 AND material_id=OLD.material_id;
@@ -3584,6 +3591,7 @@ BEGIN
  WHERE prev.demand_id=NEW.demand_id AND prev.demand_version=NEW.demand_version-1
  AND prev.material_id=NEW.material_id AND prev.quantity_scaled=NEW.quantity_scaled
  AND prev.item_no=NEW.item_no AND prev.unit_id=NEW.unit_id
+ AND prev.unit_version=NEW.unit_version
  AND prev.material_version_id=NEW.material_version_id
  AND prev.unit_snapshot=NEW.unit_snapshot AND prev.note=NEW.note))
  OR

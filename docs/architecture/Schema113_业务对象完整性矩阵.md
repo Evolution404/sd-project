@@ -35,7 +35,7 @@
 | 来源、需求和物资 | `demand_duplicate_reviews` | 8 | 4 | 疑似重复需求处理决策 |
 | 来源、需求和物资 | `demand_lifecycle_events` | 8 | 2 | 需求确认退回撤销事件 |
 | 来源、需求和物资 | `demand_material_items` | 8 | 2 | 需求首版编制材料 |
-| 来源、需求和物资 | `demand_material_version_items` | 9 | 5 | 各需求版本材料清单 |
+| 来源、需求和物资 | `demand_material_version_items` | 10 | 7 | 各需求版本材料清单；冻结计量单位版本与数量精度 |
 | 来源、需求和物资 | `demand_related_logical_towers` | 2 | 2 | 需求多逻辑杆塔关联 |
 | 来源、需求和物资 | `demand_revisions` | 7 | 2 | 正式需求修改补丁 |
 | 来源、需求和物资 | `demand_sources` | 2 | 2 | 需求来源关联 |
@@ -47,7 +47,7 @@
 | 框架、协议、项目与批准 | `agreements` | 4 | 1 | 执行协议身份 |
 | 框架、协议、项目与批准 | `framework_versions` | 9 | 2 | 框架批准额度与历史 |
 | 框架、协议、项目与批准 | `frameworks` | 4 | 0 | 年度框架身份 |
-| 框架、协议、项目与批准 | `project_approval_material_items` | 13 | 8 | 批准物资规格和数量快照 |
+| 框架、协议、项目与批准 | `project_approval_material_items` | 14 | 10 | 批准物资规格、数量及采用的单位正式版本快照 |
 | 框架、协议、项目与批准 | `project_approval_scope_prices` | 2 | 2 | 批准需求范围正式选择的完整已确认参考价依据，可为空表示尚未计价，不能用零代替 |
 | 框架、协议、项目与批准 | `project_approval_scope_versions` | 10 | 5 | 项目正式批准需求范围的不可变版本及总量核对；位置级数量和正式价格依据分别独立关联 |
 | 框架、协议、项目与批准 | `project_approval_versions` | 10 | 3 | 项目正式批准预算软基准，与按全部已确认需求价格明细和独立批次/项目费用汇总的参考价严格分离 |

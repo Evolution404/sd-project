@@ -7,7 +7,7 @@ import { createExchange } from "../../dist/server/modules/exchange/service.mjs";
 import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.mjs";
 
 test("new demands use business names and worksheet rows, with protected identity roundtrip", async (t) => {
-  const { s, user, operation, towers } = fixture(t),
+  const { s, user, operation, towers } = fixture(t, { quantity_precision: 2 }),
     exchange = createExchange(s);
   const buffer = await makeWorkbook("demands", {
     documents: [

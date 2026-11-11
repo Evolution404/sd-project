@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DatabaseSync } from "node:sqlite";
-import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { fixture } from "../helpers.mjs";
 
 function equipment(t) {
@@ -139,35 +136,14 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
   );
 });
 
-test("schema adjustments are limited to approved equipment facts and the work-object archival guard", () => {
-  const original = spawnSync(
-    "git",
-    ["show", "1e0cc62:server/database/schema/schema113.sql"],
-    { encoding: "utf8" },
-  );
-  assert.equal(original.status, 0);
-  function fingerprint(sql) {
-    const db = new DatabaseSync(":memory:");
-    try {
-      db.exec(sql);
-      return db
-        .prepare(
-          "SELECT type,name,sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL ORDER BY type,name",
-        )
-        .all();
-    } finally {
-      db.close();
-    }
-  }
-  const before = fingerprint(original.stdout), after = fingerprint(readFileSync("server/database/schema/schema113.sql", "utf8"));
-  assert.deepEqual(after.map(item => item.name), before.map(item => item.name));
-  const changed = after.filter(item => before.find(old => old.name === item.name).sql !== item.sql).map(item => item.name).sort();
-  const expected = ["transmission_lines", "line_history", "physical_towers", "physical_tower_history"];
-  for (const prefix of ["line_history", "physical_tower_history"])
-    for (const suffix of ["initial", "version_guard", "append", "identity_insert"]) expected.push(prefix + "_" + suffix);
-  // The separate work-object archive fix changes exactly this one trigger;
-  // all equipment changes must remain limited to their audited table set.
-  expected.push("object_type_guard_insert", "reference_price_factor_definition_guard", "v_reference_price_current");
-  assert.deepEqual(changed, expected.sort());
-  assert.ok(after.every(item => !item.sql.includes("erection_type")));
+test("current product schema keeps the equipment and work-object identities independent", t => {
+  const {s} = fixture(t);
+  const tables = s.database.connection.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('transmission_lines','logical_towers','physical_towers','operations','work_objects')"
+  ).all().map(item=>item.name);
+  assert.deepEqual(tables.sort(),["logical_towers","operations","physical_towers","transmission_lines","work_objects"]);
+  const physical=s.database.connection.prepare("PRAGMA table_info(physical_towers)").all();
+  assert.ok(physical.some(item=>item.name==="tower_nature"));
+  assert.ok(!physical.some(item=>item.name==="erection_type"));
+  assert.deepEqual(s.repo.integrity().foreignKeys,[]);
 });

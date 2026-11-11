@@ -9,13 +9,12 @@ export interface FactorDefinition {
   max?: number | null;
   unit_id?: string;
   unit_version?: number;
-  asset_field?: string;
 }
 
-export function validateFactorDefinition(value: unknown, { allowLegacyAsset = false } = {}): FactorDefinition {
+export function validateFactorDefinition(value: unknown): FactorDefinition {
   requireValue(isObject(value), "价格特征定义无效");
   requireValue(value.kind === "enum" || value.kind === "number", "价格特征须选择选项或整数");
-  requireValue(allowLegacyAsset || !Object.hasOwn(value, "asset_field"),
+  requireValue(!Object.hasOwn(value, "asset_field"),
     "台账属性应直接作为价格适用条件，不再建立重复价格特征");
   if (value.kind === "enum") {
     requireValue(Array.isArray(value.values) && value.values.length > 0, "选项类型至少配置一个可选值");

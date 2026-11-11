@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type { AuditRecord } from "../../shared/types/contracts.js";
 
 type Store = Pick<ReturnType<typeof createStore>,

@@ -11,7 +11,7 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { authorize } from "../auth/service.js";
 import { requireValue } from "../../shared/errors/business-error.js";
-import { createEvidence } from "../files/service.mjs";
+import { createEvidence } from "../files/service.js";
 import { createExchange } from "../../modules/exchange/service.mjs";
 const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

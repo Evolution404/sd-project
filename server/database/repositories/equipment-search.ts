@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type {
   EquipmentKind,
   EquipmentSearchOptions,
@@ -170,7 +170,7 @@ export function searchEquipment(
     where.push("(line_id=? OR id=?)");
     parameters.push(
       options.lineId,
-      line?.line_kind === "branch" ? line.junction_tower_id || "" : "",
+      line?.line_kind === "branch" && typeof line.junction_tower_id === "string" ? line.junction_tower_id : "",
     );
   }
   if (kind === "spans" && options.lineId) {
@@ -192,11 +192,11 @@ export function searchEquipment(
     parameters.push(options.excludeId);
   }
   const predicate = " WHERE " + where.join(" AND ");
-  const total = store.get(
+  const total = Number(store.get(
     statement + "SELECT COUNT(*) AS n FROM catalog_rows" + predicate,
     kind,
     ...parameters,
-  ).n;
+  )?.n ?? 0);
   const sort =
     options.sort && allowed.has(options.sort) ? options.sort : "created_at";
   const direction = options.direction === "asc" ? "ASC" : "DESC";

@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query">;
 
@@ -16,6 +16,12 @@ export interface ProjectScopeProjection {
   demand_status: string;
   binding: CurrentProjectBinding | null;
   [key: string]: unknown;
+}
+
+export interface ProjectScopeMaterialLink {
+  id: string;
+  project_scope_id: string;
+  material_id: string;
 }
 interface ScopeRow extends Record<string, unknown> {
   id: string;
@@ -88,6 +94,15 @@ export interface ProjectDashboardBase {
 
 export function projectReadRepository(store: Store) {
   return {
+    /** One read for all existing scope-material identities in a new approval. */
+    projectScopeMaterialLinks(scopeIds: readonly string[]): Map<string, ProjectScopeMaterialLink> {
+      if (!scopeIds.length) return new Map();
+      const links = store.query(`SELECT id,project_scope_id,material_id
+        FROM project_scope_materials
+        WHERE project_scope_id IN (SELECT value FROM json_each(?))`,
+        JSON.stringify([...new Set(scopeIds)])) as ProjectScopeMaterialLink[];
+      return new Map(links.map(link => [link.project_scope_id + ':' + link.material_id, link]));
+    },
     projectScopes(projectId: string): ProjectScopeProjection[] {
       const rows = store.query(`SELECT sc.*, d.demand_no,
         COALESCE(dc.status, 'pending') AS demand_status,

@@ -194,19 +194,20 @@
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 | `updated_at` | TEXT | 是 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
 
-## `demand_material_version_items` — 各需求版本材料清单
+## `demand_material_version_items` — 各需求版本材料清单；冻结计量单位版本与数量精度
 
-业务领域：来源、需求和物资。字段数：9；外键分量：5。
+业务领域：来源、需求和物资。字段数：10；外键分量：7。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `demand_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.demand_id（组0） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
 | `demand_version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.version（组0） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
-| `material_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→materials.id（组3） | 统一物资主数据身份 | 保留：独立属性或真实关联 |
-| `material_version_id` | TEXT | 是 | — | 外键→material_versions.id（组2） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
+| `material_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→materials.id（组4） | 统一物资主数据身份 | 保留：独立属性或真实关联 |
+| `material_version_id` | TEXT | 是 | — | 外键→material_versions.id（组3） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
 | `item_no` | INTEGER | 是 | — | 组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
 | `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
-| `unit_id` | TEXT | 是 | — | 外键→dictionary_items.id（组1） | 计量单位字典项 | 保留：独立属性或真实关联 |
+| `unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组1）<escape>|</escape>外键→dictionary_items.id（组2） | 计量单位字典项 | 保留：独立属性或真实关联 |
+| `unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组1） | 计量单位字典正式版本号 | 保留：独立属性或真实关联 |
 | `unit_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式批准或发生时的单位名称快照 | 保留：不可追溯重算的历史快照 |
 | `note` | TEXT | 是 | '' | 见原生CHECK | 与业务对象关联的备注 | 保留：独立属性或真实关联 |
 
@@ -711,24 +712,25 @@
 | `height_scaled` | INTEGER | 否 | — | 见原生CHECK | 设备高度整数缩放值 | 保留：独立属性或真实关联 |
 | `purpose` | TEXT | 是 | '' | 见原生CHECK | 设备用途或访问授权用途 | 保留：独立属性或真实关联 |
 
-## `project_approval_material_items` — 批准物资规格和数量快照
+## `project_approval_material_items` — 批准物资规格、数量及采用的单位正式版本快照
 
-业务领域：框架、协议、项目与批准。字段数：13；外键分量：8。
+业务领域：框架、协议、项目与批准。字段数：14；外键分量：10。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `approval_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_approval_scope_versions.approval_version_id（组1）<escape>|</escape>外键→project_approval_versions.id（组5） | 项目正式批准版本身份 | 保留：独立属性或真实关联 |
-| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_scope_materials.project_scope_id（组0）<escape>|</escape>外键→project_approval_scope_versions.project_scope_id（组1）<escape>|</escape>外键→project_demand_scopes.id（组4） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
+| `approval_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→project_approval_scope_versions.approval_version_id（组1）<escape>|</escape>外键→project_approval_versions.id（组6） | 项目正式批准版本身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_scope_materials.project_scope_id（组0）<escape>|</escape>外键→project_approval_scope_versions.project_scope_id（组1）<escape>|</escape>外键→project_demand_scopes.id（组5） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
 | `project_material_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_scope_materials.id（组0） | 子项目范围内的统一物资稳定身份 | 保留：独立属性或真实关联 |
-| `material_version_id` | TEXT | 是 | — | 外键→material_versions.id（组3） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
+| `material_version_id` | TEXT | 是 | — | 外键→material_versions.id（组4） | 正式物资主数据历史版本身份，锁定需求清单或批准物资当时引用的定义 | 保留：独立属性或真实关联 |
 | `item_no` | INTEGER | 是 | — | 组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
 | `material_code_snapshot` | TEXT | 是 | — | 见原生CHECK | 批准时冻结的物资主数据编码 | 保留：不可追溯重算的历史快照 |
 | `material_name` | TEXT | 是 | — | 见原生CHECK | 批准时冻结的物资名称 | 保留：独立属性或真实关联 |
 | `material_model` | TEXT | 是 | — | 见原生CHECK | 批准时冻结的物资型号 | 保留：独立属性或真实关联 |
 | `specification` | TEXT | 是 | '' | 见原生CHECK | 物资或参考单价的规格 | 保留：独立属性或真实关联 |
 | `approved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 本次项目正式批准的某项物资或具体作业位置的数量，依所属表分别解释，不能混为结算或已解决数量 | 保留：独立属性或真实关联 |
-| `unit_id` | TEXT | 是 | — | 外键→dictionary_items.id（组2） | 计量单位字典项 | 保留：独立属性或真实关联 |
+| `unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组2）<escape>|</escape>外键→dictionary_items.id（组3） | 计量单位字典项 | 保留：独立属性或真实关联 |
+| `unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组2） | 计量单位字典正式版本号 | 保留：独立属性或真实关联 |
 | `unit_snapshot` | TEXT | 是 | — | 见原生CHECK | 正式批准或发生时的单位名称快照 | 保留：不可追溯重算的历史快照 |
 
 ## `project_approval_scope_prices` — 批准需求范围正式选择的完整已确认参考价依据，可为空表示尚未计价，不能用零代替
@@ -1276,6 +1278,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：77；字段总数（含生成列）：728；需要人工补写独立描述的字段名：0。
+基础数据表数：77；字段总数（含生成列）：730；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。

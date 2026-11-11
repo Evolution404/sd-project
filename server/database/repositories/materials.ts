@@ -1,5 +1,5 @@
 import { countBusinessReferences } from "../queries/deletion-impact.js";
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type { ListQuery } from "../../shared/types/contracts.js";
 import type {
   MaterialRecord,

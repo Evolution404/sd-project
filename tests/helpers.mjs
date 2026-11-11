@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createSystem } from "../dist/server/bootstrap.js";
-export function fixture(t) {
+export function fixture(t, { quantity_precision = 0 } = {}) {
   const dir = mkdtempSync(join(tmpdir(), "sd113-"));
   const s = createSystem(dir);
   t.after(() => {
@@ -12,7 +12,7 @@ export function fixture(t) {
   s.auth.initialize("admin", "Schema113-test-password");
   const { user } = s.auth.login("admin", "Schema113-test-password");
   const save = (kind, input) => s.catalog.save(user, kind, input);
-  const unit = save("units", { code: "set", name: "套" }),
+  const unit = save("units", { code: "set", name: quantity_precision === 0 ? "套" : "平方米", quantity_precision }),
     object = save("objects", {
       code: "bird",
       name: "防鸟装置",

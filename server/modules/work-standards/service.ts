@@ -16,6 +16,7 @@ import type { PriceFactorService } from "../pricing/factors.js";
 import { definitionName, definitionStatus } from "../dictionaries/service.js";
 import { validateFactorDefinition } from "../pricing/features.js";
 import { jsonDocument } from "../../shared/json.js";
+import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import {
   requireValue,
   expectedVersion,
@@ -222,7 +223,7 @@ export function createWorkStandards(
           old.required === declared.required,
       );
       requireValue(
-        declared.source === "manual" || same,
+        declared.source === "manual",
         "新增计价所需信息只能使用现场填写，台账属性请在价格适用条件中配置",
       );
       if (!same) {
@@ -294,6 +295,12 @@ export function createWorkStandards(
         unit.status === "active" || previous?.default_unit_id === unitId,
         "固定计量单位已停用",
       );
+      requireValue(input.adopt_current_unit === undefined || typeof input.adopt_current_unit === "boolean",
+        "是否采用单位当前版本必须为是或否");
+      const adoptedUnitVersion = !previous || unitId !== previous.default_unit_id ||
+        input.adopt_current_unit === true ? unit.version : previous.default_unit_version;
+      const adoptedUnit = repository.unitVersion(unitId, adoptedUnitVersion);
+      requireValue(adoptedUnit, "采用的计量单位正式版本不存在", 404);
       const allowTower =
         scope === "physical"
           ? 1
@@ -327,7 +334,10 @@ export function createWorkStandards(
         input.default_quantity_scaled === undefined
           ? (previous?.default_quantity_scaled ?? null)
           : input.default_quantity_scaled;
-      if (quantity !== null) integer(quantity, "建议数量", 1);
+      if (quantity !== null) assertQuantityPrecision(
+        integer(quantity, "建议数量", 1), adoptedUnit.fields_json, adoptedUnit.name,
+        "default_quantity_scaled",
+      );
       const fields = extraFields(
         input.fields_json === undefined
           ? previous?.fields_json || []
@@ -358,10 +368,8 @@ export function createWorkStandards(
         work_target_type: scope,
         work_object_id: objectId,
         default_unit_id: unitId,
-        default_unit_version:
-          previous?.default_unit_id === unitId
-            ? previous.default_unit_version
-            : unit.version,
+        // A revision retains its adopted unit version until explicitly refreshed.
+        default_unit_version: adoptedUnitVersion,
         default_quantity_scaled: quantity as number | null,
         completion_standard:
           input.completion_standard === undefined
@@ -512,9 +520,7 @@ export function createWorkStandards(
             ...declaration,
             code: row.code,
             name: row.name,
-            definition: validateFactorDefinition(JSON.parse(row.fields_json), {
-              allowLegacyAsset: true,
-            }),
+            definition: validateFactorDefinition(JSON.parse(row.fields_json)),
             unit: row.unit_name || "",
             current_version: row.current_version,
             current_status: row.current_status,

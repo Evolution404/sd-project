@@ -1,5 +1,5 @@
 import { countBusinessReferences } from "../queries/deletion-impact.js";
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type { ListQuery } from "../../shared/types/contracts.js";
 import type {
   OperationRecord,
@@ -102,6 +102,9 @@ export function workStandardRepository(store: ReturnType<typeof createStore>) {
         operationSql + " WHERE o.id=? AND v.version=?",
         [id, version],
       )[0],
+    unitVersion: (id: string, version: number) =>
+      store.get("SELECT name,fields_json FROM dictionary_item_versions WHERE item_id=? AND version=?", id, version) as
+        { name: string; fields_json: string } | undefined,
     objectReferences: (id: string) =>
       countBusinessReferences(store, "work_objects", id),
     operationReferences: (id: string) =>

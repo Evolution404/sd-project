@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import { businessLists, searchPage, type DemandListRecord, type ListSource } from "../queries/business-lists.js";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
 import type { DictionaryVersion } from "../../shared/types/master-data.js";

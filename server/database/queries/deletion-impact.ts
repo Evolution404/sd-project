@@ -1,4 +1,4 @@
-import type { createStore } from "../repositories/store.mjs";
+import type { createStore } from "../repositories/store.js";
 type Store = ReturnType<typeof createStore>;
 type Target =
   | "dictionary_items"

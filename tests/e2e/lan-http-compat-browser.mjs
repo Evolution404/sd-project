@@ -86,19 +86,30 @@ try {
   const quantityColumn = columnIndex(positions, "quantity_scaled");
   assert.ok(quantityColumn > 0);
   positions.getRow(2).getCell(quantityColumn).value = "2.5";
+  // An integral "套" must not pass validation, even through Excel/HTTP.
   await page.locator(".el-upload input[type=file]").setInputFiles({
     name: "http-lan-revision.xlsx",
     mimeType:
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
   });
+  await page.getByText("套只允许整数数量", { exact: false }).waitFor();
+  const rejected = s.demands.list()[0];
+  assert.equal(rejected.current_version, 1);
+  assert.equal(rejected.quantity_scaled, 10000);
+  // Correct the same workbook in-place and confirm normal LAN HTTP editing remains usable.
+  positions.getRow(2).getCell(quantityColumn).value = "3";
+  await page.locator(".el-upload input[type=file]").setInputFiles({
+    name: "http-lan-valid-revision.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+  });
   await page.getByText("更新 1", { exact: false }).waitFor();
-  assert.equal(await page.locator(".el-dialog pre").count(), 0);
   await page.getByRole("button", { name: "确认提交有效单据" }).click();
   await page.getByText("已处理 1 张单据，失败 0 项").waitFor();
   const revised = s.demands.list()[0];
   assert.equal(revised.current_version, 2);
-  assert.equal(revised.quantity_scaled, 25000);
+  assert.equal(revised.quantity_scaled, 30000);
   assert.deepEqual(errors, []);
   console.log("LAN_HTTP_CRYPTO_API_SHAPE_LOGIN_AND_EXCEL_OK");
 } finally {

@@ -54,7 +54,8 @@ onUnmounted(() => {
   if (timer !== undefined) window.clearInterval(timer);
 });
 const documentPage = ref(1),
-  issuePage = ref(1);
+  issuePage = ref(1),
+  activePreviewTab = ref<'documents' | 'issues'>('documents');
 const documentColumns: TableColumn[] = [
   { key: "number", label: "业务编号", minWidth: 155 },
   { key: "action", label: "动作", minWidth: 105 },
@@ -134,6 +135,7 @@ async function upload(file: Row) {
   preview.value = null;
   result.value = null;
   documentPage.value = 1;
+  activePreviewTab.value = 'documents';
   issuePage.value = 1;
   documentFilters.value = {};
   issueFilters.value = {};
@@ -157,6 +159,8 @@ async function upload(file: Row) {
     if (!response.ok) throw new Error(value.message);
     preview.value = value;
     requestKey.value = newClientId();
+    // Show errors immediately instead of leaving them hidden behind the first tab.
+    activePreviewTab.value = value.issues?.length ? 'issues' : 'documents';
   } catch (e) {
     if ((e as Error).name === "AbortError")
       ElMessage.info("已取消上传或预检请求；不会提交业务数据");
@@ -277,8 +281,8 @@ async function commit() {
           >下载问题清单</ElButton
         >
       </div>
-      <ElTabs
-        ><ElTabPane label="单据与逐字段变化"
+      <ElTabs v-model="activePreviewTab"
+        ><ElTabPane label="单据与逐字段变化" name="documents"
           ><BusinessTable :key="requestKey + ':documents'" :table-key="'exchange:' + kind + ':documents'"
               :rows="displayedDocuments" :columns="documentColumns" :max-height="380" compact
               @sort-change="onDocumentsSort" @filter-change="onDocumentsFilter">
@@ -299,7 +303,7 @@ async function commit() {
             :page-size="30"
             layout="prev,pager,next,total"
           /> </ElTabPane
-        ><ElTabPane label="问题清单"
+        ><ElTabPane label="问题清单" name="issues"
           ><BusinessTable :key="requestKey + ':issues'" :table-key="'exchange:' + kind + ':issues'"
               :rows="displayedIssues" :columns="issueColumns" :max-height="380" compact
               @sort-change="onIssuesSort" @filter-change="onIssuesFilter">

@@ -25,7 +25,7 @@ test("dictionary revisions preserve previously recorded order and extension fact
     unit.id,
   );
   assert.equal(revised.sort_order, 7);
-  assert.equal(revised.fields_json, custom);
+  assert.deepEqual(JSON.parse(revised.fields_json), { legacy_dimension: "长度", quantity_precision: 0 });
   assert.equal(revised.version, 3);
   assert.equal(
     s.catalog.get("units", unit.id).current_version_id,

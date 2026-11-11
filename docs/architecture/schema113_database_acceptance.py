@@ -344,7 +344,7 @@ add("project_approval_material_items",id="am1",approval_version_id="av1",
     project_scope_id="scope",project_material_id="mat",item_no=1,
     material_code_snapshot="MAT-001",material_name="绝缘子",
     material_model="A",approved_quantity_scaled=1000,
-    unit_id="unit",unit_snapshot="套")
+    unit_id="unit",unit_version=1,unit_snapshot="套")
 approve("av1")
 stage("p","approved")
 ok("approval baseline owned by immutable approval version",
@@ -356,8 +356,8 @@ ok("optional funding is null",
 blocked("cannot append approval materials after approval",
     "INSERT INTO project_approval_material_items"
     "(id,approval_version_id,project_scope_id,project_material_id,item_no,"
-    "material_code_snapshot,material_name,material_model,approved_quantity_scaled,unit_id,unit_snapshot)"
-    " VALUES('x','av1','scope','mat',2,'MAT-001','绝缘子','A',1,'unit','套')")
+    "material_code_snapshot,material_name,material_model,approved_quantity_scaled,unit_id,unit_version,unit_snapshot)"
+    " VALUES('x','av1','scope','mat',2,'MAT-001','绝缘子','A',1,'unit',1,'套')")
 blocked("project home immutable",
     "UPDATE projects SET framework_id='f2' WHERE id='p'")
 blocked("cross-framework agreement forbidden",
@@ -388,7 +388,7 @@ add("project_approval_material_items",id="am2",approval_version_id="av2",
     project_scope_id="scope",project_material_id="mat",item_no=1,
     material_code_snapshot="MAT-001",material_name="绝缘子",
     material_model="A",approved_quantity_scaled=3000,
-    unit_id="unit",unit_snapshot="套")
+    unit_id="unit",unit_version=1,unit_snapshot="套")
 ok("draft approval V2 must not change official budget",
     row("SELECT approved_budget_fen FROM v_project_current_approval "
         "WHERE project_id='p'")["approved_budget_fen"]==5000)
@@ -620,7 +620,7 @@ add("project_approval_material_items",id="p3am",approval_version_id="avp3",
     item_no=1,
     material_code_snapshot="MAT-001",material_name="复合绝缘子",
     material_model="A-改",approved_quantity_scaled=2000,
-    unit_id="unit",unit_snapshot="组")
+    unit_id="unit",unit_version=1,unit_snapshot="组")
 db.execute("UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T00:00:00.000Z' WHERE id='avp3'")
 stage("p3","approved")
@@ -822,7 +822,7 @@ add("project_approval_material_items",id="p3am2",
     project_material_id="p3m",
     item_no=1,material_code_snapshot="MAT-001",
     material_name="复合绝缘子",material_model="A-改",
-    approved_quantity_scaled=2000,unit_id="unit",unit_snapshot="组")
+    approved_quantity_scaled=2000,unit_id="unit",unit_version=1,unit_snapshot="组")
 revise_material("master1",name="复合绝缘子优化",
     recorded_at="2026-11-07T15:02:00.000Z",reason="物资描述核定")
 blocked("stale master material draft cannot be formally approved",
@@ -1849,7 +1849,7 @@ add("project_approval_material_items",id="end_to_end_apm",
     item_no=1,material_code_snapshot="MAT-002",
     material_name="连接金具",material_model="JG-01",
     specification="热镀锌",approved_quantity_scaled=1000,
-    unit_id="unit",unit_snapshot="套")
+    unit_id="unit",unit_version=1,unit_snapshot="套")
 db.execute("UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T20:33:00.000Z'"
     " WHERE id='end_to_end_ap'")

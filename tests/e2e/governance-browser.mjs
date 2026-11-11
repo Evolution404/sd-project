@@ -82,7 +82,8 @@ try {
   await operationChoice.click();
   await page.getByRole("option", { name: "安装防鸟装置", exact: true }).last().click();
   const completion = demandEditor.getByLabel("验收标准", { exact: true });
-  await completion.getAttribute("placeholder").catch(() => {});
+  await page.waitForFunction(() => Array.from(document.querySelectorAll("textarea"))
+    .some(element => element.value.includes("防鸟装置")), null, { timeout: 8000 });
   assert.ok((await completion.inputValue()).includes("防鸟装置"));
   await operationChoice.click();
   await page.getByRole("option", { name: "更换绝缘子串", exact: true }).last().click();

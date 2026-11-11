@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
 export interface DashboardDemandCounts {

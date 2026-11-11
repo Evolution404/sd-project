@@ -19,7 +19,7 @@ test("demo first launch supplies linked business sample records in its own SQLit
   const result = ensureDemoDatabase(target);
   assert.equal(result.created, true);
   assert.equal(result.voltages, 8);
-  assert.equal(result.units, 5);
+  assert.equal(result.units, 6); // five original units plus square metres, each with explicit precision
   assert.equal(result.lines, 2);
   assert.equal(result.physicalTowers, 8);
   assert.equal(result.logicalTowers, 8);

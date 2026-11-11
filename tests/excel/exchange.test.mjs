@@ -73,7 +73,7 @@ test("formula cells are rejected and missing detail rows preserve existing posit
   assert.ok(invalid.issues.some((x) => x.reason.includes("公式")));
 });
 test("new workbook accepts business operation and equipment names with human decimal quantities", async (t) => {
-  const { s, user } = fixture(t),
+  const { s, user } = fixture(t, { quantity_precision: 2 }),
     exchange = createExchange(s);
   const buffer = await makeWorkbook("demands", {
     documents: [

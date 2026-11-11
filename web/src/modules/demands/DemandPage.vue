@@ -22,6 +22,28 @@ import { api, type Row, quantity, statusText } from "../../shared/api/client";
 import type { OperationRecord, OperationVersion } from "../../../../server/shared/types/work-standards";
 const adoptedOperation = ref<OperationVersion | null>(null),
   lastOperationId = ref("");
+// Requests for previous definitions can resolve out of order when switching
+// operation types quickly; only the latest explicit selection may modify draft.
+let operationChangeSequence = 0;
+const workQuantityPrecision = ref(4);
+let unitPrecisionSequence = 0;
+async function syncWorkQuantityPrecision(selected: OperationRecord | OperationVersion | null) {
+  const sequence = ++unitPrecisionSequence;
+  workQuantityPrecision.value = 4;
+  if (!selected?.default_unit_id) return;
+  try {
+    const response = await api<{ versions: Array<{ version: number; quantity_precision?: number }> }>(
+      "/catalog/units/" + selected.default_unit_id + "?history=true",
+    );
+    if (sequence !== unitPrecisionSequence) return;
+    const adopted = response.versions.find(row => row.version === selected.default_unit_version);
+    workQuantityPrecision.value = adopted?.quantity_precision ?? 4;
+  } catch (failure) {
+    if (sequence === unitPrecisionSequence)
+      ElMessage.warning("未能读取计量单位精度，保存仍将由服务端校验：" + (failure as Error).message);
+  }
+}
+
 const props = defineProps<{ user: Row }>();
 const route = useRoute(), router = useRouter();
 const projectPickerOpen = ref(false), projectSearch = ref(""), projectPage = ref(1);
@@ -284,6 +306,7 @@ async function edit(row?: Row) {
     : null;
   lastOperationId.value = form.value.operation_id;
   errors.value = {};
+  await syncWorkQuantityPrecision(operation.value || null);
   dialog.value = true;
   draftGuard.capture();
   if (!row) void checkOperationSetup();
@@ -296,9 +319,15 @@ async function operationRecord(key: string): Promise<OperationRecord | null> {
   operations.value.push(fetched);
   return fetched;
 }
-async function chooseOperation() {
-  const selected = await operationRecord(String(form.value.operation_id || ""));
-  if (!selected) return;
+async function chooseOperation(selectedId: string | null) {
+  const sequence = ++operationChangeSequence;
+  ++unitPrecisionSequence;
+  const requestedId = String(selectedId || "");
+  form.value.operation_id = requestedId;
+  const current = () => sequence === operationChangeSequence &&
+    form.value.operation_id === requestedId;
+  const selected = await operationRecord(requestedId);
+  if (!current() || !selected) return;
   const incompatible = form.value.work_locations.some(
     (loc: Row) =>
       (selected.work_target_type === "physical") !==
@@ -314,9 +343,11 @@ async function chooseOperation() {
         "切换操作类型",
         { confirmButtonText: "重新选择位置", cancelButtonText: "保留原操作" },
       );
+      if (!current()) return;
       form.value.work_locations = [];
       locationLineIds.value = [];
     } catch {
+      if (!current()) return;
       form.value.operation_id = lastOperationId.value;
       return;
     }
@@ -324,6 +355,7 @@ async function chooseOperation() {
   const previous = adoptedOperation.value?.operation_id === lastOperationId.value
     ? adoptedOperation.value
     : await operationRecord(lastOperationId.value);
+  if (!current()) return;
   const oldDefault = String(previous?.completion_standard || "").trim();
   const currentStandard = String(form.value.completion_standard || "").trim();
   const newDefault = String(selected.completion_standard || "");
@@ -344,6 +376,7 @@ async function chooseOperation() {
   );
   form.value.target_object = selected.default_target_object;
   if (!form.value.work_locations.length) addLocation();
+  void syncWorkQuantityPrecision(selected);
 }
 function addLocation() {
   const op = operation.value;
@@ -785,7 +818,7 @@ onMounted(async () => {
               }"
               :filters="locationLineIds[Number(index)] ? { line_id: locationLineIds[Number(index)]! } : {}" /></ElFormItem
           ><ElFormItem
-            label="实际数量"
+            :label="workQuantityPrecision === 0 ? '实际数量（整数）' : '实际数量（最多' + workQuantityPrecision + '位小数）'"
             :prop="['work_locations', String(index), 'quantity_scaled']"
             :rules="[
               { required: true, message: '请填写实际数量' },
@@ -794,7 +827,7 @@ onMounted(async () => {
             required
             ><FieldControl
               v-model="loc.quantity_scaled"
-              :field="{ type: 'quantity' }" /></ElFormItem
+              :field="{ type: 'quantity', quantityPrecision: workQuantityPrecision }" /></ElFormItem
           ><ElFormItem label="作业方式"
             ><ElSelect v-model="loc.work_mode"
               ><ElOption label="未明确" value="unspecified" /><ElOption

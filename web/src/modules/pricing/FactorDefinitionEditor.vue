@@ -176,11 +176,5 @@ function selectUnit(unitId: string | null) {
         数值范围用于校验现场实际值；参考价格的分档在价格规则中设置。
       </p>
     </template>
-    <ElAlert
-      v-if="definition.asset_field"
-      type="warning"
-      :closable="false"
-      title="此特征包含旧版台账来源定义。请使用价格规则中的已有设备条件；需要停止旧式引用时新建正式版本。"
-    />
   </section>
 </template>

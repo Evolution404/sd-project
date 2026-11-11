@@ -10,6 +10,7 @@ import type {
   DefinitionStatus,
 } from "../../shared/types/master-data.js";
 import { authorize, id, now } from "../../platform/auth/service.js";
+import { quantityPrecisionFromFields, unitFieldsWithPrecision } from "../../shared/quantity-precision.js";
 import {
   requireValue,
   expectedVersion,
@@ -32,6 +33,14 @@ export function definitionStatus(value: unknown): DefinitionStatus {
   );
   return value;
 }
+function decorateDictionary(kind: DictionaryKind, row: DictionaryItem): DictionaryItem {
+  return {
+    ...row,
+    deleted: Boolean(row.deleted),
+    label: row.name,
+    ...(kind === "units" ? { quantity_precision: quantityPrecisionFromFields(row.fields_json) } : {}),
+  };
+}
 export function createDictionaries(
   repository: DictionaryRepository,
   database: Pick<Database, "transaction">,
@@ -49,7 +58,7 @@ export function createDictionaries(
       "字典项目不存在或已删除",
       404,
     );
-    return { ...row, deleted: Boolean(row.deleted), label: row.name };
+    return decorateDictionary(kind, row);
   }
   function getOrganization(
     key: string,
@@ -101,7 +110,10 @@ export function createDictionaries(
             : input.status,
         ),
         sort_order: previous?.sort_order ?? 100,
-        fields_json: previous?.fields_json || "[]",
+        fields_json: kind === "units"
+          ? unitFieldsWithPrecision(previous?.fields_json,
+              input.quantity_precision === undefined ? previous?.quantity_precision ?? 0 : input.quantity_precision)
+          : previous?.fields_json || "[]",
         reason: typeof input.reason === "string" ? input.reason : "",
         changed_by: actor.id,
         changed_at: timestamp,
@@ -238,7 +250,10 @@ export function createDictionaries(
     detail(kind: DictionaryKind, key: string) {
       return {
         item: getDictionary(kind, key, true),
-        versions: repository.dictionaryHistory(key),
+        versions: repository.dictionaryHistory(key).map((row) => ({
+          ...row,
+          ...(kind === "units" ? { quantity_precision: quantityPrecisionFromFields(row.fields_json) } : {}),
+        })),
         audits: audit.history(kind, key),
       };
     },
@@ -280,11 +295,7 @@ export function createDictionaries(
         : repository
             .dictionaryItems(kind)
             .filter((row) => includeDeleted || !row.deleted)
-            .map((row) => ({
-              ...row,
-              label: row.name,
-              deleted: Boolean(row.deleted),
-            })),
+            .map((row) => decorateDictionary(kind, row)),
     search(kind: FoundationKind, query: ListQuery) {
       const page =
         kind === "organizations"
@@ -292,11 +303,9 @@ export function createDictionaries(
           : repository.searchDictionary(kind, query);
       return {
         ...page,
-        items: page.items.map((row) => ({
-          ...row,
-          label: row.name,
-          deleted: Boolean(row.deleted),
-        })),
+        items: page.items.map((row) => kind === "organizations"
+          ? { ...row, label: row.name, deleted: Boolean(row.deleted) }
+          : decorateDictionary(kind, row as DictionaryItem)),
       };
     },
     history(kind: FoundationKind, key: string) {
@@ -305,7 +314,10 @@ export function createDictionaries(
         return repository.organizationHistory(key);
       }
       getDictionary(kind, key, true);
-      return repository.dictionaryHistory(key);
+      return repository.dictionaryHistory(key).map((row) => ({
+        ...row,
+        ...(kind === "units" ? { quantity_precision: quantityPrecisionFromFields(row.fields_json) } : {}),
+      }));
     },
   };
 }

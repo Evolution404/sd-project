@@ -1,6 +1,6 @@
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
-import { createReferences } from "./references.mjs";
+import { createReferences } from "./references.js";
 import {
   parseWorkbook,
   makeWorkbook,

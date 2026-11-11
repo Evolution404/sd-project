@@ -3,12 +3,6 @@ import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 const descriptionColumns = useDescriptionColumns();
-function hasProjectProfile(project: Row) {
-  return Boolean(project.category_name || project.managing_unit_name ||
-    project.owner_username || project.manager_username ||
-    project.planned_start_on || project.planned_end_on ||
-    project.preliminary_estimate_fen);
-}
 import { useListRoute } from "../../shared/composables/use-list-route";
 import RowActions from "../../shared/ui/RowActions.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
@@ -23,6 +17,10 @@ import FieldControl from "../../shared/ui/FieldControl.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import PricingQuoteDialog from "../pricing/PricingQuoteDialog.vue";
 import FinancePanel from "../finance/FinancePanel.vue";
+import ProjectWorkflowHeader from "./components/ProjectWorkflowHeader.vue";
+import ProjectOverview from "./components/ProjectOverview.vue";
+import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
+import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
 import { api, type Row, money, quantity, statusText } from "../../shared/api/client";
 import type { DemandListItem } from "../../../../server/shared/types/demands";
 import type { Page } from "../../../../server/shared/types/contracts";
@@ -31,9 +29,9 @@ const formRef = ref(),
 
 const route = useRoute(), router = useRouter();
 const projectActions = ref<ProjectAction[]>([]);
-const overviewSummary = ref<Row | null>(null);
-const overviewFramework = ref<Row | null>(null);
-const overviewAgreement = ref<Row | null>(null);
+const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
+const overviewFramework = ref<ProjectReference | null>(null);
+const overviewAgreement = ref<ProjectReference | null>(null);
 const overviewLoading = ref(false);
 const closeReviewOpen = ref(false);
 const handoffDemand = ref<Row | null>(null);
@@ -51,6 +49,27 @@ async function loadHandoffDemand() {
     ElMessage.error("无法读取待承接需求：" + (error as Error).message);
   }
 }
+const overviewProject = computed<ProjectOverviewFacts | null>(() => {
+  const row = detail.value;
+  if (!row) return null;
+  return {
+    id: row.id,
+    status: row.status,
+    deleted: Boolean(row.deleted),
+    framework_id: row.framework_id,
+    scopes: (row.scopes || []).map((scope: Row) => ({ binding: scope.binding })),
+    approval: row.approval
+      ? { version_no: row.approval.version_no, approved_budget_fen: row.approval.approved_budget_fen }
+      : null,
+    planned_end_on: row.planned_end_on || null,
+    planned_start_on: row.planned_start_on || null,
+    category_name: row.category_name || null,
+    managing_unit_name: row.managing_unit_name || null,
+    owner_username: row.owner_username || null,
+    manager_username: row.manager_username || null,
+    preliminary_estimate_fen: row.preliminary_estimate_fen ?? null,
+  };
+});
 const rows = ref<Row[]>([]),
   listLoading = ref(false),
   total = ref(0),
@@ -531,11 +550,11 @@ async function loadOverview() {
   overviewLoading.value = true;
   try {
     const [summary, actions, framework, agreement] = await Promise.all([
-      api(`/projects/${id}/summary`),
+      api<ProjectFinanceSnapshot>("/projects/" + id + "/summary"),
       api<ProjectAction[]>(`/projects/${id}/actions`),
-      detail.value?.framework_id ? api("/funding/frameworks/" + detail.value.framework_id + "?deleted=true") : null,
+      detail.value?.framework_id ? api<ProjectReference>("/funding/frameworks/" + detail.value.framework_id + "?deleted=true") : null,
       detail.value?.funding?.agreement_id
-        ? api("/funding/agreements/" + detail.value.funding.agreement_id + "?deleted=true") : null,
+        ? api<ProjectReference>("/funding/agreements/" + detail.value.funding.agreement_id + "?deleted=true") : null,
     ]);
     if (sequence !== overviewSequence || detail.value?.id !== id) return;
     overviewSummary.value = summary;
@@ -657,49 +676,15 @@ onMounted(async () => {
          <span class="muted project-code">{{ detail.code }}</span>
        </ElTooltip>
     </div>
-    <div class="panel project-current-step" v-loading="overviewLoading">
-      <div class="toolbar project-action-bar">
-        <div>
-          <h2>当前阶段 · {{ statusText[detail.status] }}</h2>
-          <p class="muted">根据当前正式业务事实显示可办理操作；所有写入仍需服务端审核权限与版本。</p>
-        </div>
-        <template v-if="projectActions.length">
-          <ElTooltip v-if="projectActions[0].reason"
-            :content="projectActions[0].reason">
-            <ElButton type="primary" disabled>{{ projectActions[0].label }}</ElButton>
-          </ElTooltip>
-          <ElButton v-else type="primary" :disabled="!projectActions[0].enabled"
-            @click="runWorkflowAction(projectActions[0])">{{ projectActions[0].label }}</ElButton>
-        </template>
-        <ElDropdown v-if="projectActions.length > 1" trigger="click"
-          @command="runWorkflowAction">
-          <ElButton>其他办理操作</ElButton>
-          <template #dropdown>
-            <ElDropdownMenu>
-              <ElDropdownItem v-for="item in projectActions.slice(1)" :key="item.key"
-                :disabled="!item.enabled" :command="item">{{ item.label }}</ElDropdownItem>
-            </ElDropdownMenu>
-          </template>
-        </ElDropdown>
-        <ElButton v-if="detail.status !== 'closed'"
-          :disabled="!can('write') || detail.deleted"
-          @click="openDialog('funding')">资金归属</ElButton>
-        <ElDropdown @command="command => {
-          if (command === 'edit') editProject(detail || undefined);
-          if (command === 'history') { tab = 'history'; showHistory(); }
-          if (command === 'delete') removeProject();
-        }">
-          <ElButton>更多管理操作</ElButton>
-          <template #dropdown>
-            <ElDropdownMenu>
-              <ElDropdownItem command="edit" :disabled="!can('write') || detail.deleted">修订档案</ElDropdownItem>
-              <ElDropdownItem command="history">完整历史（含历次批准）</ElDropdownItem>
-              <ElDropdownItem command="delete" :disabled="!can('admin') || detail.deleted" divided>删除项目</ElDropdownItem>
-            </ElDropdownMenu>
-          </template>
-        </ElDropdown>
-      </div>
-    </div>
+    <ProjectWorkflowHeader :status="detail.status" :deleted="!!detail.deleted"
+      :loading="overviewLoading" :actions="projectActions" :can-write="can('write')"
+      :can-admin="can('admin')" @action="runWorkflowAction"
+      @manage="command => {
+        if (command === 'funding') openDialog('funding');
+        if (command === 'edit') editProject(detail || undefined);
+        if (command === 'history') { tab = 'history'; showHistory(); }
+        if (command === 'delete') removeProject();
+      }" />
     <ElTabs v-model="tab" class="project-workflow-tabs">
       <ElTabPane name="overview" label="项目概览" />
       <ElTabPane name="scope" label="需求与范围" />
@@ -707,65 +692,12 @@ onMounted(async () => {
       <ElTabPane name="finance" label="费用与结算" />
       <ElTabPane name="history" label="完整历史" />
     </ElTabs>
-    <div v-if="tab === 'overview'" class="panel" v-loading="overviewLoading">
-      <div class="toolbar"><h2>当前正式业务事实</h2></div>
-      <div class="project-overview-metrics">
-        <div><span>当前关联需求</span><strong>{{ detail.scopes.filter((scope: Row) => !!scope.binding).length }} 项</strong></div>
-        <div><span>当前批准范围</span><strong>{{ detail.approval ? '第' + detail.approval.version_no + '版' : '尚未批准' }}</strong></div>
-        <div><span>批准预算</span><strong>{{ detail.approval ? '¥' + money(detail.approval.approved_budget_fen) : '未批准' }}</strong></div>
-        <div><span>真实费用</span><strong>{{ overviewSummary ? '¥' + money(overviewSummary.actual_cost_fen) : '查询中' }}</strong></div>
-        <div><span>已批准结算</span><strong>{{ overviewSummary ? '¥' + money(overviewSummary.settlement_fen) : '查询中' }}</strong></div>
-        <div><span>待核对费用</span><strong>{{ overviewSummary ? '¥' + money(overviewSummary.unreconciled_cost_fen) : '查询中' }}</strong></div>
-      </div>
-      <ElDescriptions :column="descriptionColumns" border class="project-context-descriptions">
-        <ElDescriptionsItem label="所属年度框架">
-          <ElButton link type="primary" :disabled="!overviewFramework" @click="router.push(fundContext('frameworks', detail.framework_id))">
-            {{ overviewFramework?.name || '查看年度框架' }}
-          </ElButton>
-        </ElDescriptionsItem>
-        <ElDescriptionsItem label="当前执行协议">
-          <ElButton v-if="overviewAgreement" link type="primary"
-            @click="router.push(fundContext('agreements', overviewAgreement.id))">{{ overviewAgreement.name }}</ElButton>
-          <span v-else>暂未关联</span>
-        </ElDescriptionsItem>
-        <ElDescriptionsItem label="当前阶段">{{ statusText[detail.status] }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="计划结束日期">{{ detail.planned_end_on || '未指定' }}</ElDescriptionsItem>
-      </ElDescriptions>
-      <div class="toolbar" style="margin-top:14px">
-        <ElButton @click="tab = 'scope'">查看需求与范围</ElButton>
-        <ElButton @click="tab = 'approval'">查看批准与变更</ElButton>
-        <ElButton @click="tab = 'finance'">查看财务办理</ElButton>
-      </div>
-    </div>
-    <div v-if="tab === 'overview' && hasProjectProfile(detail)" class="panel">
-      <ElDescriptions :column="descriptionColumns" border
-        ><ElDescriptionsItem label="项目类别">{{
-          detail.category_name || "未指定"
-        }}</ElDescriptionsItem
-        ><ElDescriptionsItem label="归口单位">{{
-          detail.managing_unit_name || "未指定"
-        }}</ElDescriptionsItem
-        ><ElDescriptionsItem label="责任人">{{
-          detail.owner_username || "未指定"
-        }}</ElDescriptionsItem
-        ><ElDescriptionsItem label="管理人员">{{
-          detail.manager_username || "未指定"
-        }}</ElDescriptionsItem
-        ><ElDescriptionsItem label="计划期间"
-          >{{ detail.planned_start_on || "未指定" }} 至
-          {{ detail.planned_end_on || "未指定" }}</ElDescriptionsItem
-        ><ElDescriptionsItem label="初步估算">{{
-          money(detail.preliminary_estimate_fen)
-        }}</ElDescriptionsItem></ElDescriptions
-      >
-    </div>
-    <div v-else-if="tab === 'overview'" class="panel">
-      <div class="toolbar" style="flex-wrap:wrap">
-        <span class="muted">项目档案尚未完善，可补充项目类别、归口单位、负责人和计划期间。</span>
-        <ElButton :disabled="!can('write') || detail.deleted"
-          @click="editProject(detail)">完善档案</ElButton>
-      </div>
-    </div>
+    <ProjectOverview v-if="tab === 'overview' && overviewProject" :project="overviewProject"
+      :summary="overviewSummary" :framework="overviewFramework"
+      :agreement="overviewAgreement" :loading="overviewLoading"
+      :can-write="can('write')" :description-columns="descriptionColumns"
+      @section="tab = $event" @fund="(kind, id) => router.push(fundContext(kind, id))"
+      @edit="editProject(detail || undefined)" />
     <template v-if="tab === 'scope'"
       ><div class="panel">
         <div class="toolbar">
@@ -896,39 +828,10 @@ onMounted(async () => {
     </div>
   </template>
   </BusinessDetailDialog>
-  <ElDialog append-to-body v-model="closeReviewOpen" title="结项前业务核对"
-    width="min(820px, 94vw)" :close-on-click-modal="false">
-    <template v-if="detail && overviewSummary">
-      <ElAlert type="warning" :closable="false" title="正式结项将保留当时全部差异事实及审核依据。存在差异不代表自动禁止结项，必须核对后作出正式决定。" />
-      <ElDescriptions :column="2" border class="project-close-review">
-        <ElDescriptionsItem label="当前批准范围">{{ detail.approval ? '批准第' + detail.approval.version_no + '版' : '无有效批准' }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="待处理需求">{{ overviewSummary.demands?.filter((row: Row) => row.remaining_quantity_scaled > 0).length || 0 }} 项</ElDescriptionsItem>
-        <ElDescriptionsItem label="真实费用">¥{{ money(overviewSummary.actual_cost_fen) }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="已批准结算">¥{{ money(overviewSummary.settlement_fen) }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="待核对费用">¥{{ money(overviewSummary.unreconciled_cost_fen) }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="实际与预算差额">{{ overviewSummary.budget_difference_fen == null ? '尚未批准' : '¥' + money(overviewSummary.budget_difference_fen) }}</ElDescriptionsItem>
-      </ElDescriptions>
-      <BusinessTable v-if="overviewSummary.demands?.length" client-side
-        table-key="project:close-check" :rows="overviewSummary.demands"
-        :columns="[
-          { key: 'demand_no', label: '需求编号', minWidth: 160 },
-          { key: 'approved_quantity_scaled', label: '批准工作量', minWidth: 145 },
-          { key: 'resolved_quantity_scaled', label: '已解决', minWidth: 130 },
-          { key: 'remaining_quantity_scaled', label: '未解决', minWidth: 130 },
-          { key: 'excess_quantity_scaled', label: '超出批准', minWidth: 130 },
-        ]">
-        <template #cell="{ row, column }">
-          {{ column.key.endsWith('_quantity_scaled') ? quantity(row[column.key]) : row[column.key] }}
-        </template>
-      </BusinessTable>
-    </template>
-    <ElSkeleton v-else :rows="5" animated />
-    <template #footer>
-      <ElButton @click="closeReviewOpen = false">继续核对</ElButton>
-      <ElButton type="primary" :disabled="!can('project.close') || !overviewSummary || !detail?.approval"
-        @click="action('close', undefined, true)">已核对差异，正式结项</ElButton>
-    </template>
-  </ElDialog>
+  <ProjectCloseReviewDialog v-model:open="closeReviewOpen"
+    :approved-version="detail?.approval?.version_no" :summary="overviewSummary"
+    :can-close="can('project.close')"
+    @confirm="action('close', undefined, true)" />
   <ElDialog append-to-body
     :model-value="!!dialog"
     :title="
@@ -1234,19 +1137,4 @@ onMounted(async () => {
   overflow-wrap: anywhere;
 }
 
-</style>
-
-<style scoped>
-.project-current-step {margin-bottom:12px}
-.project-action-bar {justify-content:space-between;flex-wrap:wrap;gap:10px}
-.project-action-bar h2 {margin:0}
-.project-action-bar p {margin:4px 0 0;font-size:12px}
-.project-overview-metrics {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:14px 0}
-.project-overview-metrics > div {border:1px solid var(--edge);border-radius:12px;padding:14px;min-width:0}
-.project-overview-metrics span {display:block;font-size:12px;color:var(--muted);margin-bottom:8px}
-.project-overview-metrics strong {display:block;font-size:18px;font-weight:650;overflow-wrap:anywhere}
-.project-context-descriptions {margin-top:14px}
-.project-close-review {margin:16px 0}
-@media(max-width:800px){.project-overview-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:480px){.project-overview-metrics{grid-template-columns:1fr}}
 </style>

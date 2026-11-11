@@ -1,5 +1,5 @@
 import { countBusinessReferences } from "../queries/deletion-impact.js";
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import type {
   PriceFactorRecord,
   PriceFactorVersion,
@@ -32,7 +32,7 @@ export function priceFactorRepository(store: ReturnType<typeof createStore>) {
         store.get(
           `SELECT COUNT(*) AS total FROM operation_versions v, json_each(v.pricing_features_json) feature WHERE json_extract(feature.value,'$.factor_id')=?`,
           id,
-        ).total,
+        )?.total ?? 0,
       ),
     current: (id: string) =>
       store.get(

@@ -1,4 +1,4 @@
-import type { createStore } from "./store.mjs";
+import type { createStore } from "./store.js";
 import { equipmentSources, searchEquipment } from "./equipment-search.js";
 import type {
   EquipmentCatalogKind,

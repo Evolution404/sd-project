@@ -109,3 +109,68 @@ test("settled amounts, independently reported work, over-completion and reconcil
   assert.equal(history.costs.length, 1);
   assert.equal(history.settlements.length, 2);
 });
+
+test("nested cost history rejects a cost belonging to a different project", t => {
+  const { s, user, project, framework, node } = approvedFixture(t);
+  const second = s.projects.save(user, {
+    name: "不能窥视其他项目费用的子项目",
+    framework_id: framework.id,
+  });
+  const cost = s.finance.cost(user, project.id, {
+    cost_node_id: node.id, title: "本项目正式费用", amount_fen: 34567,
+    occurred_on: "2026-11-11", evidence: "权限测试凭据",
+  });
+  assert.equal(s.finance.costHistory(project.id, cost.entry_id).length, 1);
+  assert.throws(
+    () => s.finance.costHistory(second.id, cost.entry_id),
+    /费用不存在于当前项目/,
+  );
+  assert.throws(
+    () => s.finance.costHistory(second.id, "does-not-exist"),
+    /费用不存在于当前项目/,
+  );
+});
+
+test("nested settlement and reconciliation histories enforce owning project for every version", t => {
+  const { s, user, project, framework, scope, node, approval } = approvedFixture(t);
+  const other = s.projects.save(user, {
+    name: "另一项目不可借项目路由读取正式结算", framework_id: framework.id,
+  });
+  const cost = s.finance.cost(user, project.id, {
+    cost_node_id: node.id, title: "分次正式费用", amount_fen: 8000,
+    occurred_on: "2026-11-11", evidence: "实际费用依据",
+  });
+  let bill = s.finance.saveDraft(user, project.id, {
+    approval_version_id: approval.id,
+    items: [{ cost_node_id: node.id, project_scope_id: scope.id,
+      quantity_scaled: 10000, amount_fen: 5000, evidence: "结算依据" }],
+    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000, evidence: "核实" }],
+  });
+  bill = s.finance.submit(user, bill.id,
+    { expected_version: 0, expected_edit_version: 1 });
+  bill = s.finance.review(user, bill.id,
+    { expected_version: 1, expected_event_seq: 1, action: "approve" });
+  const reconciliation = s.finance.reconciliation(user, {
+    expected_version: 0, cost_version_id: cost.id,
+    settlement_item_version_id: bill.items[0].id,
+    reconciled_cost_fen: 4000, reconciled_settlement_fen: 5000,
+    is_final: true, evidence: "正式差异核对",
+  });
+  assert.equal(s.finance.settlementForProject(project.id, bill.id).id, bill.id);
+  assert.equal(s.finance.reconciliationHistoryForProject(project.id,
+    reconciliation.record_id).length, 1);
+  assert.throws(
+    () => s.finance.settlementForProject(other.id, bill.id),
+    /结算单不存在于当前项目/,
+  );
+  assert.throws(
+    () => s.finance.reconciliationHistoryForProject(other.id,
+      reconciliation.record_id),
+    /核对记录不存在于当前项目/,
+  );
+  assert.throws(
+    () => s.finance.reconciliationHistoryForProject(other.id, "missing-id"),
+    /核对记录不存在/,
+  );
+  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+});
