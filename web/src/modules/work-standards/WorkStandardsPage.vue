@@ -66,8 +66,23 @@ const definitions = shallowRef<Partial<Record<Kind, CatalogFormDefinition>>>(
   showHistory = ref(false);
 
 const detail = computed(() => detailState.value?.item || null);
-const returnToDemand = computed(() => typeof route.query.returnTo === "string" &&
+const adoptedDemandReturnTo = computed(() =>
+  typeof route.query.record === "string" &&
+  typeof route.query.returnTo === "string" &&
   route.query.returnTo.startsWith("/demands") ? route.query.returnTo : null);
+const returnToDemand = computed(() =>
+  typeof route.query.record !== "string" &&
+  typeof route.query.returnTo === "string" &&
+  route.query.returnTo.startsWith("/demands") ? route.query.returnTo : null);
+const adoptedVersion = computed(() => {
+  if (kind.value !== "operations" || !adoptedDemandReturnTo.value) return null;
+  const candidate = Number(route.query.adoptedVersion);
+  return Number.isSafeInteger(candidate) && candidate > 0 ? candidate : null;
+});
+const adoptedVersionExists = computed(() =>
+  adoptedVersion.value !== null && detailState.value?.versions.some(version =>
+    version !== null && typeof version === "object" &&
+    "version" in version && version.version === adoptedVersion.value) === true);
 function backToDemand() {
   if (returnToDemand.value) resumeTask(router, returnToDemand.value);
 }
@@ -230,6 +245,13 @@ watch(kind, () => {
   void load();
 });
 useListRoute({ q: query, page, deleted, sort, direction, filters }, load);
+watch(() => [kind.value, route.query.record, route.query.adoptedVersion], async () => {
+  const id = route.query.record;
+  if (typeof id !== "string" || !id) return;
+  await detailDialog.open(id);
+  if (route.query.adoptedVersion && detail.value?.id === id)
+    showHistory.value = true;
+}, { immediate: true, flush: "post" });
 onMounted(async () => {
   try {
     [definitions.value, labels.value] = await Promise.all([
@@ -359,6 +381,8 @@ onMounted(async () => {
         }}</ElTag>
       </div>
       <div class="toolbar">
+        <ElButton v-if="adoptedDemandReturnTo" link type="primary"
+          @click="resumeTask(router, adoptedDemandReturnTo)">返回需求详情</ElButton>
         <ElButton
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"
@@ -371,6 +395,12 @@ onMounted(async () => {
           >删除</ElButton
         >
       </div>
+      <ElAlert v-if="adoptedVersion !== null"
+        :title="adoptedVersionExists
+          ? '该需求正式采用第' + adoptedVersion + '版操作定义，下面可追溯该版本'
+          : '需求采用的第' + adoptedVersion + '版操作定义未能找到，请核对正式历史'"
+        :type="adoptedVersionExists ? 'info' : 'warning'"
+        :closable="false" />
       <div class="panel">
         <h2>正式定义</h2>
         <ElDescriptions :column="descriptionColumns" border>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { resumeTask } from "../../shared/navigation/business-context";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type {
   EquipmentCatalogKind,
@@ -226,6 +227,17 @@ useListRoute(
   },
   load,
 );
+const returnToDemand = computed(() =>
+  typeof route.query.record === "string" &&
+  typeof route.query.returnTo === "string" &&
+  route.query.returnTo.startsWith("/demands") ? route.query.returnTo : null);
+watch(() => [kind.value, route.query.record, route.query.history], async () => {
+  const id = route.query.record;
+  if (typeof id !== "string" || !id) return;
+  await detailDialog.open(id);
+  if (route.query.history === "true" && detail.value?.id === id)
+    await viewHistory(detail.value);
+}, { immediate: true, flush: "post" });
 onMounted(async () => {
   try {
     definitions.value = await api("/catalogs");
@@ -382,6 +394,8 @@ onMounted(async () => {
         }}</ElTag>
       </div>
       <div class="toolbar">
+        <ElButton v-if="returnToDemand" link type="primary"
+          @click="resumeTask(router, returnToDemand)">返回需求详情</ElButton>
         <ElButton
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"

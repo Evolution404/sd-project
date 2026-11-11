@@ -98,6 +98,34 @@ function openLinkedProject() {
       "scope", { focus: "demand", record: detail.value.id }));
   }
 }
+function openAdoptedOperation() {
+  if (!detail.value?.operation_id || !detail.value.operation_version) return;
+  void router.push({
+    name: "standards",
+    params: { kind: "operations" },
+    query: {
+      record: detail.value.operation_id,
+      adoptedVersion: String(detail.value.operation_version),
+      returnTo: route.fullPath,
+    },
+  });
+}
+function openLocationRecord(location: Record<string, unknown>) {
+  const target = location.location_kind === "span"
+    ? { kind: "spans", id: location.span_id }
+    : location.location_kind === "physical_tower"
+      ? { kind: "physical", id: location.physical_tower_id }
+      : { kind: "towers", id: location.logical_tower_id };
+  if (typeof target.id !== "string" || !target.id) {
+    ElMessage.warning("该历史作业位置没有对应的设备正式身份");
+    return;
+  }
+  void router.push({
+    name: "ledger",
+    params: { kind: target.kind },
+    query: { record: target.id, history: "true", returnTo: route.fullPath },
+  });
+}
 function createProjectAndLink() {
   if (!detail.value) return;
   void router.push(createProjectForDemand(detail.value.id));
@@ -613,7 +641,12 @@ onMounted(async () => {
       </div>
     </div>
     <div class="panel">
-      <h2>需求定义</h2>
+      <div class="toolbar">
+        <h2>需求定义</h2>
+        <ElButton link type="primary" @click="openAdoptedOperation">
+          查看采用的操作定义（第{{ detail.operation_version }}版）
+        </ElButton>
+      </div>
       <ElDescriptions :column="descriptionColumns" border
         ><ElDescriptionsItem label="问题描述">{{
           detail.problem_description
@@ -634,10 +667,11 @@ onMounted(async () => {
       <BusinessTable client-side table-key="demand:detail-locations"
         :rows="detail.work_locations || []" :columns="demandLocationColumns">
         <template #cell="{ row, column }">
-          <span v-if="column.key === 'location_snapshot_json'">
+          <ElButton v-if="column.key === 'location_snapshot_json'"
+            link type="primary" @click="openLocationRecord(row)">
             {{ row.location_snapshot_json?.line_name || '' }}
             {{ row.location_snapshot_json?.location_label || row.location_snapshot_json?.tower_no || row.location_snapshot_json?.physical_code || row.span_id }}
-          </span>
+          </ElButton>
           <span v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
           <span v-else-if="column.key === 'work_mode'">{{ statusText[row.work_mode] || row.work_mode }}</span>
           <span v-else-if="column.key === 'site_features_json'">
