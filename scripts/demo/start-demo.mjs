@@ -14,7 +14,9 @@ const description = [
     "基逻辑杆塔，" + result.spans + "个档距",
   "业务数据：" + result.operations + "种操作，" + result.priceRules +
     "条参考价格，" + result.demands + "条需求，" + result.projects + "个子项目",
-  result.created ? "演示数据库创建成功" : "已复用现有演示数据库，未重置任何记录",
+  result.refreshed
+    ? "演示数据版本更新：旧数据已完整归档到 " + result.archive
+    : result.created ? "演示数据库创建成功" : "已复用现有演示数据库，未重置任何记录",
 ];
 if (process.argv.includes("--seed-only")) {
   console.log(description.join("\n"));

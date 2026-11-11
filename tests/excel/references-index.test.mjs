@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
@@ -8,21 +9,21 @@ test("Excel project, demand scope and cost path use one query per index per prep
   const child = s.finance.node(user, project.id, { parent_id: node.id, name: "分项成本" });
   const calls = { project: 0, scope: 0, cost: 0 };
   const repo = {
-    ...s.repo,
+    ...s.exchangeReferences,
     exchangeProjectCandidates(...args) {
       calls.project++;
-      return s.repo.exchangeProjectCandidates(...args);
+      return s.exchangeReferences.exchangeProjectCandidates(...args);
     },
     exchangeScopeCandidates(...args) {
       calls.scope++;
-      return s.repo.exchangeScopeCandidates(...args);
+      return s.exchangeReferences.exchangeScopeCandidates(...args);
     },
     exchangeCostPaths(...args) {
       calls.cost++;
-      return s.repo.exchangeCostPaths(...args);
+      return s.exchangeReferences.exchangeCostPaths(...args);
     },
   };
-  const refs = createReferences({ ...s, repo });
+  const refs = createReferences({ ...s, exchangeReferences:repo });
   const description = s.demands.get(scope.demand_id).problem_description;
   for (let i = 0; i < 5000; i++) {
     assert.equal(refs.project(project.name).id, project.id);

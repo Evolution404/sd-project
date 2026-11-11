@@ -14,9 +14,7 @@
     "noEmitOnError": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "allowJs": true,
-    "checkJs": false,
     "sourceMap": true
   },
-  "include": ["server/**/*.ts", "server/**/*.mjs"]
+  "include": ["server/**/*.ts"]
 }

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -7,7 +8,7 @@ import { parseListQuery } from "../../dist/server/platform/http/list-query.js";
 test("dictionary revisions preserve previously recorded order and extension facts", (t) => {
   const { s, user, unit } = fixture(t);
   const custom = JSON.stringify({ dimension: "长度", quantity_precision: 0 });
-  s.repo.insert("dictionary_item_versions", {
+  inspect(s).insert("dictionary_item_versions", {
     id: id(),
     item_id: unit.id,
     version: 2,
@@ -59,18 +60,18 @@ test("material revisions preserve historical category facts and stable unit iden
   const timestamp = now(),
     categoryId = id(),
     materialId = id();
-  s.repo.transaction(() => {
-    s.repo.insert("dictionary_types", {
+  inspect(s).transaction(() => {
+    inspect(s).insert("dictionary_types", {
       id: "material_category",
       title: "物资类别",
     });
-    s.repo.insert("dictionary_items", {
+    inspect(s).insert("dictionary_items", {
       id: categoryId,
       type_id: "material_category",
       code: "legacy-category",
       created_at: timestamp,
     });
-    s.repo.insert("dictionary_item_versions", {
+    inspect(s).insert("dictionary_item_versions", {
       id: id(),
       item_id: categoryId,
       version: 1,
@@ -79,14 +80,14 @@ test("material revisions preserve historical category facts and stable unit iden
       changed_by: user.id,
       changed_at: timestamp,
     });
-    s.repo.insert("materials", {
+    inspect(s).insert("materials", {
       id: materialId,
       code: "legacy-material",
       unit_id: unit.id,
       created_by: user.id,
       created_at: timestamp,
     });
-    s.repo.insert("material_versions", {
+    inspect(s).insert("material_versions", {
       id: id(),
       material_id: materialId,
       version_no: 1,
@@ -126,7 +127,7 @@ test("material revisions preserve historical category facts and stable unit iden
   assert.equal(detail.versions[0].category_id, categoryId);
   assert.equal(detail.versions.length, 3);
   assert.ok(detail.audits.some((event) => event.action === "delete"));
-  assert.deepEqual(s.repo.integrity().foreignKeys, []);
+  assert.deepEqual(inspect(s).integrity().foreignKeys, []);
 });
 
 test("dictionary deletion checks fresh formal references and leaves prior adoptions readable", (t) => {

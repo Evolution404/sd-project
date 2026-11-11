@@ -11,14 +11,14 @@ import type { CatalogService } from "../catalog/service.js";
 import type { DemandService } from "../../shared/types/demands.js";
 import type { PricingService } from "../pricing/service.js";
 import type { FundingService } from "../funding/service.js";
-import type { BusinessRepository } from "../../database/repositories/business.js";
+import type { ProjectPersistenceRepository } from "../../database/repositories/project-persistence.js";
 import type { QuantityUnitRepository } from "../../database/repositories/quantity-units.js";
-import type { ProjectIdentity, ProjectManagementInput, ProjectFromDemandInput,
+import type { ProjectManagementInput, ProjectFromDemandInput,
   ProjectApprovalInput, ProjectLinkInput, ProjectReleaseInput,
   ProjectVersionAction, ProjectFundingInput } from "../../shared/types/projects.js";
 
 export function createProjects(
-  repo: BusinessRepository,
+  repo: ProjectPersistenceRepository,
   catalog: CatalogService,
   demands: DemandService,
   pricing: PricingService,
@@ -440,8 +440,7 @@ export function createProjects(
     },
     list(includeDeleted = false) {
       const deleted = repo.deletedProjectIds();
-      return repo
-        .list<ProjectIdentity>("projects")
+      return repo.projectIdentities()
         .filter((x) => includeDeleted || !deleted.has(x.id))
         .map((x) => ({
           ...get(x.id, includeDeleted),

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture, approvedFixture } from "../helpers.mjs";
@@ -18,9 +19,9 @@ test("atomic new project plus demand acceptance creates one association and a fo
   assert.equal(created.scopes.length, 1);
   assert.equal(created.scopes[0].demand_id, demand.id);
   assert.equal(s.demands.get(demand.id).binding.project_id, created.id);
-  const auditCount = s.repo.auditFor("projects", created.id).length;
+  const auditCount = inspect(s).auditFor("projects", created.id).length;
   assert.equal(auditCount, 1, "project creation has one formal audit entry");
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("stale or prebound demand cannot leave half-created projects", t => {
@@ -94,5 +95,5 @@ test("annual framework and execution agreement aggregate only approved settlemen
     assert.equal(facts.projects[0].settlement_fen, 50000);
   }
   assert.equal(frameworkFacts.summary.settlement_fen, s.finance.summary(project.id).settlement_fen);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

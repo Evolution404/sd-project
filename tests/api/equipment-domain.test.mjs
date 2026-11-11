@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -21,7 +22,7 @@ test("equipment repository reads stay bounded as a page grows and preserve all c
       physical_tower_id: shared.id,
     });
   let calls = 0;
-  const counted = new Proxy(s.repo, {
+  const counted = new Proxy(inspect(s), {
     get(target, key) {
       const value = Reflect.get(target, key);
       if (typeof value !== "function") return value;
@@ -126,5 +127,5 @@ test("equipment validation and voltage revisions retain identities, audited vers
   s.equipment.remove(user, "towers", tower.id, 2);
   assert.equal(s.equipment.list("towers").length, 0);
   assert.equal(s.equipment.get("towers", tower.id, true).tower_no, "#2");
-  assert.deepEqual(s.repo.integrity().foreignKeys, []);
+  assert.deepEqual(inspect(s).integrity().foreignKeys, []);
 });

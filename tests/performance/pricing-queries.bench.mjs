@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
@@ -26,7 +27,7 @@ test("100-location pricing has a fixed five reads and approval summary has two t
     })),
   });
   let reads = 0;
-  const store = new Proxy(s.repo, {
+  const store = new Proxy(inspect(s), {
     get(target, key) {
       const value = Reflect.get(target, key);
       if (typeof value !== "function") return value;

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
@@ -21,7 +22,7 @@ test(
         });
     });
     let reads = 0;
-    const counted = new Proxy(s.repo, {
+    const counted = new Proxy(inspect(s), {
       get(target, key) {
         const value = Reflect.get(target, key);
         if (typeof value !== "function") return value;

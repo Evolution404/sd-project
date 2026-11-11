@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -84,5 +85,5 @@ test("management revisions protect last administrator and preserve corrected aud
   assert.equal(s.management.audits(user).some(row => row.id === creation.id), false);
   assert.equal(s.management.audits(user, true).some(row => row.id === creation.id), true);
   assert.equal(s.management.audits(user, false, creation.id).decisions.length, 2);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

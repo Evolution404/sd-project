@@ -35,10 +35,10 @@ interface WorkbookLocation {
 }
 type ReferencesSystem = {
   catalog: CatalogService;
-  repo: ExchangeReferenceRepository;
+  exchangeReferences: ExchangeReferenceRepository;
   projects: { get: (id: string) => { id: string; name: string } };
 };
-export function createReferences({ catalog, repo, projects }: ReferencesSystem) {
+export function createReferences({ catalog, exchangeReferences:repo, projects }: ReferencesSystem) {
   const lists = new Map<CatalogKind, BusinessReference[]>();
   const indexes = new Map<string, Map<unknown, BusinessReference[]>>();
   const projectCandidates = new Map<string, ExchangeProjectCandidate[]>();

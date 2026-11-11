@@ -12,11 +12,17 @@ import {
   renameSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { ensureDemoDatabase, DEMO_ACCOUNT } from "../demo/seed-demo.mjs";
+import { createSystem } from "../../dist/server/bootstrap.js";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 const root = resolve(import.meta.dirname, "..", "..");
+const mode = process.env.SD_PACKAGE_MODE || "production";
+if (!["production", "demo"].includes(mode))
+  throw Error("无效的 Windows 打包模式");
+const demoMode = mode === "demo";
 const version = process.env.SD_NODE_VERSION || "v24.13.0";
 if (!/^v24\.\d+\.\d+$/.test(version))
   throw Error("Windows 运行时仅允许经过测试的 Node 24.x");
@@ -32,10 +38,10 @@ const dirty = spawnSync("git", ["status", "--porcelain"], {
   cwd: root,
   encoding: "utf8",
 });
-if (revision.status !== 0 || dirty.status !== 0 || dirty.stdout.trim())
+if (revision.status !== 0 || dirty.status !== 0 || (!demoMode && dirty.stdout.trim()))
   throw Error("正式打包要求工作区干净，请先提交全部受控源码和文档");
 const gitCommit = revision.stdout.trim();
-const stage = join(root, ".build", "windows-staging");
+const stage = join(root, ".build", demoMode ? "windows-demo-staging" : "windows-staging");
 const cache = join(root, ".build", "windows-cache");
 mkdirSync(cache, { recursive: true });
 mkdirSync(work, { recursive: true });
@@ -142,6 +148,52 @@ const npm = spawnSync(
   { cwd: stage, stdio: "inherit" },
 );
 if (npm.status !== 0) throw Error("Production dependency installation failed");
+if (demoMode) {
+  const generatedPassword = process.env.SD_DEMO_PACKAGE_PASSWORD ||
+    randomBytes(24).toString("base64url");
+  if (generatedPassword.length < 16 || generatedPassword.length > 256)
+    throw Error("演示包密码必须不少于16位且不超过256位");
+  const data = join(stage, "data");
+  const demo = ensureDemoDatabase(data, { password: generatedPassword });
+  if (!demo.created) throw Error("演示包必须使用新生成的隔离数据");
+  const system = createSystem(data);
+  try {
+    const { user } = system.auth.login(DEMO_ACCOUNT, generatedPassword);
+    if (user.role !== "admin") throw Error("演示管理员初始化失败");
+    const policy = system.management.accessPolicy(user);
+    system.management.setAccessPolicy(user, {
+      ip_restriction_enabled: false, expected_version: policy.version,
+    });
+    if (!system.auth.permittedIp("192.0.2.80"))
+      throw Error("演示包的内网访问未开启");
+  } finally {
+    system.close();
+  }
+  const note = [
+    "项目全流程管理 - Windows 10 x64 内网演示环境",
+    "",
+    "本文件包含演示管理员密码，请勿通过公开渠道传播此压缩包。",
+    "管理员账号：" + DEMO_ACCOUNT,
+    "管理员密码：" + generatedPassword,
+    "",
+    "使用方法：",
+    "1. 将压缩包完整解压到本地文件夹，不要直接在压缩包中运行。",
+    "2. 双击「启动演示服务.cmd」，看到 SCHEMA113_READY 即启动完成。",
+    "3. Windows 本机打开 http://127.0.0.1:8787。",
+    "4. 其他内网电脑打开 http://服务器IP:8787；必要时在Windows防火墙中允许TCP 8787端口。",
+    "5. 演示包已关闭IP白名单限制，但必须使用本文件中的账号和密码登录。",
+    "6. 所有数据保存在解压目录的 data 文件夹，可继续修改和备份。",
+    "",
+    "重要：数据均为虚构示例。本包的管理员口令随压缩包分发，不得用于正式环境。",
+    "切勿直接对互联网开放此演示服务。要正式部署请使用不附带数据的正式发布包并单独创建管理员。",
+    "",
+  ].join("\r\n");
+  writeFileSync(join(stage, "演示账号与部署说明.txt"), "\uFEFF" + note, "utf8");
+  copyFileSync(join(stage, "启动服务.cmd"), join(stage, "启动演示服务.cmd"));
+  rmSync(join(stage, "初始化管理员.cmd"), { force: true });
+  rmSync(join(stage, "scripts/first-run.ps1"), { force: true });
+  console.log("DEMO_DATA_CREATED", demo.demands, "demands,", demo.projects, "projects");
+}
 function artifactHashes(directory) {
   const hashes = {};
   function visit(folder) {
@@ -156,10 +208,24 @@ function artifactHashes(directory) {
 }
 const trackedSources = spawnSync("git", ["ls-files", "-z", "server"], { cwd: root, encoding: "utf8" });
 if (trackedSources.status !== 0) throw Error("无法固定服务端源码清单");
-const sourceHashes = Object.fromEntries(trackedSources.stdout.split("\0").filter(Boolean)
+// Include new, not-yet-committed TypeScript files in dev/demo manifests.
+const sourceFiles = new Set(trackedSources.stdout.split("\0").filter(path =>
+  path && existsSync(join(root, path))));
+function collectSourceFiles(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) collectSourceFiles(path);
+    else if (entry.isFile() && /\.(ts|sql)$/.test(entry.name))
+      sourceFiles.add(path.slice(root.length + 1).replaceAll("\\", "/"));
+  }
+}
+collectSourceFiles(join(root, "server"));
+const sourceHashes = Object.fromEntries([...sourceFiles].sort()
   .map(path => [path, digestFile(join(root, path))]));
 const manifest = {
   product: "sd-project",
+  package_mode: mode,
+  worktree_dirty: Boolean(dirty.stdout.trim()),
   entrypoint: "dist/server/main.js",
   server_source_sha256: sourceHashes,
   server_artifact_sha256: artifactHashes(join(stage, "dist/server")),
@@ -172,6 +238,13 @@ const manifest = {
   ps1_utf8_bom: true,
   cmd_ascii_only: true,
   data_location: "./data",
+  ...(demoMode ? {
+    sample_data_included: true,
+    sample_database_sha256: digestFile(join(stage, "data/schema113.sqlite")),
+    sample_credentials_sha256: digestFile(join(stage, "演示账号与部署说明.txt")),
+    demo_ip_restriction_enabled: false,
+    demo_admin_username: DEMO_ACCOUNT,
+  } : { sample_data_included: false }),
   schema_version: 113,
   schema_sha256: digestFile(
     join(stage, "dist/server/database/schema/schema113.sql"),
@@ -182,7 +255,7 @@ writeFileSync(
   join(stage, "BUILD-MANIFEST.json"),
   JSON.stringify(manifest, null, 2) + "\n",
 );
-const zipPath = join(work, "sd-project-win10-x64.zip");
+const zipPath = join(work, demoMode ? "sd-project-win10-x64-demo.zip" : "sd-project-win10-x64.zip");
 const pendingZip = zipPath + ".part";
 const python = `import os,sys,zipfile\nbase,out=sys.argv[1:]\nwith zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6,allowZip64=True) as z:\n for folder,dirs,files in os.walk(base):\n  dirs.sort();files.sort()\n  for f in files:\n   path=os.path.join(folder,f);rel=os.path.relpath(path,base)\n   z.write(path,rel)\nprint(out)\n`;
 const proc = spawnSync("python3", ["-c", python, stage, pendingZip], {
@@ -190,7 +263,26 @@ const proc = spawnSync("python3", ["-c", python, stage, pendingZip], {
   stdio: "inherit",
 });
 if (proc.status !== 0) throw Error("ZIP creation failed");
-const verify = `import zipfile,sys\nz=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad\nfiles=set(z.namelist());need={'runtime/node.exe','scripts/first-run.ps1','启动服务.cmd','初始化管理员.cmd','dist/server/main.js','dist/server/database/connection.js','dist/server/database/schema/schema113.sql','dist/server/modules/exchange/service.js','dist/web/index.html','BUILD-MANIFEST.json'};assert need.issubset(files),str(need-files)\nassert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')\nassert all(x<128 for x in z.read('启动服务.cmd'))\nassert not any(x.startswith('data/') for x in files), 'ZIP must not contain runtime data'\nassert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')\nprint('ZIP_OK files:',len(files))\n`;
+const verify = `import zipfile,sys,json
+z=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad
+files=set(z.namelist())
+need={'runtime/node.exe','启动服务.cmd','dist/server/main.js','dist/server/database/connection.js','dist/server/database/schema/schema113.sql','dist/server/modules/exchange/service.js','dist/web/index.html','BUILD-MANIFEST.json'}
+assert need.issubset(files),str(need-files)
+assert all(x<128 for x in z.read('启动服务.cmd'))
+assert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')
+manifest=json.loads(z.read('BUILD-MANIFEST.json'))
+if manifest['package_mode']=='demo':
+ assert {'data/schema113.sqlite','data/DEMO-DATA.json','启动演示服务.cmd','演示账号与部署说明.txt'}.issubset(files)
+ assert '初始化管理员.cmd' not in files
+ assert all(x<128 for x in z.read('启动演示服务.cmd'))
+ assert manifest['sample_data_included'] is True
+else:
+ assert {'scripts/first-run.ps1','初始化管理员.cmd'}.issubset(files)
+ assert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')
+ assert not any(x.startswith('data/') for x in files)
+ assert manifest['sample_data_included'] is False
+print('ZIP_OK files:',len(files))
+`;
 const check = spawnSync("python3", ["-c", verify, pendingZip], {
   encoding: "utf8",
 });
@@ -206,15 +298,18 @@ const finalRevision = spawnSync("git", ["rev-parse", "HEAD"], {
 });
 if (
   finalStatus.status !== 0 ||
-  finalStatus.stdout.trim() ||
-  finalRevision.stdout.trim() !== gitCommit
+  (!demoMode && finalStatus.stdout.trim()) ||
+  (demoMode && finalStatus.stdout.trim() !== dirty.stdout.trim()) ||
+  finalRevision.stdout.trim() !== gitCommit ||
+  (demoMode && Object.entries(sourceHashes).some(([path, hash]) => digestFile(join(root, path)) !== hash))
 )
   throw Error("打包期间源码发生变化，保留原发布包，请提交后重新打包");
 renameSync(pendingZip, zipPath);
 const release = {
   git_commit: gitCommit,
   generated_at: manifest.build_timestamp,
-  path: "dist/sd-project-win10-x64.zip",
+  path: demoMode ? "dist/sd-project-win10-x64-demo.zip" : "dist/sd-project-win10-x64.zip",
+  package_mode: mode,
   size_bytes: statSync(zipPath).size,
   sha256: digestFile(zipPath),
   runtime: version,
@@ -222,7 +317,7 @@ const release = {
   windows_machine_verified: false,
 };
 writeFileSync(
-  join(work, "RELEASE-MANIFEST.json"),
+  join(work, demoMode ? "DEMO-RELEASE-MANIFEST.json" : "RELEASE-MANIFEST.json"),
   JSON.stringify(release, null, 2) + "\n",
 );
 console.log("PACKAGE", zipPath);

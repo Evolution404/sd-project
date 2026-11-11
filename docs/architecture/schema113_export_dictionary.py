@@ -113,6 +113,7 @@ id|不可复用的对象稳定主键
 idempotency_key|同一导入请求的幂等标识
 invoice_number|实际费用关联的发票单号（不是完整发票台账）
 ip|允许访问的IPv4/IPv6地址
+ip_restriction_enabled|访问IP白名单限制是否启用；0表示关闭，1表示开启，默认为开启
 is_final|费用核对是否为最终核对
 item_id|字典项或物资条目稳定身份
 item_no|条目在所属正式清单内的顺序

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -25,13 +26,13 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
       assert.equal(field.systemManaged, true, kind);
   assert.match(line.line_code, /^LINES-/);
   assert.match(voltage.code, /^VOLTAGES-/);
-  const before = s.repo.list("physical_towers").length;
+  const before = inspect(s).list("physical_towers").length;
   const tower = s.catalog.save(user, "towers", {
     line_id: line.id,
     tower_no: "#1",
   });
   assert.equal(tower.status, "active");
-  assert.equal(s.repo.list("physical_towers").length, before + 1);
+  assert.equal(inspect(s).list("physical_towers").length, before + 1);
   assert.ok(tower.physical_tower_id);
   assert.match(tower.logical_code, /^TOWERS-/);
   assert.throws(
@@ -47,7 +48,7 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
     physical_tower_id: tower.physical_tower_id,
   });
   assert.equal(shared.physical_tower_id, tower.physical_tower_id);
-  assert.equal(s.repo.list("physical_towers").length, before + 2);
+  assert.equal(inspect(s).list("physical_towers").length, before + 2);
   assert.throws(() =>
     s.catalog.save(user, "towers", {
       line_id: line.id,
@@ -55,7 +56,7 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
       status: "invalid",
     }),
   );
-  assert.equal(s.repo.list("physical_towers").length, before + 2);
+  assert.equal(inspect(s).list("physical_towers").length, before + 2);
   const another = s.catalog.save(user, "towers", {
     line_id: second.id,
     tower_no: "#2",
@@ -67,7 +68,7 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
     voltage_level_id: voltage.id,
   });
   assert.notEqual(spoofed.line_code, "client-generated-code");
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 test("whole physical replacement keeps original demand, quote and all circuit history", (t) => {
   const { s, user, line, second, operation } = equipment(t);
@@ -131,7 +132,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
   );
   assert.equal(s.demands.history(demand.id).reference_quotes[0].id, quote.id);
   assert.equal(
-    s.repo.auditFor("tower_replacements", first.physical_tower_id).length,
+    inspect(s).auditFor("tower_replacements", first.physical_tower_id).length,
     1,
   );
 });
@@ -145,5 +146,5 @@ test("current product schema keeps the equipment and work-object identities inde
   const physical=s.database.connection.prepare("PRAGMA table_info(physical_towers)").all();
   assert.ok(physical.some(item=>item.name==="tower_nature"));
   assert.ok(!physical.some(item=>item.name==="erection_type"));
-  assert.deepEqual(s.repo.integrity().foreignKeys,[]);
+  assert.deepEqual(inspect(s).integrity().foreignKeys,[]);
 });

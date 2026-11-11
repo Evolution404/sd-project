@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture, fixture } from "../helpers.mjs";
@@ -180,7 +181,7 @@ test("organization moves are versioned, preview-bound, cycle-safe and preserve p
     () => s.organizations.preview(user, center.id, other.id),
     /有效且未删除/,
   );
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("tree HTTP endpoints require authentication and keep mutation permissions", async (t) => {

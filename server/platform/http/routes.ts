@@ -37,6 +37,7 @@ const routes: Record<string, RouteHandler> = {
   'exchange': handleExchange,
   'users': handleManagement,
   'ips': handleManagement,
+  'access-policy': handleManagement,
   'audit': handleManagement,
   'permissions': handleManagement,
   'evidence': handleFiles,

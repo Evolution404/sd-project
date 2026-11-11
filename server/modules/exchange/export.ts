@@ -40,12 +40,7 @@ function scopeDescription(system:System,scopeId:string|null|undefined):string|un
   return system.demands.get(demandId,true).problem_description;
 }
 function effectiveVersion(system:System,key:string):{items:unknown[];resolutions:unknown[]} {
-  const version=system.repo.effectiveSettlement(key);
-  if(!version||version.change_type==="void")return {items:[],resolutions:[]};
-  return {
-    items:system.exchangePersistence.settlementItemsAtVersion(version.id),
-    resolutions:system.repo.settlementResults(version.id),
-  };
+  return system.finance.effectiveSettlementExport(key);
 }
 function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
   const statuses:Record<string,string>={pending:"待确认",active:"有效",returned:"退回",cancelled:"已取消"};

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {approvedFixture} from "../helpers.mjs";
@@ -18,9 +19,12 @@ test("64-row settlement submission uses one identity query, one approval query a
   const seen={identities:0,scopes:0,nodes:0};
   for (const [method,counter] of [["settlementItems","identities"],
     ["approvalScopes","scopes"],["projectCostNodes","nodes"]]) {
-    const original=s.repo[method];
-    s.repo[method]=(...args)=>{seen[counter]++;return original(...args)};
-    t.after(()=>{s.repo[method]=original});
+    const targets=method==="projectCostNodes" ? [s.financePort,s.projectPort] : [s.financePort];
+    for (const target of targets) {
+      const original=target[method];
+      target[method]=(...args)=>{seen[counter]++;return original(...args)};
+      t.after(()=>{target[method]=original});
+    }
   }
   const written=s.finance.submit(user,draft.id,{
     expected_version:0,expected_edit_version:1,
@@ -30,5 +34,5 @@ test("64-row settlement submission uses one identity query, one approval query a
   assert.deepEqual(seen,{identities:1,scopes:1,nodes:2});
   const history=s.finance.history(written.id);
   assert.equal(history[0].items.length,64);
-  assert.equal(s.repo.integrity().foreignKeys.length,0);
+  assert.equal(inspect(s).integrity().foreignKeys.length,0);
 });

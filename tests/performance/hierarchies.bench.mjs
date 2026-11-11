@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
@@ -11,7 +12,7 @@ test(
     const { s, user, project, node, save } = approvedFixture(t);
     const root = save("organizations", { name: "性能根单位" });
     let calls = 0;
-    const counted = new Proxy(s.repo, {
+    const counted = new Proxy(inspect(s), {
       get(target, key) {
         const value = Reflect.get(target, key);
         if (typeof value !== "function") return value;
@@ -24,7 +25,7 @@ test(
     const repository = hierarchyRepository(counted);
     const observed = [];
     for (const size of [10, 500]) {
-      s.repo.transaction(() => {
+      inspect(s).transaction(() => {
         for (let index = size === 10 ? 1 : 10; index < size; index++) {
           s.finance.node(user, project.id, {
             name: "性能科目" + index,
@@ -61,7 +62,7 @@ test(
         elapsedMs: Math.round(performance.now() - started),
       });
     }
-    assert.deepEqual(s.repo.integrity().foreignKeys, []);
+    assert.deepEqual(inspect(s).integrity().foreignKeys, []);
     console.log("HIERARCHY_BENCH", JSON.stringify(observed));
   },
 );

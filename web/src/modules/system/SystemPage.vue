@@ -10,6 +10,52 @@ import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.v
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, statusText, type Row } from "../../shared/api/client";
 const can = useAccess();
+interface AccessPolicy {
+  ip_restriction_enabled: boolean;
+  version: number;
+  updated_at: string | null;
+}
+const accessPolicy = ref<AccessPolicy | null>(null);
+const policyLoading = ref(false);
+const policySaving = ref(false);
+let policyRequest = 0;
+async function loadAccessPolicy() {
+  const sequence = ++policyRequest;
+  policyLoading.value = true;
+  try {
+    const policy = await api<AccessPolicy>("/access-policy");
+    if (sequence === policyRequest) accessPolicy.value = policy;
+  } catch (error) {
+    if (sequence === policyRequest) ElMessage.error((error as Error).message);
+  } finally {
+    if (sequence === policyRequest) policyLoading.value = false;
+  }
+}
+async function changeIpRestriction(enabled: string | number | boolean) {
+  if (!accessPolicy.value || policySaving.value || typeof enabled !== "boolean") return;
+  if (enabled) {
+    try {
+      await ElMessageBox.confirm(
+        "开启后，仅允许已配置的IP地址及服务器本机访问。请先确认当前电脑的IP已添加至白名单，否则可能无法继续远程访问。",
+        "确认开启访问限制",
+        { type: "warning", confirmButtonText: "确认开启", cancelButtonText: "取消" },
+      );
+    } catch { return; }
+  }
+  policySaving.value = true;
+  try {
+    accessPolicy.value = await api<AccessPolicy>("/access-policy", "POST", {
+      ip_restriction_enabled: enabled,
+      expected_version: accessPolicy.value.version,
+    });
+    ElMessage.success(enabled ? "访问限制已开启" : "访问限制已关闭");
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+    await loadAccessPolicy();
+  } finally {
+    policySaving.value = false;
+  }
+}
 const tab = computed({
   get: () => String(route.params.tab || 'users'),
   set: value => { void router.push({ name: 'system', params: { tab: value }, query: {} }); },
@@ -45,6 +91,7 @@ const tableColumns = computed<TableColumn[]>(() => {
 });
 watch(tab, () => {
   void load();
+  if (tab.value === "ips") void loadAccessPolicy();
 });
 function tableSort(value: { key: string; order: string }) {
   sortKey.value = value.key;
@@ -134,7 +181,10 @@ async function remove(row: Row) {
   }
 }
 useListRoute({ page, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
-onMounted(load);
+onMounted(() => {
+  void load();
+  if (tab.value === "ips") void loadAccessPolicy();
+});
 </script>
 <template>
   <div class="page-heading">
@@ -152,6 +202,23 @@ onMounted(load);
       label="IP白名单"
       name="ips" /><ElTabPane label="操作审计" name="audit"
   /></ElTabs>
+  <div v-if="tab === 'ips'" class="panel access-policy-settings">
+    <div class="access-policy-row">
+      <div>
+        <strong>访问限制</strong>
+        <p>开启后，仅允许白名单中的IP及服务器本机访问；关闭后不限制访问IP，仍须正常登录。</p>
+      </div>
+      <ElSwitch
+        :model-value="accessPolicy?.ip_restriction_enabled ?? true"
+        :loading="policyLoading || policySaving"
+        :disabled="!can('admin') || !accessPolicy || policyLoading || policySaving"
+        active-text="开启"
+        inactive-text="关闭"
+        aria-label="访问限制"
+        @change="changeIpRestriction"
+      />
+    </div>
+  </div>
   <div class="panel">
     <BusinessTable :loading="listLoading" :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
@@ -215,3 +282,13 @@ onMounted(load);
     ></ElDialog
   >
 </template>
+
+<style scoped>
+.access-policy-settings { margin-bottom: 16px; }
+.access-policy-row { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.access-policy-row p { margin: 7px 0 0; color: var(--el-text-color-secondary); font-size: 13px; line-height: 1.6; }
+.access-policy-row strong { font-size: 15px; }
+@media (max-width: 760px) {
+  .access-policy-row { flex-wrap: wrap; gap: 12px; }
+}
+</style>

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -27,7 +28,7 @@ test("large material approvals validate adopted unit versions in one indexed bat
   assert.equal(approved.length,materials.length);
   assert.equal(new Set(approved.map(item=>item.material_version_id)).size,materials.length);
   assert.ok(approved.every(item=>item.unit_version===1 && item.approved_quantity_scaled===10000));
-  assert.deepEqual(s.repo.integrity().foreignKeys,[]);
+  assert.deepEqual(inspect(s).integrity().foreignKeys,[]);
 });
 
 test("quantity-unit and approval link repositories make fixed-count indexed reads", () => {

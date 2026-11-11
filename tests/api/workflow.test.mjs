@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -127,5 +128,5 @@ test("Schema113 real workflow, partial price, exclusive binding, three settlemen
     expected_version: 1,
   });
   assert.equal(s.demands.get(demand.id).binding.project_id, other.id);
-  assert.equal(s.repo.integrity().integrity[0].integrity_check, "ok");
+  assert.equal(inspect(s).integrity().integrity[0].integrity_check, "ok");
 });

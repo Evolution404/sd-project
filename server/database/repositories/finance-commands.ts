@@ -116,6 +116,10 @@ export function financeCommandRepository(store:Store) {
     appendReview(row:SettlementReviewEvent):void {
       store.insert("settlement_review_events",row);
     },
+    settlementVersionItems(versionId:string): SettlementItemVersionWrite[] {
+      return store.where<SettlementItemVersionWrite>("settlement_item_versions",
+        {settlement_version_id:versionId});
+    },
     settlementItemVersion(id:string):SettlementItemRef|undefined {
       return store.find<SettlementItemRef>("settlement_item_versions","id",id);
     },

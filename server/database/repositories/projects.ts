@@ -132,6 +132,9 @@ export interface AgreementUsageTotals {
 }
 export function projectReadRepository(store: Store) {
   return {
+    projectIdentities():ProjectIdentity[] {
+      return store.query<ProjectIdentity>("SELECT * FROM projects ORDER BY created_at,id");
+    },
     /** One read for all existing scope-material identities in a new approval. */
     projectIdentity(id:string):ProjectIdentity|undefined {
       return store.get<ProjectIdentity>("SELECT * FROM projects WHERE id=?",id);

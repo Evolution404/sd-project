@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { projectHistoryRepository } from "../../dist/server/database/repositories/project-history.js";
@@ -40,7 +41,7 @@ test("project history groups approvals, costs, settlement installments and cost 
   assert.equal(result.settlements[0].versions[0].resolutions.length,1);
   assert.equal(result.settlements[0].versions[0].events.length,2);
   assert.equal(result.approvals.length,1);
-  assert.deepEqual(s.repo.integrity().foreignKeys,[]);
+  assert.deepEqual(inspect(s).integrity().foreignKeys,[]);
 });
 test("history SQL query count never grows with project record count", () => {
   const calls=[];

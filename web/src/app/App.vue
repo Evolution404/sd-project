@@ -153,9 +153,7 @@ onMounted(async () => {
   <ElConfigProvider :locale="zhCn"
     ><div v-if="ready && !user" class="login">
       <div class="login-card">
-        <div class="section-caption">输电运检 · 业务工作台</div>
-        <h1>输电项目全流程管理</h1>
-        <p>登录内网工作区</p>
+        <h1>项目全流程管理</h1>
         <ElAlert
           v-if="error"
           :title="error"

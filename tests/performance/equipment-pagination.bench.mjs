@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { performance } from "node:perf_hooks";
@@ -8,16 +9,16 @@ test("1,000 lines and 10,000 logical towers preserve SQL search and pagination c
   const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
   const shared = s.catalog.save(user, "physical", { tower_type: "耐张塔" });
   const started = performance.now();
-  s.repo.transaction(() => {
+  inspect(s).transaction(() => {
     for (let i = 0; i < 1000; i++) {
       const lineId = "bench-line-" + i.toString().padStart(4, "0");
       const name = "压力线路" + i.toString().padStart(4, "0");
-      s.repo.insert("transmission_lines", {
+      inspect(s).insert("transmission_lines", {
         id: lineId, line_code: "AUTO-L" + i, name,
         voltage_level_id: voltage.id, status: "active", created_by: user.id,
       });
       for (let j = 1; j <= 10; j++)
-        s.repo.insert("logical_towers", {
+        inspect(s).insert("logical_towers", {
           id: lineId + "-tower-" + j,
           logical_code: "AUTO-T" + i + "-" + j,
           line_id: lineId, physical_tower_id: j === 10 ? shared.id : null,
@@ -45,7 +46,7 @@ test("1,000 lines and 10,000 logical towers preserve SQL search and pagination c
   assert.equal(physical.total, 1);
   assert.equal(physical.items[0].current_circuits, 1000);
   assert.equal(physical.items[0].bindings.length, 1000);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
   console.log("EQUIPMENT_SQL_BENCH_MS", JSON.stringify({
     records: 11000, generation: Math.round(generateMs),
     searchAndPagination: Math.round(performance.now() - began),

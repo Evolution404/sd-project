@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, existsSync } from "node:fs";
@@ -49,5 +50,5 @@ test("demo can be explored in the real browser without any manual master-data se
   mkdirSync(output, { recursive: true });
   await page.screenshot({ path: join(output, "demo-experience-1280.png"), fullPage: true });
   assert.deepEqual(errors, []);
-  assert.equal(system.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(system).integrity().foreignKeys.length, 0);
 });

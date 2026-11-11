@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
@@ -85,13 +86,13 @@ test("settled amounts, independently reported work, over-completion and reconcil
   assert.equal(s.finance.reconciliationHistory(record.record_id).length, 3);
   assert.throws(() => s.finance.removeReconciliation(user, record.record_id,
     { expected_version: 3 }), /核对记录已删除/);
-  assert.equal(s.repo.auditFor("reconciliations", record.record_id)
+  assert.equal(inspect(s).auditFor("reconciliations", record.record_id)
     .filter((item) => item.action === "delete").length, 1);
   assert.equal(s.finance.reconciliations(project.id).length, 0);
   assert.equal(s.finance.reconciliations(project.id, true)[0].deleted, true);
   assert.throws(
     () =>
-      s.repo.update("settlement_item_versions", "id", fee.items[0].id, {
+      inspect(s).update("settlement_item_versions", "id", fee.items[0].id, {
         amount_fen: 1,
       }),
     /不可|禁止/,
@@ -186,5 +187,5 @@ test("nested settlement and reconciliation histories enforce owning project for 
   }), /费用与结算不属于同一项目/);
   assert.equal(s.finance.reconciliations(other.id).length,0,
     "cross-project rejection must not leave a reconciliation fact");
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

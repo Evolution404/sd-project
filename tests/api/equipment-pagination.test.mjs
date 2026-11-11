@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -46,5 +47,5 @@ test("equipment catalog applies search, sorting and filters before SQL paginatio
   });
   assert.equal(towerResult.total, 1);
   assert.equal(towerResult.items[0].tower_no, "#18");
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

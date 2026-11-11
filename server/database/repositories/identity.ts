@@ -41,6 +41,12 @@ export function identityRepository(store: ReturnType<typeof createStore>) {
     addSession: (row: SessionRecord) => store.insert("sessions", row),
     removeSession: (hash: string) => store.remove("sessions", "token_hash", hash),
     revoke: (id: string) => store.run("DELETE FROM sessions WHERE user_id=?", id),
+    ipRestrictionEnabled():boolean {
+      // Missing/invalid policy never fails open.
+      return store.get<{ip_restriction_enabled:number}>(
+        "SELECT ip_restriction_enabled FROM access_policy WHERE id=1"
+      )?.ip_restriction_enabled !== 0;
+    },
     allowed: (ip: string) => Boolean(store.find("allowed_ips", "ip", ip)),
     permissions: (role: Role): string[] => store.query<{ permission_code: string }>(
       "SELECT permission_code FROM role_permissions WHERE role=?", role,

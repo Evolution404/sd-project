@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture, fixture } from "../helpers.mjs";
@@ -118,7 +119,7 @@ test("archive a price referencing an outdated feature after work-object and oper
   assert.equal(s.catalog.get("prices", rule.id, true).deleted, true);
   assert.equal(s.catalog.history("prices", rule.id).length, 1,
     "deletion must not insert a fake price revision");
-  assert.equal(s.repo.auditFor("prices", rule.id).filter((row) =>
+  assert.equal(inspect(s).auditFor("prices", rule.id).filter((row) =>
     row.action === "delete").length, 1);
   assert.ok(s.catalog.list("prices").every((item) => item.id !== rule.id));
   assert.equal(s.pricing.quote(user, demand.id, { expected_version: 1 }).complete, false,
@@ -127,7 +128,7 @@ test("archive a price referencing an outdated feature after work-object and oper
   assert.ok(historicalQuotes.some((evaluation) => evaluation.id === confirmed.id),
     "previously confirmed price evaluations remain part of history");
   assert.throws(() => s.catalog.remove(user, "prices", rule.id, 1), /已删除/);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 test("deleted costs and cost nodes are read-only and cannot create duplicate delete audits", (t) => {
   const { s, user, project, node } = approvedFixture(t);
@@ -142,7 +143,7 @@ test("deleted costs and cost nodes are read-only and cannot create duplicate del
   assert.equal(deletedCost.version_no, 2);
   assert.throws(() => s.finance.removeCost(user, project.id, cost.entry_id,
     { expected_version: 2 }), /费用已删除/);
-  assert.equal(s.repo.auditFor("costs", cost.entry_id).filter(
+  assert.equal(inspect(s).auditFor("costs", cost.entry_id).filter(
     (record) => record.action === "delete").length, 1);
 
   s.finance.removeNode(user, project.id, node.id, { expected_version: 1 });
@@ -150,7 +151,7 @@ test("deleted costs and cost nodes are read-only and cannot create duplicate del
   assert.equal(deletedNode.deleted, true);
   assert.throws(() => s.finance.removeNode(user, project.id, node.id,
     { expected_version: 2 }), /费用科目已删除/);
-  assert.equal(s.repo.auditFor("cost_nodes", node.id).filter(
+  assert.equal(inspect(s).auditFor("cost_nodes", node.id).filter(
     (record) => record.action === "delete").length, 1);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

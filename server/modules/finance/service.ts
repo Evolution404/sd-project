@@ -13,7 +13,7 @@ import type { CatalogService } from "../catalog/service.js";
 import type { ProjectService } from "../projects/service.js";
 import type { PricingService } from "../pricing/service.js";
 import type { HierarchyRepository } from "../../database/repositories/hierarchies.js";
-import type { BusinessRepository } from "../../database/repositories/business.js";
+import type { FinancePersistenceRepository } from "../../database/repositories/finance-persistence.js";
 import type { QuantityUnitRepository } from "../../database/repositories/quantity-units.js";
 import type { ProjectDashboardBase } from "../../database/repositories/projects.js";
 import type {
@@ -25,7 +25,7 @@ import type {
 } from "../../shared/types/finance-workflows.js";
 
 export function createFinance(
-  repo: BusinessRepository,
+  repo: FinancePersistenceRepository,
   catalog: CatalogService,
   projects: ProjectService,
   pricing: PricingService,
@@ -441,6 +441,12 @@ export function createFinance(
     )]));
   }
   return {
+    effectiveSettlementExport(key:string) {
+      const version=repo.effectiveSettlement(key);
+      if(!version||version.change_type==="void") return {items:[],resolutions:[]};
+      return {items:repo.settlementVersionItems(version.id),
+        resolutions:repo.settlementResults(version.id)};
+    },
     search: (kind: FinanceListKind, query: ListQuery) => repo.searchFinance(kind, query),
     summariesForPortfolio,
     node,

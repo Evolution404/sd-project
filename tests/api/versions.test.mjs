@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -46,7 +47,7 @@ test("duplicate creation requires a concrete human decision and records the orig
     duplicate_matches: [original.demand_no],
   });
   assert.notEqual(separate.demand_no, original.demand_no);
-  assert.equal(s.repo.list("demand_duplicate_reviews").length, 1);
+  assert.equal(inspect(s).list("demand_duplicate_reviews").length, 1);
 });
 test("voltage rename is auditable and optimistic, and source corrections retain original evidence", (t) => {
   const { s, user, save, demandInput } = fixture(t),
@@ -79,7 +80,7 @@ test("voltage rename is auditable and optimistic, and source corrections retain 
   );
   assert.equal(s.demands.history(demand.id).sources.length, 2);
   assert.equal(
-    s.repo.find("source_records", "id", source.id).description,
+    inspect(s).find("source_records", "id", source.id).description,
     "现场巡视记录",
   );
   const current = s.demands.get(demand.id).sources[0];
@@ -105,7 +106,7 @@ test("deleting referenced equipment preserves real operating status while exclud
   });
   s.catalog.remove(user, "physical", towers[0].id, 1);
   assert.equal(
-    s.repo.find("physical_towers", "id", towers[0].id).status,
+    inspect(s).find("physical_towers", "id", towers[0].id).status,
     "active",
   );
   assert.equal(s.catalog.list("physical").length, 2);
@@ -326,7 +327,7 @@ test('voltage update and its audit share the same operation timestamp across a m
   try {
     const voltage = save('voltages', { name: '时间核验电压' });
     const changed = s.catalog.save(user, 'voltages', { name: '时间核验电压更名', expected_version: 1 }, voltage.id);
-    const event = s.repo.auditFor('voltages', voltage.id).find(event => event.action === 'revise');
+    const event = inspect(s).auditFor('voltages', voltage.id).find(event => event.action === 'revise');
     assert.equal(event.created_at, changed.updated_at);
     assert.equal(changed.version, 2);
   } finally { globalThis.Date = OriginalDate; }

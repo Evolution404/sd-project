@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
@@ -24,8 +25,8 @@ test("fresh database uses only the authoritative Schema113 and required unit ado
       assert.ok(keys.some(f => f.table === "dictionary_item_versions" && f.from === "unit_id"), name);
       assert.ok(keys.some(f => f.table === "dictionary_item_versions" && f.from === "unit_version"), name);
     }
-    assert.equal(s.repo.integrity().integrity[0].integrity_check, "ok");
-    assert.deepEqual(s.repo.integrity().foreignKeys, []);
+    assert.equal(inspect(s).integrity().integrity[0].integrity_check, "ok");
+    assert.deepEqual(inspect(s).integrity().foreignKeys, []);
   } finally { s.close(); }
 });
 
@@ -76,10 +77,10 @@ test("shared tower physical nature is single authoritative fact with immutable h
   assert.equal(s.catalog.search("towers",{filters:{tower_nature:"耐"}}).total,2);
   assert.equal(s.catalog.search("towers",{filters:{tower_nature:"tension"}}).total,2);
   assert.equal(s.catalog.search("physical",{q:"耐张"}).total,1);
-  const versions = s.repo.where("physical_tower_history",{physical_tower_id:physical.id},"version");
+  const versions = inspect(s).where("physical_tower_history",{physical_tower_id:physical.id},"version");
   assert.deepEqual(versions.map(v=>v.tower_nature),["tension","straight"]);
   assert.throws(()=>s.catalog.save(user,"physical",{tower_nature:"guessed"}),/CHECK|约束/);
-  assert.deepEqual(s.repo.integrity().foreignKeys,[]);
+  assert.deepEqual(inspect(s).integrity().foreignKeys,[]);
 });
 
 test("unit version edits are append only and retain exact quantity precision", t => {

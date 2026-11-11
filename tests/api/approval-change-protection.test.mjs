@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -82,20 +83,20 @@ test("reference quote confirm must match the previewed price versions and amount
   const setup = demo(t);
   const { s, user, demand } = setup;
   const base = { expected_version: demand.current_version, pricing_date: "2026-11-10" };
-  const before = s.repo.where("reference_price_evaluations", { demand_id: demand.id }).length;
+  const before = inspect(s).where("reference_price_evaluations", { demand_id: demand.id }).length;
   const preview = s.pricing.quote(user, demand.id, base);
   assert.equal(preview.complete, true);
   assert.ok(preview.preview_hash);
   assert.throws(() => s.pricing.quote(user, demand.id, {
     ...base, confirm: true, preview_hash: "outdated-result",
   }), /重新试算/);
-  assert.equal(s.repo.where("reference_price_evaluations", { demand_id: demand.id }).length, before);
+  assert.equal(inspect(s).where("reference_price_evaluations", { demand_id: demand.id }).length, before);
   const saved = s.pricing.quote(user, demand.id, {
     ...base, confirm: true, preview_hash: preview.preview_hash,
   });
   assert.equal(saved.total_fen, preview.total_fen);
   assert.ok(saved.id);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 test("HTTP requires a matching trial quote before formal price confirmation", async t => {
   const setup = demo(t);

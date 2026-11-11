@@ -15,6 +15,13 @@ export async function handleManagement(context: RouteContext): Promise<{
                 ? page(system.management.users(actor, deleted), url.searchParams)
                 : mutate("admin", () => system.management.saveUser(actor, input, key, method));
             break;
+        case "access-policy":
+            authorize(actor,"admin");
+            requireValue(!key && !context.sub, "访问限制配置不接受其他路径",404);
+            requireValue(read || method==="POST", "访问限制配置只支持读取或修改",405);
+            result=read ? system.management.accessPolicy(actor)
+                : mutate("admin",()=>system.management.setAccessPolicy(actor,input));
+            break;
         case "ips":
             authorize(actor, "admin");
             result = read

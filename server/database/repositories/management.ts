@@ -2,7 +2,7 @@ import type { createStore } from "./store.js";
 import type { AuditRecord } from "../../shared/types/contracts.js";
 
 type Store = Pick<ReturnType<typeof createStore>,
-  "query" | "get" | "list" | "insert" | "update" | "remove">;
+  "query" | "get" | "list" | "insert" | "update" | "remove" | "run">;
 
 export interface IpPermission {
   id: string;
@@ -10,6 +10,15 @@ export interface IpPermission {
   note: string;
   created_by: string;
   created_at: string;
+}
+export interface AccessPolicy {
+  ip_restriction_enabled: boolean;
+  version: number;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+interface AccessPolicyRow extends Omit<AccessPolicy, "ip_restriction_enabled"> {
+  ip_restriction_enabled: 0 | 1;
 }
 
 export function managementRepository(store: Store) {
@@ -25,6 +34,19 @@ export function managementRepository(store: Store) {
         "SELECT 1 FROM audit_events WHERE entity='users' AND entity_id=? AND action='delete' LIMIT 1",
         key,
       ));
+    },
+    accessPolicy():AccessPolicy {
+      const row=store.get<AccessPolicyRow>(
+        "SELECT ip_restriction_enabled,version,updated_by,updated_at FROM access_policy WHERE id=1");
+      if(!row)throw Error("访问控制配置不存在");
+      return {...row,ip_restriction_enabled:row.ip_restriction_enabled===1};
+    },
+    updateAccessPolicy(expectedVersion:number,enabled:boolean,actorId:string,changedAt:string):boolean {
+      const result=store.run(
+        `UPDATE access_policy SET ip_restriction_enabled=?,version=version+1,
+         updated_by=?,updated_at=? WHERE id=1 AND version=?`,
+        Number(enabled),actorId,changedAt,expectedVersion);
+      return result.changes===1;
     },
     allowedIps(): IpPermission[] {
       return store.query("SELECT * FROM allowed_ips ORDER BY created_at,id") as IpPermission[];

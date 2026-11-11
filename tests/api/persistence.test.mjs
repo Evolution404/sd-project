@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -33,7 +34,7 @@ test("database and evidence restart, independent backup and verified restore", a
       createEvidence(reopened).download(user, attachment.id).bytes,
       bytes,
     );
-    assert.equal(reopened.repo.integrity().foreignKeys.length, 0);
+    assert.equal(inspect(reopened).integrity().foreignKeys.length, 0);
   } finally {
     reopened.close();
   }

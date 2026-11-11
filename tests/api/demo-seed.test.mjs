@@ -1,8 +1,9 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { ensureDemoDatabase, DEMO_ACCOUNT, DEMO_PASSWORD } from "../../scripts/demo/seed-demo.mjs";
@@ -40,8 +41,8 @@ test("demo first launch supplies linked business sample records in its own SQLit
   try {
     const { user } = s.auth.login(DEMO_ACCOUNT, DEMO_PASSWORD);
     assert.equal(user.role, "admin");
-    assert.deepEqual(s.repo.integrity().foreignKeys, []);
-    assert.equal(s.repo.integrity().integrity[0].integrity_check, "ok");
+    assert.deepEqual(inspect(s).integrity().foreignKeys, []);
+    assert.equal(inspect(s).integrity().integrity[0].integrity_check, "ok");
     const projects = s.projects.list();
     const done = projects.find(p => p.name.includes("防鸟装置整治"));
     assert.equal(done.status, "approved");
@@ -116,4 +117,45 @@ test("demo account can log in to the real HTTP app and view equipment & projects
     const content = await response.json();
     assert.ok((content.items ?? content).length >= 2, path);
   }
+});
+
+test("older known demo seed is safely archived before rebuilding current Schema, never migrated in place", t => {
+  const dir = join(root(t), "demo");
+  ensureDemoDatabase(dir);
+  const s = createSystem(dir);
+  let created;
+  try {
+    const { user } = s.auth.login(DEMO_ACCOUNT, DEMO_PASSWORD);
+    created = s.catalog.save(user, "units", { name: "旧演示中追加的单位", quantity_precision: 0 });
+  } finally { s.close(); }
+  const markerPath = join(dir, "DEMO-DATA.json");
+  const metadata = JSON.parse(readFileSync(markerPath, "utf8"));
+  writeFileSync(markerPath, JSON.stringify({ ...metadata, version: 1, schema_sha256: undefined }));
+  const refreshed = ensureDemoDatabase(dir);
+  assert.equal(refreshed.refreshed, true);
+  assert.equal(refreshed.created, true);
+  assert.ok(refreshed.archive.startsWith(join(dirname(dir), "demo-archive-")));
+  assert.equal(existsSync(join(refreshed.archive, "schema113.sqlite")), true);
+  const archived = createSystem(refreshed.archive);
+  try {
+    assert.ok(archived.catalog.get("units", created.id));
+  } finally { archived.close(); }
+  const current = createSystem(dir);
+  try {
+    assert.equal(current.catalog.list("units").length, 6);
+    assert.equal(current.management.accessPolicy(current.auth.login(DEMO_ACCOUNT,DEMO_PASSWORD).user).ip_restriction_enabled, true);
+  } finally { current.close(); }
+  assert.equal(ensureDemoDatabase(dir).created, false);
+});
+
+test("schema fingerprint mismatch safely refreshes managed demo and preserves previous database", t => {
+  const dir = join(root(t), "demo");
+  ensureDemoDatabase(dir);
+  const markerPath = join(dir, "DEMO-DATA.json");
+  const metadata = JSON.parse(readFileSync(markerPath, "utf8"));
+  writeFileSync(markerPath, JSON.stringify({ ...metadata, schema_sha256: "old-authority" }));
+  const refreshed = ensureDemoDatabase(dir);
+  assert.equal(refreshed.refreshed, true);
+  assert.equal(existsSync(join(refreshed.archive, "schema113.sqlite")), true);
+  assert.equal(ensureDemoDatabase(dir).created, false);
 });

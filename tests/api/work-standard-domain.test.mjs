@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -13,8 +14,8 @@ test("operation edits retain adopted unit versions, extension identities and ori
     unit.id,
   );
   const old = s.standards.getOperation(operation.id);
-  s.repo.insert("operation_versions", {
-    ...s.repo.find("operation_versions", "id", old.current_version_id),
+  inspect(s).insert("operation_versions", {
+    ...inspect(s).find("operation_versions", "id", old.current_version_id),
     id: id(),
     version: 2,
     sort_order: 7,
@@ -115,7 +116,7 @@ test("strict price preview derives explicit adoption, rejects conflicting identi
     operation.id,
   );
   const original = s.priceRules.get(price.id);
-  const before = s.repo.list("audit_events").length;
+  const before = inspect(s).list("audit_events").length;
   assert.equal(
     s.priceRules.preview(user, {
       ...original,
@@ -150,7 +151,7 @@ test("strict price preview derives explicit adoption, rejects conflicting identi
     }).sample,
     null,
   );
-  assert.equal(s.repo.list("audit_events").length, before);
+  assert.equal(inspect(s).list("audit_events").length, before);
   assert.equal(s.priceRules.history(price.id).length, 1);
 });
 
@@ -187,12 +188,12 @@ test("work standards and pricing HTTP use domain pagination, aggregate immutable
   assert.equal(detail.item.id, operation.id);
   assert.equal(detail.versions.length, 1);
   assert.equal(detail.audits[0].action, "create");
-  const count = s.repo.list("ledger_requests").length;
+  const count = inspect(s).list("ledger_requests").length;
   const preview = await fetch(url + "/catalog/prices/preview", {
     method: "POST",
     headers: { cookie, "Content-Type": "application/json" },
     body: JSON.stringify({ ...price, existing_id: price.id }),
   });
   assert.equal(preview.status, 200);
-  assert.equal(s.repo.list("ledger_requests").length, count);
+  assert.equal(inspect(s).list("ledger_requests").length, count);
 });

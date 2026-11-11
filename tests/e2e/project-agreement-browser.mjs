@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -68,7 +69,7 @@ try {
   const revised = s.projects.get(project.id);
   assert.equal(revised.funding.agreement_id, other.id);
   assert.equal(revised.funding.version_no, project.funding.version_no + 1);
-  assert.equal(s.repo.where("project_funding_versions", { project_id: project.id }).length, 2);
+  assert.equal(inspect(s).where("project_funding_versions", { project_id: project.id }).length, 2);
 
   await detail.getByRole("button", { name: "资金归属" }).click();
   await editor.getByLabel("执行协议", { exact: true }).click();

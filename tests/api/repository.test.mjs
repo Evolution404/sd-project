@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -14,30 +15,30 @@ test("bounded statement LRU evicts old shapes while deletion reads observe commi
   try {
     for (let i = 0; i < 300; i++)
       assert.equal(
-        s.repo.get(`SELECT ? AS value /* cache-${i} */`, i).value,
+        inspect(s).get(`SELECT ? AS value /* cache-${i} */`, i).value,
         i,
       );
     const before = compiled;
-    assert.equal(s.repo.get("SELECT ? AS value /* cache-299 */", 7).value, 7);
+    assert.equal(inspect(s).get("SELECT ? AS value /* cache-299 */", 7).value, 7);
     assert.equal(compiled, before);
-    s.repo.get("SELECT ? AS value /* cache-0 */", 8);
+    inspect(s).get("SELECT ? AS value /* cache-0 */", 8);
     assert.equal(compiled, before + 1);
   } finally {
     db.prepare = original;
   }
-  assert.equal(s.repo.isDeleted("physical", towers[0].id), false);
+  assert.equal(inspect(s).isDeleted("physical", towers[0].id), false);
   assert.throws(
     () =>
-      s.repo.transaction(() => {
+      inspect(s).transaction(() => {
         s.catalog.remove(user, "physical", towers[0].id, 1);
-        assert.equal(s.repo.isDeleted("physical", towers[0].id), true);
+        assert.equal(inspect(s).isDeleted("physical", towers[0].id), true);
         throw Error("rollback-sentinel");
       }),
     /rollback-sentinel/,
   );
-  assert.equal(s.repo.isDeleted("physical", towers[0].id), false);
+  assert.equal(inspect(s).isDeleted("physical", towers[0].id), false);
   s.catalog.remove(user, "physical", towers[0].id, 1);
-  assert.equal(s.repo.isDeleted("physical", towers[0].id), true);
+  assert.equal(inspect(s).isDeleted("physical", towers[0].id), true);
 });
 
 test("duplicate probes use unique multi-position current definitions and ignore cancelled demand history", (t) => {
@@ -45,7 +46,7 @@ test("duplicate probes use unique multi-position current definitions and ignore 
   const demand = s.demands.save(user, demandInput);
   const loc = (id) => ({ physical_tower_id: id });
   assert.equal(
-    s.repo.demandDuplicates(operation.id, [
+    inspect(s).demandDuplicates(operation.id, [
       loc(towers[0].id),
       loc(towers[0].id),
       loc(towers[1].id),
@@ -62,15 +63,15 @@ test("duplicate probes use unique multi-position current definitions and ignore 
     demand.id,
   );
   assert.equal(
-    s.repo.demandDuplicates(operation.id, [loc(towers[0].id)]).length,
+    inspect(s).demandDuplicates(operation.id, [loc(towers[0].id)]).length,
     0,
   );
   assert.equal(
-    s.repo.demandDuplicates(operation.id, [loc(towers[1].id)]).length,
+    inspect(s).demandDuplicates(operation.id, [loc(towers[1].id)]).length,
     1,
   );
   assert.equal(
-    s.repo.demandDuplicates(operation.id, [loc(towers[1].id)], demand.id)
+    inspect(s).demandDuplicates(operation.id, [loc(towers[1].id)], demand.id)
       .length,
     0,
   );
@@ -80,7 +81,7 @@ test("duplicate probes use unique multi-position current definitions and ignore 
     status: "cancelled",
   });
   assert.equal(
-    s.repo.demandDuplicates(operation.id, [loc(towers[1].id)]).length,
+    inspect(s).demandDuplicates(operation.id, [loc(towers[1].id)]).length,
     0,
   );
 });

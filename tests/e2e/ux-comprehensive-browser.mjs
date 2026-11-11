@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -134,7 +135,7 @@ try {
   await page.getByRole("dialog", { name: "放弃未保存的修改？" })
     .getByRole("button", { name: "放弃修改" }).click();
   await editor.waitFor({ state: "hidden" });
-  assert.equal(s.repo.list("users").some(row => row.username === "预览用户"), false);
+  assert.equal(inspect(s).list("users").some(row => row.username === "预览用户"), false);
   await page.screenshot({ path: join(out, "system-960.png"), fullPage: true });
   // Demand, project and finance editors share the exact same exit decision.
   await page.goto(base + "/#/demands");

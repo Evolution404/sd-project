@@ -18,7 +18,9 @@ import { hierarchyRepository } from "./database/repositories/hierarchies.js";
 import { createOrganizations } from "./modules/organizations/service.js";
 import { openDatabase } from "./database/connection.js";
 import { createStore } from "./database/repositories/store.js";
-import { businessRepository } from "./database/repositories/business.js";
+import { projectPersistenceRepository } from "./database/repositories/project-persistence.js";
+import { financePersistenceRepository } from "./database/repositories/finance-persistence.js";
+import { exchangeReferenceRepository } from "./database/repositories/exchange.js";
 import { exchangePersistenceRepository } from "./database/repositories/exchange-persistence.js";
 import { demandRepository } from "./database/repositories/demands.js";
 import { identityRepository } from "./database/repositories/identity.js";
@@ -43,7 +45,9 @@ import type { Actor } from "./shared/types/contracts.js";
 export function createSystem(dataDir?: string) {
   const database = openDatabase(dataDir);
   const store = createStore(database);
-  const repo = businessRepository(store);
+  const projectPort = projectPersistenceRepository(store,database);
+  const financePort = financePersistenceRepository(store,database);
+  const exchangeReferences = exchangeReferenceRepository(store);
   const exchangePersistence = exchangePersistenceRepository(store);
   const quantityUnits = quantityUnitRepository(store);
   const identity = identityRepository(store);
@@ -61,14 +65,14 @@ export function createSystem(dataDir?: string) {
   const demandRecords = demandRepository(store);
   const demands = createDemands(demandRecords, catalog, database);
   const pricing = createPricing(pricingRepository(store), priceRules, standards, database, audit);
-  const projects = createProjects(repo, catalog, demands, pricing, quantityUnits, funding);
+  const projects = createProjects(projectPort, catalog, demands, pricing, quantityUnits, funding);
   const hierarchies = hierarchyRepository(store);
-  const finance = createFinance(repo, catalog, projects, pricing, hierarchies, quantityUnits);
+  const finance = createFinance(financePort, catalog, projects, pricing, hierarchies, quantityUnits);
   const organizations = createOrganizations(hierarchies, dictionaries, database);
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
-    database, repo, exchangePersistence, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
+    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
     management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

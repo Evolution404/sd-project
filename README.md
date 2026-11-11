@@ -178,3 +178,11 @@ npm run package:win
 旧实现的 Git 恢复标签为 `codex/pre-schema113-rewrite-20261108`。本轮提交保存在本地。
 
 最新专项验收见 docs/implementation/2026-11-09_独立业务_自动身份与最少录入_实施验收.md。`npm run check:independent-input` 持续检查正式产品独立性与自动编码约束。
+
+## 开发与内网演示打包
+
+项目根目录运行 `make` 仅打印帮助，不编译、不启动服务。明确执行 `make dev` 启动开发版，`make demo` 启动本机演示版，`make check` 检查工程。
+
+执行 `make package-win-demo` 一键编译、打包并校验 `dist/sd-project-win10-x64-demo.zip`。该压缩包包含 Windows 10 x64 Node.js 24 运行时、前后端、生产依赖、虚构业务数据与预先创建的管理员。管理员密码随机生成，随包保存在《演示账号与部署说明.txt》。Windows 机器完整解压后双击《启动演示服务.cmd》，本机通过 http://127.0.0.1:8787 访问，内网客户端通过 http://服务器IP:8787 访问（按需在 Windows 防火墙放行 TCP 8787）。
+
+**演示包默认关闭 IP 访问限制**，便于内网演示；但必须登录，权限与审计仍然生效。禁止把附带管理员口令的演示包公开发布或部署到互联网。演示数据保存在解压目录 `data/`，支持重启持久化。正式发布使用 `make package-win`，产物为 `dist/sd-project-win10-x64.zip`，不附带数据，IP 访问限制默认开启。

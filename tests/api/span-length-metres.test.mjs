@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -22,7 +23,7 @@ test("span length: metadata uses metres while stored facts, history, and API are
   assert.equal(s.catalog.search("spans", { filters: { transmission_center_length_mm: "125750" } }).total, 0);
   const next = s.catalog.save(user, "spans", { ...base, transmission_center_length_mm: 130125, expected_version: span.version }, span.id);
   assert.equal(next.transmission_center_length_mm, 130125);
-  const history = s.repo.where("line_span_history", { span_id: span.id });
+  const history = inspect(s).where("line_span_history", { span_id: span.id });
   assert.ok(history.some(row => row.transmission_center_length_mm === 125750));
   assert.ok(history.some(row => row.transmission_center_length_mm === 130125));
   assert.equal(s.catalog.search("spans", { filters: { transmission_center_length_mm: "130.125" } }).total, 1);

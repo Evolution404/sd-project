@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -156,6 +157,6 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
     120000,
   );
   assert.throws(() => s.pricing.removeCharge(user, charge.id), /项目变更/);
-  assert.ok(s.repo.auditFor("reference_charges", charge.id).length === 0);
+  assert.ok(inspect(s).auditFor("reference_charges", charge.id).length === 0);
   assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
 });

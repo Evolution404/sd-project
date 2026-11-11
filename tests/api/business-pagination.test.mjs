@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture, approvedFixture } from "../helpers.mjs";
@@ -8,7 +9,7 @@ const query = values => parseListQuery(new URLSearchParams(values));
 test("demand SQL search filters full location snapshots before pagination and retains deleted history", t => {
   const { s, user, save, operation } = fixture(t);
   const ids = [];
-  s.repo.transaction(() => {
+  inspect(s).transaction(() => {
     for (let index = 0; index < 45; index++) {
       const tower = save("physical", { asset_no: "分页位置" + index });
       const demand = s.demands.save(user, {
@@ -33,7 +34,7 @@ test("demand SQL search filters full location snapshots before pagination and re
   assert.equal(s.demands.search(query({ q: "分页需求044" })).total, 0);
   assert.equal(s.demands.search(query({ q: "分页需求044", deleted: "true" })).items[0].deleted, true);
   assert.equal(s.demands.search(query({ sort: 'name"; DROP TABLE demands', page: "1.5" })).page, 1);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("project SQL list keeps current approval and binding without loading all detail histories", t => {

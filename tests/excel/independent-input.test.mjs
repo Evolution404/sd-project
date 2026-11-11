@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { columnIndex } from "../workbook-helpers.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -143,7 +144,7 @@ test("asset workbook creates complete lines and towers, reuses explicit physical
     }),
   );
   assert.ok(preview.issues.some((problem) => problem.reason.includes("歧义")));
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("new settlement workbook needs business descriptions only and maintenance exports readable descriptions", async (t) => {

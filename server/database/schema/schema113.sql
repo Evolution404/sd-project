@@ -546,6 +546,18 @@ CREATE TABLE evidence_links (
 ) STRICT;
 
 
+-- One authoritative persisted access policy; default is the existing restricted behavior.
+-- Remote clients remain restricted until an administrator explicitly disables it.
+CREATE TABLE access_policy (
+ id INTEGER NOT NULL PRIMARY KEY CHECK(id=1),
+ ip_restriction_enabled INTEGER NOT NULL CHECK(ip_restriction_enabled IN (0,1)),
+ version INTEGER NOT NULL CHECK(version>=1),
+ updated_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+ updated_at TEXT CHECK(updated_at IS NULL OR (length(updated_at)=24 AND
+   COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0)))
+) STRICT;
+INSERT INTO access_policy(id,ip_restriction_enabled,version) VALUES (1,1,1);
+
 CREATE TABLE allowed_ips (
  id TEXT NOT NULL PRIMARY KEY, ip TEXT NOT NULL UNIQUE, note TEXT NOT NULL DEFAULT '',
  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,

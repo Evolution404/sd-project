@@ -56,6 +56,31 @@ export function createManagement({ repository, identity, auth, audit, database }
       return output;
     });
   }
+  function accessPolicy(actor:Actor) {
+    authorize(actor,"admin");
+    return repository.accessPolicy();
+  }
+  function setAccessPolicy(actor:Actor,input:Input) {
+    authorize(actor,"admin");
+    requireValue(typeof input.ip_restriction_enabled==="boolean",
+      "访问限制开关必须明确为开启或关闭");
+    requireValue(typeof input.expected_version==="number" &&
+      Number.isSafeInteger(input.expected_version) && input.expected_version>0,
+      "请提供访问限制配置的当前版本");
+    return database.transaction(()=>{
+      const original=repository.accessPolicy();
+      requireValue(original.version===input.expected_version,
+        "访问控制配置已被其他管理员修改，请刷新后重试",409);
+      requireValue(original.ip_restriction_enabled!==input.ip_restriction_enabled,
+        "访问控制配置没有变化",409);
+      const enabled=input.ip_restriction_enabled as boolean;
+      const changed=repository.updateAccessPolicy(original.version,enabled,actor.id,now());
+      requireValue(changed,"访问控制配置已变更，请刷新后重试",409);
+      const updated=repository.accessPolicy();
+      audit.record(actor,"access_policy","ip_restriction","revise",original,updated);
+      return updated;
+    });
+  }
   function ips(actor: Actor) {
     authorize(actor, "admin");
     return repository.allowedIps();
@@ -118,6 +143,6 @@ export function createManagement({ repository, identity, auth, audit, database }
     authorize(actor, "admin");
     return repository.permissionCatalog();
   }
-  return { actors, users, saveUser, ips, saveIp, audits, annotateAudit, permissions };
+  return { actors, users, saveUser, accessPolicy, setAccessPolicy, ips, saveIp, audits, annotateAudit, permissions };
 }
 export type ManagementService = ReturnType<typeof createManagement>;

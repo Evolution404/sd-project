@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -89,7 +90,7 @@ test("service rejects cross-framework, inactive and out-of-date agreements befor
     }), matcher);
     assert.equal(s.projects.get(reserve.id).funding.version_no, baseline);
   }
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("reassigning funding changes only current association and recalculates budget reference", t => {
@@ -108,7 +109,7 @@ test("reassigning funding changes only current association and recalculates budg
   const after = s.projects.agreementOptions(approved.id);
   assert.equal(after.options.find(x => x.id === assigned.id).linked_approved_budget_fen, 0);
   assert.equal(after.options.find(x => x.id === other.id).linked_approved_budget_fen, 50000);
-  assert.equal(s.repo.where("project_funding_versions", { project_id: approved.id }).length, 2);
+  assert.equal(inspect(s).where("project_funding_versions", { project_id: approved.id }).length, 2);
 
   updated = s.projects.fund(user, approved.id, {
     agreement_id: null, expected_version: 2,
@@ -117,7 +118,7 @@ test("reassigning funding changes only current association and recalculates budg
   assert.equal(updated.funding.version_no, 3);
   assert.equal(s.projects.agreementOptions(approved.id).options
     .find(x => x.id === other.id).linked_approved_budget_fen, 0);
-  assert.equal(s.repo.where("project_funding_versions", { project_id: approved.id }).length, 3);
+  assert.equal(inspect(s).where("project_funding_versions", { project_id: approved.id }).length, 3);
 });
 
 test("old inactive linked agreement is readable but cannot be selected for a new association", t => {

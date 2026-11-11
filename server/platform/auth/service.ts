@@ -48,7 +48,8 @@ export function createAuth(repository: IdentityRepository, boundary: Pick<Databa
     actor,
     permittedIp(address?: string): boolean {
       const ip = address?.replace(/^::ffff:/, "") || "";
-      return ip === "127.0.0.1" || ip === "::1" || repository.allowed(ip);
+      return !repository.ipRestrictionEnabled() ||
+        ip === "127.0.0.1" || ip === "::1" || repository.allowed(ip);
     },
     login(username: unknown, password: unknown) {
       requireValue(typeof username === "string" && username.length > 0 && username.length <= 128, "账号或密码错误", 401);

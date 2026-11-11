@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
@@ -41,5 +42,5 @@ test("project workspace lazily loads only active approval and draft while preser
     assert.equal(row.scopes[0].demand_no, demand.demand_no);
     assert.equal(row.scopes[0].locations.length, demand.work_locations.length);
   }
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
@@ -110,8 +111,8 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
     assert.equal(s.catalog.get(kind, created.id, true).deleted, true,
       "retained historical identity: " + kind);
   }
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
-  assert.equal(s.repo.integrity().integrity[0].integrity_check, "ok");
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().integrity[0].integrity_check, "ok");
 });
 
 test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged settlements -> delete/restore history", (t) => {
@@ -235,13 +236,13 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
   s.finance.removeCost(user, project.id, cost.entry_id, { expected_version: 2 });
   assert.equal(s.finance.costs(project.id).length, 0);
   s.finance.removeNode(user, project.id, node.id, { expected_version: 2 });
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
   const restored = reopen();
   assert.equal(restored.demands.get(originalDemand).current_version, 2);
   assert.equal(restored.projects.get(project.id).status, "approved");
   assert.equal(restored.finance.summary(project.id).settlement_fen, 0);
   assert.equal(restored.catalog.get("prices", price.id).id, price.id);
-  assert.equal(restored.repo.integrity().integrity[0].integrity_check, "ok");
+  assert.equal(inspect(restored).integrity().integrity[0].integrity_check, "ok");
 });
 
 test("EMPTY DB: system users/IP/audit + authenticated HTTP read/write and precheck", async (t) => {
@@ -291,5 +292,5 @@ test("EMPTY DB: system users/IP/audit + authenticated HTTP read/write and preche
   await write("DELETE", "/api/users/" + viewer.id, {});
   await write("POST", "/api/audit", { message: "从空库开始的集成审计" });
   assert.ok((await read("/api/audit")).items.length > 0);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

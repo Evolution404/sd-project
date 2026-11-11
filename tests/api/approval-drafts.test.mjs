@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture, approvedFixture } from "../helpers.mjs";
@@ -49,23 +50,23 @@ test("priced initial approval draft can be withdrawn without erasing the final q
   project = s.projects.discardApproval(user, project.id, first.id);
   assert.equal(project.approvals.length, 0);
   assert.equal(
-    s.repo.find("reference_price_evaluations", "id", quote.id).status,
+    inspect(s).find("reference_price_evaluations", "id", quote.id).status,
     "final",
   );
   assert.equal(
-    s.repo.find("project_approval_versions", "id", first.id).status,
+    inspect(s).find("project_approval_versions", "id", first.id).status,
     "withdrawn",
   );
   assert.throws(
     () =>
-      s.repo.update("project_approval_versions", "id", first.id, {
+      inspect(s).update("project_approval_versions", "id", first.id, {
         status: "draft",
       }),
     /不可覆盖/,
   );
   assert.throws(
     () =>
-      s.repo.remove(
+      inspect(s).remove(
         "project_approval_scope_versions",
         "id",
         first.scopes[0].id,
@@ -80,7 +81,7 @@ test("priced initial approval draft can be withdrawn without erasing the final q
   });
   assert.equal(project.status, "approved");
   assert.equal(s.projects.history(project.id).approvals.length, 2);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 test("formal project change is authored before approval and cannot reuse a stale approval baseline", (t) => {
   const { s, user, project, demand, scope, approval } = approvedFixture(t),
@@ -123,5 +124,5 @@ test("formal project change is authored before approval and cannot reuse a stale
     () => s.projects.approvalDraft(user, project.id, input),
     /批准基线已变化/,
   );
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

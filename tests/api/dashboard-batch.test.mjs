@@ -29,20 +29,20 @@ test("dashboard batch aggregates preserve exact project finance and formal settl
 
   const called = { portfolio: 0, totals: 0, demands: 0, prices: 0 };
   const original = {
-    portfolio: s.repo.projectDashboardPortfolio,
-    totals: s.repo.portfolioFinanceTotals,
-    demands: s.repo.portfolioFinanceDemands,
+    portfolio: s.projectPort.projectDashboardPortfolio,
+    totals: s.financePort.portfolioFinanceTotals,
+    demands: s.financePort.portfolioFinanceDemands,
     prices: s.pricing.summariesForApprovals,
   };
-  s.repo.projectDashboardPortfolio = (...args) => {
+  s.projectPort.projectDashboardPortfolio = (...args) => {
     called.portfolio++;
     return original.portfolio(...args);
   };
-  s.repo.portfolioFinanceTotals = (...args) => {
+  s.financePort.portfolioFinanceTotals = (...args) => {
     called.totals++;
     return original.totals(...args);
   };
-  s.repo.portfolioFinanceDemands = (...args) => {
+  s.financePort.portfolioFinanceDemands = (...args) => {
     called.demands++;
     return original.demands(...args);
   };

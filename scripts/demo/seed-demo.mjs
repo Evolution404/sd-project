@@ -1,12 +1,18 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync, mkdtempSync, renameSync, rmSync, openSync, writeSync, closeSync } from "node:fs";
+import { resolve, join, dirname, basename } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { today } from "../../dist/server/platform/auth/service.js";
 
 export const DEMO_ACCOUNT = "demo";
 export const DEMO_PASSWORD = "DemoOnly-2026!";
 const MARKER = "DEMO-DATA.json";
-const SEED_VERSION = 2;
+const SEED_VERSION = 3;
+const OLDER_DEMO_VERSIONS = new Set([1, 2]);
+const SCHEMA_SQL = resolve(import.meta.dirname, "../../server/database/schema/schema113.sql");
+function schemaFingerprint() {
+  return createHash("sha256").update(readFileSync(SCHEMA_SQL)).digest("hex");
+}
 
 function counts(system) {
   return {
@@ -29,7 +35,7 @@ function counts(system) {
 }
 
 function populate(system, password) {
-  return system.repo.transaction(() => {
+  return system.database.transaction(() => {
     system.auth.initialize(DEMO_ACCOUNT, password);
     const { user } = system.auth.login(DEMO_ACCOUNT, password);
     const add = (kind, data) => system.catalog.save(user, kind, data);
@@ -345,6 +351,65 @@ function populate(system, password) {
 }
 
 /**
+ * Rebuild only a verifiably managed demo when its seed/schema changed.
+ * The existing directory is atomically moved to a unique archive, never
+ * deleted; no SQL migration or shared-data alteration takes place.
+ */
+function refreshOutdatedDemo(directory, options, marker) {
+  if (basename(directory) !== "demo" || lstatSync(directory).isSymbolicLink() ||
+      !lstatSync(directory).isDirectory() ||
+      !existsSync(join(directory, "schema113.sqlite")) ||
+      lstatSync(join(directory, "schema113.sqlite")).isSymbolicLink() ||
+      typeof marker.createdAt !== "string" ||
+      !Number.isInteger(marker.projects) || marker.projects < 1)
+    throw Error("旧演示目录身份无法确认，拒绝自动重建，请手动检查");
+  const parent = dirname(directory);
+  // An exclusive lock prevents two demo refreshes from moving the same data.
+  const lock = join(parent, ".demo-refresh.lock");
+  const lockHandle = requireDemoRefreshLock(lock);
+  let staging;
+  try {
+    staging = mkdtempSync(join(parent, ".demo-refresh-"));
+    const seeded = ensureDemoDatabase(staging, options);
+    const archive = join(parent,
+      "demo-archive-" + new Date().toISOString().replace(/[:.]/g, "-") +
+      "-" + randomUUID().slice(0, 8));
+    renameSync(directory, archive);
+    try {
+      renameSync(staging, directory);
+      staging = undefined;
+    } catch (error) {
+      renameSync(archive, directory);
+      throw error;
+    }
+    return { ...seeded, directory, archive, refreshed: true, previous_seed_version: marker.version };
+  } finally {
+    if (staging && existsSync(staging))
+      rmSync(staging, { recursive: true, force: true });
+    releaseDemoRefreshLock(lockHandle, lock);
+  }
+}
+function requireDemoRefreshLock(lock) {
+  const fd = openDemoLock(lock);
+  return fd;
+}
+function openDemoLock(lock) {
+  try {
+    const fd = openSync(lock, "wx", 0o600);
+    writeSync(fd, String(process.pid));
+    return fd;
+  } catch (error) {
+    if (error?.code === "EEXIST")
+      throw Error("检测到演示数据刷新任务已在运行；为保护数据，请检查演示目录再试");
+    throw error;
+  }
+}
+function releaseDemoRefreshLock(fd, lock) {
+  closeSync(fd);
+  rmSync(lock, { force: true });
+}
+
+/**
  * Create a separate, completely fictional demo installation. Never import
  * examples into a non-demo runtime database or overwrite an existing folder.
  */
@@ -353,8 +418,12 @@ export function ensureDemoDatabase(dataDir, options = {}) {
   const markerPath = join(directory, MARKER);
   if (existsSync(markerPath)) {
     const marker = JSON.parse(readFileSync(markerPath, "utf8"));
-    if (marker.version !== SEED_VERSION || marker.purpose !== "local-demo")
+    if (marker.purpose !== "local-demo" ||
+        (!OLDER_DEMO_VERSIONS.has(marker.version) && marker.version !== SEED_VERSION))
       throw Error("已有演示数据版本与当前程序不匹配，请手动检查，拒绝覆盖");
+    if (OLDER_DEMO_VERSIONS.has(marker.version) ||
+        marker.schema_sha256 !== schemaFingerprint())
+      return refreshOutdatedDemo(directory, options, marker);
     const system = createSystem(directory);
     try {
       const existing = counts(system);
@@ -371,11 +440,13 @@ export function ensureDemoDatabase(dataDir, options = {}) {
   const system = createSystem(directory);
   try {
     const result = populate(system, options.password || DEMO_PASSWORD);
-    if (system.repo.integrity().foreignKeys.length ||
-        system.repo.integrity().integrity[0].integrity_check !== "ok")
+    const database=system.database.connection;
+    if (database.prepare("PRAGMA foreign_key_check").all().length ||
+        database.prepare("PRAGMA integrity_check").get()?.integrity_check !== "ok")
       throw Error("演示数据完整性检查未通过");
     const metadata = {
       purpose: "local-demo", version: SEED_VERSION,
+      schema_sha256: schemaFingerprint(),
       note: "全部数据虚构，仅供熟悉系统，不可用于真实工程",
       createdAt: new Date().toISOString(),
       ...result,

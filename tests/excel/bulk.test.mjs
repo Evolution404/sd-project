@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -8,9 +9,9 @@ for (const count of [100, 1000, 5000])
     const { s, user, operation } = fixture(t),
       exchange = createExchange(s),
       timestamp = new Date().toISOString();
-    s.repo.transaction(() => {
+    inspect(s).transaction(() => {
       for (let i = 0; i < count; i++)
-        s.repo.insert("physical_towers", {
+        inspect(s).insert("physical_towers", {
           id: `bulk-tower-${i}`,
           tower_code: `BULK-${i}`,
           asset_no: `BULK-${i}`,
@@ -53,8 +54,8 @@ for (const count of [100, 1000, 5000])
     });
     const afterCommit = performance.now();
     assert.equal(result.results.length, count);
-    assert.equal(s.repo.list("v_demand_current").length, count);
-    assert.equal(s.repo.list("demand_version_work_locations").length, count);
+    assert.equal(inspect(s).list("v_demand_current").length, count);
+    assert.equal(inspect(s).list("demand_version_work_locations").length, count);
     assert.deepEqual(
       exchange.commit(user, preview.token, {
         request_key: "bulk5000-import-001",
@@ -62,7 +63,7 @@ for (const count of [100, 1000, 5000])
       }),
       result,
     );
-    assert.equal(s.repo.integrity().foreignKeys.length, 0);
+    assert.equal(inspect(s).integrity().foreignKeys.length, 0);
     console.log(
       "BULK_PHASE_MS",
       JSON.stringify({

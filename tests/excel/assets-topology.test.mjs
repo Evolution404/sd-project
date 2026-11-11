@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { columnIndex } from "../workbook-helpers.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -55,7 +56,7 @@ test("single workbook creates main line, junction tower, branch, both circuits a
   assert.equal(branchSpan.start_tower_id, junction.id);
   assert.equal(branchSpan.end_tower_id, branchEnd.id);
   assert.equal(branchSpan.transmission_center_length_mm, 1255000);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 
   const exported = new ExcelJS.Workbook();
   await exported.xlsx.load(await exchange.exportData(user, "assets", {
@@ -101,7 +102,7 @@ test("single workbook creates main line, junction tower, branch, both circuits a
   const revisedSpan = s.catalog.get("spans", branchSpan.id);
   assert.equal(revisedSpan.transmission_center_length_mm, 1300250);
   assert.equal(revisedSpan.version, branchSpan.version + 1);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("span preview rejects reversed duplicate pairs and invalid junction; no guessing or hidden automatic topology", async (t) => {
@@ -284,5 +285,5 @@ test("conflicting physical-attribute revisions from two shared logical circuits 
   assert.equal(s.catalog.get("physical", physical.id).version, before.version);
   assert.equal(s.catalog.get("towers", first.id).physical_tower_id, physical.id);
   assert.equal(s.catalog.get("towers", sibling.id).physical_tower_id, physical.id);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -46,5 +47,5 @@ test("Excel preflight rejects fractional sets by row, commits only legitimate se
   const created=s.demands.get(saved.results[0].id);
   assert.equal(created.quantity_scaled,20000);
   assert.equal(s.demands.list().length,2);
-  assert.deepEqual(s.repo.integrity().foreignKeys,[]);
+  assert.deepEqual(inspect(s).integrity().foreignKeys,[]);
 });

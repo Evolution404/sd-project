@@ -1,3 +1,4 @@
+import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
@@ -23,9 +24,9 @@ test("remove linked work object first, then operation and price without losing i
   }), /作业对象不存在或已删除/);
 
   // Even direct repository writes must not create an active V2 on a deleted master.
-  const first = s.repo.where("operation_versions", { operation_id: operation.id })[0];
+  const first = inspect(s).where("operation_versions", { operation_id: operation.id })[0];
   const later = new Date(Date.parse(first.changed_at) + 1000).toISOString();
-  assert.throws(() => s.repo.insert("operation_versions", {
+  assert.throws(() => inspect(s).insert("operation_versions", {
     ...first, id: "forbidden-new-active-operation-version",
     name: "非法发布的有效操作版本",
     version: operationBefore.version + 1, changed_at: later,
@@ -39,7 +40,7 @@ test("remove linked work object first, then operation and price without losing i
   assert.equal(archivedOperation.version, operationBefore.version + 1);
   assert.equal(archivedOperation.work_object_id, oldWorkObjectId);
   assert.equal(s.catalog.history("operations", operation.id).length, 2);
-  assert.ok(s.repo.auditFor("operations", operation.id).some(event => event.action === "delete"));
+  assert.ok(inspect(s).auditFor("operations", operation.id).some(event => event.action === "delete"));
   assert.throws(() => s.catalog.get("operations", operation.id), /已删除/);
   assert.throws(() => s.catalog.save(user, "prices", {
     title: "新价格不得关联已删除的操作",
@@ -61,8 +62,8 @@ test("remove linked work object first, then operation and price without losing i
   assert.equal(archivedPrice.operation_version, oldPriceOperationVersion);
   assert.equal(archivedPrice.unit_version, oldPriceUnitVersion);
   assert.equal(s.catalog.history("prices", price.id).length, 1);
-  assert.ok(s.repo.auditFor("prices", price.id).some(event => event.action === "delete"));
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.ok(inspect(s).auditFor("prices", price.id).some(event => event.action === "delete"));
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 
 test("deletion in normal dependent-first order still works and keeps original master identities", (t) => {
@@ -75,5 +76,5 @@ test("deletion in normal dependent-first order still works and keeps original ma
   assert.equal(s.catalog.list("objects").length, 0);
   assert.equal(s.catalog.get("prices", price.id, true).operation_id, operation.id);
   assert.equal(s.catalog.get("operations", operation.id, true).work_object_id, object.id);
-  assert.equal(s.repo.integrity().foreignKeys.length, 0);
+  assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });

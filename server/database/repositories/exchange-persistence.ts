@@ -9,7 +9,7 @@ import { requireValue } from "../../shared/errors/business-error.js";
  * equipment and settlement mutations remain in their own domain services.
  * Application code never supplies SQL table or column identifiers.
  */
-type Store = Pick<ReturnType<typeof createStore>, "get" | "run" | "query">;
+type Store = Pick<ReturnType<typeof createStore>, "get" | "run">;
 
 export interface ExchangeBatchDraft {
   id: string;
@@ -61,11 +61,6 @@ export function exchangePersistenceRepository(store: Store) {
     scopeDemandId(scopeId: string): string | undefined {
       return store.get<{demand_id:string}>(
         "SELECT demand_id FROM project_demand_scopes WHERE id=?", scopeId)?.demand_id;
-    },
-    settlementItemsAtVersion(versionId: string): Record<string,unknown>[] {
-      return store.query(
-        "SELECT * FROM settlement_item_versions WHERE settlement_version_id=? ORDER BY rowid",
-        versionId);
     },
     createBatch(draft: ExchangeBatchDraft): void {
       store.run(`INSERT INTO demand_batches
