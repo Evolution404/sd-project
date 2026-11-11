@@ -210,12 +210,15 @@ function removeLocation(index: number) {
   form.value.work_locations.splice(index, 1);
   locationLineIds.value.splice(index, 1);
 }
-const operation = computed(() =>
-  adoptedOperation.value?.operation_id === form.value.operation_id &&
-  adoptedOperation.value?.version === form.value.operation_version
-    ? adoptedOperation.value
-    : operations.value.find((item) => item.id === form.value.operation_id),
-);
+const operation = computed(() => {
+  const adopted = adoptedOperation.value;
+  // A frozen version has its own row ID, but downstream pricing and catalog
+  // lookups require the stable operation identity, never that version-row ID.
+  if (adopted && adopted.operation_id === form.value.operation_id &&
+      adopted.version === form.value.operation_version)
+    return { ...adopted, id: adopted.operation_id };
+  return operations.value.find((item) => item.id === form.value.operation_id);
+});
 const extraFields = computed(() =>
   JSON.parse(operation.value?.fields_json || "[]"),
 );
@@ -615,17 +618,24 @@ onMounted(async () => {
           </p>
         </div>
         <ElButton v-if="['pending','returned'].includes(detail.status)"
-          type="primary" :disabled="!can('demand.activate')" @click="transition(detail,'active')">
+          type="primary" :disabled="!can('demand.activate')"
+          :title="can('demand.activate') ? undefined : '需要需求确认权限，请交由审核人员办理'"
+          @click="transition(detail,'active')">
           确认需求有效
         </ElButton>
         <ElButton v-else-if="detail.status === 'active' && !detail.binding"
-          type="primary" :disabled="!can('write')" @click="openProjectPicker">
+          type="primary" :disabled="!can('write')"
+          :title="can('write') ? undefined : '关联子项目需要编辑权限'"
+          @click="openProjectPicker">
           关联子项目
         </ElButton>
         <ElButton v-else-if="detail.binding?.project_id" type="primary" @click="openLinkedProject">
           进入承接项目
         </ElButton>
-        <ElButton :disabled="!can('write') || detail.status === 'cancelled'" @click="edit(detail)">修订需求</ElButton>
+        <ElButton :disabled="!can('write') || detail.status === 'cancelled'"
+          :title="detail.status === 'cancelled' ? '需求已取消，只能查看正式历史' :
+            can('write') ? undefined : '修订需求需要编辑权限'"
+          @click="edit(detail)">修订需求</ElButton>
         <ElDropdown trigger="click" @command="secondaryAction">
           <ElButton>更多操作</ElButton>
           <template #dropdown>
@@ -639,6 +649,15 @@ onMounted(async () => {
           </template>
         </ElDropdown>
       </div>
+      <ElAlert v-if="['pending','returned'].includes(detail.status) && !can('demand.activate')"
+        class="permission-hint" type="info" :closable="false"
+        title="当前账号没有需求确认权限，须由审核人员确认后才能进入承接。" />
+      <ElAlert v-if="detail.status === 'active' && !detail.binding && !can('write')"
+        class="permission-hint" type="info" :closable="false"
+        title="当前账号没有编辑权限，关联子项目须由管理员或编辑人员办理。" />
+      <ElAlert v-if="!can('write') && detail.status !== 'cancelled'"
+        class="permission-hint" type="info" :closable="false"
+        title="当前账号没有需求修订权限，可以查阅详情、采用定义和正式历史。" />
     </div>
     <div class="panel">
       <div class="toolbar">
