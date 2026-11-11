@@ -26,7 +26,8 @@ import { createPricing } from "./modules/pricing/service.js";
 import { pricingRepository } from "./database/repositories/pricing.js";
 import { createProjects } from "./modules/projects/service.mjs";
 import { createSources } from "./modules/demands/sources.js";
-import { createReporting } from "./modules/reporting/service.mjs";
+import { createReporting } from "./modules/reporting/service.js";
+import { reportingReadRepository } from "./database/repositories/reporting.js";
 import { createManagement } from "./modules/management/service.js";
 import { managementRepository } from "./database/repositories/management.js";
 import { createFinance } from "./modules/finance/service.mjs";
@@ -54,7 +55,7 @@ export function createSystem(dataDir?: string) {
   const hierarchies = hierarchyRepository(store);
   const finance = createFinance(repo, catalog, projects, pricing, hierarchies);
   const organizations = createOrganizations(hierarchies, dictionaries, database);
-  const reporting = createReporting(repo, projects, finance);
+  const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
     database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, demands, pricing, projects, finance, organizations,

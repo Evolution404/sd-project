@@ -67,4 +67,12 @@ test("dashboard batch aggregates preserve exact project finance and formal settl
   const frameworkRow = dashboard.frameworks.find(row => row.id === framework.id);
   assert.equal(frameworkRow.actual_cost_fen, 140000);
   assert.equal(frameworkRow.projects, 22);
+  assert.equal(frameworkRow.approved_budget_fen, 120000);
+  assert.equal(frameworkRow.difference_fen, 140000 - framework.limit_fen);
+  assert.deepEqual(dashboard.months.filter(month => month.month === "2026-11"),
+    [{ month: "2026-11", actual_cost_fen: 140000 }]);
+  assert.deepEqual(dashboard.quarters
+    .filter(row => row.framework === framework.name)
+    .map(row => row.cumulative_actual_fen), [0, 0, 0, 140000]);
+  assert.equal(dashboard.pending_demands, 0);
 });
