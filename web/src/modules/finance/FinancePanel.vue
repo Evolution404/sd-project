@@ -429,6 +429,9 @@ watch(() => props.project.id, load, { immediate: true });
         @click="edit('cost')"
         >核定费用</ElButton
       >
+      <span v-if="!can('cost.confirm')" class="muted" role="note">
+        费用核定须由具备审核权限的人员办理
+      </span>
     </div>
     <BusinessTable table-key="finance:costs" :loading="listLoading" :filter-state="financeFilters.costs"
       :sort-state="{ prop: financeSort.costs, order: financeSort.costs ? (financeDirection.costs === 'asc' ? 'ascending' : 'descending') : null }" :rows="costs" :columns="financeColumns.costs" :actions-width="145"
@@ -458,7 +461,13 @@ watch(() => props.project.id, load, { immediate: true });
         :disabled="!can('write') || project.status !== 'approved'"
         @click="edit('settlement')"
         >新增结算草稿</ElButton
-      ><ExchangePanel
+      ><span v-if="project.status !== 'approved'" class="muted" role="note">
+        子项目正式批准后才可编制结算
+      </span>
+      <span v-else-if="!can('write')" class="muted" role="note">
+        结算草稿须由具备编辑权限的人员编制
+      </span>
+      <ExchangePanel
         kind="settlements"
         :project-id="project.id"
         :selected-ids="selected.map((x) => x.id)"
@@ -499,6 +508,9 @@ watch(() => props.project.id, load, { immediate: true });
       ><ElButton :disabled="!can('cost.confirm')" @click="edit('reconcile')"
         >新增正式核对</ElButton
       >
+      <span v-if="!can('cost.confirm')" class="muted" role="note">
+        正式费用核对须由具备审核权限的人员办理
+      </span>
     </div>
     <BusinessTable table-key="finance:reconciliations" :loading="listLoading" :filter-state="financeFilters.reconciliations"
       :sort-state="{ prop: financeSort.reconciliations, order: financeSort.reconciliations ? (financeDirection.reconciliations === 'asc' ? 'ascending' : 'descending') : null }" :rows="reconciliations"
