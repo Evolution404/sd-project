@@ -52,6 +52,29 @@ export interface ProjectCostNode extends Record<string, unknown> {
   deleted: boolean;
 }
 
+export interface ApprovalCandidate {
+  project_scope_id: string;
+  id: string;
+  current_version: number;
+  demand_no: string;
+  status: string;
+  work_locations: Array<{
+    location_snapshot_json: {
+      location_label?: string; physical_code?: string; tower_no?: string
+    };
+    quantity_scaled: number;
+    span_id?: string | null;
+    [field: string]: unknown;
+  }>;
+}
+interface ApprovalCandidateRow {
+  project_scope_id: string;
+  id: string;
+  current_version: number;
+  demand_no: string;
+  status: string;
+  full_definition_json: string;
+}
 export interface ProjectDashboardBase {
   id: string;
   code: string;
@@ -85,24 +108,31 @@ export function projectReadRepository(store: Store) {
         binding: binding_json ? JSON.parse(binding_json) as CurrentProjectBinding : null,
       }));
     },
-    projectApprovalHistory(projectId: string): ProjectApprovalHistory[] {
-      const approvals = store.query(`SELECT * FROM project_approval_versions
-        WHERE project_id=? AND status<>'withdrawn' ORDER BY version_no`, projectId) as
+    projectApprovalHistory(projectId: string, currentOnly = false): ProjectApprovalHistory[] {
+      // Only the current approval and pending draft are needed for live
+      // actions. Historical approved versions load on explicit request.
+      const current = currentOnly
+        ? ` AND (ap.status='draft' OR (ap.status='approved' AND ap.version_no=(
+            SELECT MAX(v.version_no) FROM project_approval_versions v
+            WHERE v.project_id=ap.project_id AND v.status='approved')))`
+        : "";
+      const approvals = store.query(`SELECT ap.* FROM project_approval_versions ap
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no`, projectId) as
         { id: string; version_no: number; status: string; [key: string]: unknown }[];
       if (!approvals.length) return [];
       const scopes = store.query(`SELECT sc.*, d.demand_no FROM project_approval_scope_versions sc
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
         JOIN demands d ON d.id=sc.demand_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn' ORDER BY ap.version_no,sc.rowid`, projectId) as ApprovedScopeRow[];
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no,sc.rowid`, projectId) as ApprovedScopeRow[];
       const materials = store.query(`SELECT item.*, pm.material_id FROM project_approval_material_items item
         JOIN project_approval_versions ap ON ap.id=item.approval_version_id
         JOIN project_scope_materials pm ON pm.id=item.project_material_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn'
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}
         ORDER BY ap.version_no,item.item_no`, projectId) as ApprovedMaterialSnapshot[];
       const locations = store.query(`SELECT loc.* FROM project_approval_work_locations loc
         JOIN project_approval_scope_versions sc ON sc.id=loc.approval_scope_version_id
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn'
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}
         ORDER BY ap.version_no,loc.location_item_no`, projectId) as ApprovedLocationSnapshot[];
       const materialGroups = new Map<string, ApprovedMaterialSnapshot[]>();
       for (const item of materials) {
@@ -131,6 +161,24 @@ export function projectReadRepository(store: Store) {
         ...approval,
         scopes: scopeGroups.get(approval.id) || [],
       }));
+    },
+    /** Batch approval editor candidates from current formal demand versions. */
+    projectApprovalCandidates(projectId: string): ApprovalCandidate[] {
+      const rows = store.query(`SELECT scope.id AS project_scope_id, d.id,
+        current.current_version, d.demand_no, current.status, current.full_definition_json
+        FROM project_demand_scopes scope
+        JOIN v_project_demand_binding_current bind
+          ON bind.project_scope_id=scope.id
+        JOIN demands d ON d.id=scope.demand_id
+        JOIN v_demand_current current ON current.id=d.id
+        WHERE scope.project_id=?
+        ORDER BY scope.created_at,scope.id`, projectId) as ApprovalCandidateRow[];
+      return rows.map(({ full_definition_json, ...row }) => {
+        const definition = JSON.parse(full_definition_json) as {
+          work_locations: ApprovalCandidate["work_locations"];
+        };
+        return { ...row, work_locations: definition.work_locations };
+      });
     },
     projectDashboardPortfolio(): ProjectDashboardBase[] {
       return store.query(`SELECT p.id,p.code,m.name,p.status,p.framework_id,

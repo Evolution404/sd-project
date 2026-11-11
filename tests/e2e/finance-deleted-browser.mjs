@@ -28,8 +28,9 @@ try {
   await page.locator(".shell").waitFor();
   await page.goto(base + "/#/finance");
   await page.locator("main h1").waitFor();
-  await page.getByRole("tab", { name: "项目办理", exact: true }).click();
-  await page.getByRole("button", { name: "进入项目" }).first().click();
+  assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
+    "finance opens in project-first workflow mode");
+  await page.getByRole("button", { name: "进入项目办理" }).first().click();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.waitFor();
   await detail.getByText("包含已删除科目", { exact: true }).click();

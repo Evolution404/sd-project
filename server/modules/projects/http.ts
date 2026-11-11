@@ -1,4 +1,5 @@
 import { isObject } from "../../shared/types/contracts.js";
+import { projectActionHints } from "./actions.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
@@ -10,6 +11,11 @@ export async function handleProjects(context: RouteContext): Promise<{
     let result: unknown;
     switch (resource) {
         case "projects":
+            if (key === "from-demand") {
+                requireValue(!read && method === "POST", "仅支持建立并承接子项目", 405);
+                result = mutate("write", () => system.projects.createFromDemand(actor, input));
+                break;
+            }
             if (sub === "cost-tree") {
                 requireValue(read, "费用科目树只允许查询", 405);
                 result = subKey ? system.finance.categoryDetail(actor, key, subKey, parseListQuery(url.searchParams).page) : system.finance.costTree(actor, key);
@@ -18,8 +24,14 @@ export async function handleProjects(context: RouteContext): Promise<{
             if (read)
                 result = !key
                     ? system.projects.search(parseListQuery(url.searchParams))
+                    : sub === "actions"
+                        ? projectActionHints(actor, system.projects.workspace(key, deleted))
                     : sub === "history"
                         ? system.projects.history(key)
+                        : sub === "approval-candidates"
+                            ? system.projects.approvalCandidates(key)
+                    : sub === "approval-history"
+                            ? system.projects.approvalHistory(key)
                         : sub === "agreements"
                             ? system.projects.agreementOptions(key)
                             : sub === "summary"
@@ -30,7 +42,7 @@ export async function handleProjects(context: RouteContext): Promise<{
                                         ? page(system.finance.costs(key, deleted), url.searchParams)
                                         : sub === "settlements"
                                             ? page(system.finance.settlements(key), url.searchParams)
-                                            : system.projects.get(key, deleted);
+                                            : system.projects.workspace(key, deleted);
             else if (method === "DELETE" && !sub)
                 result = mutate("admin", () => system.projects.remove(actor, key, input));
             else if (sub === "stock")

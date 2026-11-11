@@ -57,14 +57,14 @@ try {
   await page.getByLabel("来源说明", { exact: true }).fill("现场巡视记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
-  await page
-    .getByRole("row")
-    .filter({ hasText: "三基塔防鸟装置缺失" })
-    .getByRole("button", { name: "查看", exact: true })
-    .click();
+  await page.locator(".business-detail-dialog:visible")
+    .getByRole("heading", { name: /三基塔防鸟装置缺失/ }).waitFor();
+  assert.ok(await page.getByText("当前办理状态", { exact: true }).isVisible(),
+    "saving a demand should immediately show the next business action");
   await page.getByText("总工作量", { exact: true }).waitFor();
   assert.equal(s.demands.list()[0].quantity_scaled, 90000);
-  await page.getByRole("button", { name: "参考价试算", exact: true }).click();
+  await page.getByRole("button", { name: "更多操作", exact: true }).last().click();
+  await page.getByRole("menuitem", { name: "参考价试算", exact: true }).click();
   await page.getByText("完整参考价 ¥480.00", { exact: true }).waitFor();
   await page.getByRole("button", { name: "确认正式报价", exact: true }).click();
   await page.getByText("已保存正式参考报价", { exact: true }).waitFor();

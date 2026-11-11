@@ -7,7 +7,10 @@ import { useListRoute } from "../../shared/composables/use-list-route";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
-import { ref, onMounted, computed } from "vue";
+import { ref, onMounted, computed, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { createProjectForDemand, projectContext, setupContext } from "../../shared/navigation/business-context";
+import { parkDemandDraft, takeDemandDraft } from "../../shared/forms/demand-draft-handoff";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -20,6 +23,72 @@ import type { OperationRecord, OperationVersion } from "../../../../server/share
 const adoptedOperation = ref<OperationVersion | null>(null),
   lastOperationId = ref("");
 const props = defineProps<{ user: Row }>();
+const route = useRoute(), router = useRouter();
+const projectPickerOpen = ref(false), projectSearch = ref(""), projectPage = ref(1);
+const projectCandidates = ref<Row[]>([]), projectTotal = ref(0);
+const projectLoading = ref(false), linking = ref(false), selectedProjectId = ref("");
+let projectSearchSequence = 0;
+async function loadProjectCandidates() {
+  const sequence = ++projectSearchSequence;
+  projectLoading.value = true;
+  try {
+    const params = new URLSearchParams({
+      page: String(projectPage.value), page_size: "20", q: projectSearch.value,
+      deleted: "false",
+    });
+    const response = await api<{ items: Row[]; total: number }>("/projects?" + params);
+    if (projectSearchSequence !== sequence) return;
+    projectCandidates.value = response.items.filter(project => project.status !== "closed");
+    projectTotal.value = response.total;
+  } catch (error) {
+    if (projectSearchSequence === sequence) ElMessage.error((error as Error).message);
+  } finally {
+    if (projectSearchSequence === sequence) projectLoading.value = false;
+  }
+}
+function openProjectPicker() {
+  if (!detail.value || detail.value.status !== "active" || detail.value.binding) return;
+  projectSearch.value = "";
+  projectPage.value = 1;
+  selectedProjectId.value = "";
+  projectPickerOpen.value = true;
+  void loadProjectCandidates();
+}
+async function linkSelectedProject() {
+  if (!detail.value || !selectedProjectId.value || linking.value) return;
+  linking.value = true;
+  try {
+    const demandId = detail.value.id;
+    await api(`/projects/${selectedProjectId.value}/link`, "POST", {
+      demand_id: demandId, expected_version: detail.value.current_version,
+    });
+    projectPickerOpen.value = false;
+    ElMessage.success("需求已承接，可直接进入子项目继续入库与批准");
+    await detailDialog.reload();
+    await load();
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally { linking.value = false; }
+}
+function openLinkedProject() {
+  if (detail.value?.binding?.project_id) {
+    void router.push(projectContext(detail.value.binding.project_id,
+      "scope", { focus: "demand", record: detail.value.id }));
+  }
+}
+function createProjectAndLink() {
+  if (!detail.value) return;
+  void router.push(createProjectForDemand(detail.value.id));
+}
+function secondaryAction(action: string) {
+  if (!detail.value) return;
+  if (action === "edit") void edit(detail.value);
+  if (action === "history") void showHistory();
+  if (action === "quote") quoteOpen.value = true;
+  if (action === "return") void transition(detail.value, "returned");
+  if (action === "cancel") void transition(detail.value, "cancelled");
+  if (action === "delete") void remove(detail.value);
+}
 const rows = ref<Row[]>([]),
   listLoading = ref(false),
   total = ref(0),
@@ -41,6 +110,40 @@ const rows = ref<Row[]>([]),
   quoteOpen = ref(false),
   formRef = ref(),
   showDeleted = ref(false);
+const setupStatus = ref<"loading" | "ready" | "missing" | "error">("loading");
+async function checkOperationSetup() {
+  setupStatus.value = "loading";
+  try {
+    const result = await api<{ total: number }>("/catalog/operations?page=1&page_size=1");
+    setupStatus.value = result.total ? "ready" : "missing";
+  } catch { setupStatus.value = "error"; }
+}
+function configureMissingOperation() {
+  if (!can("admin")) return;
+  parkDemandDraft({
+    // Vue ref values are reactive proxies; structuredClone(proxy) throws.
+    // Serialize the purely JSON business form before transient handoff.
+    form: JSON.parse(JSON.stringify(form.value)),
+    lineIds: [...locationLineIds.value],
+  });
+  dialog.value = false;
+  void router.push(setupContext(route, "operations"));
+}
+async function resumeDemandDraft() {
+  if (route.query.resume !== "demand") return;
+  const parked = takeDemandDraft();
+  const { resume: ignored, ...queryWithoutResume } = route.query;
+  void ignored;
+  await router.replace({ query: queryWithoutResume });
+  if (!parked) return;
+  await edit();
+  form.value = parked.form;
+  locationLineIds.value = parked.lineIds;
+  lastOperationId.value = String(parked.form.operation_id || "");
+  if (lastOperationId.value) await operationRecord(lastOperationId.value);
+  draftGuard.capture();
+  ElMessage.success("已恢复原需求录入内容");
+}
 const locationLineIds = ref<(string | null)[]>([]);
 function clearLocationDevice(loc: Row) {
   loc.logical_tower_id = null;
@@ -74,6 +177,11 @@ const demandLocationColumns: TableColumn[] = [
   { key: "quantity_scaled", label: "数量", minWidth: 135 },
   { key: "work_mode", label: "作业方式", minWidth: 130 },
   { key: "site_features_json", label: "现场特征", minWidth: 230, sortable: false, filterable: false },
+];
+const projectPickerColumns: TableColumn[] = [
+  { key: "name", label: "项目名称", minWidth: 210 },
+  { key: "code", label: "项目编号", minWidth: 150 },
+  { key: "status", label: "阶段", minWidth: 115 },
 ];
 const demandMaterialColumns: TableColumn[] = [
   { key: "material_name", label: "物资名称", minWidth: 165 },
@@ -178,6 +286,7 @@ async function edit(row?: Row) {
   errors.value = {};
   dialog.value = true;
   draftGuard.capture();
+  if (!row) void checkOperationSetup();
 }
 async function operationRecord(key: string): Promise<OperationRecord | null> {
   if (!key) return null;
@@ -284,14 +393,14 @@ async function save() {
       expected_version: editing.value?.current_version,
       sources: form.value.sources.filter((x: Row) => x.id || x.description),
     };
-    await api(
+    const saved = await api<{ id: string }>(
       "/demands" + (editing.value ? "/" + editing.value.id : ""),
-      "POST",
-      input,
+      "POST", input,
     );
-    ElMessage.success("需求版本已保存，正在同步列表");
-    await load();
+    ElMessage.success("需求版本已保存，可继续确认或承接");
     dialog.value = false;
+    await load();
+    await detailDialog.open(saved.id);
   } catch (e) {
     errors.value = (e as Row).fields || {};
     if (errors.value.duplicates) {
@@ -362,10 +471,15 @@ async function remove(row: Row) {
 }
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
 const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = null; quoteOpen.value = false; });
+watch(() => route.query.demand, demandId => {
+  if (typeof demandId === "string" && demandId && demandId !== detail.value?.id)
+    void detailDialog.open(demandId);
+}, { immediate: true });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   businessLabels.value = await api("/display-labels");
   await load();
+  await resumeDemandDraft();
 });
 </script>
 <template>
@@ -422,41 +536,48 @@ onMounted(async () => {
   <BusinessDetailDialog :open="detailOpen" title="需求详情" :loading="detailLoading" :error="detailError"
     @close="detailDialog.close" @retry="detailDialog.reload">
     <template v-if="detail"><div class="detail-header">
-      <h1>{{ detail.demand_no }} · {{ detail.operation_snapshot }}</h1>
-      <ElTag
-        >{{ statusText[detail.status] }} · 第 {{ detail.current_version }} 版</ElTag
-      >
+      <div>
+        <h1>{{ detail.operation_snapshot }} · {{ detail.problem_description }}</h1>
+        <div class="muted demand-technical-reference">需求编号：{{ detail.demand_no }} · 正式定义第{{ detail.current_version }}版</div>
+      </div>
+      <ElTag :type="detail.status === 'active' ? 'success' : 'info'">{{ statusText[detail.status] }}</ElTag>
     </div>
-    <div class="toolbar">
-      <ElButton :disabled="!can('write')" @click="edit(detail)"
-        >修订需求</ElButton
-      ><ElButton @click="showHistory()">完整历史</ElButton
-      ><ElButton @click="quoteOpen = true">参考价试算</ElButton
-      ><ElButton
-        :disabled="!can('demand.activate')"
-        v-if="
-          ['admin', 'verifier'].includes(user.role) &&
-          detail.status !== 'active' &&
-          detail.status !== 'cancelled'
-        "
-        type="primary"
-        @click="transition(detail, 'active')"
-        >确认有效</ElButton
-      ><ElButton
-        :disabled="!can('demand.activate')"
-        v-if="detail.status === 'active'"
-        @click="transition(detail, 'returned')"
-        >退回</ElButton
-      ><ElButton
-        :disabled="!can('demand.activate')"
-        v-if="detail.status !== 'cancelled'"
-        type="danger"
-        plain
-        @click="transition(detail, 'cancelled')"
-        >取消需求</ElButton
-      ><ElButton :disabled="!can('admin')" type="danger" @click="remove(detail)"
-        >删除</ElButton
-      >
+    <div class="panel demand-next-action">
+      <div class="toolbar">
+        <div>
+          <h2>当前办理状态</h2>
+          <p class="muted">
+            {{ detail.status === 'pending' || detail.status === 'returned' ? '需求待确认有效后可以承接立项。' :
+              detail.status === 'active' && !detail.binding ? '需求已确认有效，下一步可纳入子项目。' :
+              detail.status === 'active' && detail.binding ? '需求已由子项目承接，可继续办理入库和批准。' :
+              '需求已取消，正式定义及历史仍可追溯。' }}
+          </p>
+        </div>
+        <ElButton v-if="['pending','returned'].includes(detail.status)"
+          type="primary" :disabled="!can('demand.activate')" @click="transition(detail,'active')">
+          确认需求有效
+        </ElButton>
+        <ElButton v-else-if="detail.status === 'active' && !detail.binding"
+          type="primary" :disabled="!can('write')" @click="openProjectPicker">
+          关联子项目
+        </ElButton>
+        <ElButton v-else-if="detail.binding?.project_id" type="primary" @click="openLinkedProject">
+          进入承接项目
+        </ElButton>
+        <ElButton :disabled="!can('write') || detail.status === 'cancelled'" @click="edit(detail)">修订需求</ElButton>
+        <ElDropdown trigger="click" @command="secondaryAction">
+          <ElButton>更多操作</ElButton>
+          <template #dropdown>
+            <ElDropdownMenu>
+              <ElDropdownItem command="quote">参考价试算</ElDropdownItem>
+              <ElDropdownItem command="history">完整历史</ElDropdownItem>
+              <ElDropdownItem v-if="detail.status === 'active'" command="return" :disabled="!can('demand.activate')">退回</ElDropdownItem>
+              <ElDropdownItem v-if="detail.status !== 'cancelled'" command="cancel" :disabled="!can('demand.activate')" divided>取消需求</ElDropdownItem>
+              <ElDropdownItem command="delete" :disabled="!can('admin')">删除</ElDropdownItem>
+            </ElDropdownMenu>
+          </template>
+        </ElDropdown>
+      </div>
     </div>
     <div class="panel">
       <h2>需求定义</h2>
@@ -540,8 +661,17 @@ onMounted(async () => {
             :field="{ type: 'ref', reference: 'operations' }"
             :selected-label="operation?.name || ''"
             @update:model-value="chooseOperation"
-          /></ElFormItem
-        ><ElFormItem
+          /></ElFormItem>
+        <ElAlert v-if="setupStatus === 'missing' && !form.operation_id"
+          type="warning" :closable="false" class="full-width"
+          title="尚未配置操作类型，完成作业标准配置后可继续录入当前需求。">
+          <ElButton size="small" type="primary" :disabled="!can('admin')"
+            @click="configureMissingOperation">配置操作类型</ElButton>
+          <span v-if="!can('admin')" class="muted">当前账号无配置权限，请联系管理员。</span>
+        </ElAlert>
+        <ElAlert v-else-if="setupStatus === 'error'" type="error" :closable="false"
+          class="full-width" title="操作类型列表暂不可用，请检查网络或刷新配置。" />
+        <ElFormItem
           label="问题描述"
           prop="problem_description"
           :rules="[{ required: true, message: '请填写问题描述' }]"
@@ -726,6 +856,37 @@ onMounted(async () => {
       ></template
     ></ElDialog
   >
+  <ElDialog v-model="projectPickerOpen" append-to-body title="选择子项目承接需求"
+    width="min(840px, 94vw)" :close-on-click-modal="false">
+    <p v-if="detail" class="muted">待承接：{{ detail.operation_snapshot }} · {{ detail.problem_description }}</p>
+    <div class="toolbar">
+      <ElInput v-model="projectSearch" clearable placeholder="搜索子项目名称或编号"
+        @change="projectPage = 1; loadProjectCandidates()" @keyup.enter="projectPage = 1; loadProjectCandidates()" />
+      <ElButton @click="projectPage = 1; loadProjectCandidates()">查找</ElButton>
+      <ElButton :disabled="!can('write')" @click="createProjectAndLink">创建子项目并承接</ElButton>
+    </div>
+    <BusinessTable :rows="projectCandidates" :columns="projectPickerColumns"
+      table-key="demand:project-picker" client-side :loading="projectLoading"
+      :actions-width="100" max-height="400">
+      <template #cell="{ row, column }">
+        <span v-if="column.key === 'status'">{{ statusText[row.status] || row.status }}</span>
+        <span v-else>{{ row[column.key] || '—' }}</span>
+      </template>
+      <template #actions="{ row }">
+        <ElButton size="small" :type="selectedProjectId === row.id ? 'primary' : undefined"
+          @click="selectedProjectId = row.id">
+          {{ selectedProjectId === row.id ? "已选中" : "选择" }}
+        </ElButton>
+      </template>
+    </BusinessTable>
+    <ElPagination v-model:current-page="projectPage" :page-size="20" :total="projectTotal"
+      layout="prev, pager, next, total" @current-change="loadProjectCandidates" />
+    <template #footer>
+      <ElButton @click="projectPickerOpen = false">取消</ElButton>
+      <ElButton type="primary" :loading="linking" :disabled="!selectedProjectId || !can('write')"
+        @click="linkSelectedProject">承接该需求</ElButton>
+    </template>
+  </ElDialog>
   <PricingQuoteDialog
     v-if="detail"
     v-model="quoteOpen"
@@ -742,3 +903,11 @@ onMounted(async () => {
     <BusinessHistory :value="history" />
   </ElDialog>
 </template>
+
+<style scoped>
+.demand-technical-reference {font-size:12px;margin-top:6px}
+.demand-next-action {border-color:var(--edge)}
+.demand-next-action .toolbar {justify-content:space-between;flex-wrap:wrap;gap:12px}
+.demand-next-action h2 {margin:0}
+.demand-next-action p {margin:6px 0 0}
+</style>

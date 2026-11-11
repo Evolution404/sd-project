@@ -7,6 +7,7 @@ import { handleEquipment } from "../../modules/equipment/http.js";
 import { isEquipmentKind } from "../../modules/equipment/service.js";
 import { handleOrganizations } from "../../modules/organizations/http.js";
 import type { RouteContext, RouteHandler } from "./context.js";
+import { handleFunding } from '../../modules/funding/http.js';
 import { handleCatalog } from '../../modules/catalog/http.js';
 import { handleReporting } from '../../modules/reporting/http.js';
 import { handleDemands } from '../../modules/demands/http.js';
@@ -23,6 +24,7 @@ const routes: Record<string, RouteHandler> = {
   'display-labels': handleCatalog,
   'catalogs': handleCatalog,
   'catalog': handleCatalog,
+  'funding': handleFunding,
   'organizations': handleOrganizations,
   'dashboard': handleReporting,
   'demands': handleDemands,
@@ -42,6 +44,7 @@ const routes: Record<string, RouteHandler> = {
 
 export function dispatchRoute(context: RouteContext) {
   requireValue(Object.hasOwn(routes, context.resource), '接口不存在', 404);
+  if (context.resource === "catalog" && ["frameworks", "agreements"].includes(context.key)) return handleFunding(context);
   if (context.resource === "catalog" && ["objects","operations"].includes(context.key)) return handleWorkStandards(context);
   if (context.resource === "catalog" && ["prices","factors"].includes(context.key)) return handlePriceCatalog(context);
   if (context.resource === "catalog" && isEquipmentKind(context.key)) return handleEquipment(context);

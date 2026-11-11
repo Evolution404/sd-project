@@ -1,5 +1,5 @@
 import { createRouter, createWebHashHistory } from "vue-router";
-const catalog = () => import("../modules/catalog/CatalogPage.vue");
+const funding = () => import("../modules/funding/FundingPage.vue");
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
@@ -8,8 +8,8 @@ export const router = createRouter({
     { path: "/demands", name: "demands", component: () => import("../modules/demands/DemandPage.vue") },
     { path: "/projects", name: "projects", component: () => import("../modules/projects/ProjectPage.vue") },
     { path: "/finance/:kind(costs|settlements|reconciliations|projects)?", name: "finance", component: () => import("../modules/finance/FinancePage.vue") },
-    { path: "/frameworks", name: "frameworks", component: catalog, props: { title: "年度框架", kinds: ["frameworks"] } },
-    { path: "/agreements", name: "agreements", component: catalog, props: { title: "执行协议", kinds: ["agreements"] } },
+    { path: "/frameworks", name: "frameworks", component: funding, props: { kind: "frameworks" } },
+    { path: "/agreements", name: "agreements", component: funding, props: { kind: "agreements" } },
     { path: "/ledger/:kind(lines|physical|towers|spans)?", name: "ledger", component: () => import("../modules/equipment/EquipmentPage.vue"),
       props: {} },
     { path: "/materials", name: "materials", component: () => import("../modules/materials/MaterialsPage.vue") },

@@ -21,6 +21,8 @@ import { demandRepository } from "./database/repositories/demands.js";
 import { identityRepository } from "./database/repositories/identity.js";
 import { createAuth, digest, now } from "./platform/auth/service.js";
 import { createCatalog } from "./modules/catalog/service.mjs";
+import { fundingRepository } from "./database/repositories/funding.js";
+import { createFunding } from "./modules/funding/service.js";
 import { createDemands } from "./modules/demands/service.js";
 import { createPricing } from "./modules/pricing/service.js";
 import { pricingRepository } from "./database/repositories/pricing.js";
@@ -47,7 +49,8 @@ export function createSystem(dataDir?: string) {
   const factors = createPriceFactors(priceFactorRepository(store),dictionaries,database,audit);
   const standards = createWorkStandards(workStandardRepository(store),dictionaries,factors,database,audit);
   const priceRules = createPriceRules(priceRuleRepository(store),standards,equipment,database,audit);
-  const catalog = createCatalog(repo, equipment, audit, dictionaries, materials, factors, standards, priceRules);
+  const funding = createFunding(fundingRepository(store), database, audit);
+  const catalog = createCatalog(repo, equipment, audit, dictionaries, materials, factors, standards, priceRules, funding);
   const demandRecords = demandRepository(store);
   const demands = createDemands(demandRecords, catalog, database);
   const pricing = createPricing(pricingRepository(store), priceRules, standards, database, audit);
@@ -58,7 +61,7 @@ export function createSystem(dataDir?: string) {
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
-    database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, demands, pricing, projects, finance, organizations,
+    database, repo, identity, auth, audit, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
     management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

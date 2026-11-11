@@ -6,7 +6,7 @@ import {
   integer,
 } from "../../shared/errors/business-error.js";
 export function createProjects(repo, catalog, demands, pricing) {
-  function get(key, includeDeleted = false) {
+  function get(key, includeDeleted = false, currentOnly = false) {
     const root = repo.find("projects", "id", key);
     requireValue(
       root && (includeDeleted || !repo.isDeleted("projects", key)),
@@ -55,8 +55,10 @@ export function createProjects(repo, catalog, demands, pricing) {
       approval,
       scopes,
       approvals: (() => {
-        const approvals = repo.projectApprovalHistory(key);
-        const summaries = pricing.projectSummaries(key, approvals.map(ap => ap.id));
+        const approvals = repo.projectApprovalHistory(key, currentOnly);
+        const summaries = currentOnly
+          ? pricing.summariesForApprovals(approvals.map(ap => ap.id))
+          : pricing.projectSummaries(key, approvals.map(ap => ap.id));
         return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
       })(),
       cost_nodes: repo.projectCostNodes(key),
@@ -391,6 +393,19 @@ export function createProjects(repo, catalog, demands, pricing) {
     dashboardPortfolio() {
       return repo.projectDashboardPortfolio();
     },
+    workspace(key, includeDeleted = false) {
+      return get(key, includeDeleted, true);
+    },
+    approvalCandidates(key) {
+      get(key, true, true);
+      return repo.projectApprovalCandidates(key);
+    },
+    approvalHistory(key) {
+      get(key, true, true);
+      const approvals = repo.projectApprovalHistory(key);
+      const summaries = pricing.projectSummaries(key, approvals.map(ap => ap.id));
+      return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
+    },
     summaryBasis(key) {
       const basis = repo.projectSummaryBasis(key);
       requireValue(basis, "项目不存在或已删除", 404);
@@ -405,6 +420,24 @@ export function createProjects(repo, catalog, demands, pricing) {
           ...get(x.id, includeDeleted),
           deleted: deleted.has(x.id),
         }));
+    },
+    createFromDemand(actor, input) {
+      authorize(actor, "write");
+      // One application use case and one database transaction: no orphaned
+      // project if the final demand-link check rejects a stale version.
+      return repo.transaction(() => {
+        requireValue(typeof input.demand_id === "string" && input.demand_id,
+          "请选择要承接的专业需求");
+        const demand = demands.get(input.demand_id);
+        expectedVersion(demand.current_version, input.expected_demand_version);
+        requireValue(demand.status === "active", "请先确认需求有效，再建立正式承接项目");
+        requireValue(!demand.binding, "需求已被其他项目承接", 409);
+        const created = save(actor, input);
+        return this.link(actor, created.id, {
+          demand_id: demand.id,
+          expected_version: demand.current_version,
+        });
+      });
     },
     stock(actor, key, input) {
       return repo.transaction(() =>

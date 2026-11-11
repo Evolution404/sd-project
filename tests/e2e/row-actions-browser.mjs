@@ -34,7 +34,8 @@ async function navigate(name) {
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
   await selectNavigation(page, name);
-  if (name === "费用与结算") await page.getByRole("tab", { name: "项目办理", exact: true }).click();
+  if (name === "费用与结算") assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
+    "finance opens in project-first workflow mode");
 }
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}`);
@@ -69,7 +70,7 @@ try {
   assert.equal(s.catalog.list("lines").length, 1);
   await page.setViewportSize({ width: 1500, height: 1000 });
   await navigate("费用与结算");
-  await page.getByRole("button", { name: "进入项目" }).click();
+  await page.getByRole("button", { name: "进入项目办理" }).click();
   const billRow = page.getByRole("row").filter({ hasText: bill.number });
   await billRow.getByRole("button", { name: "正式提交", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
@@ -88,7 +89,7 @@ try {
   assert.ok(await page.getByRole("menuitem", { name: "历史", exact: true }).isEnabled());
   await page.keyboard.press("Escape");
   await navigate("费用与结算");
-  await page.getByRole("button", { name: "进入项目" }).click();
+  await page.getByRole("button", { name: "进入项目办理" }).click();
   await billRow.getByRole("button", { name: "附件", exact: true }).waitFor();
   await billRow.getByRole("button", { name: "更多操作" }).click();
   for (const label of ["批准", "退回", "编制 / 修订", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());

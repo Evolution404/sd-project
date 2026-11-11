@@ -27,9 +27,9 @@ try {
   await search.press("Enter");
   await page.waitForURL(url => url.hash.includes("q="));
   const previous = page.url();
-  await row.getByRole("button", { name: "进入项目", exact: true }).click();
+  await row.getByRole("button", { name: "查看记录", exact: true }).click();
   const detail = page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("heading", { name: "独立结算单", exact: true }).waitFor();
+  await detail.getByRole("heading", { name: "跨项目检索验收费用", exact: true }).waitFor();
   assert.equal(page.url(), previous);
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await detail.waitFor({ state: "hidden" });

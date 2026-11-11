@@ -22,7 +22,7 @@ const props = defineProps<{
   editing: OperationRecord | WorkObjectRecord | null;
   refresh: () => Promise<void>;
 }>();
-const emit = defineEmits<{ "update:open": [value: boolean] }>();
+const emit = defineEmits<{ "update:open": [value: boolean]; saved: [] }>();
 interface StandardDraft extends Record<string, unknown> {
   fields_json?: unknown;
   pricing_features_json?: unknown;
@@ -132,6 +132,7 @@ async function save() {
     );
     await props.refresh();
     emit("update:open", false);
+    emit("saved");
     ElMessage.success("正式版本已保存");
   } catch (failure) {
     const problem = failure as Error & { fields?: FieldErrors };

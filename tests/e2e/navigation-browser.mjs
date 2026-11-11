@@ -35,7 +35,8 @@ try {
   await page.goto(`${base}/#/demands`);
   await login("admin", "Schema113-test-password");
   await page.getByRole('row').filter({ hasText: demand.demand_no }).getByRole('button', { name: '查看', exact: true }).click();
-  await detail.getByRole('heading', { name: new RegExp(demand.demand_no) }).waitFor();
+  await detail.getByRole('heading', { name: /安装防鸟装置 · 防鸟设施缺失/ }).waitFor();
+  await detail.getByText('需求编号：' + demand.demand_no, { exact: false }).waitFor();
   assert.equal(page.url(), `${base}/#/demands`);
   await closeDetail();
   // A late search response must not replace a newer query's rows.
@@ -120,9 +121,10 @@ try {
 
   await selectNavigation(page, '费用与结算');
   await page.waitForURL(url => url.hash === '#/finance');
-  await page.getByRole('tab', { name: '项目办理', exact: true }).click();
+  assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
+    "finance opens in project-first workflow mode");
   const financeUrl = page.url();
-  await page.getByRole('button', { name: '进入项目', exact: true }).click();
+  await page.getByRole('button', { name: '进入项目办理', exact: true }).click();
   await detail.getByRole('heading', { name: '独立结算单', exact: true }).waitFor();
   assert.equal(page.url(), financeUrl);
   await page.screenshot({ path: join(output, 'project-modal.png'), fullPage: true });

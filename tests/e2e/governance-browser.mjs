@@ -41,7 +41,8 @@ try {
 
   // Formal change copies quantities and materials rather than clearing them.
   const detail = page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("button", { name: "编制正式变更" }).click();
+  await detail.getByRole("tab", { name: "批准与变更", exact: true }).click();
+  await detail.getByRole("button", { name: "编制正式变更", exact: true }).click();
   const editor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
   await editor.getByText("已继承上一版正式批准", { exact: false }).waitFor();
   await editor.getByText("防鸟装置 · FN-01", { exact: false }).first().waitFor();
@@ -54,7 +55,9 @@ try {
   await page.goto(base + "/#/demands");
   await page.getByRole("row").filter({ hasText: "220kV青峰线15、16号杆塔缺少防鸟装置" })
     .getByRole("button", { name: "查看" }).click();
-  await page.getByRole("button", { name: "参考价试算" }).click();
+  await page.locator(".business-detail-dialog:visible")
+    .getByRole("button", { name: "更多操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "参考价试算", exact: true }).click();
   const quote = page.locator(".el-overlay-dialog:visible").filter({ hasText: "参考价格" }).last();
   await quote.getByText("完整参考价 ¥228.00", { exact: true }).waitFor();
   const date = quote.getByLabel("价格适用日期");
@@ -83,6 +86,8 @@ try {
   assert.ok((await completion.inputValue()).includes("防鸟装置"));
   await operationChoice.click();
   await page.getByRole("option", { name: "更换绝缘子串", exact: true }).last().click();
+  await page.waitForFunction(() => Array.from(document.querySelectorAll("textarea"))
+    .some(element => element.value.includes("绝缘子")), null, { timeout: 7000 });
   assert.ok((await completion.inputValue()).includes("绝缘子"));
   await completion.fill("用户自己编写的验收标准");
   await operationChoice.click();

@@ -58,20 +58,20 @@ try {
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
-  await page
-    .getByRole("row")
-    .filter({ hasText: "浏览器完整流程项目" })
-    .getByRole("button", { name: "进入项目" })
-    .click();
-  await page.getByRole("button", { name: "确认入库", exact: true }).click();
-  await confirm();
-  await page.getByRole("button", { name: "关联需求", exact: true }).click();
+  await page.locator(".business-detail-dialog:visible")
+    .getByRole("heading", { name: "浏览器完整流程项目", exact: true }).waitFor();
+  assert.ok(await page.getByRole("tab", { name: "项目概览", exact: true }).isVisible(),
+    "creating a project opens its actual business workspace, not a list row");
+  await page.getByRole("button", { name: "关联专业需求", exact: true }).click();
   await select("专业需求", "已确认 · " + demand.demand_no + " · 防鸟设施缺失");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "确认入库", exact: true }).click();
+  await confirm();
+  await page.getByRole("tab", { name: "批准与变更", exact: true }).click();
   await page.getByRole("button", { name: "编制立项范围", exact: true }).click();
   await page.getByLabel("批准预算（元）", { exact: true }).fill("1200");
   await page
@@ -209,8 +209,11 @@ try {
       fullPage: true,
     });
   }
-  await page.getByRole("button", { name: "审核结项", exact: true }).click();
-  await confirm();
+  await page.getByRole("button", { name: "其他办理操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "审核结项", exact: true }).click();
+  await page.getByRole("dialog", { name: "结项前业务核对" })
+    .getByText("待核对费用").waitFor();
+  await page.getByRole("button", { name: "已核对差异，正式结项", exact: true }).click();
   assert.equal(s.projects.get(project.id).status, "closed");
   assert.deepEqual(errors, []);
   console.log(

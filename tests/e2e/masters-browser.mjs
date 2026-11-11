@@ -144,6 +144,12 @@ try {
   assert.equal(Object.values(s.demands.get(demand.id).custom_fields)[0], 12.5);
   assert.equal(s.catalog.list("voltages").length, 0);
   assert.equal(s.catalog.list("voltages", true)[0].name, "110千伏");
+  // Saving now opens the demand's next-step workspace; close it before leaving
+  // for administrative price-factor setup instead of clicking behind a modal.
+  await page.locator(".business-detail-dialog:visible")
+    .getByRole("heading", { name: /真实动态附加字段验收/ }).waitFor();
+  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await page.locator(".business-detail-dialog:visible").waitFor({ state: "hidden" });
   // New extra price factors have constrained enum/integer editors.
   await selectNavigation(page, "作业标准");
   await selectNavigation(page, "参考价格");

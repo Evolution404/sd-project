@@ -156,9 +156,10 @@ try {
   assert.equal(s.projects.list().some(row => row.name === "临时新增项目"), false);
 
   await page.goto(base + "/#/finance");
-  await page.getByRole("tab", { name: "项目办理", exact: true }).click();
+  assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
+    "finance opens in project-first workflow mode");
   await page.getByRole("row").filter({ hasText: existingProject.name })
-    .getByRole("button", { name: "进入项目" }).click();
+    .getByRole("button", { name: "进入项目办理" }).click();
   const projectDetail = page.locator(".business-detail-dialog:visible");
   await projectDetail.getByRole("tab", { name: "费用与结算" }).click();
   await projectDetail.getByRole("button", { name: "新增科目" }).click();

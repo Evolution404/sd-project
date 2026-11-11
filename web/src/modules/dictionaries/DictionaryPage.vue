@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
+import { resumeTask } from "../../shared/navigation/business-context";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
 import type {
   DictionaryKind,
@@ -22,7 +23,17 @@ import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import RowActions from "../../shared/ui/RowActions.vue";
 const route = useRoute(),
+  router = useRouter(),
   can = useAccess();
+const returnToDemand = computed(() => typeof route.query.returnTo === "string" &&
+  route.query.returnTo.startsWith("/demands") ? route.query.returnTo : null);
+function backToDemand() {
+  if (returnToDemand.value) resumeTask(router, returnToDemand.value);
+}
+function continueConfig(target: "objects" | "operations") {
+  void router.push({ name: "standards", params: { kind: target },
+    query: returnToDemand.value ? { returnTo: returnToDemand.value } : {} });
+}
 const kind = computed(() => route.params.kind as DictionaryKind);
 const titles: Record<DictionaryKind, string> = {
   units: "计量单位",
@@ -173,6 +184,14 @@ onMounted(load);
     </div>
   </div>
   <slot name="tabs" />
+  <ElAlert v-if="returnToDemand" type="info" :closable="false"
+    title="当前正在补充需求录入所需的基础资料，原需求草稿已暂存。">
+    <div class="toolbar">
+      <ElButton size="small" @click="continueConfig('objects')">配置作业对象</ElButton>
+      <ElButton size="small" @click="continueConfig('operations')">继续配置操作类型</ElButton>
+      <ElButton size="small" @click="backToDemand">返回需求录入</ElButton>
+    </div>
+  </ElAlert>
   <ElAlert v-if="error" :title="error" type="error" :closable="false"
     ><ElButton @click="load">重试</ElButton></ElAlert
   >

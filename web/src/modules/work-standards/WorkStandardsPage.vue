@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { resumeTask } from "../../shared/navigation/business-context";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type {
   CatalogField,
@@ -41,7 +42,8 @@ const route = useRoute(),
 const kind = computed({
   get: () => String(route.params.kind || "operations") as Kind,
   set: (value: Kind) => {
-    void router.push({ name: "standards", params: { kind: value }, query: {} });
+    void router.push({ name: "standards", params: { kind: value },
+      query: typeof route.query.returnTo === "string" ? { returnTo: route.query.returnTo } : {} });
   },
 });
 const definitions = shallowRef<Partial<Record<Kind, CatalogFormDefinition>>>(
@@ -64,6 +66,25 @@ const definitions = shallowRef<Partial<Record<Kind, CatalogFormDefinition>>>(
   showHistory = ref(false);
 
 const detail = computed(() => detailState.value?.item || null);
+const returnToDemand = computed(() => typeof route.query.returnTo === "string" &&
+  route.query.returnTo.startsWith("/demands") ? route.query.returnTo : null);
+function backToDemand() {
+  if (returnToDemand.value) resumeTask(router, returnToDemand.value);
+}
+function changeSetupStep(next: "objects" | "operations" | "units") {
+  if (next === "units") {
+    void router.push({ name: "dictionaries", params: { kind: "units" },
+      query: returnToDemand.value ? { returnTo: returnToDemand.value } : {} });
+  } else {
+    void router.push({ name: "standards", params: { kind: next },
+      query: returnToDemand.value ? { returnTo: returnToDemand.value } : {} });
+  }
+}
+function setupSaved() {
+  if (!returnToDemand.value) return;
+  if (kind.value === "objects") changeSetupStep("operations");
+  else backToDemand();
+}
 const fields = computed(() =>
   [
     ...(definitions.value[kind.value]?.rootFields || []),
@@ -234,6 +255,15 @@ onMounted(async () => {
       >
     </div>
   </div>
+  <ElAlert v-if="returnToDemand" class="setup-return-bar" type="info" :closable="false"
+    title="当前正在配置需求录入所需的基础信息；配置完成后将恢复原需求草稿。">
+    <div class="toolbar">
+      <ElButton size="small" @click="backToDemand">返回需求录入</ElButton>
+      <ElButton size="small" @click="changeSetupStep('objects')">配置作业对象</ElButton>
+      <ElButton size="small" @click="changeSetupStep('units')">配置计量单位</ElButton>
+      <ElButton size="small" @click="changeSetupStep('operations')">配置操作类型</ElButton>
+    </div>
+  </ElAlert>
   <ElTabs v-model="kind"
     ><ElTabPane name="operations" label="操作类型" /><ElTabPane
       name="objects"
@@ -371,5 +401,6 @@ onMounted(async () => {
     :definition="definitions[kind]"
     :editing="editing"
     :refresh="refresh"
+    @saved="setupSaved"
   />
 </template>

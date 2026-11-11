@@ -394,7 +394,8 @@ try {
   }
   await page.goto(`${base}/#/projects?project=${project.id}`);
   detail = page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("button", { name: "修订档案", exact: true }).click();
+  await detail.getByRole("button", { name: "更多管理操作", exact: true }).click();
+  await page.getByRole("menuitem", { name: "修订档案", exact: true }).click();
   const profileEditor = page.locator(
     ".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog",
   );

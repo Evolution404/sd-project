@@ -9,7 +9,7 @@ import {
   text,
   integer,
 } from "../../shared/errors/business-error.js";
-export function createCatalog(repo, equipment, auditor, dictionaries, materials, factors, standards, priceRules) {
+export function createCatalog(repo, equipment, auditor, dictionaries, materials, factors, standards, priceRules, funding) {
   const audit = auditor.record;
   const definitions = catalogDefinitions;
   function config(kind) {
@@ -37,6 +37,7 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials,
     return descriptions;
   }
   function list(kind, includeDeleted = false) {
+    if (kind === "frameworks" || kind === "agreements") return funding.list(kind, includeDeleted);
     if (kind === "prices") return priceRules.list(includeDeleted);
     if (kind === "factors") return factors.list(includeDeleted);
     if (kind === "objects") return standards.objects(includeDeleted);
@@ -76,6 +77,7 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials,
     return equipment.search(kind, options);
   }
   function get(kind, key, includeDeleted = false) {
+    if (kind === "frameworks" || kind === "agreements") return funding.get(kind, key, includeDeleted);
     if (kind === "prices") return priceRules.get(key, includeDeleted);
     if (kind === "factors") return factors.get(key, includeDeleted);
     if (kind === "objects") return standards.getObject(key, includeDeleted);
@@ -112,6 +114,7 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials,
     };
   }
   function save(actor, kind, input, key) {
+    if (kind === "frameworks" || kind === "agreements") return funding.save(actor, kind, input, key);
     if (kind === "prices") return priceRules.save(actor, input, key);
     if (kind === "factors") return factors.save(actor, input, key);
     if (kind === "objects") return standards.saveObject(actor, input, key);
@@ -282,6 +285,7 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials,
     replacementPreview: equipment.replacementPreview,
     replacePhysical: equipment.replacePhysical,
     history(kind, key) {
+      if (kind === "frameworks" || kind === "agreements") return funding.history(kind, key);
       if (kind === "prices") return priceRules.history(key);
       if (kind === "factors") return factors.history(key);
       if (kind === "objects") return standards.objectHistory(key);
@@ -298,6 +302,7 @@ export function createCatalog(repo, equipment, auditor, dictionaries, materials,
           : repo.auditFor(kind, key);
     },
     remove(actor, kind, key, version) {
+      if (kind === "frameworks" || kind === "agreements") return funding.remove(actor, kind, key, version);
       if (kind === "prices") return priceRules.remove(actor, key, version);
       if (kind === "factors") return factors.remove(actor, key, version);
       if (kind === "objects") return standards.removeObject(actor, key, version);

@@ -24,7 +24,51 @@ import {
   statusText,
 } from "../../shared/api/client";
 const formRef = ref();
-const props = defineProps<{ project: Row }>();
+type FocusKind = "cost" | "settlement" | "reconciliation";
+type FocusedRecord = { kind: FocusKind; id: string };
+const props = defineProps<{ project: Row; focus?: FocusedRecord | null }>();
+const focusedFact = ref<Row | Row[] | null>(null);
+const focusedLoading = ref(false);
+const focusedError = ref("");
+const focusedHistoryOpen = ref(false);
+let focusSequence = 0;
+const focusedCurrent = computed<Row | null>(() => Array.isArray(focusedFact.value)
+  ? [...focusedFact.value].sort((a, b) => (b.version_no || 0) - (a.version_no || 0))[0] || null
+  : focusedFact.value);
+const focusedTitle = computed(() => {
+  const f = props.focus;
+  if (!f) return "业务记录";
+  return f.kind === "cost" ? "定位真实费用" : f.kind === "settlement" ? "定位独立结算单" : "定位正式费用核对";
+});
+async function loadFocusedRecord() {
+  const sequence = ++focusSequence, focus = props.focus;
+  focusedHistoryOpen.value = false;
+  focusedFact.value = null;
+  focusedError.value = "";
+  if (!focus || !focus.id) return;
+  focusedLoading.value = true;
+  try {
+    const uri = focus.kind === "cost"
+      ? `/projects/${props.project.id}/costs/${focus.id}`
+      : focus.kind === "settlement" ? `/settlements/${focus.id}`
+      : `/reconciliations/${focus.id}`;
+    const result = await api<Row | Row[]>(uri);
+    if (sequence === focusSequence) {
+      // A record can be reached only from its owning project. Verify ownership
+      // for current-version objects, without guessing at historical identities.
+      const owner = focus.kind === "settlement" ? (result as Row).project_id : null;
+      if (owner && owner !== props.project.id) throw new Error("记录不属于当前子项目");
+      focusedFact.value = result;
+    }
+  } catch (error) {
+    if (sequence === focusSequence) focusedError.value = (error as Error).message;
+  } finally {
+    if (sequence === focusSequence) focusedLoading.value = false;
+  }
+}
+watch(() => [props.project.id, props.focus?.kind, props.focus?.id], () => {
+  void loadFocusedRecord();
+}, { immediate: true });
 const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
 const emit = defineEmits(["changed"]);
 const costs = ref<Row[]>([]),
@@ -318,6 +362,38 @@ watch(() => props.project.id, load, { immediate: true });
       :owner-kind="evidence.ownerKind"
       :owner-id="evidence.ownerId"
   /></template>
+  <div v-if="focus" class="panel" v-loading="focusedLoading">
+    <div class="toolbar">
+      <h2>{{ focusedTitle }}</h2>
+      <ElButton size="small" @click="loadFocusedRecord">重新读取</ElButton>
+    </div>
+    <ElAlert v-if="focusedError" :title="focusedError" :closable="false" type="error" />
+    <template v-if="focusedCurrent">
+      <ElDescriptions :column="2" border>
+        <ElDescriptionsItem label="记录名称">
+          {{ focusedCurrent.title || focusedCurrent.number || focusedCurrent.evidence || '正式业务记录' }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem label="正式版本">
+          {{ focusedCurrent.version?.version_no || focusedCurrent.version_no || '查看完整历史' }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem v-if="focus.kind === 'cost'" label="实际金额">
+          {{ focusedCurrent.amount_fen == null ? '未核定' : '¥' + money(focusedCurrent.amount_fen) }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem v-if="focus.kind === 'settlement'" label="结算业务">
+          {{ focusedCurrent.number }}
+        </ElDescriptionsItem>
+        <ElDescriptionsItem v-if="focus.kind === 'reconciliation'" label="核对金额">
+          {{ focusedCurrent.reconciled_settlement_fen == null ? '—' : '¥' + money(focusedCurrent.reconciled_settlement_fen) }}
+        </ElDescriptionsItem>
+      </ElDescriptions>
+      <div class="toolbar" style="margin-top:12px">
+        <ElButton link type="primary" @click="focusedHistoryOpen = !focusedHistoryOpen">
+          {{ focusedHistoryOpen ? '收起正式历史' : '查看正式历史' }}
+        </ElButton>
+      </div>
+      <BusinessHistory v-if="focusedHistoryOpen" :value="focusedFact" />
+    </template>
+  </div>
   <div class="metric-grid">
     <div class="metric">
       <span>正式参考价格</span>

@@ -30,8 +30,8 @@ async function visit(path) {
   await page.locator('main h1').waitFor();
   await page.waitForLoadState('networkidle');
   if (isDetail) {
-    if (parts[0] === "finance") await page.getByRole("tab", { name: "项目办理", exact: true }).click();
-    await page.locator('main').getByRole('button', { name: parts[0] === 'finance' || parts[0] === 'projects' ? '进入项目' : '查看', exact: true }).first().click();
+    if (parts[0] === "finance") assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked());
+    await page.locator('main').getByRole('button', { name: parts[0] === 'finance' ? '进入项目办理' : parts[0] === 'projects' ? '进入项目' : '查看', exact: true }).first().click();
     await page.locator('.business-detail-dialog h1').waitFor();
     await page.waitForLoadState('networkidle');
   }

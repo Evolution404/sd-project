@@ -9,7 +9,7 @@ function select(value: string | number) {
     void router.push({
       name: "dictionaries",
       params: { kind: String(value) },
-      query: {},
+      query: typeof route.query.returnTo === "string" ? { returnTo: route.query.returnTo } : {},
     });
 }
 </script>
