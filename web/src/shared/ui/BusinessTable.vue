@@ -4,7 +4,7 @@ import { Setting, Filter, Rank } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import type { TableInstance } from "element-plus";
 import type { Row } from "../api/client";
-export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean };
+export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean; customHeader?: boolean };
 const props = withDefaults(defineProps<{
   rows: TRow[]; columns: TableColumn[]; tableKey: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
@@ -21,6 +21,7 @@ const emit = defineEmits<{
 }>();
 defineSlots<{
   cell(props: { row: TRow; column: TableColumn; value: unknown }): unknown;
+  header(props: { column: TableColumn }): unknown;
   actions(props: { row: TRow }): unknown;
 }>();
 function valueAt(row: object, key: string): unknown {
@@ -231,11 +232,14 @@ watch(() => props.tableKey, async () => {
         :sortable="col.sortable === false ? false : 'custom'" :sort-orders="['ascending', 'descending']"
         :fixed="pref.fixed.includes(col.key) ? 'left' : false" resizable show-overflow-tooltip>
         <template #header>
-          <span class="business-column-title">{{ col.label }}</span>
-          <ElPopover v-if="col.filterable !== false" trigger="click" width="220" placement="bottom">
-            <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" />
-            <template #reference><ElButton class="business-filter-button" text size="small" :aria-label="'筛选' + col.label" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
-          </ElPopover>
+          <slot v-if="col.customHeader && $slots.header" name="header" :column="col" />
+          <template v-else>
+            <span class="business-column-title">{{ col.label }}</span>
+            <ElPopover v-if="col.filterable !== false" trigger="click" width="220" placement="bottom">
+              <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" />
+              <template #reference><ElButton class="business-filter-button" text size="small" :aria-label="'筛选' + col.label" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
+            </ElPopover>
+          </template>
         </template>
         <template #default="{ row }"><slot name="cell" :row="row as TRow" :column="col" :value="valueAt(row, col.key)">{{ row[col.key] ?? "—" }}</slot></template>
       </ElTableColumn>
