@@ -246,7 +246,7 @@ try {
     .getByText("¥333.45", { exact: true })
     .waitFor();
   await editedCost.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "撤销", exact: true }).click();
+  await page.getByRole("menuitem", { name: "作废费用", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await workspace
     .locator(".tree-facts")
@@ -299,7 +299,12 @@ try {
     name: "归口单位资料",
     exact: true,
   });
-  await orgEditor.getByText("示例公司 / 运检部", { exact: true }).waitFor();
+  // The tree-select may render its chosen label as an input value rather than a text node.
+  const adoptedParent = orgEditor.locator(".el-select").first();
+  await adoptedParent.waitFor();
+  const parentPreview = await adoptedParent.evaluate((el) =>
+    [el.textContent, ...Array.from(el.querySelectorAll("input"), (input) => input.value)].join(" "));
+  assert.ok(parentPreview.includes("示例公司 / 运检部"), "adopted organization parent must be visible: " + parentPreview);
   await orgEditor.getByLabel("名称", { exact: true }).fill("运行班组");
   await saveEditor("归口单位资料");
   await selectNode(organization, "运检部");

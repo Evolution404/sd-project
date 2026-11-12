@@ -35,6 +35,9 @@ const primary = computed(() =>
 const secondary = computed(() => props.actions.filter(action => action !== primary.value));
 async function invoke(action: RowAction) {
   if (action.disabled || busy.value) return;
+  // A modal may mount synchronously from the action. Always close the
+  // teleported menu before running it to prevent a stale open menu on return.
+  dropdown.value?.handleClose();
   busy.value = true;
   try {
     await action.run();
