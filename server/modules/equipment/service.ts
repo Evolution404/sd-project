@@ -2,6 +2,7 @@ import { authorize, id, now } from "../../platform/auth/service.js";
 import type { AuditService } from "../../platform/audit/service.js";
 import type { Database } from "../../database/connection.js";
 import type { EquipmentRepository } from "../../database/repositories/equipment.js";
+import type { DictionaryService } from "../dictionaries/service.js";
 import type { Actor, Page } from "../../shared/types/contracts.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type {
@@ -37,7 +38,7 @@ function physicalLabel(
     ? bindings.map(bindingLabel).join(" / ")
     : row.asset_no ||
         [
-          row.tower_type,
+          row.tower_material_label || row.tower_material,
           row.model,
           row.height_scaled ? row.height_scaled / 10000 + "米" : "",
         ]
@@ -50,6 +51,7 @@ export function createEquipment(
   repository: EquipmentRepository,
   database: Pick<Database, "transaction">,
   audit: AuditService,
+  dictionaries: DictionaryService,
 ) {
   function decorate(
     kind: EquipmentCatalogKind,
@@ -181,15 +183,13 @@ export function createEquipment(
           { [field.key]: `请选择合法的${field.label}` },
         );
       if (field.type === "ref" && value) {
-        requireValue(
-          field.reference && isEquipmentKind(field.reference),
-          "设备关联类型无效",
-        );
-        const selected = get(
-          field.reference,
-          text(value, field.label),
-          previous?.[key] === value,
-        );
+        requireValue(field.reference,"请选择关联类型");
+        const selected = field.reference === "tower_natures" || field.reference === "tower_materials"
+          ? dictionaries.get(field.reference,text(value,field.label),previous?.[key]===value)
+          : isEquipmentKind(field.reference)
+            ? get(field.reference,text(value,field.label),previous?.[key]===value)
+            : null;
+        requireValue(selected,field.label+"关联类型无效");
         requireValue(
           !["inactive", "retired"].includes(selected.status) ||
             previous?.[key] === value,

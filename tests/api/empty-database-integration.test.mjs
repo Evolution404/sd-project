@@ -40,7 +40,7 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
   const object = save("objects", { name: "物理杆塔作业对象", object_position: "body", attribution_unit: "physical_tower" });
   const voltage = save("voltages", { name: "220kV" });
   const line = save("lines", { name: "空库线路甲", voltage_level_id: voltage.id });
-  const physical = save("physical", { asset_no: "EMPTY-T15", tower_type: "angle" });
+  const physical = save("physical", { asset_no: "EMPTY-T15", tower_material: "angle" });
   const tower1 = save("towers", {
     line_id: line.id, physical_tower_id: physical.id, tower_no: "15",
   });
@@ -83,7 +83,7 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
     ["materials", material, { model: "A2" }],
     ["spans", span, { transmission_center_length_mm: 124000 }],
     ["towers", tower1, { display_name: "甲线15号" }],
-    ["physical", physical, { tower_type: "suspension" }],
+    ["physical", physical, { tower_material: "pipe" }],
     ["lines", line, { name: "空库线路甲改名" }],
     ["voltages", voltage, { name: "220千伏" }],
     ["agreements", agreement, { name: "第一批执行协议修订" }],
@@ -120,7 +120,7 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
     work_object_id: object.id, default_unit_id: unit.id,
     completion_standard: "安装牢固",
     attributes_schema_json: [factor] });
-  const tower = save("physical", { asset_no: "FRESH-T1", tower_type: "angle" });
+  const tower = save("physical", { asset_no: "FRESH-T1", tower_material: "angle" });
   const price = save("prices", { title: "安装参考价", operation_id: operation.id,
     pricing_mode: "base_plus_unit", base_fee_fen: 10000, unit_price_fen: 2000,
     price_source: "合同参照", price_date: "2026-01-01",

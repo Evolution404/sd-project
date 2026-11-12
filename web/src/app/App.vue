@@ -14,6 +14,7 @@ import type { Actor } from "../../../server/shared/types/contracts";
 import { api } from "../shared/api/client";
 import { useRoute, useRouter } from "vue-router";
 import NavigationMenu from "./NavigationMenu.vue";
+import GuideHost from "../guides/components/GuideHost.vue";
 import { navigationItems } from "./navigation";
 import { referenceSelectorsKey } from "../shared/ui/reference-selectors";
 provide(referenceSelectorsKey, { organizations: defineAsyncComponent(() => import("../modules/dictionaries/components/OrganizationSelect.vue")) });
@@ -26,6 +27,7 @@ const user = ref<Actor | null>(null),
   busy = ref(false);
 provide("currentUser", user);
 const menu = navigationItems;
+const guideOpen = ref(false);
 type Appearance = "system" | "light" | "dark";
 const initialAppearance = localStorage.getItem("sd-appearance");
 const appearance = ref<Appearance>(
@@ -217,6 +219,8 @@ onMounted(async () => {
                 </ElButton>
               </template>
             </ElPopover>
+            <ElButton text aria-label="使用指引" data-guide-action="app.help"
+              @click="guideOpen = true">使用指引</ElButton>
             <ElTag type="info">{{ user.username }}</ElTag
             ><ElButton text @click="logout">退出登录</ElButton>
           </div>
@@ -225,6 +229,7 @@ onMounted(async () => {
           <component :is="Component" :key="active" v-bind="active === 'demands' ? { user } : {}" />
         </RouterView>
       </main>
+      <GuideHost v-model:open="guideOpen" :actor="user" :route-key="active" />
       <ElDrawer v-model="mobileNavigation" title="业务导航" direction="ltr" size="min(320px, 90vw)" class="mobile-navigation-drawer">
         <NavigationMenu :active="active" :admin="user.role === 'admin'" @select="selectMenu" />
       </ElDrawer>

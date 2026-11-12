@@ -8,7 +8,7 @@ import { httpServer } from "../../dist/server/platform/http/server.js";
 const cleanup = [];
 const { s, user, save, project, framework, demandInput } = approvedFixture({ after: action => cleanup.push(action) });
 function newDemand(no, assetNo) {
-  const tower = save("physical", { asset_no: assetNo, tower_type: "angle" });
+  const tower = save("physical", { asset_no: assetNo, tower_material: "angle" });
   return s.demands.save(user, {
     ...demandInput, demand_no: no, problem_description: "新发现的" + no + "问题",
     work_locations: [{ location_kind: "physical_tower", physical_tower_id: tower.id, quantity_scaled: 10000 }],

@@ -2,7 +2,7 @@ import type { QuantityPrecision } from "../quantity-precision.js";
 
 export type AttributeScope = "demand" | "location";
 export type AttributeRequirement = "optional" | "save" | "pricing";
-export type AssetAttribute = "voltage_level_id" | "tower_type" | "tower_nature";
+export type AssetAttribute = "voltage_level_id" | "tower_material" | "tower_nature";
 export type AttributeValue = string | number | boolean | string[];
 export type AttributeValues = Record<string, AttributeValue>;
 interface AttributeBase {

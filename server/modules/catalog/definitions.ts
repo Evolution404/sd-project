@@ -61,6 +61,16 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
     fields: [name, status],
     ...rootTime,
   },
+  tower_natures: {
+    title:"杆塔性质",root:"dictionary_items",view:"v_dictionary_current",
+    versions:"dictionary_item_versions",foreign:"item_id",sequence:"version",
+    typeId:"tower_nature",rootFields:[code],fields:[name,status],...rootTime,
+  },
+  tower_materials: {
+    title:"杆塔材质",root:"dictionary_items",view:"v_dictionary_current",
+    versions:"dictionary_item_versions",foreign:"item_id",sequence:"version",
+    typeId:"tower_material",rootFields:[code],fields:[name,status],...rootTime,
+  },
   objects: {
     title: "作业对象",
     root: "work_objects",
@@ -211,8 +221,8 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
     ],
     fields: [
       field("asset_no", "现场铭牌号（已有资料）", "text", { nullable: true }),
-      field("tower_type", "塔型", "text", { nullable: true }),
-      field("tower_nature", "杆塔性质", "select", { options: ["straight", "tension"], nullable: true }),
+      ref("tower_material", "杆塔材质", "tower_materials"),
+      ref("tower_nature", "杆塔性质", "tower_natures"),
       field("model", "型号"),
       field("height_scaled", "杆塔高度（米）", "quantity", { quantityPrecision: 4 }),
       field("purpose", "用途"),
@@ -284,7 +294,7 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
       status,
       ref("operation_id", "操作类型", "operations", true),
       ref("voltage_level_id", "适用电压", "voltages"),
-      field("tower_type", "适用塔型", "text", { nullable: true }),
+      ref("tower_material", "适用杆塔材质", "tower_materials"),
       field("work_mode", "作业方式", "select", {
         options: ["both", "outage", "non_outage"],
         default: "both",

@@ -13,7 +13,7 @@ const v=save("voltages",{name:"110kV"});
 const lineA=save("lines",{name:"列模式甲线",voltage_level_id:v.id});
 const lineB=save("lines",{name:"列模式乙线",voltage_level_id:v.id});
 const shared=save("physical",{
-  asset_no:"PHY-SHARED-01", tower_type:"angle", tower_nature:"tension",
+  asset_no:"PHY-SHARED-01", tower_material:"angle", tower_nature:"tension",
 });
 const towers=new Map();
 for(const number of ["1","02","2","3","10","11","#2","#10","A2","A10"]){
@@ -120,7 +120,7 @@ try {
     "Physical linked tower numbers must expose working sorting");
   await expectHeader("杆塔性质");
   await picker.getByText("角钢塔",{exact:true}).first().waitFor();
-  await picker.getByText("耐张塔",{exact:true}).first().waitFor();
+  await picker.getByText("耐张",{exact:true}).first().waitFor();
   await awaitSort("related_towers","asc","关联杆号");
   await selectLine("列模式甲线");
   await picker.getByText("PHY-SHARED-01",{exact:true}).waitFor();

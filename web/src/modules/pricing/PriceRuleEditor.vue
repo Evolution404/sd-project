@@ -151,7 +151,7 @@ function group(field: CatalogField) {
   if (
     [
       "voltage_level_id",
-      "tower_type",
+      "tower_material",
       "work_mode",
       "specification",
       "additional_conditions_json",

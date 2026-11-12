@@ -31,7 +31,7 @@ test("equipment catalog applies search, sorting and filters before SQL paginatio
     sort: "name; DROP TABLE physical_towers", page_size: 10,
   });
   assert.equal(attemptedInjection.total, 64 + s.catalog.list("lines").length - 64);
-  const physical = s.catalog.save(user, "physical", { tower_type: "耐张塔" });
+  const physical = s.catalog.save(user, "physical", { tower_material: "angle" });
   s.catalog.save(user, "towers", {
     line_id: lines[50].id, tower_no: "#18",
     physical_tower_id: physical.id, physical_mode: "shared",

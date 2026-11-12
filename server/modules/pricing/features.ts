@@ -6,7 +6,7 @@ export function priceRulesMayOverlap(a: ApplicablePriceRule, b: ApplicablePriceR
   if (a.status !== "active" || b.status !== "active" || a.operation_id !== b.operation_id ||
       a.operation_version !== b.operation_version || a.pricing_scope !== b.pricing_scope ||
       a.unit_id !== b.unit_id || a.unit_version !== b.unit_version) return false;
-  for (const field of ["voltage_level_id", "tower_type", "specification"] as const)
+  for (const field of ["voltage_level_id", "tower_material", "specification"] as const)
     if (a[field] && b[field] && a[field] !== b[field]) return false;
   if (a.work_mode !== "both" && b.work_mode !== "both" && a.work_mode !== b.work_mode) return false;
   const ca: Record<string, PriceCondition> = typeof a.additional_conditions_json === "string"

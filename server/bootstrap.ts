@@ -38,6 +38,8 @@ import { createManagement } from "./modules/management/service.js";
 import { managementRepository } from "./database/repositories/management.js";
 import { createFinance } from "./modules/finance/service.js";
 import { requireValue } from "./shared/errors/business-error.js";
+import { trainingRepository } from "./database/repositories/training.js";
+import { createTrainingService } from "./modules/training/service.js";
 import type { Actor } from "./shared/types/contracts.js";
 
 export function createSystem(dataDir?: string) {
@@ -52,9 +54,19 @@ export function createSystem(dataDir?: string) {
   const auth = createAuth(identity, database);
   const audit = createAudit(auditRepository(store));
   const evidenceStore = evidenceRepository(store);
-  const equipment = createEquipment(equipmentRepository(store), database, audit);
   const dictionaries = createDictionaries(dictionaryRepository(store),database,audit);
+  const equipment = createEquipment(equipmentRepository(store), database, audit, dictionaries);
   const materials = createMaterials(materialRepository(store),dictionaries,database,audit);
+  const seededAuth = {
+    ...auth,
+    initialize(username:string,password:string){
+      const created=auth.initialize(username,password);
+      dictionaries.seedTowerDefaults({
+        id:created.id,username:created.username,role:"admin",permissions:["admin"],
+      });
+      return created;
+    },
+  };
   const standards = createWorkStandards(workStandardRepository(store),dictionaries,database,audit);
   const priceRules = createPriceRules(priceRuleRepository(store),standards,equipment,database,audit);
   const funding = createFunding(fundingRepository(store), database, audit);
@@ -69,8 +81,9 @@ export function createSystem(dataDir?: string) {
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
-    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
-    management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
+    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth:seededAuth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
+    training: createTrainingService(trainingRepository(store), database.directory),
+    management: createManagement({ repository: managementRepository(store), identity, auth:seededAuth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {
       requireValue(typeof key === "string" && key.length >= 8 && key.length <= 200,

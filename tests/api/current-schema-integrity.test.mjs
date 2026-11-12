@@ -79,7 +79,7 @@ test("shared tower physical nature is single authoritative fact with immutable h
   assert.equal(s.catalog.search("physical",{q:"耐张"}).total,1);
   const versions = inspect(s).where("physical_tower_history",{physical_tower_id:physical.id},"version");
   assert.deepEqual(versions.map(v=>v.tower_nature),["tension","straight"]);
-  assert.throws(()=>s.catalog.save(user,"physical",{tower_nature:"guessed"}),/CHECK|约束/);
+  assert.throws(()=>s.catalog.save(user,"physical",{tower_nature:"guessed"}),/字典|不存在|约束/);
   assert.deepEqual(inspect(s).integrity().foreignKeys,[]);
 });
 

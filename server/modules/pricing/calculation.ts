@@ -164,7 +164,7 @@ export function explainMismatch(rule: ApplicablePriceRule, operation: OperationP
     ? JSON.parse(location.location_snapshot_json) : (location.location_snapshot_json || {});
   if (rule.voltage_level_id && rule.voltage_level_id !== snapshot.voltage_level_id)
     reasons.push("线路电压等级不符合");
-  if (rule.tower_type && rule.tower_type !== snapshot.tower_type)
+  if (rule.tower_material && rule.tower_material !== snapshot.tower_material)
     reasons.push("杆塔塔型不符合");
   if (rule.specification && rule.specification !== snapshot.specification)
     reasons.push("作业规格不符合");

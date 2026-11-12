@@ -39,6 +39,8 @@ const titles: Record<DictionaryKind, string> = {
   units: "计量单位",
   priorities: "优先级",
   categories: "项目类别",
+  tower_natures: "杆塔性质",
+  tower_materials: "杆塔材质",
 };
 const title = computed(() => titles[kind.value]);
 const rows = ref<DictionaryItem[]>([]),

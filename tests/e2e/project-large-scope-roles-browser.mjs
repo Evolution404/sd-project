@@ -6,7 +6,7 @@ import {fixture} from '../helpers.mjs';
 import {httpServer} from '../../dist/server/platform/http/server.js';
 const cleanup=[];
 const {s,user,save,operation}=fixture({after:fn=>cleanup.push(fn)});
-const towers=Array.from({length:20},(_,index)=>save('physical',{asset_no:'LARGE-'+String(index+1).padStart(2,'0'),tower_type:'angle'}));
+const towers=Array.from({length:20},(_,index)=>save('physical',{asset_no:'LARGE-'+String(index+1).padStart(2,'0'),tower_material:'angle'}));
 const demand=s.demands.save(user,{operation_id:operation.id,problem_description:'20处位置的正式承接范围',work_locations:towers.map(row=>({location_kind:'physical_tower',physical_tower_id:row.id,quantity_scaled:30000}))});
 s.demands.transition(user,demand.id,{status:'active',expected_version:1,expected_event_seq:1});
 const framework=save('frameworks',{name:'大范围四角色框架',fiscal_year:2026,limit_fen:10000000});

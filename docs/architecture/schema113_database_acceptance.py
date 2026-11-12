@@ -2566,7 +2566,7 @@ try:
     add("reference_price_versions",id="price_angle_v1",
         catalog_id="price_angle",version_no=1,title="耐张塔山区参考价",
         operation_id="context_op",operation_version=1,unit_id="unit",
-        unit_version=1,voltage_level_id="vol",tower_type="angle",
+        unit_version=1,voltage_level_id="vol",tower_material="angle",
         work_mode="outage",additional_conditions_json=
         '{"terrain":{"context_op":"eq","value":"mountain"}}',
         status="active",unit_price_fen=250000,price_source="内部定额",
@@ -2580,7 +2580,7 @@ try:
     add("reference_price_versions",id="price_suspension_v1",
         catalog_id="price_suspension",version_no=1,title="直线塔平原参考价",
         operation_id="context_op",operation_version=1,unit_id="unit",
-        unit_version=1,voltage_level_id="vol220",tower_type="suspension",
+        unit_version=1,voltage_level_id="vol220",tower_material="suspension",
         work_mode="outage",additional_conditions_json=
         '{"terrain":{"context_op":"eq","value":"plain"}}',
         status="active",unit_price_fen=160000,price_source="内部定额",
@@ -2592,12 +2592,12 @@ try:
         row("SELECT COUNT(*) n FROM v_reference_price_current "
             "WHERE operation_id='context_op' AND operation_version=1 "
             "AND work_mode='outage'")['n']>=2
-        and row("SELECT voltage_level_id,tower_type FROM reference_price_versions "
+        and row("SELECT voltage_level_id,tower_material FROM reference_price_versions "
             "WHERE id='price_angle_v1'")['voltage_level_id']=='vol'
-        and row("SELECT voltage_level_id,tower_type FROM reference_price_versions "
+        and row("SELECT voltage_level_id,tower_material FROM reference_price_versions "
             "WHERE id='price_suspension_v1'")['voltage_level_id']=='vol220'
-        and row("SELECT tower_type FROM reference_price_versions "
-            "WHERE id='price_suspension_v1'")['tower_type']=='suspension'
+        and row("SELECT tower_material FROM reference_price_versions "
+            "WHERE id='price_suspension_v1'")['tower_material']=='suspension'
         and row("SELECT additional_conditions_json FROM reference_price_versions "
             "WHERE id='price_angle_v1'")['additional_conditions_json']
             =='{"terrain":{"context_op":"eq","value":"mountain"}}')
@@ -2608,7 +2608,7 @@ try:
          "2026-11-08","非法数组","无效规则",
          "u","2026-11-08T03:02:00.000Z",'[]'))
     blocked("reference price tower type cannot contain padding",
-        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,tower_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,tower_material) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         ("invalid_price_tower","price_angle",2,"塔型非法","context_op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
          "2026-11-08","非法塔型","无效规则",
@@ -2653,7 +2653,7 @@ try:
     add("reference_price_versions",id="price_angle_v2",
         catalog_id="price_angle",version_no=2,title="耐张塔山区参考价",
         operation_id="context_op",operation_version=1,unit_id="unit",
-        unit_version=1,voltage_level_id="vol",tower_type="angle",
+        unit_version=1,voltage_level_id="vol",tower_material="angle",
         work_mode="outage",additional_conditions_json=
         '{"terrain":{"context_op":"eq","value":"mountain"},'
         '"height_mm":{"context_op":"range","min":30000,"max":50000}}',
@@ -2668,7 +2668,7 @@ try:
             !=row("SELECT additional_conditions_json FROM reference_price_versions "
             "WHERE id='price_angle_v1'")['additional_conditions_json'])
     blocked_reason("unchanged price conditions cannot create another version",
-        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,voltage_level_id,tower_type,work_mode,additional_conditions_json,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES('+",".join("?" for _ in range(21))+")",
+        'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,voltage_level_id,tower_material,work_mode,additional_conditions_json,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES('+",".join("?" for _ in range(21))+")",
         "参考价正式版本没有真实价格或分类依据变化，不允许空改版",
         ("unchanged_price_conditions","price_angle",3,"耐张塔山区参考价",
          "context_op",1,"unit",1,"vol","angle","outage",
@@ -4539,10 +4539,17 @@ try:
          "active","r16_object",1,"unit",1,
          '[{"factor_id":"ghost","source":"asset","required":true}]',
          "u","2026-11-08T04:30:00.000Z"))
+    add("dictionary_types",id="tower_material",title="杆塔材质")
+    for identity,label in [("angle","角钢塔"),("pipe","钢管杆")]:
+        add("dictionary_items",id=identity,type_id="tower_material",
+            code="TOWER_MATERIAL_"+identity.upper(),created_at="2026-11-08T04:22:00.000Z")
+        add("dictionary_item_versions",id=identity+"_v1",item_id=identity,version=1,
+            name=label,status="active",sort_order=100,fields_json="[]",
+            changed_by="u",changed_at="2026-11-08T04:22:00.000Z")
     add("physical_towers",id="r16_pt16",tower_code="R16-PT16",
-        tower_type="straight",created_by="u",created_at="2026-11-08T04:22:00.000Z")
+        tower_material="angle",created_by="u",created_at="2026-11-08T04:22:00.000Z")
     add("physical_towers",id="r16_pt17",tower_code="R16-PT17",
-        tower_type="strain",created_by="u",created_at="2026-11-08T04:22:00.000Z")
+        tower_material="pipe",created_by="u",created_at="2026-11-08T04:22:00.000Z")
     def r16_locations(qs=(30000,20000,40000)):
         return [{
             "location_kind":"physical_tower","physical_tower_id":tower,
@@ -4948,6 +4955,13 @@ finally:
 ok("retired line attribute is absent from both current and history definitions",
    "erection_type" not in {item[1] for item in db.execute("PRAGMA table_info(transmission_lines)")}
    and "erection_type" not in {item[1] for item in db.execute("PRAGMA table_info(line_history)")})
+add("dictionary_types",id="tower_nature",title="杆塔性质")
+for identity,label in [("straight","直线"),("tension","耐张")]:
+    add("dictionary_items",id=identity,type_id="tower_nature",
+        code="TOWER_NATURE_"+identity.upper(),created_at="2026-11-08T04:22:00.000Z")
+    add("dictionary_item_versions",id=identity+"_v1",item_id=identity,version=1,
+        name=label,status="active",sort_order=100,fields_json="[]",
+        changed_by="u",changed_at="2026-11-08T04:22:00.000Z")
 add("physical_towers",id="nature_contract",tower_code="NATURE-CONTRACT",tower_nature="straight",created_by="u")
 db.execute("UPDATE physical_towers SET tower_nature='tension',version=2,updated_by='u',"
     "updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now','+1 day') WHERE id='nature_contract'")

@@ -114,7 +114,7 @@ test("equipment validation and voltage revisions retain identities, audited vers
   assert.equal(s.equipment.list("physical").length, before);
   assert.throws(
     () => s.equipment.save(user, "physical", { tower_nature: "guessed" }),
-    /约束/,
+    /字典|不存在|约束/,
   );
   const tower = save("towers", { line_id: line.id, tower_no: "#1" });
   s.equipment.save(

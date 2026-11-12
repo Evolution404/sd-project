@@ -42,10 +42,10 @@ test("pricing eligibility, deferred requirements, disabled fields and exact sign
   assert.throws(() => validateAttributeCondition(decimal, { op: "range", min: "1", max: "-1" }), /范围/);
 });
 test("equipment facts are referenced from real assets and cannot be edited independently", () => {
-  const field = { ...base, key: "tower", label: "塔型", source: "asset", asset_field: "tower_type", options: [] };
+  const field = { ...base, key: "tower", label: "塔型", source: "asset", asset_field: "tower_material", options: [] };
   validateAttributeSchema([field]);
-  assert.deepEqual(normalizeAttributeValues([field], "location", {}, "locations", { tower_type: "角钢塔" }), { tower: "角钢塔" });
-  assert.throws(() => normalizeAttributeValues([field], "location", { tower: "另一塔型" }, "locations", { tower_type: "角钢塔" }), /真实台账/);
+  assert.deepEqual(normalizeAttributeValues([field], "location", {}, "locations", { tower_material: "角钢塔" }), { tower: "角钢塔" });
+  assert.throws(() => normalizeAttributeValues([field], "location", { tower: "另一塔型" }, "locations", { tower_material: "角钢塔" }), /真实台账/);
   assert.throws(() => validateAttributeSchema([{ ...field, source: "manual", asset_field: undefined }]), /台账引用/);
 });
 

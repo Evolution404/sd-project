@@ -36,6 +36,8 @@ export function createCatalog(
   priceRules: PriceRuleService,
   funding: FundingService,
 ) {
+  function list(kind: "tower_natures" | "tower_materials", includeDeleted?: boolean): DictionaryItem[];
+  function list(kind: string, includeDeleted?: boolean): CatalogRecord[];
   function list(kind: string, includeDeleted = false) {
     if (kind === "frameworks" || kind === "agreements") return funding.list(kind, includeDeleted);
     if (kind === "prices") return priceRules.list(includeDeleted);
@@ -48,7 +50,7 @@ export function createCatalog(
   }
   function get(kind: "operations", key: string, includeDeleted?: boolean): OperationRecord;
   function get(kind: "objects", key: string, includeDeleted?: boolean): WorkObjectRecord;
-  function get(kind: "units" | "priorities" | "categories", key: string, includeDeleted?: boolean): DictionaryItem;
+  function get(kind: "units" | "priorities" | "categories" | "tower_natures" | "tower_materials", key: string, includeDeleted?: boolean): DictionaryItem;
   function get(kind: "organizations", key: string, includeDeleted?: boolean): OrganizationDefinition;
   function get(kind: "materials", key: string, includeDeleted?: boolean): MaterialRecord;
   function get(kind: EquipmentCatalogKind, key: string, includeDeleted?: boolean): EquipmentRecord;

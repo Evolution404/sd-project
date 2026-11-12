@@ -7,7 +7,7 @@ import { fixture } from "../helpers.mjs";
 test("1,000 lines and 10,000 logical towers preserve SQL search and pagination correctness", { timeout: 180000 }, (t) => {
   const { s, user } = fixture(t);
   const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
-  const shared = s.catalog.save(user, "physical", { tower_type: "耐张塔" });
+  const shared = s.catalog.save(user, "physical", { tower_material: "angle" });
   const started = performance.now();
   inspect(s).transaction(() => {
     for (let i = 0; i < 1000; i++) {

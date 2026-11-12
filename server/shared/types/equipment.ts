@@ -37,8 +37,10 @@ export interface EquipmentRecord {
   junction_tower_id_label?: string | null;
   setup_status?: "draft" | "ready";
   asset_no?: string | null;
-  tower_type?: string | null;
-  tower_nature?: "straight" | "tension" | null;
+  tower_material?: string | null;
+  tower_nature?: string | null;
+  tower_nature_label?: string | null;
+  tower_material_label?: string | null;
   model?: string;
   height_scaled?: number | null;
   purpose?: string;

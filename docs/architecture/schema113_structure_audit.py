@@ -121,7 +121,7 @@ assert "active_physical_tower_retire_guard" in triggers
 price_fields={r["name"] for r in db.execute(
     'PRAGMA table_xinfo(reference_price_versions)')}
 assert {"operation_id","operation_version","unit_id","unit_version",
-        "voltage_level_id","tower_type","work_mode",
+        "voltage_level_id","tower_material","work_mode",
         "additional_conditions_json","effective_on"}<=price_fields
 assert "reference_price_attribute_definition_guard" in triggers
 # One physical location may have several installed devices, using an

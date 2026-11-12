@@ -1,0 +1,43 @@
+import {test} from "node:test";
+import assert from "node:assert/strict";
+import {fixture} from "../helpers.mjs";
+test("tower nature and material are seeded as distinct editable formal dictionaries",t=>{
+  const {s,save,user}=fixture(t);
+  const n=s.catalog.list("tower_natures");
+  const m=s.catalog.list("tower_materials");
+  assert.deepEqual(n.map(v=>v.name).sort(),["直线","耐张"].sort());
+  assert.deepEqual(m.map(v=>v.name).sort(),["角钢塔","钢管杆"].sort());
+  const nature=n.find(v=>v.name==="耐张"),material=m.find(v=>v.name==="角钢塔");
+  assert.equal(nature.id,"tension");
+  assert.equal(material.id,"angle");
+  const updated=s.catalog.save(user,"tower_materials",{name:"角钢塔（新版名称）",expected_version:material.version},material.id);
+  assert.equal(updated.version,2);
+  assert.deepEqual(s.catalog.history("tower_materials",material.id).map(x=>x.name),["角钢塔","角钢塔（新版名称）"]);
+  const custom=s.catalog.save(user,"tower_materials",{name:"混凝土杆"});
+  assert.ok(custom.id);
+  assert.equal(custom.status,"active");
+});
+test("physical towers reference canonical nature/material dictionary identities, not arbitrary text",t=>{
+  const {s,save,user}=fixture(t);
+  const physical=save("physical",{asset_no:"NATURE-01",tower_nature:"straight",tower_material:"pipe"});
+  assert.equal(physical.tower_nature,"straight");
+  assert.equal(physical.tower_material,"pipe");
+  assert.equal(physical.tower_nature_label,"直线");
+  assert.equal(physical.tower_material_label,"钢管杆");
+  const altered=s.catalog.save(user,"physical",{tower_material:"angle",expected_version:physical.version},physical.id);
+  assert.equal(altered.tower_material,"angle");
+  const versions=s.catalog.history("physical",physical.id);
+  assert.deepEqual(versions.map(v=>v.tower_material),["pipe","angle"]);
+  assert.throws(()=>save("physical",{tower_material:"not-a-material"}),/杆塔材质|字典|不存在/);
+  assert.throws(()=>save("physical",{tower_nature:"not-a-nature"}),/杆塔性质|字典|不存在/);
+  assert.throws(()=>save("physical",{tower_nature:"angle"}),/杆塔性质|字典|不匹配/);
+});
+test("disabled dictionary entries cannot be newly adopted but previously referenced identity remains valid",t=>{
+  const {s,save,user}=fixture(t);
+  const material=s.catalog.list("tower_materials").find(x=>x.name==="钢管杆");
+  const physical=save("physical",{asset_no:"MATERIAL-02",tower_material:material.id});
+  s.catalog.save(user,"tower_materials",{status:"inactive",expected_version:material.version},material.id);
+  assert.throws(()=>save("physical",{tower_material:material.id}),/停用|不可用|有效/);
+  const revision=s.catalog.save(user,"physical",{expected_version:physical.version,model:"2026型号"},physical.id);
+  assert.equal(revision.tower_material,material.id);
+});

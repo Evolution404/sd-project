@@ -1,5 +1,5 @@
 import type { AuditRecord } from "./contracts.js";
-export type DictionaryKind = "units" | "priorities" | "categories";
+export type DictionaryKind = "units" | "priorities" | "categories" | "tower_natures" | "tower_materials";
 export type FoundationKind = DictionaryKind | "organizations";
 export type DefinitionStatus = "active" | "inactive";
 export interface DictionaryItem {

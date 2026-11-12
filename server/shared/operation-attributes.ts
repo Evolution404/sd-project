@@ -159,7 +159,7 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
     if (field.source === "asset") {
       requireValue(
         field.scope === "location" &&
-          ["voltage_level_id", "tower_type", "tower_nature"].includes(
+          ["voltage_level_id", "tower_material", "tower_nature"].includes(
             String(field.asset_field),
           ) &&
           field.type === "select" &&
@@ -172,7 +172,7 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
         "手工属性不能同时引用台账字段",
       );
       requireValue(
-        !["电压等级", "塔型", "杆塔性质"].includes(field.label.trim()),
+        !["电压等级", "杆塔材质", "杆塔性质", "塔型"].includes(field.label.trim()),
         "设备已有正式业务字段须通过台账引用",
       );
     }

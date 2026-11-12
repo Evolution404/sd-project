@@ -673,17 +673,17 @@
 | `code` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 唯一业务编码 | 保留：稳定身份或唯一编码 |
 | `title` | TEXT | 是 | — | 见原生CHECK | 字典、费用或操作定义标题 | 保留：独立属性或真实关联 |
 
-## `physical_tower_history` — 物理杆塔属性历史
+## `physical_tower_history` — 物理杆塔属性历史：杆塔性质与杆塔材质采用统一基础字典稳定身份
 
-业务领域：输电设备及组织台账。字段数：15；外键分量：2。
+业务领域：输电设备及组织台账。字段数：15；外键分量：4。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `physical_tower_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→physical_towers.id（组1） | 实际物理杆塔身份 | 保留：历史/审核事实 |
+| `physical_tower_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>外键→physical_towers.id（组3） | 实际物理杆塔身份 | 保留：历史/审核事实 |
 | `version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一 | 正式定义或设备当前连续版本 | 保留：历史/审核事实 |
 | `asset_no` | TEXT | 否 | — | 见原生CHECK | 一次性清洗后的设备资产编号 | 保留：历史/审核事实 |
-| `tower_type` | TEXT | 否 | — | 见原生CHECK | 杆塔类型 | 保留：历史/审核事实 |
-| `tower_nature` | TEXT | 否 | — | 见原生CHECK | 杆塔性质（直线或耐张，可留空待核实） | 保留：历史/审核事实 |
+| `tower_material` | TEXT | 否 | — | 外键→dictionary_items.id（组2） | 杆塔材质：引用基础数据中的杆塔材质稳定身份 | 保留：历史/审核事实 |
+| `tower_nature` | TEXT | 否 | — | 外键→dictionary_items.id（组1） | 杆塔性质：引用基础数据中的杆塔性质稳定身份（直线或耐张，可留空待核实） | 保留：历史/审核事实 |
 | `longitude` | REAL | 否 | — | 见原生CHECK | 设备地理经度 | 保留：历史/审核事实 |
 | `latitude` | REAL | 否 | — | 见原生CHECK | 设备地理纬度 | 保留：历史/审核事实 |
 | `commissioned_on` | TEXT | 否 | — | 见原生CHECK | 设备投运业务日期 | 保留：历史/审核事实 |
@@ -695,17 +695,17 @@
 | `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `physical_towers` — 实体杆塔独立状态（在运、停用、退役），不得在仍有在运逻辑回路时停用
+## `physical_towers` — 实体杆塔引用杆塔性质与杆塔材质字典，独立状态（在运、停用、退役），不得在仍有在运逻辑回路时停用
 
-业务领域：输电设备及组织台账。字段数：18；外键分量：2。
+业务领域：输电设备及组织台账。字段数：18；外键分量：4。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
 | `tower_code` | TEXT | 是 | — | 唯一 | 物理杆塔业务编码 | 保留：稳定身份或唯一编码 |
 | `asset_no` | TEXT | 否 | — | 见原生CHECK | 一次性清洗后的设备资产编号 | 保留：独立属性或真实关联 |
-| `tower_type` | TEXT | 否 | — | 见原生CHECK | 杆塔类型 | 保留：独立属性或真实关联 |
-| `tower_nature` | TEXT | 否 | — | 见原生CHECK | 杆塔性质（直线或耐张，可留空待核实） | 保留：独立属性或真实关联 |
+| `tower_material` | TEXT | 否 | — | 外键→dictionary_items.id（组3） | 杆塔材质：引用基础数据中的杆塔材质稳定身份 | 保留：独立属性或真实关联 |
+| `tower_nature` | TEXT | 否 | — | 外键→dictionary_items.id（组2） | 杆塔性质：引用基础数据中的杆塔性质稳定身份（直线或耐张，可留空待核实） | 保留：独立属性或真实关联 |
 | `longitude` | REAL | 否 | — | 见原生CHECK | 设备地理经度 | 保留：独立属性或真实关联 |
 | `latitude` | REAL | 否 | — | 见原生CHECK | 设备地理纬度 | 保留：独立属性或真实关联 |
 | `commissioned_on` | TEXT | 否 | — | 见原生CHECK | 设备投运业务日期 | 保留：独立属性或真实关联 |
@@ -1046,7 +1046,7 @@
 | `unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组0）<escape>|</escape>外键→dictionary_items.id（组4） | 计量单位字典项 | 保留：历史/审核事实 |
 | `unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组0） | 计量单位字典正式版本号 | 保留：历史/审核事实 |
 | `voltage_level_id` | TEXT | 否 | — | 外键→voltage_levels.id（组3） | 线路设备所在电压等级 | 保留：历史/审核事实 |
-| `tower_type` | TEXT | 否 | — | 见原生CHECK | 杆塔类型 | 保留：历史/审核事实 |
+| `tower_material` | TEXT | 否 | — | 见原生CHECK | 杆塔材质：引用基础数据中的杆塔材质稳定身份 | 保留：历史/审核事实 |
 | `work_mode` | TEXT | 是 | 'both' | 见原生CHECK | 作业方式，停电或不停电等 | 保留：历史/审核事实 |
 | `specification` | TEXT | 是 | '' | 见原生CHECK | 物资或参考单价的规格 | 保留：历史/审核事实 |
 | `additional_conditions_json` | TEXT | 是 | '{}' | 见原生CHECK | 参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行 | 保留：历史/审核事实 |

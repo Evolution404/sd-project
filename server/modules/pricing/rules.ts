@@ -41,7 +41,7 @@ const definitionFields = [
   "unit_id",
   "unit_version",
   "voltage_level_id",
-  "tower_type",
+  "tower_material",
   "work_mode",
   "specification",
   "additional_conditions_json",
@@ -180,7 +180,7 @@ export function createPriceRules(
       "请选择合法作业方式",
     );
     const rawVoltage = value("voltage_level_id", null),
-      rawTower = value("tower_type", null);
+      rawTower = value("tower_material", null);
     const voltage =
         rawVoltage === null || rawVoltage === "" ? null : rawVoltage,
       tower = rawTower === null || rawTower === "" ? null : rawTower;
@@ -232,7 +232,7 @@ export function createPriceRules(
       unit_id: adopted.default_unit_id,
       unit_version: adopted.default_unit_version,
       voltage_level_id: voltage,
-      tower_type: tower,
+      tower_material: tower,
       work_mode: workMode,
       specification: optionalText(value("specification", ""), "适用规格"),
       pricing_mode: mode as PricingMode,

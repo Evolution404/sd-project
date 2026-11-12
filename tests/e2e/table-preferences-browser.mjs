@@ -10,7 +10,7 @@ const cleanup = [], { s, user } = fixture({ after: action => cleanup.push(action
 const voltage = s.catalog.save(user, "voltages", { name: "220kV" });
 const lineA = s.catalog.save(user, "lines", { name: "交互甲线", voltage_level_id: voltage.id });
 s.catalog.save(user, "lines", { name: "交互乙线", voltage_level_id: voltage.id });
-const ph = s.catalog.save(user, "physical", { asset_no: "铭牌77", tower_type: "直线塔" });
+const ph = s.catalog.save(user, "physical", { asset_no: "铭牌77", tower_material: "angle" });
 s.catalog.save(user, "towers", {
   line_id: lineA.id, tower_no: "#77",
   physical_mode: "shared", physical_tower_id: ph.id,

@@ -21,6 +21,6 @@ function select(value: string | number) {
       name="priorities"
       label="优先级" /><ElTabPane
       name="categories"
-      label="项目类别" /><ElTabPane name="organizations" label="归口单位"
+      label="项目类别" /><ElTabPane name="tower_natures" label="杆塔性质" /><ElTabPane name="tower_materials" label="杆塔材质" /><ElTabPane name="organizations" label="归口单位"
   /></ElTabs>
 </template>

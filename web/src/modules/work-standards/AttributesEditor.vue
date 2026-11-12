@@ -203,7 +203,7 @@ function save() {
           ><ElSelect v-model="editing.asset_field"
             ><ElOption label="电压等级" value="voltage_level_id" /><ElOption
               label="塔型"
-              value="tower_type" /><ElOption
+              value="tower_material" /><ElOption
               label="杆塔性质"
               value="tower_nature" /></ElSelect
         ></ElFormItem>

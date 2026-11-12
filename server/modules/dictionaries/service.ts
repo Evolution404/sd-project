@@ -16,7 +16,7 @@ import {
   expectedVersion,
 } from "../../shared/errors/business-error.js";
 export function isFoundationKind(kind: string): kind is FoundationKind {
-  return ["units", "priorities", "categories", "organizations"].includes(kind);
+  return ["units", "priorities", "categories", "tower_natures", "tower_materials", "organizations"].includes(kind);
 }
 export function definitionName(value: unknown): string {
   requireValue(typeof value === "string" && value.trim(), "请填写名称", 422, {
@@ -200,6 +200,28 @@ export function createDictionaries(
       return result;
     });
   }
+  function seedTowerDefaults(actor: Actor) {
+    authorize(actor, "admin");
+    database.transaction(() => {
+      const defaults:ReadonlyArray<readonly [DictionaryKind,string,string,string]>=[
+        ["tower_natures","tension","TOWER_NATURE_TENSION","耐张"],
+        ["tower_natures","straight","TOWER_NATURE_STRAIGHT","直线"],
+        ["tower_materials","angle","TOWER_MATERIAL_ANGLE","角钢塔"],
+        ["tower_materials","pipe","TOWER_MATERIAL_PIPE","钢管杆"],
+      ];
+      for(const [kind,identity,code,label] of defaults){
+        if(repository.dictionary(kind,identity))continue;
+        const timestamp=now();
+        repository.createDictionary(kind,{id:identity,code,created_at:timestamp});
+        repository.appendDictionaryVersion({
+          id:id(),item_id:identity,version:1,name:label,status:"active",
+          sort_order:100,fields_json:"[]",reason:"系统内置基础选项",
+          changed_by:actor.id,changed_at:timestamp,
+        });
+        audit.record(actor,kind,identity,"create",null,{name:label,systemDefault:true});
+      }
+    });
+  }
   function remove(
     actor: Actor,
     kind: FoundationKind,
@@ -247,6 +269,7 @@ export function createDictionaries(
     });
   }
   return {
+    seedTowerDefaults,
     detail(kind: DictionaryKind, key: string) {
       return {
         item: getDictionary(kind, key, true),

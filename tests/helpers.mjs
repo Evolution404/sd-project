@@ -27,7 +27,7 @@ export function fixture(t, { quantity_precision = 0 } = {}) {
     default_target_object: "防鸟装置",
   });
   const towers = [15, 16, 17].map((n) =>
-    save("physical", { asset_no: `T${n}`, tower_type: "angle" }),
+    save("physical", { asset_no: `T${n}`, tower_material: "angle" }),
   );
   const price = save("prices", {
     code: "base-price",

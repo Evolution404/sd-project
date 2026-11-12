@@ -58,10 +58,10 @@ test("only supported sortable and filterable fields expose capabilities",()=>{
   assert.equal(equipmentLocationColumns("physical_tower").find(c=>c.key==="related_towers").sortable,true);
   assert.equal(equipmentLocationColumns("physical_tower").find(c=>c.key==="related_towers").sortKey,"related_towers");
   assert.ok(labels("physical_tower").includes("杆塔性质"));
-  assert.equal(equipmentLocationDisplay("physical_tower",{tower_nature:"straight"},"tower_nature"),"直线塔");
-  assert.equal(equipmentLocationDisplay("physical_tower",{tower_nature:"tension"},"tower_nature"),"耐张塔");
-  assert.equal(equipmentLocationDisplay("physical_tower",{tower_type:"angle"},"tower_type"),"角钢塔");
-  assert.equal(equipmentLocationDisplay("physical_tower",{tower_type:"pipe"},"tower_type"),"钢管塔");
-  assert.equal(equipmentLocationDisplay("physical_tower",{tower_type:"未定义型号"},"tower_type"),"未定义型号");
+  assert.equal(equipmentLocationDisplay("physical_tower",{tower_nature:"straight"},"tower_nature"),"直线");
+  assert.equal(equipmentLocationDisplay("physical_tower",{tower_nature:"tension"},"tower_nature"),"耐张");
+  assert.equal(equipmentLocationDisplay("physical_tower",{tower_material:"angle"},"tower_material"),"角钢塔");
+  assert.equal(equipmentLocationDisplay("physical_tower",{tower_material:"pipe"},"tower_material"),"钢管杆");
+  assert.equal(equipmentLocationDisplay("physical_tower",{tower_material:"未定义型号"},"tower_material"),"未定义型号");
   assert.equal(equipmentLocationColumns("span").find(c=>c.key==="span").sortable,false);
 });

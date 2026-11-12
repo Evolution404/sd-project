@@ -7,7 +7,7 @@ import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup=[];
 const {s,user,save,operation,project,demandInput}=approvedFixture({after:fn=>cleanup.push(fn)});
-const physical=save("physical",{asset_no:"ROLE-T99",tower_type:"angle"});
+const physical=save("physical",{asset_no:"ROLE-T99",tower_material:"angle"});
 const pending=s.demands.save(user,{
   ...demandInput,demand_no:"ROLE-PENDING-001",problem_description:"四角色共同办理的待确认需求",
   work_locations:[{location_kind:"physical_tower",physical_tower_id:physical.id,quantity_scaled:10000}],

@@ -67,6 +67,11 @@ for (const dependency of [
 const manifest = JSON.parse(
   readFileSync(join(stage, "BUILD-MANIFEST.json"), "utf8"),
 );
+for(const file of ["scripts/training/instance.mjs",
+    "启动训练环境.cmd","训练实例列表.cmd",
+    "docs/implementation/P10_业务操作帮助覆盖清单.md",
+    "docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md"])
+  assert.ok(existsSync(join(stage,file)),"离线包缺少P10及杆塔字典资源："+file);
 assert.equal(manifest.schema_version, 113);
 assert.equal(manifest.git_commit, receipt.git_commit);
 assert.equal(manifest.ps1_utf8_bom, true,

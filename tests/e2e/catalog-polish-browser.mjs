@@ -56,12 +56,12 @@ try {
   await page.getByRole('button', { name: '新增逻辑杆塔', exact: true }).click();
   await select('所属线路', '01线路 · 500kV');
   await editor.getByLabel('杆塔号', { exact: true }).fill('#009');
-  await select('杆塔性质', '耐张塔');
+  await select('杆塔性质', '耐张');
   await page.screenshot({ path: join(output, 'tower-nature-dropdown.png'), fullPage: true });
   await editor.getByRole('button', { name: '保存', exact: true }).click();
   await editor.waitFor({ state: 'hidden' });
   assert.equal(s.catalog.list('towers')[0].tower_nature, 'tension');
-  await page.getByRole('cell', { name: '耐张塔', exact: true }).waitFor();
+  await page.getByRole('cell', { name: '耐张', exact: true }).waitFor();
   await selectNavigation(page, '作业标准');
   await page.getByRole('columnheader', { name: /固定计量单位/ }).waitFor();
   assert.equal(await page.getByRole('columnheader',{name:/默认作业位置/}).count(),0,

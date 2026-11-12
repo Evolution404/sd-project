@@ -171,8 +171,8 @@ async function viewHistory(row: EquipmentRecord) {
 }
 function cell(row: EquipmentRecord, column: TableColumn): unknown {
   const value = row[column.key as keyof EquipmentRecord];
-  if (column.key === "tower_type") return towerTypeLabel(value);
-  if (column.key === "tower_nature") return towerNatureLabel(value);
+  if (column.key === "tower_material") return row.tower_material_label || towerTypeLabel(value);
+  if (column.key === "tower_nature") return row.tower_nature_label || towerNatureLabel(value);
   if (value === null || value === undefined || value === "") return "—";
   if (
     column.key === "height_scaled" ||

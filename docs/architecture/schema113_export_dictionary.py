@@ -258,8 +258,8 @@ token_hash|登录会话令牌单向哈希
 tower_code|物理杆塔业务编码
 tower_no|线路内的逻辑杆塔编号
 tower_no_snapshot|需求首次登记时的杆塔编号
-tower_type|杆塔类型
-tower_nature|杆塔性质（直线或耐张，可留空待核实）
+tower_material|杆塔材质：引用基础数据中的杆塔材质稳定身份
+tower_nature|杆塔性质：引用基础数据中的杆塔性质稳定身份（直线或耐张，可留空待核实）
 transmission_center_length_mm|输电中心管辖的该档距长度，毫米整数，NULL表示尚未核定，0表示明确无管辖长度
 type_id|数据字典分类身份
 type_snapshot|业务确认时的来源类别文字

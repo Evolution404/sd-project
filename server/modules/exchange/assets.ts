@@ -20,6 +20,23 @@ export function createAssetExchange(system: System) {
   const physicalKeys = catalog.definitions.physical.fields
     .map((field) => field.key as keyof EquipmentRecord)
     .filter((key) => key !== "status");
+  function towerDictionaryId(field:"tower_material"|"tower_nature",fact:unknown):string|null {
+    if(fact===undefined || fact===null || fact==="")return null;
+    requireValue(typeof fact==="string",field==="tower_material"?"杆塔材质必须选择基础数据":"杆塔性质必须选择基础数据");
+    const kind=field==="tower_material"?"tower_materials":"tower_natures";
+    const matching=catalog.list(kind,true).filter(row=>
+      row.id===fact || row.code===fact || row.name===fact);
+    requireValue(matching.length===1,field==="tower_material"?"杆塔材质在基础数据中不存在或不唯一":"杆塔性质在基础数据中不存在或不唯一");
+    const selected=matching[0];
+    requireValue(selected.status==="active",field==="tower_material"?"杆塔材质已停用":"杆塔性质已停用");
+    return selected.id;
+  }
+  function normalizedTowerFields(row:WorkbookRow):WorkbookRow {
+    const result={...row};
+    for(const key of ["tower_material","tower_nature"] as const)
+      if(result[key]!==undefined) result[key]=towerDictionaryId(key,result[key]);
+    return result;
+  }
   function resolveEquipment(kind:EquipmentCatalogKind, key:string|null|undefined, includeDeleted=false):EquipmentRecord {
     requireValue(typeof key==="string" && key.length>0,"设备正式身份不存在",404);
     return equipment.get(kind,key,includeDeleted);
@@ -325,7 +342,8 @@ export function createAssetExchange(system: System) {
               "两杆塔间已有档距，请使用维护导出更新",
             );
         }
-        const payload:WorkbookRow = { ...row };
+        const payload:WorkbookRow = kind==="physical" || kind==="towers"
+          ? normalizedTowerFields(row) : { ...row };
         delete payload._sheet;
         delete payload._row;
         let changes:AssetPreviewChange[] = [];
@@ -367,7 +385,7 @@ export function createAssetExchange(system: System) {
           number: kind === "lines"
             ? String(row.name || "")
             : kind === "physical"
-              ? (row.asset_no || row.tower_type || row.model || "独立物理杆塔")
+              ? (row.asset_no || row.tower_material || row.model || "独立物理杆塔")
             : kind === "towers"
               ? row.line_name + " · " + row.tower_no
               : row.line_name + " · " + row.start_tower_no +
@@ -382,7 +400,7 @@ export function createAssetExchange(system: System) {
           row._sheet, row._row,
           Object.keys(error instanceof BusinessError ? error.fields : {})[0] ||
             (kind === "lines" ? "name" :
-              kind === "physical" ? "tower_type" :
+              kind === "physical" ? "tower_material" :
               kind === "towers" ? "tower_no" : "start_tower_no"),
           row, error instanceof Error ? error.message : "台账预检失败",
         ));
@@ -413,7 +431,7 @@ export function createAssetExchange(system: System) {
           kind: "physical", id: physicalId,
           payload: { id: physicalId, expected_version: existingPhysical.version },
           sheet: logicalDocument.sheet, row: logicalDocument.row,
-          number: existingPhysical.asset_no || existingPhysical.tower_type || "物理杆塔",
+          number: existingPhysical.asset_no || existingPhysical.tower_material || "物理杆塔",
           action: "update", changes: [],
         };
         documents.splice(documents.indexOf(logicalDocument), 0, updatedIdentity);
@@ -655,6 +673,10 @@ export function createAssetExchange(system: System) {
             const physical = resolveEquipment("physical", record.physical_tower_id, true);
             const actualProperties:Record<string,unknown> = value;
             for (const key of physicalKeys) actualProperties[key] = physical[key];
+            if(physical.tower_material) value.tower_material=
+              catalog.get("tower_materials",physical.tower_material,true).name;
+            if(physical.tower_nature) value.tower_nature=
+              catalog.get("tower_natures",physical.tower_nature,true).name;
           }
           value.voltage_name = resolveEquipment(
             "voltages", line.voltage_level_id, true,
@@ -686,10 +708,16 @@ export function createAssetExchange(system: System) {
     for (const physicalTower of equipment.list("physical")) {
       if (selected.size && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id)) continue;
       if (options.query && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id) &&
-          ![physicalTower.tower_type, physicalTower.model, physicalTower.tower_code,
+          ![physicalTower.tower_material, physicalTower.model, physicalTower.tower_code,
             physicalTower.related_lines, physicalTower.related_towers].some((value) =>
               String(value || "").includes(options.query ?? ""))) continue;
-      rows.physical.push({ ...physicalTower, expected_version: physicalTower.version });
+      rows.physical.push({
+        ...physicalTower, expected_version: physicalTower.version,
+        tower_material:physicalTower.tower_material
+          ? catalog.get("tower_materials",physicalTower.tower_material,true).name : null,
+        tower_nature:physicalTower.tower_nature
+          ? catalog.get("tower_natures",physicalTower.tower_nature,true).name : null,
+      });
     }
     if (options.report)
       return makeBusinessReport("assets", [
@@ -702,7 +730,7 @@ export function createAssetExchange(system: System) {
           接入杆塔: row.junction_tower_no || "",
         })),
         ...rows.physical.map((row) => ({
-          对象: "物理杆塔", 名称: row.label || row.asset_no || "物理杆塔", 塔型: row.tower_type, 型号: row.model,
+          对象: "物理杆塔", 名称: row.label || row.asset_no || "物理杆塔", 杆塔材质: row.tower_material, 杆塔性质: row.tower_nature, 型号: row.model,
           关联线路: row.related_lines, 关联杆塔号: row.related_towers,
         })),
         ...rows.towers.map((row) => ({

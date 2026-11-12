@@ -53,7 +53,7 @@ export const equipmentSources: Record<
     columns: [
       "tower_code",
       "asset_no",
-      "tower_type",
+      "tower_material",
       "tower_nature",
       "model",
       "height_scaled",

@@ -60,7 +60,7 @@ export interface DemandLocationSnapshot {
   tower_no: string;
   asset_no: string | null;
   physical_code: string;
-  tower_type: string | null;
+  tower_material: string | null;
   tower_nature: string | null;
   span: EquipmentRecord | null;
   location_label: string;

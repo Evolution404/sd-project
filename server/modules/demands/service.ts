@@ -211,13 +211,13 @@ export function createDemands(
       const frozen = original?.location_snapshot_json;
       const snapshotAsset = frozen || {
         voltage_level_id: line?.voltage_level_id || null,
-        tower_type: physical?.tower_type || null,
+        tower_material: physical?.tower_material || null,
         tower_nature: physical?.tower_nature || null,
       };
       const locationAttributes = normalizeAttributeValues(schema, "location", loc.attributes ?? original?.attributes ?? {},
         `work_locations.${index}.attributes`, {
           voltage_level_id: snapshotAsset.voltage_level_id,
-          tower_type: snapshotAsset.tower_type,
+          tower_material: snapshotAsset.tower_material,
           tower_nature: snapshotAsset.tower_nature,
         });
       return {
@@ -252,7 +252,7 @@ export function createDemands(
               .join(" / "),
           asset_no: physical?.asset_no || null,
           physical_code: physical?.tower_code || "",
-          tower_type: snapshotAsset.tower_type,
+          tower_material: snapshotAsset.tower_material,
           tower_nature: snapshotAsset.tower_nature,
           span: kind === "span" ? entity : null,
           location_label:

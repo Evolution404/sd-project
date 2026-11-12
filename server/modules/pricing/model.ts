@@ -64,14 +64,14 @@ export interface ApplicablePriceRule extends PricingRule, OperationPricingIdenti
   status: string;
   effective_on: string;
   voltage_level_id?: string | null;
-  tower_type?: string | null;
+  tower_material?: string | null;
   specification?: string | null;
   work_mode: string;
   additional_conditions_json?: string | Record<string, PriceCondition>;
 }
 export interface PricingLocation {
   work_mode: string;
-  location_snapshot_json?: string | { voltage_level_id?: string; tower_type?: string; specification?: string };
+  location_snapshot_json?: string | { voltage_level_id?: string; tower_material?: string; specification?: string };
   attributes?: string | AttributeValues;
   demand_attributes?: string | AttributeValues;
 }

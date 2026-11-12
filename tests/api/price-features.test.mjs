@@ -90,7 +90,7 @@ test("price rule edit preserves adopted operation version until explicit upgrade
     name: "安装防鸟装置 · 第三版", expected_version: 2,
   }, operation.id);
   const alternativeTower = s.catalog.save(user, "physical", {
-    asset_no: "DIA-T18", tower_type: "angle",
+    asset_no: "DIA-T18", tower_material: "angle",
   });
   const newerDemand = s.demands.save(user, {
     ...demandInput,
@@ -111,7 +111,7 @@ test('boolean demand facts, integer location ranges and frozen asset facts price
   const {s,user,save,operation,demandInput}=fixture(t);
   const fields=[attribute({key:'special',label:'特殊治理',scope:'demand',type:'boolean',requirement:'save'}),
     attribute({key:'count',label:'安装层数',type:'integer',precision:0,min:'1',max:'10',requirement:'save'}),
-    attribute({key:'tower',label:'塔型',source:'asset',asset_field:'tower_type',options:[],requirement:'pricing'})];
+    attribute({key:'tower',label:'塔型',source:'asset',asset_field:'tower_material',options:[],requirement:'pricing'})];
   s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:fields},operation.id);
   save('prices',{title:'统一事实计价',operation_id:operation.id,pricing_mode:'per_unit',unit_price_fen:1200,
     additional_conditions_json:{special:{op:'eq',value:true},count:{op:'range',min:1,max:3},tower:{op:'eq',value:'angle'}},

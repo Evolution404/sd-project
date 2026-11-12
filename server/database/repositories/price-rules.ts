@@ -7,7 +7,7 @@ import type {
 import type { ListQuery } from "../../shared/types/contracts.js";
 import { searchPage, type ListSource } from "../queries/business-lists.js";
 const sql = `SELECT c.id,c.code,c.created_by,c.created_at,c.current_version_id,c.version_no,c.title,c.operation_id,c.operation_version,
- c.unit_id,c.unit_version,c.voltage_level_id,c.tower_type,c.work_mode,c.specification,c.additional_conditions_json,c.status,
+ c.unit_id,c.unit_version,c.voltage_level_id,c.tower_material,c.work_mode,c.specification,c.additional_conditions_json,c.status,
  c.pricing_mode,c.pricing_scope,c.calculation_params_json,c.fee_components_json,c.base_fee_fen,c.unit_price_fen,c.quantity_brackets_json,
  c.effective_on,c.price_source,c.price_date,c.basis,v.catalog_id,v.reason,v.created_at AS version_created_at,v.created_by AS version_created_by,
  COALESCE(operation.name,'历史操作定义待核对') AS operation_id_label,COALESCE(unit.name,'历史计量单位待核对') AS unit_id_label,
@@ -25,7 +25,7 @@ const source: ListSource = {
     "status",
     "operation_id_label",
     "voltage_level_id_label",
-    "tower_type",
+    "tower_material",
     "work_mode",
     "specification",
     "pricing_mode",
@@ -46,7 +46,7 @@ const source: ListSource = {
     "status",
     "operation_id_label",
     "voltage_level_id_label",
-    "tower_type",
+    "tower_material",
     "specification",
     "price_source",
     "basis",

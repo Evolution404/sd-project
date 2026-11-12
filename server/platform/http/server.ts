@@ -54,6 +54,8 @@ export function httpServer(
     response.end(buffer);
   }
   return createServer(async (req, res) => {
+    let authenticatedActorId: string | null = null;
+    let authenticatedViewer = false;
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "same-origin");
@@ -118,6 +120,12 @@ export function httpServer(
         return;
       }
       const actor = system.auth.actor(token(req));
+      authenticatedActorId=actor.id;
+      authenticatedViewer=actor.role==="viewer";
+      if (parts[1] === "training" && parts[2] === "checkpoints" && method === "GET") {
+        json(res, 200, system.training.checkpoints(actor.id));
+        return;
+      }
       if (parts[1] === "session" && method === "GET") {
         json(res, 200, actor);
         return;
@@ -151,8 +159,18 @@ export function httpServer(
       const outcome = await dispatchRoute({ system, actor, resource, read, key, sub, subKey, action,
         method, input, deleted, url, req, res, mutate, workbook, page, exchange, evidence });
       if (outcome) json(res, 200, outcome.result);
+      if (system.training.enabled && resource==="exchange" && key==="demands" &&
+          outcome && typeof outcome.result==="object" && outcome.result!==null) {
+        if (sub==="preview") system.training.record(actor.id,"excel_preview");
+        if (sub==="commit") system.training.record(actor.id,"excel_commit");
+      }
     } catch (error) {
       const failure = errorResponse(error);
+      // Evidence is recorded only after a real authenticated viewer's forbidden
+      // business write (not a forged client claim, login/IP denial or tour click).
+      if (failure.status===403 && authenticatedActorId && authenticatedViewer &&
+          !["GET","HEAD"].includes(req.method||"GET"))
+        system.training.record(authenticatedActorId,"forbidden");
       if (failure.status === 500) console.error(error);
       json(res, failure.status, failure.body);
     }

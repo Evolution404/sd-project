@@ -16,7 +16,7 @@ export interface PriceRuleVersion extends OperationPricingIdentity {
   version_no: number;
   title: string;
   voltage_level_id: string | null;
-  tower_type: string | null;
+  tower_material: string | null;
   work_mode: "both" | "outage" | "non_outage";
   specification: string;
   additional_conditions_json: string;

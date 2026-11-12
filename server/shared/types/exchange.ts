@@ -38,7 +38,7 @@ export interface WorkbookRow extends Record<string, unknown> {
   asset_no?: string | null;
   tower_no?: string | null;
   tower_code?: string | null;
-  tower_type?: string | null;
+  tower_material?: string | null;
   tower_nature?: string | null;
   physical_properties?: Record<string,unknown>;
   model?: string | null;

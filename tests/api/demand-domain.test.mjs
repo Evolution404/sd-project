@@ -10,7 +10,7 @@ function page(query = {}) {
 test("project-demand selector searches all 260 eligible identities without hidden truncation", (t) => {
   const { s, user, save, operation } = fixture(t);
   const physical = s.database.transaction(() => Array.from({length:260},(_,n)=>
-    save("physical",{asset_no:"批量杆塔-"+String(n).padStart(3,"0"),tower_type:"angle"})
+    save("physical",{asset_no:"批量杆塔-"+String(n).padStart(3,"0"),tower_material:"angle"})
   ));
   const created = s.database.transaction(() => physical.map((tower,index) => s.demands.save(user,{
     operation_id:operation.id,

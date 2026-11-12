@@ -70,7 +70,7 @@ function populate(system, password) {
       for (const n of numbers) {
         const physical = add("physical", {
           asset_no: "DEMO-" + label + "-T" + n,
-          tower_type: n % 2 ? "angle" : "suspension",
+          tower_material: n % 2 ? "angle" : "pipe",
         });
         const logical = add("towers", {
           line_id: line.id, physical_tower_id: physical.id,

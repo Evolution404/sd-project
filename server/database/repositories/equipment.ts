@@ -36,12 +36,19 @@ const sources: Record<EquipmentCatalogKind, string> = {
     LEFT JOIN transmission_lines p ON p.id=c.parent_line_id LEFT JOIN voltage_levels pv ON pv.id=p.voltage_level_id
     LEFT JOIN logical_towers j ON j.id=c.junction_tower_id LEFT JOIN transmission_lines jl ON jl.id=j.line_id
     LEFT JOIN voltage_levels jv ON jv.id=jl.voltage_level_id`,
-  towers: `SELECT c.*,p.tower_nature,l.name AS line_name,v.name AS voltage_level_name,
+  towers: `SELECT c.*,p.tower_nature,nature.name AS tower_nature_label,
+    l.name AS line_name,v.name AS voltage_level_name,
     ${line} AS line_id_label,
-    COALESCE(NULLIF(p.asset_no,''),NULLIF(TRIM(COALESCE(p.tower_type,'') || ' · ' || p.model,' · '),''),'独立物理杆塔') AS physical_tower_id_label
+    COALESCE(NULLIF(p.asset_no,''),NULLIF(TRIM(COALESCE(material.name,'') || ' · ' || p.model,' · '),''),'独立物理杆塔') AS physical_tower_id_label
     FROM logical_towers c JOIN transmission_lines l ON l.id=c.line_id
-    LEFT JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=c.physical_tower_id`,
-  physical: "SELECT c.* FROM physical_towers c",
+    LEFT JOIN voltage_levels v ON v.id=l.voltage_level_id
+    LEFT JOIN physical_towers p ON p.id=c.physical_tower_id
+    LEFT JOIN v_dictionary_current nature ON nature.id=p.tower_nature AND nature.type_id='tower_nature'
+    LEFT JOIN v_dictionary_current material ON material.id=p.tower_material AND material.type_id='tower_material'`,
+  physical: `SELECT c.*,nature.name AS tower_nature_label,material.name AS tower_material_label
+    FROM physical_towers c
+    LEFT JOIN v_dictionary_current nature ON nature.id=c.tower_nature AND nature.type_id='tower_nature'
+    LEFT JOIN v_dictionary_current material ON material.id=c.tower_material AND material.type_id='tower_material'`,
   spans: `SELECT c.*,l.name AS line_name,${line} AS line_id_label,
     start.tower_no AS start_tower_no,ending.tower_no AS end_tower_no,
     ${lineLabel("sl", "sv")} || ' · ' || start.tower_no AS start_tower_id_label,

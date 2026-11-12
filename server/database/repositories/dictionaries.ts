@@ -14,6 +14,8 @@ const types: Record<DictionaryKind, { id: string; title: string }> = {
   units: { id: "unit", title: "计量单位" },
   priorities: { id: "priority", title: "优先级" },
   categories: { id: "project_category", title: "项目类别" },
+  tower_natures: { id: "tower_nature", title: "杆塔性质" },
+  tower_materials: { id: "tower_material", title: "杆塔材质" },
 };
 const dictionarySql = `SELECT c.*,v.item_id,v.changed_by,v.changed_at,v.reason
   FROM v_dictionary_current c JOIN dictionary_item_versions v ON v.id=c.current_version_id`;

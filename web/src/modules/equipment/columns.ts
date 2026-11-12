@@ -11,7 +11,7 @@ export const equipmentColumns: Record<EquipmentKind, TableColumn[]> = {
   ],
   physical: [
     { key: "asset_no", label: "现场铭牌号", minWidth: 170 },
-    { key: "tower_type", label: "塔型" },
+    { key: "tower_material", label: "杆塔材质" },
     { key: "tower_nature", label: "杆塔性质" },
     { key: "model", label: "型号" },
     { key: "height_scaled", label: "高度（米）" },

@@ -75,7 +75,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
   const first = s.catalog.save(user, "towers", {
     line_id: line.id,
     tower_no: "#15",
-    physical_properties: { tower_type: "angle" },
+    physical_properties: { tower_material: "angle" },
   });
   const other = s.catalog.save(user, "towers", {
     line_id: second.id,
@@ -110,7 +110,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
   const replacement = s.catalog.replacePhysical(user, first.physical_tower_id, {
     expected_version: 1,
     bindings: preview.bindings,
-    properties: { tower_type: "angle", height_scaled: 250000 },
+    properties: { tower_material: "angle", height_scaled: 250000 },
   });
   assert.notEqual(replacement.id, first.physical_tower_id);
   assert.equal(

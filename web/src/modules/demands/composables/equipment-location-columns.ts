@@ -37,7 +37,7 @@ const schemas: Readonly<Record<DemandLocationKind, readonly LocationTableColumn[
     sortable("related_towers", "关联杆号", 170),
     sortable("current_circuits", "关联回路数", 145),
     sortable("tower_nature", "杆塔性质", 155),
-    sortable("tower_type", "塔型", 150),
+    sortable("tower_material", "杆塔材质", 150),
   ],
   span: [
     selection,
@@ -85,8 +85,8 @@ export function equipmentLocationDisplay(
   if (key === "transmission_center_length_mm")
     return row.transmission_center_length_mm == null
       ? "长度待核实" : row.transmission_center_length_mm / 1000;
-  if (key === "tower_nature") return towerNatureLabel(row.tower_nature);
-  if (key === "tower_type") return towerTypeLabel(row.tower_type);
+  if (key === "tower_nature") return row.tower_nature_label || towerNatureLabel(row.tower_nature);
+  if (key === "tower_material") return row.tower_material_label || towerTypeLabel(row.tower_material);
   if (key === "current_circuits") return row.current_circuits ?? 0;
   if (key === "line_name" && kind === "physical_tower")
     return text(row.related_lines) || "未关联线路";
