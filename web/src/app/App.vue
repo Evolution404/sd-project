@@ -9,6 +9,7 @@ import {
   defineAsyncComponent,
 } from "vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
+import { ElMessage } from "element-plus";
 import { Fold, Expand, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
 import type { Actor } from "../../../server/shared/types/contracts";
 import { api } from "../shared/api/client";
@@ -124,6 +125,7 @@ watch([user, () => route.name], () => {
     void router.replace({ name: "dashboard" });
 });
 async function signIn() {
+  if (busy.value) return;
   busy.value = true;
   error.value = "";
   try {
@@ -136,8 +138,12 @@ async function signIn() {
   }
 }
 async function logout() {
-  await api("/logout", "POST", {});
-  user.value = null;
+  try {
+    await api("/logout", "POST", {});
+    user.value = null;
+  } catch (failure) {
+    ElMessage.error("退出登录失败，请检查连接后重试：" + (failure as Error).message);
+  }
 }
 const expired = () => {
   user.value = null;
@@ -172,15 +178,13 @@ onMounted(async () => {
           ><ElFormItem label="用户名" required
             ><ElInput
               v-model="login.username"
-              autocomplete="username"
-              @keyup.enter="signIn" /></ElFormItem
+              autocomplete="username" /></ElFormItem
           ><ElFormItem label="密码" required
             ><ElInput
               v-model="login.password"
               type="password"
-              autocomplete="current-password"
-              @keyup.enter="signIn" /></ElFormItem
-          ><ElButton type="primary" :loading="busy" @click="signIn"
+              autocomplete="current-password" /></ElFormItem
+          ><ElButton native-type="submit" type="primary" :loading="busy"
             >登录</ElButton
           ></ElForm
         >

@@ -746,7 +746,7 @@ onMounted(async () => {
         @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
           <ElTag v-if="column.key === 'status'" effect="plain">{{ statusText[row.status] }}</ElTag>
-          <span v-else-if="column.key === 'approval'">¥{{ money(row.approval?.approved_budget_fen) }}</span>
+          <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x: Row) => x.binding).length || 0 }}</span>
           <span v-else>{{ row[column.key] ?? '—' }}</span>
         </template>

@@ -262,7 +262,7 @@ async function transition(row: DemandListItem | DemandRecord, status: DemandStat
   try {
     await ElMessageBox.confirm(
       status === "active" ? "确认将本需求转为有效，供子项目承接？" :
-        status === "returned" ? "确认退回该需求？退回后需再次确认有效，当前已承接关系不会自动解除。" :
+        status === "returned" ? "确认退回未关联项目的需求？退回后需再次审核确认，才能重新办理承接。" :
         "确认取消该需求？取消后不能重新激活；若已关联子项目，请先显式解绑。",
       statusText[status],
     );

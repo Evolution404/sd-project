@@ -46,7 +46,7 @@ try {
   await search.fill("不存在的费用");
   await search.press("Enter");
   await page.getByText("没有符合筛选条件的记录", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "清除筛选条件", exact: true }).last().click();
+  await page.getByRole("button", { name: "清除检索与筛选", exact: true }).last().click();
   await row.waitFor();
   assert.equal(await search.inputValue(), "");
   assert.deepEqual(errors, []);

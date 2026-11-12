@@ -244,10 +244,13 @@ watch(() => props.tableKey, async () => {
 <template>
   <div class="business-table">
     <div class="business-table-tools">
-      <ElButton v-if="hasActiveFilters" size="small" plain @click="clearFilters">
-        {{ searchActive ? "清除筛选条件" : "已筛选 " + activeFilterCount + " 列 · 清除" }}
-      </ElButton>
-      <ElButton size="small" text @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
+      <div class="business-table-state">
+        <span class="business-table-row-count" role="status">{{ loading ? '正在加载…' : '本页 ' + tableRows.length + ' 条' }}</span>
+        <ElButton v-if="hasActiveFilters" size="small" plain type="primary" @click="clearFilters">
+          {{ searchActive ? "清除检索与筛选" : "已筛选 " + activeFilterCount + " 列 · 清除" }}
+        </ElButton>
+      </div>
+      <ElButton class="business-column-setting-trigger" size="small" plain @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
     <ElTable border allow-drag-last-column ref="table" :data="tableRows" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
       :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
@@ -263,10 +266,10 @@ watch(() => props.tableKey, async () => {
         <template #header>
           <slot v-if="col.customHeader && $slots.header" name="header" :column="col" />
           <template v-else>
-            <span class="business-column-title">{{ col.label }}</span>
+            <span class="business-column-title" :title="col.label">{{ col.label }}</span>
             <ElPopover v-if="filteringEnabled && col.filterable !== false" trigger="click" width="220" placement="bottom">
               <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" />
-              <template #reference><ElButton class="business-filter-button" text size="small" :aria-label="'筛选' + col.label" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
+              <template #reference><ElButton class="business-filter-button" :class="{ 'is-active-filter': !!filters[col.key]?.trim() }" text size="small" :aria-label="'筛选' + col.label" :aria-pressed="!!filters[col.key]?.trim()" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
             </ElPopover>
           </template>
         </template>
@@ -300,14 +303,19 @@ watch(() => props.tableKey, async () => {
   </div>
 </template>
 <style scoped>
-.business-table-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}
+.business-table-tools{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;min-height:30px}
+.business-table-state{display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-width:0}
+.business-table-row-count{font-size:12px;font-variant-numeric:tabular-nums;color:var(--muted)}
+.business-column-setting-trigger{flex-shrink:0}
 .business-column-title{font-weight:600;white-space:nowrap;min-width:0;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
 .business-table-grid :deep(.el-table__header-wrapper th .cell) {
   white-space:nowrap;display:flex;align-items:center;flex-wrap:nowrap;min-width:0;
 }
 .business-table-grid :deep(.el-table__header-wrapper th .caret-wrapper) {flex:none}
 .business-table-grid :deep(.el-table__header-wrapper th .cell .business-filter-button) {flex:none}
-.business-filter-button{padding:2px 5px;margin-left:4px;vertical-align:middle;color:var(--muted)}
+.business-filter-button{padding:2px 5px;margin-left:4px;vertical-align:middle;color:var(--muted);border-radius:6px}
+.business-filter-button.is-active-filter{color:var(--brand-primary);background:var(--brand-soft)}
+.business-table-grid :deep(.el-table__body tr:hover > td.el-table__cell){transition:background-color .12s ease}
 .column-settings-list{max-height:55vh;overflow:auto}
 .column-setting-item{display:flex;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--edge)}
 .column-setting-actions{display:flex;margin-left:auto}

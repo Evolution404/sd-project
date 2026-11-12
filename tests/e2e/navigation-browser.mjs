@@ -57,7 +57,7 @@ try {
   await page.waitForTimeout(800);
   assert.equal(await page.locator('main .el-table__body-wrapper .el-table__row').count(), 0);
   await page.getByText('没有符合筛选条件的记录', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '清除筛选条件', exact: true }).last().click();
+  await page.getByRole('button', { name: '清除检索与筛选', exact: true }).last().click();
   assert.equal(await demandSearch.inputValue(), '');
   await demandSearch.clear();
   await demandSearch.press('Enter');

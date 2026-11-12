@@ -55,6 +55,17 @@ try {
   for(const name of ["核定费用","新增结算草稿","新增正式核对"])
     assert.equal(await button(owner.detail,name).isEnabled(),true);
   await owner.page.screenshot({path:join(output,"01-admin.png"),fullPage:true});
+  // A failed refresh must not keep stale financial rows or display misleading zero totals.
+  await owner.page.route("**/api/projects/*/summary", route => route.abort());
+  await owner.detail.getByText("包含已删除费用", {exact:true}).click();
+  await owner.detail.locator(".el-alert--error")
+    .filter({hasText:"费用数据读取失败"}).waitFor();
+  assert.equal(await owner.bill.count(), 0, "stale bill must not remain after a failed refresh");
+  await owner.page.unroute("**/api/projects/*/summary");
+  await button(owner.detail, "重新读取费用数据").click();
+  await owner.bill.waitFor();
+  assert.equal(await owner.detail.locator(".el-alert--error")
+    .filter({hasText:"费用数据读取失败"}).count(), 0);
 
   const editor=await as("editor");
   assert.equal(await button(editor.detail,"核定费用").isDisabled(),true);

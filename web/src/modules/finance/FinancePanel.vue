@@ -112,6 +112,7 @@ const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
 const emit = defineEmits(["changed"]);
 const costs = ref<Row[]>([]),
   listLoading = ref(false),
+  listError = ref(""),
   bills = ref<Row[]>([]),
   summary = ref<Row>({}),
   dialog = ref(""),
@@ -167,6 +168,46 @@ function financeTableFilter(table: "costs" | "bills" | "reconciliations", value:
   else reconPage.value = 1;
   load();
 }
+// Reconciliation choices must not inherit the unrelated 30-row list pages.
+// Search the project's full eligible records on demand; current selected
+// immutable IDs remain available when the search keyword changes.
+const reconcileCostChoices = ref<Row[]>([]);
+const reconcileBillChoices = ref<Row[]>([]);
+const reconcileCostsLoading = ref(false);
+const reconcileBillsLoading = ref(false);
+let reconcileCostSequence = 0;
+let reconcileBillSequence = 0;
+async function loadReconciliationChoices(kind: "costs" | "bills", term = "") {
+  const sequence = kind === "costs" ? ++reconcileCostSequence : ++reconcileBillSequence;
+  if (kind === "costs") reconcileCostsLoading.value = true;
+  else reconcileBillsLoading.value = true;
+  const projectId = props.project.id;
+  const resource = kind === "costs" ? "costs" : "settlements";
+  try {
+    const page = await api<{items: Row[]}>(`/projects/${projectId}/${resource}?page=1&page_size=200&q=${encodeURIComponent(term.trim())}`);
+    if (projectId !== props.project.id || sequence !== (kind === "costs" ? reconcileCostSequence : reconcileBillSequence)) return;
+    if (kind === "costs") {
+      const currentId = form.value.cost_version_id;
+      const selected = reconcileCostChoices.value.find(row => row.id === currentId);
+      const candidates = page.items.filter(row => row.status === "active" && !row.deleted);
+      reconcileCostChoices.value = selected && !candidates.some(row => row.id === currentId)
+        ? [selected, ...candidates] : candidates;
+    } else {
+      const currentId = form.value.settlement_item_version_id;
+      const selected = reconcileBillChoices.value.find(row =>
+        (row.items || []).some((item: Row) => item.id === currentId));
+      const candidates = page.items.filter(row => row.review?.action === "approve" && !row.deleted);
+      reconcileBillChoices.value = selected && !candidates.some(row => row.id === selected.id)
+        ? [selected, ...candidates] : candidates;
+    }
+  } catch (failure) {
+    if (projectId === props.project.id && sequence === (kind === "costs" ? reconcileCostSequence : reconcileBillSequence))
+      ElMessage.error("费用核对候选记录读取失败：" + (failure as Error).message);
+  } finally {
+    if (kind === "costs" && sequence === reconcileCostSequence) reconcileCostsLoading.value = false;
+    if (kind === "bills" && sequence === reconcileBillSequence) reconcileBillsLoading.value = false;
+  }
+}
 const costPage = ref(1),
   billPage = ref(1),
   reconPage = ref(1),
@@ -177,6 +218,7 @@ let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
+  listError.value = "";
   try {
     const [costResult, billResult, summaryResult, reconResult, treeResult] = await Promise.all([
       api<{ items: Row[]; total: number }>(`/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`),
@@ -195,7 +237,13 @@ async function load() {
     reconciliations.value = reconResult.items;
     reconTotal.value = reconResult.total;
   } catch (error) {
-    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+    if (sequence === loadSequence) {
+      listError.value = "费用数据读取失败：" + (error as Error).message;
+      categoryNodes.value = [];
+      costs.value = []; bills.value = []; reconciliations.value = [];
+      costTotal.value = 0; billTotal.value = 0; reconTotal.value = 0;
+      summary.value = {};
+    }
   } finally {
     if (sequence === loadSequence) listLoading.value = false;
   }
@@ -265,6 +313,12 @@ function edit(type: string, row?: Row) {
           is_final: true,
         };
   draftGuard.capture();
+  if (type === "reconcile") {
+    reconcileCostChoices.value = [];
+    reconcileBillChoices.value = [];
+    void loadReconciliationChoices("costs", String(row?.cost_version_id || ""));
+    void loadReconciliationChoices("bills", String(row?.settlement_item_version_id || ""));
+  }
 }
 async function save() {
   if (busy.value) return;
@@ -449,7 +503,17 @@ useListRoute({
   reconciliationsDirection: computed({ get: () => financeDirection.value.reconciliations, set: value => { financeDirection.value.reconciliations = value; } }),
   reconciliationsFilters: computed({ get: () => financeFilters.value.reconciliations, set: value => { financeFilters.value.reconciliations = value; } }),
 }, load);
-watch(() => props.project.id, load, { immediate: true });
+watch(() => props.project.id, () => {
+  ++reconcileCostSequence;
+  ++reconcileBillSequence;
+  reconcileCostChoices.value = [];
+  reconcileBillChoices.value = [];
+  categoryNodes.value = [];
+  costs.value = []; bills.value = []; reconciliations.value = [];
+  summary.value = {};
+  costTotal.value = 0; billTotal.value = 0; reconTotal.value = 0;
+  void load();
+}, { immediate: true });
 </script>
 <template>
   <template v-if="evidence"
@@ -491,7 +555,11 @@ watch(() => props.project.id, load, { immediate: true });
       <BusinessHistory v-if="focusedHistoryOpen" :value="focusedFact" />
     </template>
   </div>
-  <div class="metric-grid">
+  <ElAlert v-if="listError" class="panel" type="error" :closable="false"
+    :title="listError" show-icon>
+    <ElButton @click="load">重新读取费用数据</ElButton>
+  </ElAlert>
+  <div v-if="!listError" class="metric-grid">
     <div class="metric">
       <span>正式参考价格</span>
       <strong>{{ summary.reference_total_fen == null ? '未完整计价' : '¥' + money(summary.reference_total_fen) }}</strong>
@@ -728,14 +796,18 @@ watch(() => props.project.id, load, { immediate: true });
                 value="void" /></ElSelect></ElFormItem
         ></template>
         <template v-if="dialog === 'reconcile'"
-          ><ElFormItem
+          ><div class="full-width muted" role="note" style="margin-bottom:12px">从整个子项目检索费用和已批准结算明细，不受主列表分页限制；未显示的历史记录可输入事项或编号搜索。</div>
+          <ElFormItem
             label="实际费用"
             prop="cost_version_id"
             :rules="[{ required: true, message: '请填写实际费用' }]"
             required
-            ><ElSelect v-model="form.cost_version_id"
+            ><ElSelect v-model="form.cost_version_id" filterable remote
+              :remote-method="term => loadReconciliationChoices('costs', term)"
+              :loading="reconcileCostsLoading" placeholder="搜索费用事项后选择"
+              no-match-text="未找到匹配费用，请更换关键词"
               ><ElOption
-                v-for="cost in costs.filter((x) => x.status === 'active')"
+                v-for="cost in reconcileCostChoices"
                 :key="cost.id"
                 :value="cost.id"
                 :label="
@@ -746,11 +818,12 @@ watch(() => props.project.id, load, { immediate: true });
             prop="settlement_item_version_id"
             :rules="[{ required: true, message: '请填写已批准结算明细' }]"
             required
-            ><ElSelect v-model="form.settlement_item_version_id"
+            ><ElSelect v-model="form.settlement_item_version_id" filterable remote
+              :remote-method="term => loadReconciliationChoices('bills', term)"
+              :loading="reconcileBillsLoading" placeholder="搜索已批准结算编号后选择"
+              no-match-text="未找到已批准结算，请更换编号"
               ><template
-                v-for="bill in bills.filter(
-                  (x) => x.review?.action === 'approve',
-                )"
+                v-for="bill in reconcileBillChoices"
                 :key="bill.id"
                 ><ElOption
                   v-for="item in bill.items"

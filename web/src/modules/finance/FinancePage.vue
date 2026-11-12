@@ -114,7 +114,11 @@ async function load() {
       rows.value = result.items; total.value = result.total;
     }
   } catch (failure) {
-    if (current === sequence) error.value = (failure as Error).message;
+    if (current === sequence) {
+      error.value = (failure as Error).message;
+      rows.value = [];
+      total.value = 0;
+    }
   } finally { if (current === sequence) loading.value = false; }
 }
 function reset() { page.value = 1; void load(); }

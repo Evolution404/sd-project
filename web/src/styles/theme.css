@@ -9,15 +9,15 @@
   --brand-hover: #2463d5;
   --brand-soft: #edf4ff;
   --ink: #24314a;
-  --muted: #74829a;
+  --muted: #667791;
   --surface: #fff;
   --edge: #e7ebf2;
-  --shadow-soft: 0 8px 30px rgba(27, 50, 91, .045);
-  --page-background: #f5f7fb;
-  --navigation-background: #fbfcff;
+  --shadow-soft: 0 5px 22px rgba(34, 55, 91, .045);
+  --page-background: #f4f6fa;
+  --navigation-background: #fcfdff;
   --menu-foreground: #52627c;
   --menu-hover: #f0f4fa;
-  --table-heading: #f8faff;
+  --table-heading: #f4f7fc;
   --login-glow: radial-gradient(ellipse at 20% 5%, #e8f1ff, #f4f7fc 55%, #eaf0fa);
   --login-shadow: 0 24px 65px rgba(31, 55, 104, .09);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -31,6 +31,23 @@ html.dark {
   --el-color-success: #58bd9c;
   --el-color-warning: #d5a25c;
   --el-bg-color-page: #111927;
+  /* Align Element Plus dialogs, tables, inputs and overlays with the
+     application's raised surfaces instead of default near-black panels. */
+  --el-bg-color: #1d283a;
+  --el-bg-color-overlay: #253247;
+  --el-fill-color-blank: #1d283a;
+  --el-fill-color-light: #27354b;
+  --el-fill-color-lighter: #2c3a50;
+  --el-fill-color-extra-light: #233147;
+  --el-fill-color-dark: #182336;
+  --el-border-color: #3b4961;
+  --el-border-color-light: #39465d;
+  --el-border-color-lighter: #344158;
+  --el-text-color-primary: #eef3fc;
+  --el-text-color-regular: #d9e3f2;
+  --el-text-color-secondary: #aebcd4;
+  --el-text-color-placeholder: #a2b0c6;
+  --el-disabled-bg-color: #202c3f;
   --brand-primary: #77aaff;
   --brand-hover: #9cc3ff;
   --brand-soft: rgba(104, 159, 249, .16);
@@ -43,7 +60,7 @@ html.dark {
   --navigation-background: #182337;
   --menu-foreground: #bcc8de;
   --menu-hover: #273650;
-  --table-heading: #233149;
+  --table-heading: #27364d;
   --login-glow: radial-gradient(ellipse at 20% 5%, #263959, #111927 65%, #162234);
   --login-shadow: 0 24px 65px rgba(0, 0, 0, .27);
 }
@@ -155,16 +172,20 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 .appearance-heading {font-size:13px;font-weight:600;color:var(--ink);margin-bottom:12px}
 .mobile-menu {display:none !important}
 .workspace {
-  padding: 0 32px 42px;
+  padding: 0 30px 36px;
   min-width: 0;
 }
 .topbar {
-  height: 78px;
+  height: 64px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--page-background);
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--edge);
-  margin-bottom: 30px;
+  margin-bottom: 24px;
 }
 .topbar p {
   margin: 0;
@@ -177,7 +198,7 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
 }
 .page-heading > :first-child {
   min-width: 0;
@@ -196,8 +217,8 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   margin-left: 0;
 }
 .page-heading h1 {
-  font-size: 26px;
-  margin: 0 0 9px;
+  font-size: 25px;
+  margin: 0 0 8px;
   font-weight: 650;
 }
 .page-heading p {
@@ -222,9 +243,9 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   padding: 22px;
   background: var(--surface);
   border: 1px solid var(--edge);
-  border-radius: 16px;
+  border-radius: 17px;
   box-shadow: var(--shadow-soft);
-  margin: 18px 0;
+  margin: 16px 0;
 }
 .panel h2 {
   font-size: 16px;
@@ -248,8 +269,10 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 }
 .metric strong {
   display: block;
-  font-size: 32px;
-  margin-top: 15px;
+  font-size: clamp(23px, 2.15vw, 30px);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.55px;
+  margin-top: 12px;
   font-weight: 600;
 }
 .el-button.metric-action {
@@ -359,9 +382,9 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 }
 .section-caption {
   color: var(--muted);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: .8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .25px;
   margin-bottom: 9px;
 }
 @media (max-width: 1000px) {
@@ -376,7 +399,7 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   .mobile-menu {display:inline-flex !important}
   .mobile-navigation-drawer .el-menu {border:0}
   .workspace {padding:0 14px 24px}
-  .topbar {height:58px;margin-bottom:22px}
+  .topbar {height:58px;margin-bottom:20px}
   .account-actions {gap:3px}
   .account-actions .el-tag {max-width:90px}
   .account-actions .el-tag__content {overflow:hidden;text-overflow:ellipsis}
