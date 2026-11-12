@@ -121,7 +121,7 @@ function reset() { page.value = 1; void load(); }
 async function refreshProject() {
   const id = project.value?.id;
   if (id) {
-    const value = await api("/projects/" + id + "?deleted=true");
+    const value = await api<Row>("/projects/" + id + "?deleted=true");
     if (project.value?.id === id) project.value = value;
   }
   void load();

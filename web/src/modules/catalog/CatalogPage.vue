@@ -49,7 +49,7 @@ async function load() {
     requestedKind = kind.value;
   loading.value = true;
   try {
-    const result = await api(
+    const result = await api<{ items: Row[]; total: number }>(
       `/catalog/${requestedKind}?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${deleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value || "desc"}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
     );
     if (sequence !== loadSequence || requestedKind !== kind.value) return;
@@ -137,7 +137,7 @@ async function save() {
       return;
     }
     const c = definitions.value[kind.value];
-    const saved = await api(
+    const saved = await api<{ warnings?: string[] }>(
       "/catalog/" + kind.value + (editing.value ? "/" + editing.value.id : ""),
       "POST",
       {
@@ -181,7 +181,7 @@ async function remove(row: Row) {
 }
 async function hydrateDetail(id: string) {
   const requestedKind = kind.value;
-  const row = await api(`/catalog/${requestedKind}/${id}?deleted=true`);
+  const row = await api<Row>(`/catalog/${requestedKind}/${id}?deleted=true`);
   history.value = null;
   const names = Object.fromEntries(fields().filter(field => field.type === "ref" && row[field.key])
     .map(field => [field.key, row[field.key + "_label"] || "历史关联对象"]));
@@ -209,7 +209,7 @@ function display(field: Row, value: unknown) {
 async function viewHistory(row: Row) {
   if (detail.value?.id !== row.id) await detailDialog.open(row.id);
   if (detail.value?.id !== row.id) return;
-  const value = await api(`/catalog/${kind.value}/history/${row.id}`);
+  const value = await api<Row>(`/catalog/${kind.value}/history/${row.id}`);
   if (detail.value?.id === row.id) history.value = value;
 }
 watch(kind, () => {
@@ -222,8 +222,8 @@ const detailDialog = useEntityDialog(detail, hydrateDetail, () => { dialog.value
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   [definitions.value, businessLabels.value] = await Promise.all([
-    api("/catalogs"),
-    api("/display-labels"),
+    api<Row>("/catalogs"),
+    api<Row>("/display-labels"),
   ]);
   await load();
 });

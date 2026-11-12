@@ -13,7 +13,7 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
-export async function api<T = Row>(
+export async function api<T = unknown>(
   path: string,
   method = "GET",
   body?: unknown,

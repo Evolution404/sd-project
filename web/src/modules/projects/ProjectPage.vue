@@ -199,7 +199,7 @@ async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
   try {
-    const value = await api(
+    const value = await api<{ items: Row[]; total: number }>(
       `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
     );
     if (sequence !== loadSequence) return;
@@ -207,7 +207,7 @@ async function load() {
     total.value = value.total;
     const id = detail.value?.id;
     if (id) {
-      const updated = await api("/projects/" + id + "?deleted=true");
+      const updated = await api<Row>("/projects/" + id + "?deleted=true");
       if (sequence === loadSequence && detail.value?.id === id) detail.value = updated;
     }
   } catch (error) {
@@ -324,7 +324,7 @@ async function loadFundingAgreements() {
   agreementLoading.value = true;
   agreementError.value = "";
   try {
-    const response = await api("/projects/" + projectId + "/agreements");
+    const response = await api<{ options: Row[] }>("/projects/" + projectId + "/agreements");
     if (detail.value?.id === projectId) agreementChoices.value = response.options;
   } catch (error) {
     agreementError.value = (error as Error).message;
@@ -575,10 +575,12 @@ async function release(scope: Row) {
       "明确解绑后，该需求可由其他项目承接。当前批准范围仍含此需求时，先正式变更移出或结项。",
       "显式解绑",
     );
-    const history = await api("/demands/" + scope.demand_id + "/history"),
-      binding = history.bindings.find((x: Row) => x.id === scope.id);
+    const history = await api<{ bindings: Array<{ id: string; events: Array<{ event_seq: number }> }> }>("/demands/" + scope.demand_id + "/history"),
+      binding = history.bindings.find(x => x.id === scope.id);
+    const latestEvent = binding?.events.at(-1);
+    if (!latestEvent) throw Error("缺少有效的承接事件历史，不能解绑");
     await api(`/projects/${detail.value!.id}/release/${scope.id}`, "POST", {
-      expected_event_seq: binding.events.at(-1).event_seq,
+      expected_event_seq: latestEvent.event_seq,
     });
     await load();
   } catch (e) {
@@ -629,8 +631,8 @@ async function removeProject() {
 async function showHistory() {
   const id = detail.value!.id;
   const [records, approvals] = await Promise.all([
-    api(`/projects/${id}/history`),
-    api(`/projects/${id}/approval-history`),
+    api<Row>(`/projects/${id}/history`),
+    api<Row[]>(`/projects/${id}/approval-history`),
   ]);
   if (detail.value?.id !== id) return;
   history.value = { ...records, approval_details: approvals };

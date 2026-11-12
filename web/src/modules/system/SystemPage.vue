@@ -114,7 +114,7 @@ async function load() {
       sort: sortKey.value || "created_at", direction: sortDirection.value,
       filters: JSON.stringify(columnFilters.value),
     });
-    const response = await api("/" + tab.value + "?" + q.toString());
+    const response = await api<{ items: Row[]; total: number }>("/" + tab.value + "?" + q.toString());
     if (sequence !== loadSequence) return;
     rows.value = response.items;
     total.value = response.total;
