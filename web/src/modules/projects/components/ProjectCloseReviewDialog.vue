@@ -60,8 +60,8 @@ const columns: TableColumn[] = [
     </template>
     <ElSkeleton v-else :rows="5" animated />
     <template #footer>
-      <ElButton @click="model = false">继续核对</ElButton>
-      <ElButton type="primary" :disabled="!canClose || !summary || !approvedVersion"
+      <ElButton data-guide-action="projects.close-review" @click="model = false">继续核对</ElButton>
+      <ElButton data-guide-action="projects.close" type="primary" :disabled="!canClose || !summary || !approvedVersion"
         @click="emit('confirm')">已核对差异，正式结项</ElButton>
     </template>
   </ElDialog>

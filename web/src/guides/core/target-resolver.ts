@@ -21,13 +21,22 @@ function visible(node:HTMLElement) {
 }
 
 
-/** Only an unambiguous and visible semantic business control can be highlighted. */
+/**
+ * Never choose an arbitrary list row. Active business dialogs take precedence
+ * over background pages; visible teleported Element Plus menus remain eligible.
+ * Help positioning never clicks or changes any business record.
+ */
 export function resolveGuideActionTarget(actionId:string):HTMLElement|null {
   if (!/^[a-z][a-z0-9-]{1,40}\.[a-z][a-z0-9-]{1,50}$/.test(actionId))
     return null;
   const matches=Array.from(document.querySelectorAll<HTMLElement>(
     '[data-guide-action="'+actionId+'"]',
   )).filter(visible);
-  // Dynamic rows can produce many equal actions. Never point at an arbitrary record.
-  return matches.length===1?matches[0]:null;
+  const dialog=Array.from(document.querySelectorAll<HTMLElement>(".el-dialog"))
+    .filter(visible).at(-1);
+  const scoped=dialog
+    ? matches.filter(node=>dialog.contains(node) ||
+      !!node.closest(".el-dropdown__popper"))
+    : matches.filter(node=>!node.closest(".el-dialog"));
+  return scoped.length===1?scoped[0]:null;
 }

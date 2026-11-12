@@ -95,7 +95,7 @@ function applyBatch() {
 </script>
 <template>
   <div class="toolbar">
-    <ElButton
+    <ElButton data-guide-action="demands.batch"
       :disabled="!selected.length"
       @click="
         batch = true;
@@ -106,7 +106,7 @@ function applyBatch() {
         batchAttributes = {};
       "
       >批量填写共同信息</ElButton
-    ><ElButton
+    ><ElButton data-guide-action="demands.location-remove-bulk"
       type="danger"
       plain
       :disabled="!selected.length"
@@ -162,8 +162,8 @@ function applyBatch() {
       ><span v-else>{{ row.label }}</span>
     </template>
     <template #actions="{ row }"
-      ><ElButton size="small" @click="editing = row">编辑</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="demands.location-edit" size="small" @click="editing = row">编辑</ElButton
+      ><ElButton data-guide-action="demands.location-remove"
         size="small"
         type="danger"
         link
@@ -253,7 +253,7 @@ function applyBatch() {
       /> </ElForm
     ><template #footer
       ><ElButton @click="batch = false">取消</ElButton
-      ><ElButton type="primary" :disabled="quantityEnabled && (batchQuantityInvalid || precision === undefined)" @click="applyBatch"
+      ><ElButton data-guide-action="demands.batch-apply" type="primary" :disabled="quantityEnabled && (batchQuantityInvalid || precision === undefined)" @click="applyBatch"
         >应用到选中位置</ElButton
       ></template
     >

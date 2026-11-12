@@ -271,7 +271,7 @@ function fieldError(key: string): string {
     </ElForm>
     <template #footer
       ><ElButton @click="close()">取消</ElButton
-      ><ElButton type="primary" :loading="saving" @click="save"
+      ><ElButton data-guide-action="ledger.save" type="primary" :loading="saving" @click="save"
         >保存</ElButton
       ></template
     >

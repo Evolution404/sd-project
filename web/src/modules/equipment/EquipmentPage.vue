@@ -298,7 +298,7 @@ onMounted(async () => {
           page = 1;
           load();
         "
-      /><ElCheckbox
+      /><ElCheckbox data-guide-action="ledger.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -399,7 +399,7 @@ onMounted(async () => {
       <div class="toolbar">
         <ElButton v-if="returnToDemand" link type="primary"
           @click="resumeTask(router, returnToDemand)">返回需求详情</ElButton>
-        <ElButton
+        <ElButton data-guide-action="ledger.edit"
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
@@ -411,9 +411,9 @@ onMounted(async () => {
             !detail.deleted
           "
           :disabled="!can('admin')"
-          @click="replacing = true"
+          data-guide-action="ledger.replace" @click="replacing = true"
           >整基更换</ElButton
-        ><ElButton
+        ><ElButton data-guide-action="ledger.delete"
           type="danger"
           :disabled="!can('admin') || detail.deleted"
           @click="remove(detail)"

@@ -330,14 +330,19 @@ async function action(row: Row, name: string) {
   }
 }
 async function voidCost(row: Row) {
-  await ElMessageBox.confirm("撤销保留原始费用和历史核对。", "撤销费用");
-  await api(`/projects/${props.project.id}/costs/${row.entry_id}`, "POST", {
-    ...row,
-    request_key: undefined,
-    expected_version: row.version_no,
-    status: "voided",
-  });
-  await load();
+  try {
+    await ElMessageBox.confirm("撤销保留原始费用和历史核对。", "撤销费用");
+    await api(`/projects/${props.project.id}/costs/${row.entry_id}`, "POST", {
+      ...row,
+      request_key: undefined,
+      expected_version: row.version_no,
+      status: "voided",
+    });
+    await load();
+    emit("changed");
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
+  }
 }
 async function removeBill(row: Row) {
   try {
@@ -478,10 +483,10 @@ watch(() => props.project.id, load, { immediate: true });
   <div class="panel">
     <div class="toolbar">
       <h2>实际费用</h2>
-      <ElCheckbox v-model="showDeletedCosts" @change="costPage = 1; load()"
+      <ElCheckbox data-guide-action="finance.cost-show-deleted" v-model="showDeletedCosts" @change="costPage = 1; load()"
         >包含已删除费用</ElCheckbox
       >
-      <ElButton
+      <ElButton data-guide-action="finance.cost"
         :disabled="!can('cost.confirm')"
         type="primary"
         @click="edit('cost')"
@@ -503,7 +508,7 @@ watch(() => props.project.id, load, { immediate: true });
         <RowActions :actions="[
           { label: '附件', run: () => evidence = { ownerKind: 'cost_version_id', ownerId: row.id } },
           { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('cost', row) },
-          { label: '撤销', danger: true, disabled: !can('cost.confirm') || row.deleted, run: () => voidCost(row) },
+          { label: '撤销', guideActionId: 'finance.void', danger: true, disabled: !can('cost.confirm') || row.deleted || row.status === 'voided', run: () => voidCost(row) },
           { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeCost(row) },
         ]" />
       </template>
@@ -514,7 +519,7 @@ watch(() => props.project.id, load, { immediate: true });
   <div class="panel">
     <div class="toolbar">
       <h2>独立结算单</h2>
-      <ElButton
+      <ElButton data-guide-action="finance.settlement-draft"
         type="primary"
         :disabled="!can('write') || project.status !== 'approved'"
         @click="edit('settlement')"
@@ -544,13 +549,13 @@ watch(() => props.project.id, load, { immediate: true });
       <template #actions="{ row }">
         <RowActions :actions="[
           ...(row.review?.action === 'submit' ? [
-            { label: '批准', primary: true, disabled: !can('settlement.approve'), run: () => action(row, 'approve') },
+            { label: '批准', guideActionId: 'finance.approve', primary: true, disabled: !can('settlement.approve'), run: () => action(row, 'approve') },
             { label: '退回', disabled: !can('settlement.approve'), run: () => action(row, 'return') },
           ] : []),
-          ...(row.draft ? [{ label: '正式提交', primary: true, disabled: !can('write'), run: () => action(row, 'submit') }] : []),
+          ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !can('write'), run: () => action(row, 'submit') }] : []),
           { label: '编制 / 修订', disabled: !can('write'), run: () => edit('settlement', row) },
           ...(row.version ? [{ label: '附件', run: () => evidence = { ownerKind: 'settlement_version_id', ownerId: row.version.id } }] : []),
-          { label: '历史', run: () => showHistory(row) },
+          { label: '历史', guideActionId: 'finance.history', run: () => showHistory(row) },
           { label: '删除', danger: true, disabled: !can('admin'), run: () => removeBill(row) },
         ]" />
       </template>
@@ -561,9 +566,9 @@ watch(() => props.project.id, load, { immediate: true });
   <div class="panel">
     <div class="toolbar">
       <h2>费用与结算核对</h2>
-      <ElCheckbox v-model="showDeletedReconciliations" @change="reconPage = 1; load()"
+      <ElCheckbox data-guide-action="finance.reconcile-show-deleted" v-model="showDeletedReconciliations" @change="reconPage = 1; load()"
         >包含已删除核对</ElCheckbox
-      ><ElButton :disabled="!can('cost.confirm')" @click="edit('reconcile')"
+      ><ElButton data-guide-action="finance.reconcile" :disabled="!can('cost.confirm')" @click="edit('reconcile')"
         >新增正式核对</ElButton
       >
       <span v-if="!can('cost.confirm')" class="muted" role="note">
@@ -583,7 +588,7 @@ watch(() => props.project.id, load, { immediate: true });
       <template #actions="{ row }">
         <RowActions :actions="[
           { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('reconcile', row) },
-          { label: '历史', run: () => reconciliationHistory(row) },
+          { label: '历史', guideActionId: 'finance.history', run: () => reconciliationHistory(row) },
           { label: '删除', danger: true, disabled: !can('cost.confirm') || row.deleted, run: () => removeReconciliation(row) },
         ]" />
       </template>
@@ -763,11 +768,11 @@ watch(() => props.project.id, load, { immediate: true });
               ><ElInput v-model="item.evidence"
             /></ElFormItem>
           </div>
-          <ElButton type="danger" @click="form.items.splice(index, 1)"
+          <ElButton data-guide-action="finance.cost-item-remove" type="danger" @click="form.items.splice(index, 1)"
             >删除本行</ElButton
           >
         </div>
-        <ElButton
+        <ElButton data-guide-action="finance.cost-item-add"
           @click="
             form.items.push({ quantity_scaled: 0, amount_fen: 0, evidence: '' })
           "
@@ -799,11 +804,11 @@ watch(() => props.project.id, load, { immediate: true });
               ><ElInput v-model="r.evidence"
             /></ElFormItem>
           </div>
-          <ElButton type="danger" @click="form.resolutions.splice(index, 1)"
+          <ElButton data-guide-action="finance.resolution-remove" type="danger" @click="form.resolutions.splice(index, 1)"
             >删除本行</ElButton
           >
         </div>
-        <ElButton
+        <ElButton data-guide-action="finance.resolution-add"
           @click="
             form.resolutions.push({ resolved_quantity_scaled: 0, evidence: '' })
           "

@@ -22,8 +22,9 @@ page.on("request",req=>{
 const out=join(process.cwd(),"test-results/p10/live-action-help");
 mkdirSync(out,{recursive:true});
 const base="http://127.0.0.1:"+server.address().port;
-async function searchAction(text,expected){
-  await page.getByRole("button",{name:"使用指引",exact:true}).click();
+async function searchAction(text,expected,insideDialog=false){
+  if(insideDialog) await page.locator(".el-dialog [data-guide-modal-help]").last().click();
+  else await page.getByRole("button",{name:"使用指引",exact:true}).click();
   const drawer=page.getByRole("dialog",{name:"使用指引"});
   await drawer.waitFor();
   await drawer.getByRole("tab",{name:"操作搜索"}).click();
@@ -68,8 +69,37 @@ try{
   await page.locator(".el-tour__content:visible").waitFor();
   assert.deepEqual(writes,[],"Dictionary version creation was not invoked");
   await page.screenshot({path:join(out,"material-anchored-readonly-tour.png"),fullPage:true});
+  // Excel dialogs are teleported. A guide may explain the actual template
+  // button but must not execute the download, upload, preview or commit action.
+  await page.keyboard.press("Escape");
+  await page.locator(".el-tour__content:visible").waitFor({state:"hidden"});
+  await page.goto(base+"/#/demands");
+  await page.locator('[data-guide-action="excel.import"]').click();
+  await page.locator('[data-guide-action="excel.template"]').waitFor();
+  assert.equal(await page.locator('[data-guide-action="excel.preview"]').count(),1);
+  ({drawer,item}=await searchAction("excel.template","excel",true));
+  await item.getByRole("button",{name:"定位当前按钮"}).click();
+  await drawer.waitFor({state:"hidden"});
+  await page.locator(".el-tour__content:visible").waitFor();
+  assert.deepEqual(writes,[],"An Excel dialog help target must never perform an API write");
+  await page.keyboard.press("Escape");
+  await page.locator(".el-tour__content:visible").waitFor({state:"hidden"});
+  await page.locator(".el-dialog__headerbtn").last().click();
+
+  // Dashboard exposes multiple equivalent clickable rows; refusing to pick
+  // an arbitrary row protects the user's navigation and chosen business data.
+  await page.goto(base+"/#/dashboard");
+  await page.locator('[data-guide-action="dashboard.open"]').first().waitFor();
+  assert.ok(await page.locator('[data-guide-action="dashboard.open"]').count()>1);
+  ({drawer,item}=await searchAction("dashboard.open","dashboard"));
+  await item.getByRole("button",{name:"定位当前按钮"}).click();
+  await page.getByText(/当前没有唯一可定位/).first().waitFor();
+  assert.equal(await drawer.isVisible(),true);
+  assert.deepEqual(writes,[],"Duplicate action IDs cannot cause automatic selection");
+  await page.keyboard.press("Escape");
+  await drawer.waitFor({state:"hidden"});
   assert.deepEqual(errors,[]);
-  console.log("P10_LIVE_ACTION_BROWSER_OK direct demand and material anchors, no arbitrary fallback and zero business writes");
+  console.log("P10_LIVE_ACTION_BROWSER_OK direct, teleported Excel modal, duplicate-row safe fallback, zero writes");
 }catch(error){
   console.error("P10_LIVE_ACTION_BROWSER_FAILED",error,errors);
   await page.screenshot({path:join(out,"failure.png"),fullPage:true});

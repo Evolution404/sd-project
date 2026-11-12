@@ -30,6 +30,7 @@ const projectLoading = ref(false), linking = ref(false), selectedProjectId = ref
 let projectSearchSequence = 0;
 async function loadProjectCandidates() {
   const sequence = ++projectSearchSequence;
+  selectedProjectId.value = "";
   projectLoading.value = true;
   try {
     const params = new URLSearchParams({
@@ -38,7 +39,7 @@ async function loadProjectCandidates() {
     });
     const response = await api<{ items: ProjectCandidate[]; total: number }>("/projects?" + params);
     if (projectSearchSequence !== sequence) return;
-    projectCandidates.value = response.items.filter(project => project.status !== "closed");
+    projectCandidates.value = response.items; // Do not filter a server-paginated page.
     projectTotal.value = response.total;
   } catch (error) {
     if (projectSearchSequence === sequence) ElMessage.error((error as Error).message);
@@ -47,7 +48,7 @@ async function loadProjectCandidates() {
   }
 }
 function openProjectPicker() {
-  if (!detail.value || detail.value.status !== "active" || detail.value.binding) return;
+  if (!detail.value || detail.value.deleted || detail.value.status !== "active" || detail.value.binding) return;
   projectSearch.value = "";
   projectPage.value = 1;
   selectedProjectId.value = "";
@@ -55,7 +56,11 @@ function openProjectPicker() {
   void loadProjectCandidates();
 }
 async function linkSelectedProject() {
-  if (!detail.value || !selectedProjectId.value || linking.value) return;
+  if (!detail.value || detail.value.deleted || !selectedProjectId.value || linking.value || projectLoading.value) return;
+  if (!projectCandidates.value.some(candidate => candidate.id === selectedProjectId.value && candidate.status !== "closed")) {
+    ElMessage.warning("请选择当前列表中未结项的子项目");
+    return;
+  }
   linking.value = true;
   try {
     const demandId = detail.value.id;
@@ -140,11 +145,20 @@ watch(processing, value => {
   else { const {handling_view,...rest}=columnFilters.value;void handling_view;columnFilters.value=rest; }
   page.value=1;void load();
 });
+let attributeSequence = 0;
 watch(() => detail.value?.operation_id + "/" + detail.value?.operation_version, async () => {
-  detailAttributes.value=[];
-  if (!detail.value) return;
-  const response = await api<{items: OperationAttribute[]}>("/catalog/operations/"+detail.value.operation_id+"/attributes?version="+detail.value.operation_version);
-  detailAttributes.value=response.items;
+  const sequence = ++attributeSequence;
+  detailAttributes.value = [];
+  const current = detail.value;
+  if (!current) return;
+  try {
+    const response = await api<{items: OperationAttribute[]}>(
+      "/catalog/operations/" + current.operation_id + "/attributes?version=" + current.operation_version,
+    );
+    if (sequence === attributeSequence) detailAttributes.value = response.items;
+  } catch (error) {
+    if (sequence === attributeSequence) ElMessage.error("需求采用的操作属性读取失败：" + (error as Error).message);
+  }
 });
 function valueAt(row:object,key:string):unknown {return (row as Record<string,unknown>)[key];}
 function attributeSummary(values: Record<string, unknown>) {
@@ -243,7 +257,9 @@ async function saved(id:string) {
 async function transition(row: DemandListItem | DemandRecord, status: DemandStatus) {
   try {
     await ElMessageBox.confirm(
-      "确认记录此次正式需求状态决定？",
+      status === "active" ? "确认将本需求转为有效，供子项目承接？" :
+        status === "returned" ? "确认退回该需求？退回后需再次确认有效，当前已承接关系不会自动解除。" :
+        "确认取消该需求？取消后不能重新激活；若已关联子项目，请先显式解绑。",
       statusText[status],
     );
     const timeline = await api<{events:{event_seq:number}[]}>("/demands/" + row.id + "/history");
@@ -325,7 +341,7 @@ onMounted(async () => {
           placeholder="需求编号、问题或位置"
           clearable
           @change="resetListPage"
-        /><ElCheckbox v-model="showDeleted" @change="resetListPage"
+        /><ElCheckbox data-guide-action="demands.show-deleted" v-model="showDeleted" @change="resetListPage"
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
@@ -372,21 +388,21 @@ onMounted(async () => {
           </p>
         </div>
         <ElButton v-if="['pending','returned'].includes(detail.status)"
-          type="primary" :disabled="!can('demand.activate')"
+          type="primary" :disabled="!can('demand.activate') || detail.deleted"
           :title="can('demand.activate') ? undefined : '需要需求确认权限，请交由审核人员办理'"
           data-guide-action="demands.confirm" @click="transition(detail,'active')">
           确认需求有效
         </ElButton>
         <ElButton v-else-if="detail.status === 'active' && !detail.binding"
-          type="primary" :disabled="!can('write')"
+          type="primary" :disabled="!can('write') || detail.deleted"
           :title="can('write') ? undefined : '关联子项目需要编辑权限'"
           data-guide-action="demands.link" @click="openProjectPicker">
           关联子项目
         </ElButton>
-        <ElButton v-else-if="detail.binding?.project_id" type="primary" @click="openLinkedProject">
+        <ElButton data-guide-action="demands.open-linked" v-else-if="detail.binding?.project_id" type="primary" @click="openLinkedProject">
           进入承接项目
         </ElButton>
-        <ElButton :disabled="!can('write') || detail.status === 'cancelled'"
+        <ElButton data-guide-action="demands.edit" :disabled="!can('write') || detail.deleted || detail.status === 'cancelled'"
           :title="detail.status === 'cancelled' ? '需求已取消，只能查看正式历史' :
             can('write') ? undefined : '修订需求需要编辑权限'"
           @click="edit(detail)">修订需求</ElButton>
@@ -394,11 +410,11 @@ onMounted(async () => {
           <ElButton>更多操作</ElButton>
           <template #dropdown>
             <ElDropdownMenu>
-              <ElDropdownItem command="quote">参考价试算</ElDropdownItem>
-              <ElDropdownItem command="history">完整历史</ElDropdownItem>
-              <ElDropdownItem v-if="detail.status === 'active'" command="return" :disabled="!can('demand.activate')">退回</ElDropdownItem>
-              <ElDropdownItem v-if="detail.status !== 'cancelled'" command="cancel" :disabled="!can('demand.activate')" divided>取消需求</ElDropdownItem>
-              <ElDropdownItem command="delete" :disabled="!can('admin')">删除</ElDropdownItem>
+              <ElDropdownItem data-guide-action="demands.quote" command="quote">参考价试算</ElDropdownItem>
+              <ElDropdownItem data-guide-action="demands.history" command="history">完整历史</ElDropdownItem>
+              <ElDropdownItem v-if="detail.status === 'active'" data-guide-action="demands.return" command="return" :disabled="!can('demand.activate') || detail.deleted">退回</ElDropdownItem>
+              <ElDropdownItem v-if="detail.status !== 'cancelled'" data-guide-action="demands.return" command="cancel" :title="detail.binding ? '需求已被子项目承接，请先办理显式解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding" divided>取消需求</ElDropdownItem>
+              <ElDropdownItem data-guide-action="demands.delete" command="delete" :title="detail.status !== 'cancelled' ? '需要先取消需求且解除项目关联' : undefined" :disabled="!can('admin') || detail.deleted || detail.status !== 'cancelled'">删除</ElDropdownItem>
             </ElDropdownMenu>
           </template>
         </ElDropdown>
@@ -460,10 +476,10 @@ onMounted(async () => {
       <p v-for="source in detail.sources" :key="source.id">
         {{ source.description }}
         <span class="muted">{{ source.discovered_on }}</span
-        ><ElButton :disabled="!can('write')" size="small" @click="edit(detail)"
+        ><ElButton data-guide-action="demands.source-correct" :disabled="!can('write') || detail.deleted" size="small" @click="edit(detail)"
           >更正</ElButton
-        ><ElButton
-          :disabled="!can('admin')"
+        ><ElButton data-guide-action="demands.source-delete"
+          :disabled="!can('admin') || detail.deleted"
           size="small"
           type="danger"
           @click="removeSource(source)"
@@ -492,7 +508,7 @@ onMounted(async () => {
       <ElInput v-model="projectSearch" clearable placeholder="搜索子项目名称或编号"
         @change="projectPage = 1; loadProjectCandidates()" @keyup.enter="projectPage = 1; loadProjectCandidates()" />
       <ElButton @click="projectPage = 1; loadProjectCandidates()">查找</ElButton>
-      <ElButton :disabled="!can('write')" @click="createProjectAndLink">创建子项目并承接</ElButton>
+      <ElButton data-guide-action="demands.project-create" :disabled="!can('write')" @click="createProjectAndLink">创建子项目并承接</ElButton>
     </div>
     <BusinessTable :rows="projectCandidates" :columns="projectPickerColumns"
       table-key="demand:project-picker" client-side :loading="projectLoading"
@@ -503,8 +519,9 @@ onMounted(async () => {
       </template>
       <template #actions="{ row }">
         <ElButton size="small" :type="selectedProjectId === row.id ? 'primary' : undefined"
-          @click="selectedProjectId = row.id">
-          {{ selectedProjectId === row.id ? "已选中" : "选择" }}
+          :disabled="projectLoading || row.status === 'closed'"
+           @click="selectedProjectId = row.id">
+          {{ row.status === "closed" ? "不可选" : selectedProjectId === row.id ? "已选中" : "选择" }}
         </ElButton>
       </template>
     </BusinessTable>
@@ -512,7 +529,7 @@ onMounted(async () => {
       layout="prev, pager, next, total" @current-change="loadProjectCandidates" />
     <template #footer>
       <ElButton @click="projectPickerOpen = false">取消</ElButton>
-      <ElButton type="primary" :loading="linking" :disabled="!selectedProjectId || !can('write')"
+      <ElButton data-guide-action="demands.link-submit" type="primary" :loading="linking" :disabled="!selectedProjectId || !can('write') || linking || projectLoading"
         @click="linkSelectedProject">承接该需求</ElButton>
     </template>
   </ElDialog>

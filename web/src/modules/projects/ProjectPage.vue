@@ -737,7 +737,7 @@ onMounted(async () => {
           clearable
           placeholder="搜索项目编号或名称"
           @change="resetListPage"
-        /><ElCheckbox v-model="showDeleted" @change="resetListPage"
+        /><ElCheckbox data-guide-action="projects.show-deleted" v-model="showDeleted" @change="resetListPage"
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
@@ -773,7 +773,7 @@ onMounted(async () => {
     </div>
     <ProjectWorkflowHeader :status="detail.status" :deleted="!!detail.deleted"
       :loading="overviewLoading" :actions="projectActions" :can-write="can('write')"
-      :can-admin="can('admin')" @action="runWorkflowAction"
+      :can-admin="can('admin')" :can-delete="detail.status === 'closed' || (['reserve', 'stocked'].includes(detail.status) && !(detail.scopes || []).some((scope: Row) => scope.binding))" @action="runWorkflowAction"
       @manage="command => {
         if (command === 'funding') openDialog('funding');
         if (command === 'edit') editProject(detail || undefined);
@@ -797,8 +797,8 @@ onMounted(async () => {
       ><div class="panel">
         <div class="toolbar">
           <h2>当前关联需求</h2>
-          <ElButton
-            :disabled="!can('write') || detail.status === 'closed'"
+          <ElButton data-guide-action="projects.link"
+            :disabled="!can('write') || detail.deleted || detail.status === 'closed'"
             @click="openDialog('link')"
             >关联需求</ElButton
           >
@@ -818,7 +818,7 @@ onMounted(async () => {
           <template #actions="{ row }">
             <RowActions :actions="[
               { label: '查看需求', run: () => router.push(demandContext(row.demand_id)) },
-              { label: '显式解绑', danger: true, disabled: !can('write') || !row.binding, run: () => release(row) },
+              { label: '显式解绑', danger: true, disabled: !can('write') || detail.deleted || !row.binding, run: () => release(row) },
             ]" />
           </template>
         </BusinessTable>
@@ -826,14 +826,16 @@ onMounted(async () => {
     </template>
     <template v-if="tab === 'approval'">
       <div class="toolbar">
-        <ElButton
+        <ElButton :data-guide-action="detail.approval ? 'projects.change' : 'projects.approval-draft'"
           type="primary"
           :disabled="
-            !can('write') || !['stocked', 'approved'].includes(detail.status)
+            !can('write') || detail.deleted || !['stocked', 'approved'].includes(detail.status) ||
+            detail.approvals.some((approval: Row) => approval.status === 'draft')
           "
+          :title="detail.approvals.some((approval: Row) => approval.status === 'draft') ? '已有待批准草稿，请先批准或删除草稿' : undefined"
           @click="openDialog('approval')"
           >{{ detail.approval ? "编制正式变更" : "编制立项范围" }}</ElButton
-        ><ElButton :disabled="!can('write')" @click="openDialog('charge')"
+        ><ElButton :disabled="!can('write') || detail.deleted" @click="openDialog('charge')"
           >增加批次 / 项目参考费用</ElButton
         >
       </div>
@@ -845,9 +847,9 @@ onMounted(async () => {
         <div class="toolbar">
           <h2>第 {{ approval.version_no }} 次批准</h2>
           <ElTag>{{ statusText[approval.status] }}</ElTag
-          ><ElButton
+          ><ElButton data-guide-action="projects.approve"
             :disabled="
-              !can(
+              detail.deleted || !can(
                 approval.version_no === 1
                   ? 'project.approve'
                   : 'change.approve',
@@ -857,8 +859,8 @@ onMounted(async () => {
             type="primary"
             @click="action('approve', approval)"
             >正式批准</ElButton
-          ><ElButton
-            :disabled="!can('write')"
+          ><ElButton data-guide-action="projects.approval-discard"
+            :disabled="!can('write') || detail.deleted"
             v-if="approval.status === 'draft'"
             type="danger"
             @click="action('discard', approval)"
@@ -882,7 +884,7 @@ onMounted(async () => {
             <span v-else>{{ row[column.key] ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
-            <ElButton :disabled="!can('write')" size="small" @click="priceScope(row)">按承接范围核价</ElButton>
+            <ElButton data-guide-action="projects.quote" :disabled="!can('write')" size="small" @click="priceScope(row)">按承接范围核价</ElButton>
           </template>
         </BusinessTable>
         <BusinessTable v-if="approval.reference.charges.length" client-side
@@ -1030,7 +1032,7 @@ onMounted(async () => {
                   d.demand_no + ' · ' + d.problem_description
                 " /></ElSelect>
                 <div class="toolbar">
-                  <ElCheckbox v-model="showPendingDemands" @change="changePendingDemandFilter">包含待确认需求（确认有效后才能立项）</ElCheckbox>
+                  <ElCheckbox data-guide-action="projects.include-pending" v-model="showPendingDemands" @change="changePendingDemandFilter">包含待确认需求（确认有效后才能立项）</ElCheckbox>
                   <span class="muted">符合条件 {{ demandTotal }} 条</span>
                   <ElButton v-if="demandPage * 50 < demandTotal" size="small"
                     :loading="demandLoading" @click="moreDemandCandidates">
@@ -1179,18 +1181,18 @@ onMounted(async () => {
               v-model="item.quantity_scaled"
               :field="{ type: 'quantity', quantityPrecision: materialQuantityPrecision[item.material_id] }"
               @validity-change="approvalQuantityInvalid('material.' + scope.project_scope_id + '.' + item.material_id, $event)"
-            /><ElButton type="danger" @click="scope.materials.splice(index, 1)"
+            /><ElButton data-guide-action="projects.material-remove" type="danger" @click="scope.materials.splice(index, 1)"
               >移除</ElButton
             >
           </div>
-          <ElButton @click="scope.materials.push({ quantity_scaled: 10000 })"
+          <ElButton data-guide-action="projects.material-add" @click="scope.materials.push({ quantity_scaled: 10000 })"
             >添加批准物资</ElButton
           >
         </div></template
       ></ElForm
     ><template #footer
       ><ElButton @click="closeEditor">取消</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="projects.save"
         :disabled="!can('write') || (dialog === 'funding' &&
           (agreementLoading || !!agreementError || fundingUnchanged ||
            (!!form.agreement_id && !selectedFundingAgreement?.eligible)))"

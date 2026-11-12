@@ -10,6 +10,8 @@ export type RowAction = {
   disabled?: boolean;
   danger?: boolean;
   primary?: boolean;
+  /** Semantic help only; no dispatch or selection is derived from this id. */
+  guideActionId?: string;
 };
 const props = defineProps<{ actions: RowAction[] }>();
 const busy = ref(false);
@@ -45,7 +47,7 @@ async function invoke(action: RowAction) {
 </script>
 <template>
   <div class="row-actions">
-    <ElButton v-if="primary" size="small" :disabled="primary.disabled" :loading="busy"
+    <ElButton v-if="primary" :data-guide-action="primary.guideActionId" size="small" :disabled="primary.disabled" :loading="busy"
       :type="primary.danger ? 'danger' : undefined" @click="invoke(primary)">{{ primary.label }}</ElButton>
     <ElDropdown v-if="secondary.length" ref="dropdown" trigger="click" placement="bottom-end"
       @command="invoke" @visible-change="menuVisibilityChanged">
@@ -54,7 +56,7 @@ async function invoke(action: RowAction) {
       </ElButton>
       <template #dropdown>
         <ElDropdownMenu>
-          <ElDropdownItem v-for="(action, index) in secondary" :key="action.label"
+          <ElDropdownItem v-for="(action, index) in secondary" :key="action.label" :data-guide-action="action.guideActionId"
             :command="action" :disabled="action.disabled || busy"
             :divided="action.danger && !secondary[index - 1]?.danger"
             :class="{ 'row-action-danger': action.danger }">{{ action.label }}</ElDropdownItem>

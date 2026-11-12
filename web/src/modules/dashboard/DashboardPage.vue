@@ -102,7 +102,7 @@ onMounted(refreshDashboard);
       { label: '子项目', key: 'projects' },
       { label: '在办项目', key: 'active_projects' },
     ]" :key="metric.key" class="metric metric-action" text
-      :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
+      data-guide-action="dashboard.open" :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
       <span>{{ metric.label }}</span>
       <strong>{{ metricValue(metric.key) }}</strong>
     </ElButton>
@@ -114,7 +114,7 @@ onMounted(refreshDashboard);
         :rows="alertRows" :columns="alertColumns">
         <template #cell="{ row, column }">{{ display(row, column) }}</template>
         <template #actions="{ row }">
-          <ElButton size="small" @click="openProject(row.project_id)">处理预警</ElButton>
+          <ElButton data-guide-action="dashboard.alert" size="small" @click="openProject(row.project_id)">处理预警</ElButton>
         </template>
       </BusinessTable>
     </template>
@@ -130,7 +130,7 @@ onMounted(refreshDashboard);
             <span v-else>{{ display(row, column) }}</span>
           </template>
           <template #actions="{ row }">
-            <ElButton size="small" @click="openProject(row.id)">进入办理</ElButton>
+            <ElButton data-guide-action="dashboard.open" size="small" @click="openProject(row.id)">进入办理</ElButton>
           </template>
         </BusinessTable>
         <ElEmpty v-else description="暂无项目费用记录" :image-size="48" />

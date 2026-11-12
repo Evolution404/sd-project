@@ -298,7 +298,7 @@ onMounted(async () => {
           load();
         "
       />
-      <ElCheckbox
+      <ElCheckbox data-guide-action="standards.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -379,12 +379,12 @@ onMounted(async () => {
       <div class="toolbar">
         <ElButton v-if="adoptedDemandReturnTo" link type="primary"
           @click="resumeTask(router, adoptedDemandReturnTo)">返回需求详情</ElButton>
-        <ElButton
+        <ElButton data-guide-action="standards.edit"
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
-        ><ElButton @click="showHistory = true">完整历史</ElButton
-        ><ElButton
+        ><ElButton data-guide-action="standards.version" @click="showHistory = true">完整历史</ElButton
+        ><ElButton data-guide-action="standards.delete"
           type="danger"
           :disabled="!can('admin') || detail.deleted"
           @click="remove(detail)"

@@ -20,22 +20,34 @@ const ids = ref<string[]>([]),
   loading = ref(false),
   candidates = ref<MaterialRecord[]>([]),
   query = ref("");
+let searchSequence = 0;
 async function search() {
-  const response = await api<{ items: MaterialRecord[] }>(
-    "/catalog/materials?page_size=200&q=" + encodeURIComponent(query.value),
-  );
-  candidates.value = response.items.filter(
-    (item) => !props.rows.some((row) => row.material_id === item.id),
-  );
+  const sequence = ++searchSequence;
+  try {
+    const response = await api<{ items: MaterialRecord[] }>(
+      "/catalog/materials?page_size=200&q=" + encodeURIComponent(query.value),
+    );
+    if (sequence !== searchSequence) return;
+    candidates.value = response.items.filter(
+      (item) => !props.rows.some((row) => row.material_id === item.id),
+    );
+  } catch (error) {
+    if (sequence === searchSequence) {
+      candidates.value = [];
+      ids.value = [];
+      ElMessage.error("查询可用物资失败：" + (error as Error).message);
+    }
+  }
 }
 async function add() {
+  if (loading.value) return;
   loading.value = true;
   try {
-    for (const id of ids.value) {
-      const item = candidates.value.find((item) => item.id === id);
-      if (!item) continue;
+    const additions = await Promise.all(ids.value.map(async (id): Promise<MaterialDraft> => {
+      const item = candidates.value.find((candidate) => candidate.id === id);
+      if (!item) throw Error("部分已选物资不在当前搜索结果，请重新选择");
       const precision = await readCurrentMaterialPrecision(id);
-      emit("add", {
+      return {
         id: newClientId(),
         material_id: id,
         name: item.name,
@@ -44,8 +56,10 @@ async function add() {
         unit: item.unit_id_label,
         quantity_scaled: 10000,
         precision,
-      });
-    }
+      };
+    }));
+    // Resolve every adopted unit before changing the parent form.
+    for (const item of additions) emit("add", item);
     opening.value = false;
     ids.value = [];
   } catch (failure) {
@@ -57,13 +71,13 @@ async function add() {
 </script>
 <template>
   <div class="toolbar">
-    <ElButton
+    <ElButton data-guide-action="demands.material"
       @click="
         opening = true;
         search();
       "
       >添加预计物资</ElButton
-    ><ElButton
+    ><ElButton data-guide-action="demands.material-remove"
       :disabled="!selected.length"
       type="danger"
       plain
@@ -131,7 +145,7 @@ async function add() {
     /></ElSelect>
     <template #footer
       ><ElButton @click="opening = false">取消</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="demands.material-add-confirm"
         :loading="loading"
         :disabled="!ids.length"
         type="primary"

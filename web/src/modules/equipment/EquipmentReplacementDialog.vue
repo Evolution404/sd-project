@@ -133,7 +133,7 @@ async function save() {
     ></ElForm>
     <template #footer
       ><ElButton @click="close()">取消</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="ledger.replace-submit"
         type="primary"
         :loading="saving"
         :disabled="loading || !preview"

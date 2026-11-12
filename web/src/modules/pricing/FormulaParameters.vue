@@ -143,11 +143,11 @@ function addTier() {
             :field="{ type: 'money' }"
         /></ElFormItem>
       </div>
-      <ElButton type="danger" @click="removeBracket(index)"
+      <ElButton data-guide-action="pricing.bracket-remove" type="danger" @click="removeBracket(index)"
         >删除此档</ElButton
       >
     </div>
-    <ElButton @click="addBracket">添加数量档</ElButton></template
+    <ElButton data-guide-action="pricing.bracket-add" @click="addBracket">添加数量档</ElButton></template
   >
   <template v-if="mode === 'progressive_bracket'"
     ><div v-for="(tier, index) in parameters.tiers" :key="rowId(tier)" class="panel">
@@ -163,10 +163,10 @@ function addTier() {
             :field="{ type: 'money' }"
         /></ElFormItem>
       </div>
-      <ElButton type="danger" @click="removeTier(index)"
+      <ElButton data-guide-action="pricing.progressive-remove" type="danger" @click="removeTier(index)"
         >删除此档</ElButton
       >
     </div>
-    <ElButton @click="addTier">添加累进档</ElButton></template
+    <ElButton data-guide-action="pricing.progressive-add" @click="addTier">添加累进档</ElButton></template
   >
 </template>

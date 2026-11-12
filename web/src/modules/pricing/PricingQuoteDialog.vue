@@ -284,7 +284,7 @@ watch(
     ><template #footer
       ><ElButton @click="emit('update:modelValue', false)">关闭报价</ElButton
       ><ElButton :loading="busy" @click="calculate()">重新试算</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="pricing.quote-confirm"
         type="primary"
         :loading="busy"
         :disabled="!canConfirm"

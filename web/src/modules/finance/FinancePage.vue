@@ -156,13 +156,13 @@ onMounted(() => { void load(); });
   </div>
   <div class="panel">
     <div class="toolbar"><ElInput v-model="query" clearable placeholder="搜索子项目、编号或费用事项" @change="reset" />
-      <ElCheckbox v-model="deleted" @change="reset">包含已删除</ElCheckbox><ElButton @click="load">刷新</ElButton></div>
+      <ElCheckbox data-guide-action="finance.show-deleted" v-model="deleted" @change="reset">包含已删除</ElCheckbox><ElButton @click="load">刷新</ElButton></div>
     <ElAlert v-if="error" :title="error" type="error" :closable="false"><ElButton text @click="load">重试</ElButton></ElAlert>
     <BusinessTable :search-active="!!query" @clear-search="query = ''; filters = {}; page = 1; load()" :table-key="'finance:cross:' + kind" :rows="rows" :columns="columns" :loading="loading" :filter-state="filters"
       :sort-state="{ prop: sort, order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="value => { sort = value.key; direction = value.order === 'ascending' ? 'asc' : 'desc'; reset(); }"
       @filter-change="value => { filters = value; reset(); }">
-      <template #cell="{ row, column, value }"><ElTag v-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ money(row.amount_fen) }}</span><span v-else>{{ value ?? '—' }}</span></template>
+      <template #cell="{ row, column, value }"><ElTag v-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ row.amount_fen == null ? (kind === 'projects' ? '尚未批准' : '—') : money(row.amount_fen) }}</span><span v-else>{{ value ?? '—' }}</span></template>
       <template #actions="{ row }">
         <RowActions :actions="kind === 'projects'
           ? [{ label: '进入项目办理', run: () => detailDialog.open(row.project_id) }]

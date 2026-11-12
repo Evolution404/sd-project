@@ -20,10 +20,17 @@ const evidenceColumns: TableColumn[] = [
 let requestSequence = 0;
 async function load() {
   const sequence = ++requestSequence;
-  const response = await api<EvidenceRecord[]>(
-    `/evidence?owner_kind=${props.ownerKind}&owner_id=${props.ownerId}&deleted=${includeDeleted.value}`,
-  );
-  if (sequence === requestSequence) rows.value = response;
+  try {
+    const response = await api<EvidenceRecord[]>(
+      `/evidence?owner_kind=${encodeURIComponent(props.ownerKind)}&owner_id=${encodeURIComponent(props.ownerId)}&deleted=${includeDeleted.value}`,
+    );
+    if (sequence === requestSequence) rows.value = response;
+  } catch (error) {
+    if (sequence === requestSequence) {
+      rows.value = [];
+      ElMessage.error("附件列表读取失败：" + (error as Error).message);
+    }
+  }
 }
 async function upload(file: UploadFile) {
   busy.value = true;
@@ -49,12 +56,16 @@ async function upload(file: UploadFile) {
   }
 }
 async function remove(row: EvidenceRecord) {
-  await ElMessageBox.confirm(
-    "从正常附件列表移除，原证据和关联历史保留。",
-    "删除附件",
-  );
-  await api("/evidence/" + row.id, "DELETE", {});
-  await load();
+  try {
+    await ElMessageBox.confirm(
+      "从正常附件列表移除，原证据和关联历史保留。",
+      "删除附件",
+    );
+    await api("/evidence/" + row.id, "DELETE", {});
+    await load();
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
+  }
 }
 async function revise(row: EvidenceRecord) {
   try {
@@ -75,7 +86,7 @@ watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void l
   <div class="panel">
     <div class="toolbar">
       <h2>证据附件</h2>
-      <ElCheckbox v-model="includeDeleted"
+      <ElCheckbox :data-guide-action="ownerKind === 'demand_id' ? 'demands.evidence-filter' : 'finance.evidence-filter'" v-model="includeDeleted"
         >包含已删除</ElCheckbox
       >
       <ElUpload
@@ -83,7 +94,7 @@ watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void l
         :auto-upload="false"
         :show-file-list="false"
         :on-change="upload"
-        ><ElButton :disabled="!can('write')" :loading="busy"
+        ><ElButton :data-guide-action="ownerKind === 'demand_id' ? 'demands.evidence-add' : 'finance.evidence-add'" :disabled="!can('write')" :loading="busy"
           >添加附件</ElButton
         ></ElUpload
       >
@@ -99,9 +110,9 @@ watch(() => [props.ownerKind, props.ownerId, includeDeleted.value], () => void l
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
-          { label: '下载', run: () => download('/evidence/' + row.id, row.filename) },
-          { label: '修改说明', disabled: !can('write') || row.deleted, run: () => revise(row) },
-          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => remove(row) },
+          { label: '下载', guideActionId: ownerKind === 'demand_id' ? 'demands.evidence-download' : 'finance.evidence-download', run: () => download('/evidence/' + row.id, row.filename) },
+          { label: '修改说明', guideActionId: ownerKind === 'demand_id' ? 'demands.evidence-revise' : 'finance.evidence-revise', disabled: !can('write') || row.deleted, run: () => revise(row) },
+          { label: '删除', guideActionId: ownerKind === 'demand_id' ? 'demands.evidence-delete' : 'finance.evidence-delete', danger: true, disabled: !can('admin') || row.deleted, run: () => remove(row) },
         ]" />
       </template>
     </BusinessTable>

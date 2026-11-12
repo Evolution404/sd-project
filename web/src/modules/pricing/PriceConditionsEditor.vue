@@ -92,7 +92,7 @@ watch(
 );
 </script>
 <template>
-  <section class="full-width">
+  <section data-guide-action="pricing.condition" class="full-width">
     <ElAlert
       v-if="loading"
       title="正在读取操作类型统一属性"
@@ -169,7 +169,7 @@ watch(
       type="info"
       :closable="false"
     />
-    <ElButton
+    <ElButton data-guide-action="pricing.condition-remove"
       v-for="key in stale"
       :key="key"
       type="danger"

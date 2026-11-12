@@ -52,7 +52,7 @@ const hasProfile = computed(() => Boolean(props.project.category_name ||
     </ElDescriptions>
     <div class="toolbar" style="margin-top:14px">
       <ElButton @click="emit('section', 'scope')">查看需求与范围</ElButton>
-      <ElButton @click="emit('section', 'approval')">查看批准与变更</ElButton>
+      <ElButton data-guide-action="projects.approval-navigation" @click="emit('section', 'approval')">查看批准与变更</ElButton>
       <ElButton @click="emit('section', 'finance')">查看财务办理</ElButton>
     </div>
   </div>

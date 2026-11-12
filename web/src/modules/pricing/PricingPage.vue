@@ -285,7 +285,7 @@ onMounted(async () => {
           load();
         "
       />
-      <ElCheckbox
+      <ElCheckbox data-guide-action="pricing.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -364,7 +364,7 @@ onMounted(async () => {
         }}</ElTag>
       </div>
       <div class="toolbar">
-        <ElButton
+        <ElButton data-guide-action="pricing.edit"
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
@@ -374,15 +374,15 @@ onMounted(async () => {
           @click="copyRule(detail)"
           >复制规则</ElButton
         >
-        <ElButton
+        <ElButton data-guide-action="pricing.retire"
           v-if="
             kind === 'prices' && detail.status === 'active' && !detail.deleted
           "
           :disabled="!can('admin')"
           @click="retire(detail)"
           >停用规则</ElButton
-        ><ElButton @click="showHistory = true">完整历史</ElButton
-        ><ElButton
+        ><ElButton data-guide-action="pricing.history" @click="showHistory = true">完整历史</ElButton
+        ><ElButton data-guide-action="pricing.delete"
           type="danger"
           :disabled="!can('admin') || detail.deleted"
           @click="remove(detail)"

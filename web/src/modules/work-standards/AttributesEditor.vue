@@ -150,7 +150,7 @@ function save() {
       <span v-else>{{ row.label }}</span>
     </template>
     <template #actions="{ row }"
-      ><ElButton
+      ><ElButton data-guide-action="standards.attribute-edit"
         size="small"
         @click="
           edit(
@@ -162,7 +162,7 @@ function save() {
       ></template
     >
   </BusinessTable>
-  <ElButton data-action="add-operation-attribute" @click="edit()"
+  <ElButton data-guide-action="standards.attribute" data-action="add-operation-attribute" @click="edit()"
     >添加附加属性</ElButton
   >
   <ElDialog
@@ -250,9 +250,9 @@ function save() {
         <div v-if="'options' in editing && editing.source === 'manual'" class="full-width">
           <ElFormItem v-for="(option, position) in editing.options" :key="option.value" :label="`选项名称 ${position + 1}`">
             <ElInput v-model="option.label" />
-            <ElButton @click="editing.options.splice(position, 1)">移除选项</ElButton>
+            <ElButton data-guide-action="standards.option-remove" @click="editing.options.splice(position, 1)">移除选项</ElButton>
           </ElFormItem>
-          <ElButton @click="editing.options.push({ value: newClientId(), label: '' })">添加选项</ElButton>
+          <ElButton data-guide-action="standards.option-add" @click="editing.options.push({ value: newClientId(), label: '' })">添加选项</ElButton>
         </div>
         <ElFormItem label="录入提示"
           ><ElInput v-model="editing.hint"
@@ -276,7 +276,7 @@ function save() {
     </ElForm>
     <template #footer
       ><ElButton @click="editing = null">取消</ElButton
-      ><ElButton type="primary" @click="save">保存属性配置</ElButton></template
+      ><ElButton data-guide-action="standards.attribute-save" type="primary" @click="save">保存属性配置</ElButton></template
     >
   </ElDialog>
 </template>

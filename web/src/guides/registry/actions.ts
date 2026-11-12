@@ -1,4 +1,5 @@
 import type { GuideAction, GuideModuleId, GuideRole } from "../core/types";
+import { extraGuideActions } from "./extra-actions.ts";
 type CompactAction = readonly [
   id:string, title:string, purpose:string, prerequisite:string,
   result:string, risk:string, roles?:readonly GuideRole[], states?:readonly string[], target?:string,
@@ -125,9 +126,11 @@ const defaultCourses:Readonly<Record<GuideModuleId|"excel",readonly string[]>>={
   ledger:["L02"],materials:["L02"],standards:["L01","L03"],
   pricing:["L03"],dictionaries:["L01"],system:["L12"],excel:["L11"],
 };
-export const guideActions:readonly GuideAction[] = records.flatMap(([module,actions]) =>
+const baseGuideActions:readonly GuideAction[] = records.flatMap(([module,actions]) =>
   actions.map(([id,title,purpose,prerequisite,result,risk,roles,states,target]) => ({
     id,module,title,aliases:[],purpose,prerequisite:prerequisite||generic,result,risk,
     roles:roles||all,states:typeof states==="string"?[states]:states||["any"],
     target:target||"",courseIds:defaultCourses[module],
   })));
+
+export const guideActions:readonly GuideAction[] = [...baseGuideActions,...extraGuideActions];

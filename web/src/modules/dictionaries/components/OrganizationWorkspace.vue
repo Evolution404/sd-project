@@ -242,7 +242,7 @@ const projectDialog = useEntityDialog(
       <p>归口单位与正式组织关系</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" :disabled="!can('admin')" @click="edit()"
+      <ElButton data-guide-action="dictionaries.organization" type="primary" :disabled="!can('admin')" @click="edit()"
         >新增归口单位</ElButton
       >
     </div>
@@ -253,7 +253,7 @@ const projectDialog = useEntityDialog(
   >
   <div class="panel organization-workspace">
     <div class="toolbar">
-      <ElCheckbox v-model="includeDeleted">包含已删除单位</ElCheckbox
+      <ElCheckbox data-guide-action="dictionaries.show-deleted" v-model="includeDeleted">包含已删除单位</ElCheckbox
       ><ElButton text @click="load">刷新组织</ElButton>
     </div>
     <div class="mobile-tree-switch" role="group" aria-label="单位视图切换">
@@ -267,7 +267,7 @@ const projectDialog = useEntityDialog(
         label="归口单位"
         :loading="loading"
         ><template #empty
-          ><ElButton :disabled="!can('admin')" @click="edit()"
+          ><ElButton data-guide-action="dictionaries.organization-root" :disabled="!can('admin')" @click="edit()"
             >新增根单位</ElButton
           ></template
         ></BusinessTree
@@ -282,11 +282,11 @@ const projectDialog = useEntityDialog(
         </div>
         <p class="tree-path">{{ path }}</p>
         <div class="toolbar">
-          <ElButton
+          <ElButton data-guide-action="dictionaries.organization-child"
             :disabled="!can('admin') || !selected.selectable"
             @click="edit(undefined, selected.id)"
             >新增直属下级</ElButton
-          ><ElButton
+          ><ElButton data-guide-action="dictionaries.organization-edit"
             :disabled="!can('admin') || selected.deleted"
             @click="edit(selected)"
             >编辑资料</ElButton
@@ -294,8 +294,8 @@ const projectDialog = useEntityDialog(
             :disabled="!can('admin') || selected.deleted"
             @click="openMove"
             >调整上级</ElButton
-          ><ElButton @click="historyOpen = true">组织变更历史</ElButton
-          ><ElButton
+          ><ElButton data-guide-action="dictionaries.organization-history" @click="historyOpen = true">组织变更历史</ElButton
+          ><ElButton data-guide-action="dictionaries.organization-delete"
             type="danger"
             :disabled="!can('admin') || selected.deleted"
             @click="remove"
@@ -388,7 +388,7 @@ const projectDialog = useEntityDialog(
           })
         "
         >取消</ElButton
-      ><ElButton type="primary" :loading="saving" @click="save"
+      ><ElButton data-guide-action="dictionaries.save" type="primary" :loading="saving" @click="save"
         >保存</ElButton
       ></template
     ></ElDialog
@@ -428,7 +428,7 @@ const projectDialog = useEntityDialog(
     ><template #footer
       ><ElButton @click="moving = false">取消</ElButton
       ><ElButton @click="previewMove">预览调整</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="dictionaries.organization-move-confirm"
         type="primary"
         :disabled="!preview"
         :loading="saving"

@@ -245,7 +245,7 @@ onMounted(() => void load());
       <ElInput v-model="query" clearable
         :placeholder="isAgreement ? '搜索协议名称、合同编号或合同对方' : '搜索框架名称或年度'"
         @change="page = 1; load()" @keyup.enter="page = 1; load()" />
-      <ElCheckbox v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox>
+      <ElCheckbox :data-guide-action="isAgreement ? 'agreements.show-deleted' : 'frameworks.show-deleted'" v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox>
       <ElButton @click="load">刷新</ElButton>
       <span class="muted">共 {{ total }} 项</span>
     </div>
@@ -263,7 +263,7 @@ onMounted(() => void load());
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
-          { label: '查看', run: () => openDetails(row) },
+          { label: '查看', guideActionId: isAgreement ? undefined : 'frameworks.detail', run: () => openDetails(row) },
           { label: '编辑', disabled: !can('write') || !!row.deleted, run: () => startEdit(row) },
           { label: '历史', run: () => showHistory(row) },
           { label: '删除', danger: true, disabled: !can('admin') || !!row.deleted, run: () => remove(row) },
@@ -286,8 +286,8 @@ onMounted(() => void load());
         </ElTag>
       </div>
       <div class="toolbar">
-        <ElButton :disabled="!can('write') || !!details.item.deleted" @click="startEdit(details.item)">编辑</ElButton>
-        <ElButton @click="showHistory(details.item)">完整历史</ElButton>
+        <ElButton :data-guide-action="isAgreement ? 'agreements.edit' : 'frameworks.edit'" :disabled="!can('write') || !!details.item.deleted" @click="startEdit(details.item)">编辑</ElButton>
+        <ElButton :data-guide-action="isAgreement ? 'agreements.history' : 'frameworks.history'" @click="showHistory(details.item)">完整历史</ElButton>
       </div>
       <div class="panel">
         <h2>资金概览</h2>
@@ -335,7 +335,7 @@ onMounted(() => void load());
             {{ relatedProjectCell(row, column) }}
           </template>
           <template #actions="{ row }">
-            <ElButton link type="primary" @click="router.push(projectContext(row.id, 'overview',
+            <ElButton data-guide-action="agreements.projects" link type="primary" @click="router.push(projectContext(row.id, 'overview',
               { focus: 'funding', record: details.item.id }))">进入项目</ElButton>
           </template>
         </BusinessTable>
@@ -402,7 +402,7 @@ onMounted(() => void load());
     </ElForm>
     <template #footer>
       <ElButton @click="closeEditor">取消</ElButton>
-      <ElButton type="primary" :disabled="!can('write')"
+      <ElButton :data-guide-action="isAgreement ? 'agreements.save' : 'frameworks.save'" type="primary" :disabled="!can('write')"
         :loading="saving" @click="save">保存正式版本</ElButton>
     </template>
   </ElDialog>

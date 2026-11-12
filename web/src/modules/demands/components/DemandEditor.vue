@@ -563,7 +563,7 @@ async function save(duplicate?: string[]) {
           <div class="toolbar">
             <h2>作业位置与工作量</h2>
             <ElButton
-              data-action="add-demand-locations"
+              data-guide-action="demands.location-add" data-action="add-demand-locations"
               type="primary"
               :disabled="!operation || precision === undefined"
               @click="picker = true"
@@ -613,7 +613,7 @@ async function save(duplicate?: string[]) {
                 v-model="source.discovered_on"
                 value-format="YYYY-MM-DD"
                 :disabled="source.action === 'delete'" /></ElFormItem
-            ><ElButton
+            ><ElButton data-guide-action="demands.source-remove"
               v-if="!source.id"
               type="danger"
               plain
@@ -636,14 +636,14 @@ async function save(duplicate?: string[]) {
               }}</ElButton
             >
           </div>
-          <ElButton @click="addSource">补充来源</ElButton>
+          <ElButton data-guide-action="demands.source" @click="addSource">补充来源</ElButton>
         </section>
       </ElForm>
     </div>
     <template #footer
       ><span class="muted">草稿自动保留在当前浏览器会话</span
       ><ElButton @click="close()">取消</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="demands.save"
         data-action="save-demand"
         type="primary"
         :loading="loading"

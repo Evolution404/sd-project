@@ -211,7 +211,7 @@ onMounted(load);
           page = 1;
           load();
         "
-      /><ElCheckbox
+      /><ElCheckbox data-guide-action="dictionaries.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -277,7 +277,7 @@ onMounted(load);
               disabled: !can('admin') || row.deleted,
               run: () => edit(row),
             },
-            { label: '历史', run: () => detailDialog.open(row.id) },
+            { label: '历史', guideActionId: 'dictionaries.history', run: () => detailDialog.open(row.id) },
             {
               label: '删除',
               danger: true,
@@ -309,11 +309,11 @@ onMounted(load);
         }}</ElTag>
       </div>
       <div class="toolbar">
-        <ElButton
+        <ElButton data-guide-action="dictionaries.edit"
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
-        ><ElButton
+        ><ElButton data-guide-action="dictionaries.delete"
           type="danger"
           :disabled="!can('admin') || detail.deleted"
           @click="remove(detail)"
@@ -370,7 +370,7 @@ onMounted(load);
             label="停用" /></ElSelect></ElFormItem></ElForm
     ><template #footer
       ><ElButton @click="close()">取消</ElButton
-      ><ElButton type="primary" :loading="saving" @click="save"
+      ><ElButton data-guide-action="dictionaries.save" type="primary" :loading="saving" @click="save"
         >保存</ElButton
       ></template
     ></ElDialog

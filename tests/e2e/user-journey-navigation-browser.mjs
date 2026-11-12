@@ -46,9 +46,24 @@ try {
   const picker = page.getByRole("dialog", { name: "选择子项目承接需求" });
   await picker.getByRole("row").filter({ hasText: project.name })
     .getByRole("button", { name: "选择", exact: true }).click();
+  // Search must not retain a hidden previously selected project.
+  await picker.getByPlaceholder("搜索子项目名称或编号").fill("不存在的项目-防串选");
+  await picker.getByRole("button", { name: "查找", exact: true }).click();
+  assert.equal(await picker.getByRole("button", { name: "承接该需求" }).isDisabled(), true);
+  await picker.getByPlaceholder("搜索子项目名称或编号").fill("");
+  await picker.getByRole("button", { name: "查找", exact: true }).click();
+  await picker.getByRole("row").filter({ hasText: project.name })
+    .getByRole("button", { name: "选择", exact: true }).click();
   await picker.getByRole("button", { name: "承接该需求" }).click();
   await detail.getByRole("button", { name: "进入承接项目", exact: true }).waitFor();
   assert.equal(s.demands.get(waiting.id).binding.project_id, project.id);
+  await detail.getByRole("button", { name: "更多操作", exact: true }).click();
+  assert.equal(await page.getByRole("menuitem", { name: "取消需求", exact: true }).isDisabled(), true,
+    "a bound demand must first be explicitly released before cancellation");
+  assert.equal(await page.getByRole("menuitem", { name: "删除", exact: true }).isDisabled(), true,
+    "active demand cannot be deleted before cancellation");
+  // Click inside the detail, not Escape: Escape would close the parent business dialog.
+  await detail.locator(".detail-header").click();
   await detail.getByRole("button", { name: "进入承接项目" }).click();
   await page.waitForURL(url => url.hash.includes("#/projects") && url.hash.includes("focus=demand"));
   await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();

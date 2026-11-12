@@ -208,7 +208,7 @@ onMounted(() => {
         <strong>访问限制</strong>
         <p>开启后，仅允许白名单中的IP及服务器本机访问；关闭后不限制访问IP，仍须正常登录。</p>
       </div>
-      <ElSwitch
+      <ElSwitch data-guide-action="system.ip"
         :model-value="accessPolicy?.ip_restriction_enabled ?? true"
         :loading="policyLoading || policySaving"
         :disabled="!can('admin') || !accessPolicy || policyLoading || policySaving"
@@ -219,7 +219,7 @@ onMounted(() => {
       />
     </div>
   </div>
-  <div class="panel">
+  <div class="panel" :data-guide-action="tab === 'audit' ? 'system.audit' : undefined">
     <BusinessTable :loading="listLoading" :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">
@@ -246,7 +246,7 @@ onMounted(() => {
         ><ElFormItem label="用户名" prop="username" :error="formErrors.username"
           :rules="[{ required: true, message: '请填写用户名', trigger: 'blur' }]" required
           ><ElInput v-model="form.username" /></ElFormItem
-        ><ElFormItem :label="editing ? '新密码（不修改请留空）' : '初始密码'" prop="password"
+        ><ElFormItem data-guide-action="system.password" :label="editing ? '新密码（不修改请留空）' : '初始密码'" prop="password"
           :error="formErrors.password"
           :rules="editing ? [] : [{ required: true, message: '请填写初始密码', trigger: 'blur' }]"
           :required="!editing"
@@ -278,7 +278,7 @@ onMounted(() => {
             type="textarea" /></ElFormItem></template></ElForm
     ><template #footer
       ><ElButton @click="closeEditor">取消</ElButton
-      ><ElButton type="primary" :loading="saving" @click="save">保存</ElButton></template
+      ><ElButton data-guide-action="system.save" type="primary" :loading="saving" @click="save">保存</ElButton></template
     ></ElDialog
   >
 </template>

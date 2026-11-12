@@ -129,7 +129,7 @@ watch(
           :quantity-precision="quantityPrecision"
           component
           @validity-change="markInvalid(componentId(component), $event)"
-        /><ElButton type="danger" @click="removeComponent(index)"
+        /><ElButton data-guide-action="pricing.model-remove" type="danger" @click="removeComponent(index)"
           >删除费用组成</ElButton
         >
       </div>

@@ -15,6 +15,7 @@ import { api } from "../shared/api/client";
 import { useRoute, useRouter } from "vue-router";
 import NavigationMenu from "./NavigationMenu.vue";
 import GuideHost from "../guides/components/GuideHost.vue";
+import { guideCenterKey } from "../guides/core/guide-center";
 import { navigationItems } from "./navigation";
 import { referenceSelectorsKey } from "../shared/ui/reference-selectors";
 provide(referenceSelectorsKey, { organizations: defineAsyncComponent(() => import("../modules/dictionaries/components/OrganizationSelect.vue")) });
@@ -28,6 +29,7 @@ const user = ref<Actor | null>(null),
 provide("currentUser", user);
 const menu = navigationItems;
 const guideOpen = ref(false);
+provide(guideCenterKey, () => { guideOpen.value = true; });
 type Appearance = "system" | "light" | "dark";
 const initialAppearance = localStorage.getItem("sd-appearance");
 const appearance = ref<Appearance>(

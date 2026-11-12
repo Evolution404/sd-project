@@ -229,8 +229,8 @@ async function viewCost(entryId: string) {
   <section class="panel cost-category-workspace">
     <div class="toolbar">
       <h2>费用科目</h2>
-      <ElButton :disabled="!can('write')" @click="edit()">新增科目</ElButton
-      ><ElCheckbox v-model="includeDeleted">包含已删除科目</ElCheckbox
+      <ElButton data-guide-action="finance.category-create" :disabled="!can('write')" @click="edit()">新增科目</ElButton
+      ><ElCheckbox data-guide-action="finance.category-show-deleted" v-model="includeDeleted">包含已删除科目</ElCheckbox
       ><ElButton text @click="load">刷新科目</ElButton>
     </div>
     <ElAlert v-if="error" :title="error" type="error" :closable="false"
@@ -247,7 +247,7 @@ async function viewCost(entryId: string) {
         label="费用科目"
         :loading="loading"
         ><template #empty
-          ><ElButton :disabled="!can('write')" @click="edit()"
+          ><ElButton data-guide-action="finance.category-root" :disabled="!can('write')" @click="edit()"
             >新增根科目</ElButton
           ></template
         ></BusinessTree
@@ -262,7 +262,7 @@ async function viewCost(entryId: string) {
         </div>
         <p class="tree-path">{{ path }}</p>
         <div class="toolbar">
-          <ElButton
+          <ElButton data-guide-action="finance.category-child"
             :disabled="!can('write') || !selected.can_add_child"
             :title="
               selected.can_add_child
@@ -273,12 +273,12 @@ async function viewCost(entryId: string) {
             "
             @click="edit(undefined, selected.id)"
             >新增下级</ElButton
-          ><ElButton
+          ><ElButton data-guide-action="finance.category-edit"
             :disabled="!can('write') || selected.deleted"
             @click="edit(selected)"
             >编辑版本</ElButton
-          ><ElButton @click="historyOpen = true">版本与删除历史</ElButton
-          ><ElButton
+          ><ElButton data-guide-action="finance.category-history" @click="historyOpen = true">版本与删除历史</ElButton
+          ><ElButton data-guide-action="finance.category-delete"
             type="danger"
             :disabled="!can('admin') || selected.deleted"
             @click="remove"
@@ -377,7 +377,7 @@ async function viewCost(entryId: string) {
             })
           "
           >取消</ElButton
-        ><ElButton type="primary" :loading="saving" @click="save"
+        ><ElButton data-guide-action="finance.category-save" type="primary" :loading="saving" @click="save"
           >保存</ElButton
         ></template
       >

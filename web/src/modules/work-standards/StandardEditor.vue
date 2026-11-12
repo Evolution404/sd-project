@@ -248,7 +248,7 @@ async function save() {
     </ElForm>
     <template #footer
       ><ElButton @click="close()">取消</ElButton
-      ><ElButton type="primary" :loading="saving" @click="save"
+      ><ElButton data-guide-action="standards.save" type="primary" :loading="saving" @click="save"
         >保存</ElButton
       ></template
     >

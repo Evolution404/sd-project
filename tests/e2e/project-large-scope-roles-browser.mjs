@@ -52,6 +52,8 @@ try{
   assert.equal(draft.scopes[0].quantity_scaled,290000);
   assert.equal(after.approval.id,originalApproval);
   assert.equal(await editor.getByRole('button',{name:'正式批准',exact:true}).isDisabled(),true);
+  assert.equal(await editor.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true,
+    'existing unapproved draft must prevent a second approval draft from UI');
   await editor.screenshot({path:join(out,'编辑编制变更.png'),fullPage:true});
   const verifier=await open('verifier');
   assert.equal(await verifier.getByRole('button',{name:'正式批准',exact:true}).isEnabled(),true);
@@ -72,6 +74,10 @@ try{
   await viewer.screenshot({path:join(out,'只读正式历史.png'),fullPage:true});
   const admin=await open('admin');
   assert.equal(await admin.getByRole('button',{name:'编制正式变更',exact:true}).isEnabled(),true);
+  await admin.getByRole('button',{name:'更多管理操作',exact:true}).click();
+  assert.equal(await admin.getByRole('menuitem',{name:'删除项目',exact:true}).isDisabled(),true,
+    'approved project must close before its record can be deleted');
+  await admin.keyboard.press('Escape');
   assert.deepEqual(errors,[]);
   console.log('PROJECT_LARGE_SCOPE_ROLES_OK 20 candidates, inherited15 partial positions, explicit budget+quantity differences, editor drafts, verifier approves, viewer403, admin permissions, original approval retained');
 }finally{

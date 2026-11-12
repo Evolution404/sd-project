@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
-import { ref, computed, onUnmounted } from "vue";
+import { ref, computed, inject, onUnmounted } from "vue";
+import { guideCenterKey } from "../../guides/core/guide-center";
+const openGuide = inject(guideCenterKey, null);
 import { ElMessage, type UploadFile } from "element-plus";
 import type { ExchangePreviewDocument, ExchangeCommitResult, WorkbookIssue, ExchangeMode } from "../../../../server/shared/types/exchange";
 import { api, download } from "../../shared/api/client";
@@ -221,7 +223,7 @@ async function commit() {
 }
 </script>
 <template>
-  <ElButton @click="dialog = true">Excel 批量处理</ElButton>
+  <ElButton data-guide-action="excel.import" @click="dialog = true">Excel 批量处理</ElButton>
   <ElDialog append-to-body
     v-model="dialog"
     :title="kind === 'assets' ? '设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）' : 'Excel 数据交换'"
@@ -230,6 +232,12 @@ async function commit() {
     :close-on-press-escape="!busy"
     :show-close="!busy"
   >
+    <template #header>
+      <div class="exchange-guide-heading">
+        <strong>{{ kind === 'assets' ? "设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）" : 'Excel 数据交换' }}</strong>
+        <ElButton v-if="openGuide" data-guide-modal-help size="small" text @click="openGuide">使用指引</ElButton>
+      </div>
+    </template>
     <ElAlert
       v-if="busy"
       :title="phase + ' · ' + elapsedSeconds + ' 秒'"
@@ -242,7 +250,7 @@ async function commit() {
       :closable="false"
       show-icon
     />
-    <ElButton
+    <ElButton data-guide-action="excel.cancel-preview"
       v-if="busy && canCancelPreview"
       type="warning"
       @click="cancelPreview"
@@ -251,15 +259,15 @@ async function commit() {
     <ElCollapse v-model="exchangeSections">
     <ElCollapseItem title="下载模板与维护导出" name="template">
     <div class="toolbar">
-      <ElButton
+      <ElButton data-guide-action="excel.template"
         @click="
           download(
             `/exchange/${kind}/template?project_id=${projectId || ''}`,
           )
         "
         >空白模板</ElButton
-      ><ElButton @click="exportFile()">筛选结果维护导出</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="excel.export-filtered" @click="exportFile()">筛选结果维护导出</ElButton
+      ><ElButton data-guide-action="excel.export-selected"
         :disabled="!selectedIds?.length"
         @click="exportFile(false, true)"
         >勾选项维护导出</ElButton
@@ -291,7 +299,7 @@ async function commit() {
         :auto-upload="false"
         :show-file-list="false"
         :on-change="upload"
-        ><ElButton :disabled="!can('write')" type="primary" :loading="busy"
+        ><ElButton :data-guide-action="preview?.issues.length ? 'excel.retry' : 'excel.preview'" :disabled="!can('write')" type="primary" :loading="busy"
           >上传并预检</ElButton
         ></ElUpload
       >
@@ -299,7 +307,7 @@ async function commit() {
     </ElCollapseItem>
     <ElCollapseItem title="查看差异并确认提交" name="preview">
     <template v-if="preview"
-      ><ElCheckbox v-model="atomic" :disabled="busy">整个批次全部成功或全部回滚</ElCheckbox><div class="toolbar">
+      ><ElCheckbox :data-guide-action="atomic ? 'excel.atomic' : 'excel.partial'" v-model="atomic" :disabled="busy">整个批次全部成功或全部回滚</ElCheckbox><div class="toolbar">
         <ElTag>共 {{ preview.summary.documents }} 张单据</ElTag
         ><ElTag type="success">有效 {{ preview.documents.length }}</ElTag
         ><ElTag type="danger"
@@ -312,7 +320,7 @@ async function commit() {
         ><ElTag type="info">无变化 {{ preview.summary.unchanged }}</ElTag
         ><ElTag type="danger">缺失设备 {{preview.summary.missing_devices||0}} / 位置歧义 {{preview.summary.ambiguous_locations||0}} / 格式 {{preview.summary.format_errors||0}} / 精度 {{preview.summary.precision_errors||0}}</ElTag
         ><ElTag type="danger">问题 {{ preview.issues.length }}</ElTag
-        ><ElButton
+        ><ElButton data-guide-action="excel.issues"
           @click="
             download(`/exchange/${preview.token}/errors`, '导入问题.xlsx')
           "
@@ -375,7 +383,7 @@ async function commit() {
         {{ (result.timings_ms.business_writes / 1000).toFixed(2) }} 秒</span
       >
     </p>
-    <ElButton
+    <ElButton data-guide-action="excel.result"
       v-if="result"
       @click="download(`/exchange/${preview!.token}/results`, '导入结果.xlsx')"
       >下载导入结果</ElButton
@@ -388,7 +396,7 @@ async function commit() {
     </ElCollapseItem></ElCollapse>
     <template #footer
       ><ElButton :disabled="busy" @click="dialog = false">关闭</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="excel.commit"
         type="primary"
         :disabled="
           !can('write') ||
@@ -403,3 +411,8 @@ async function commit() {
     >
   </ElDialog>
 </template>
+
+<style scoped>
+.exchange-guide-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-right:30px}
+.exchange-guide-heading strong{font-weight:600;font-size:16px}
+</style>

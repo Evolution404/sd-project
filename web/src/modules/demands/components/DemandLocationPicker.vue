@@ -494,7 +494,7 @@ function add() {
     <template #footer
       ><ElButton :disabled="!selectedCount || bulkLoading" @click="chosen = {}">清空全部已选</ElButton
       ><ElButton @click="emit('update:open', false)">取消</ElButton
-      ><ElButton
+      ><ElButton data-guide-action="demands.location-select-confirm"
         type="primary"
         :disabled="!selectedCount || loading || bulkLoading"
         @click="add"
