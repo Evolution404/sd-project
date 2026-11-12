@@ -5,6 +5,8 @@ import type { WorkbookKind, WorkbookReportKind, WorkbookRow, WorkbookIssue, Pars
 export const MAX_BYTES = 12 * 1024 * 1024,
   MAX_ROWS = 25000,
   MAX_DOCUMENTS = 5000;
+export const attributeColumn = (key: string): string => "attribute_" + Buffer.from(key).toString("hex");
+export const attributeKey = (column: string): string => Buffer.from(column.slice(10), "hex").toString();
 export const KEEP = "__KEEP__",
   CLEAR = "__CLEAR__",
   DELETE = "delete";
@@ -52,10 +54,9 @@ const technicalColumns = new Set([
   "cost_node_id",
   "project_scope_id",
   "priority_id",
-  "demand_no",
   "number",
   "field_key",
-  "factor_id",
+  "primary_source_id",
 ]);
 function externalChoice(key:string, value:unknown):unknown {
   return typeof value === "string" ? businessChoices[key]?.[value] || value : value;
@@ -153,78 +154,12 @@ export const layouts: WorkbookLayouts = {
     },
   ],
   demands: [
-    {
-      name: "需求清单",
-      key: "documents",
-      columns: [
-        "demand_no",
-        "id",
-        "expected_version",
-        "operation_id",
-        "problem_description",
-        "target_object",
-        "completion_standard",
-        "priority_id",
-        "expected_on",
-        "operation_name",
-        "priority_name",
-      ],
-    },
-    {
-      name: "作业位置",
-      key: "work_locations",
-      columns: [
-        "demand_no",
-        "action",
-        "location_kind",
-        "logical_tower_id",
-        "physical_tower_id",
-        "span_id",
-        "quantity_scaled",
-        "work_mode",
-        "specification",
-        "line_name",
-        "voltage_name",
-        "tower_no",
-        "end_tower_no",
-        "asset_no",
-      ],
-    },
-    {
-      name: "预计物资",
-      key: "materials",
-      columns: [
-        "demand_no",
-        "action",
-        "material_id",
-        "quantity_scaled",
-        "note",
-        "material_name",
-        "material_model",
-        "material_specification",
-      ],
-    },
-    {
-      name: "来源依据",
-      key: "sources",
-      columns: ["demand_no", "id", "description", "discovered_on"],
-    },
-    {
-      name: "补充现场字段",
-      key: "custom_fields",
-      columns: ["demand_no", "field_key", "field_name", "value"],
-    },
-    {
-      name: "现场价格特征",
-      key: "site_features",
-      columns: [
-        "demand_no",
-        "location_row",
-        "factor_id",
-        "factor_name",
-        "value",
-      ],
-    },
+    { name: "需求清单", key: "documents", columns: ["import_ref", "demand_no", "id", "expected_version", "operation_id", "operation_name",
+      "problem_description", "completion_standard", "target_object", "priority_id", "priority_name", "expected_on", "primary_source_id", "primary_source", "discovered_on"] },
+    { name: "作业位置", key: "work_locations", columns: ["import_ref", "location_ref", "action", "location_kind", "logical_tower_id", "physical_tower_id", "span_id",
+      "line_name", "voltage_name", "tower_no", "end_tower_no", "asset_no", "quantity_scaled", "work_mode", "specification"] },
+    { name: "预计物资", key: "materials", columns: ["import_ref", "action", "material_id", "material_name", "material_model", "material_specification", "quantity_scaled", "unit_name", "note"] },
+    { name: "补充来源", key: "sources", columns: ["import_ref", "action", "id", "description", "discovered_on"] },
   ],
   settlements: [
     {
@@ -276,9 +211,14 @@ export const layouts: WorkbookLayouts = {
 };
 for (const [kind, sheets] of Object.entries(layouts))
   for (const sheet of sheets)
-    if (kind !== "assets" && sheet.key !== "documents")
+    if (kind === "settlements" && sheet.key !== "documents")
       sheet.columns.push("document_row");
 const labels: Record<string,string> = {
+  import_ref: "导入关联号",
+  location_ref: "位置关联号",
+  primary_source: "主要来源说明",
+  primary_source_id: "主要来源身份",
+  unit_name: "单位",
   line_kind: "线路类型",
   parent_line_name: "所属主线名称（支线填写）",
   parent_voltage_name: "所属主线电压等级（重名时填写）",
@@ -350,7 +290,6 @@ const labels: Record<string,string> = {
   span_id: "档距标识",
   quantity_scaled: "数量（万分之一单位）",
   work_mode: "作业方式",
-  site_features_json: "现场特征",
   material_id: "物资标识",
   note: "备注",
   description: "来源说明",
@@ -368,7 +307,8 @@ const labels: Record<string,string> = {
   evidence: "事实依据",
   resolved_quantity_scaled: "本次新增解决量（万分之一单位）",
 };
-function businessHeader(key:string, kind:WorkbookKind):string {
+function businessHeader(key:string, kind:WorkbookKind, sheet?:string):string {
+  if(kind === "demands" && key === "quantity_scaled") return sheet === "materials" ? "预计数量" : "需求数量";
   // Identity/version columns stay hidden; ordinary equipment users see only
   // Chinese business fields, never technical implementation keys.
   if (kind === "assets") {
@@ -385,7 +325,7 @@ function businessHeader(key:string, kind:WorkbookKind):string {
 }
 const requiredColumns: Partial<Record<WorkbookKind,Record<string,string[]>>> = {
   assets: { documents: ["name", "voltage_name"], towers: ["line_name", "tower_no"], spans: ["line_name", "start_tower_no", "end_tower_no"] },
-  demands: { documents: ["operation_name", "problem_description"], work_locations: ["location_kind", "quantity_scaled"], materials: ["material_name", "quantity_scaled"], sources: ["description"] },
+  demands: { documents: ["import_ref", "operation_name", "problem_description"], work_locations: ["import_ref", "location_ref", "location_kind", "quantity_scaled"], materials: ["import_ref", "material_name", "quantity_scaled"], sources: ["import_ref", "description"] },
   settlements: { items: ["cost_node_path", "amount_fen", "evidence"], resolutions: ["demand_description", "resolved_quantity_scaled", "evidence"] },
 };
 const conditionalColumns = new Set([
@@ -501,7 +441,7 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
       );
       continue;
     }
-    requireValue(sheet.columnCount <= 80, "工作表列数超出限制");
+    requireValue(sheet.columnCount <= 180, "工作表列数超出限制");
     const headers = new Map<number,string>();
     sheet.getRow(1).eachCell((cell, column) => {
       const visible = String(cell.value || "").trim().replace(/^(新增必填|条件必填)\s*\n/, "");
@@ -510,16 +450,16 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
         .map(name => name.slice(`sd113_${definition.key}_`.length));
       requireValue(namedColumns.length <= 1, "表头字段绑定冲突 " + definition.name + "." + visible);
       const canonical = namedColumns[0] || definition.columns.find(
-        (columnKey) => visible === businessHeader(columnKey, kind),
+        (columnKey) => visible === businessHeader(columnKey, kind, definition.key),
       );
       requireValue(typeof canonical === "string", "无法确认Excel表头业务字段",422);
       requireValue(
-        definition.columns.includes(canonical),
+        definition.columns.includes(canonical) || (kind === "demands" && /^(?:documents|work_locations)$/.test(definition.key) && /^attribute_[0-9a-f]+$/.test(canonical)),
         "未知列 " + definition.name + "." + visible,
       );
       requireValue(
         ![...headers.values()].includes(canonical),
-        "重复列 " + businessHeader(canonical, kind),
+        "重复列 " + businessHeader(canonical, kind, definition.key),
       );
       headers.set(column, canonical);
     });
@@ -527,10 +467,12 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
       if (rowNumber === 1) return;
       count++;
       requireValue(count <= MAX_ROWS, "工作簿业务行数超过25000");
+      const rawValues:Record<string,unknown>={};
       const data:ParsedWorkbookRow = { _sheet: definition.name, _row: rowNumber };
       for (const [column, key] of headers) {
         try {
           const value = cellValue(row.getCell(column));
+          rawValues[key]=value;
           if (value !== KEEP && value !== null) {
             const places = decimalPlaces[key];
             data[key] =
@@ -545,14 +487,14 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
             issue(
               definition.name,
               rowNumber,
-              kind === "assets" ? businessHeader(key, kind) : key,
+              kind === "assets" ? businessHeader(key, kind, definition.key) : key,
               String(row.getCell(column).value),
               error instanceof Error ? error.message : "工作簿单元格校验失败",
             ),
           );
         }
       }
-      if (Object.keys(data).length > 2) rows[definition.key].push(data);
+      if (Object.keys(data).length > 2) rows[definition.key].push({...data,_raw_values:rawValues});
     });
   }
   requireValue(
@@ -567,31 +509,28 @@ function formatScaledCell(value:unknown,places:number):string {
 }
 export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string,WorkbookRow[]>> = {}, options:WorkbookOptions = {}):Promise<Buffer> {
   requireValue(layouts[kind], "未知交换类型");
+  if (kind === "demands") {
+    const documents = (rows.documents?.length ? rows.documents : [{import_ref:"XQ001"}]).map((row,index)=>({...row,import_ref:row.import_ref || "XQ"+String(index+1).padStart(3,"0")}));
+    rows = { ...rows, documents };
+    for (const key of ["work_locations","materials","sources"]) {
+      rows[key] = (rows[key] || []).map((row,index)=>({...row,
+        import_ref:row.import_ref || (documents.length === 1 ? documents[0].import_ref : undefined),
+        ...(key === "work_locations" ? {location_ref:row.location_ref || "WZ"+String(index+1).padStart(3,"0")} : {})}));
+    }
+  }
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
-  const info = workbook.addWorksheet("使用说明");
-  info.columns = [{ width: 110 }];
-  for (const text of [
-    options.report
-      ? "业务报表，仅供阅读，不可回导"
-      : "数据维护工作簿，可离线修改并回导",
-    "金额填写人民币元（最多2位小数），工作量填写实际单位数量（最多4位小数）；档距输电中心管辖长度填写米（最多3位小数），未知请留空，明确无管辖长度填0。",
-    "线路、物理杆塔、逻辑杆塔、档距可在同一份 Excel 内录入。普通新增杆塔只需填写逻辑杆塔表；物理杆塔表用于独立维护已有实体或明确新建独立实物。",
-    "支线在“线路”填写所属主线和主线接入杆塔号；档距填写所属线路和两端杆塔号。共塔必须明确填写要共享的已有杆塔，不允许猜测实物身份。",
-    "系统身份和原版本自动携带。新增填写业务名称、线路杆号及真实属性，单据号由服务端生成。同名歧义须在系统核对后使用维护导出。",
-    "一张清单时明细自动归属，多张清单用实际Excel行号关联。行号只表达文件中真实的归属关系。",
-    "表头上方标有“新增必填”的列在新增时填写；“条件必填”按支线、共塔、作业位置或多单据关系填写。维护时未填写的单元格保持原值。",
-    "表头可以修改显示名称，字段绑定由工作簿自动携带。位置类型、作业方式、杆塔性质和明细动作使用中文下拉选项。",
-    `${KEEP} 保持原值，${CLEAR} 明确清除，空单元格/缺少列保持原值。文本空串请使用 __EMPTY__。`,
-    "明细action填upsert或delete。未出现的工作表或明细行保持原值。",
-    "导入结算只保存草稿。正式提交和审核须在系统内分别操作。",
-    "请勿填写公式。系统不按线路名称、杆号或显示名称模糊匹配。",
-  ])
-    info.addRow([text]);
-  for (const definition of layouts[kind]) {
+  for (const original of layouts[kind]) {
+    const scope = original.key === "documents" ? "demand" : original.key === "work_locations" ? "location" : null;
+    const attributes = kind === "demands" && scope ? [...new Map((options.attributes || []).filter(field => field.scope === scope && field.source === "manual" && field.enabled).map(field => [field.key,field])).values()] : [];
+    const definition = { ...original, columns: [...original.columns, ...attributes.map(field => attributeColumn(field.key))] };
+    requireValue(definition.columns.length <= 180, "附加属性列超过180列，请缩小操作类型范围");
     const sheet = workbook.addWorksheet(definition.name);
+    if (kind === "demands" && definition.key === "sources" && !rows.sources?.length) sheet.state = "hidden";
     sheet.columns = definition.columns.map((key) => ({
-      header: [headerRequirement(kind, definition, key), businessHeader(key, kind)].filter(Boolean).join("\n"),
+      header: [attributes.find(field => attributeColumn(field.key) === key)?.requirement === "save" ? "新增必填" :
+        attributes.find(field => attributeColumn(field.key) === key)?.requirement === "pricing" ? "条件必填" : headerRequirement(kind, definition, key),
+        attributes.find(field => attributeColumn(field.key) === key)?.label || businessHeader(key, kind, definition.key)].filter(Boolean).join("\n"),
       key,
       hidden: technicalColumns.has(key),
       width: [
@@ -643,6 +582,7 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
             ? null
             : decimalPlaces[key]
               ? formatScaledCell(value, decimalPlaces[key])
+              : Array.isArray(value) && key.startsWith("attribute_") ? value.join("、")
               : typeof value === "object"
                 ? JSON.stringify(value)
                 : externalChoice(key, value);
@@ -667,6 +607,26 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
         },
       };
   }
+  const info = workbook.addWorksheet("使用说明");
+  info.columns = [{ width: 110 }];
+  for (const text of [
+    options.report
+      ? "业务报表，仅供阅读，不可回导"
+      : "数据维护工作簿，可离线修改并回导",
+    "金额填写人民币元（最多2位小数），工作量填写实际单位数量（最多4位小数）；档距输电中心管辖长度填写米（最多3位小数），未知请留空，明确无管辖长度填0。",
+    "线路、物理杆塔、逻辑杆塔、档距可在同一份 Excel 内录入。普通新增杆塔只需填写逻辑杆塔表；物理杆塔表用于独立维护已有实体或明确新建独立实物。",
+    "支线在“线路”填写所属主线和主线接入杆塔号；档距填写所属线路和两端杆塔号。共塔必须明确填写要共享的已有杆塔，不允许猜测实物身份。",
+    "系统身份和原版本自动携带。新增填写业务名称、线路杆号及真实属性，单据号由服务端生成。同名歧义须在系统核对后使用维护导出。",
+    kind === "demands" ? "需求清单的导入关联号须唯一，作业位置、预计物资和补充来源均填写相同关联号。位置关联号在同一需求内唯一。插行、排序和删除行均保持关联号。" : "多张结算单请明确明细归属。",
+    "表头上方标有“新增必填”的列在新增时填写；“条件必填”按支线、共塔、作业位置或多单据关系填写。维护时未填写的单元格保持原值。",
+    "表头可以修改显示名称，字段绑定由工作簿自动携带。位置类型、作业方式、杆塔性质和明细动作使用中文下拉选项。",
+    `${KEEP} 保持原值，${CLEAR} 明确清除，空单元格/缺少列保持原值。文本空串请使用 __EMPTY__。`,
+    "明细action填upsert或delete。未出现的工作表或明细行保持原值。",
+    "导入结算只保存草稿。正式提交和审核须在系统内分别操作。",
+    "请勿填写公式。系统不按线路名称、杆号或显示名称模糊匹配。",
+  ])
+    info.addRow([text]);
+
   if (options.lookups) {
     const sheet = workbook.addWorksheet("可选基础数据");
     sheet.columns = [
@@ -689,6 +649,9 @@ export async function errorsWorkbook(issues:WorkbookIssue[]):Promise<Buffer> {
   const workbook = new ExcelJS.Workbook(),
     sheet = workbook.addWorksheet("问题清单");
   sheet.columns = [
+    ["import_ref", "导入关联号"],
+    ["demand_no", "正式需求编号"],
+    ["location_ref", "位置关联号"],
     ["sheet", "工作表"],
     ["row", "行号"],
     ["field", "字段"],

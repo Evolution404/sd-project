@@ -1,3 +1,4 @@
+import type { AttributeValues } from "./operation-attributes.js";
 import type { Actor, ListQuery, Page } from "./contracts.js";
 import type { OperationRecord } from "./work-standards.js";
 import type { WorkObjectRecord } from "./work-standards.js";
@@ -48,12 +49,8 @@ export interface DemandLocationKey {
 
 export type DemandLocationKind = "logical_tower" | "physical_tower" | "span";
 export type DemandWorkMode = "outage" | "non_outage" | "unspecified";
-export interface SiteFeatureValue {
-  factor_version: number;
-  value: unknown;
-}
-export type SiteFeatures = Record<string, SiteFeatureValue>;
 export interface DemandLocationSnapshot {
+  physical_tower_id: string | null;
   line_name: string;
   line_id: string | null;
   voltage_level_id: string | null;
@@ -63,6 +60,7 @@ export interface DemandLocationSnapshot {
   asset_no: string | null;
   physical_code: string;
   tower_type: string | null;
+  tower_nature: string | null;
   span: EquipmentRecord | null;
   location_label: string;
 }
@@ -76,14 +74,14 @@ export interface DemandLocationInput {
   context_line_id?: string | null;
   quantity_scaled: number;
   work_mode?: DemandWorkMode;
-  site_features_json?: string | SiteFeatures;
+  attributes?: AttributeValues;
   location_snapshot_json?: Partial<DemandLocationSnapshot>;
   specification?: string;
 }
-export interface DemandLocation extends Omit<DemandLocationInput, "site_features_json" | "location_snapshot_json"> {
+export interface DemandLocation extends Omit<DemandLocationInput, "attributes" | "location_snapshot_json"> {
   item_no: number;
   work_mode: DemandWorkMode;
-  site_features_json: SiteFeatures;
+  attributes: AttributeValues;
   location_snapshot_json: DemandLocationSnapshot;
 }
 export interface DemandMaterialInput {
@@ -96,6 +94,7 @@ export interface DemandMaterial extends DemandMaterialInput {
   item_no: number;
 }
 export interface DemandSourceInput {
+  action?: "upsert" | "delete";
   id?: string;
   description?: string;
   discovered_on?: string | null;
@@ -114,7 +113,7 @@ export interface DemandWriteInput {
   target_object?: string;
   problem_description?: string;
   completion_standard?: string;
-  custom_fields?: Record<string, unknown>;
+  attributes?: AttributeValues;
   priority_id?: string | null;
   expected_on?: string | null;
   duplicate_decision?: "separate";
@@ -144,13 +143,12 @@ export interface NormalizedDemand {
   span_id: string | null;
   span_version: number | null;
   span_snapshot_json: string | null;
-  observed_physical_tower_id: null;
+  observed_physical_tower_id: string | null;
   context_line_id: string | null;
   line_name_snapshot: string;
   tower_no_snapshot: string;
   physical_code_snapshot: string;
-  custom_fields_json: string;
-  field_definitions_json: string;
+  attributes: AttributeValues;
   work_locations: DemandLocation[];
   materials: DemandMaterial[];
 }
@@ -158,10 +156,13 @@ export interface DemandRecord extends Omit<NormalizedDemand, "materials">, Deman
   deleted: boolean;
   materials: DemandMaterialRow[];
   sources: SourceRow[];
-  custom_fields: Record<string, unknown>;
   binding: { project_id: string; project_scope_id: string; demand_id: string } | null;
 }
 export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand, "materials"> {
+  line_summary?: string;
+  project_name?: string | null;
+  last_handled_at?: string;
+  location_count?: number;
   deleted: boolean;
   binding: DemandRecord["binding"];
 }

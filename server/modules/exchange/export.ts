@@ -3,19 +3,19 @@ import type {System} from "../../bootstrap.js";
 import type {WorkbookKind,WorkbookRow,ExchangeExportOptions} from "../../shared/types/exchange.js";
 import type {DemandRecord} from "../../shared/types/demands.js";
 import type {SettlementWorkflow} from "../../shared/types/finance-workflows.js";
-import type {OperationField} from "../../shared/types/work-standards.js";
+import type {OperationAttribute} from "../../shared/types/operation-attributes.js";
 import {isObject} from "../../shared/types/contracts.js";
 import {authorize} from "../../platform/auth/service.js";
 import {requireValue} from "../../shared/errors/business-error.js";
 import {decimalText} from "../../shared/decimal.js";
-import {makeWorkbook,makeBusinessReport,MAX_DOCUMENTS} from "./workbook.js";
+import {makeWorkbook,makeBusinessReport,MAX_DOCUMENTS,attributeColumn} from "./workbook.js";
 import {createReferences} from "./references.js";
 
 type WorksheetRows = Record<"documents"|"work_locations"|"materials"|"sources"|
-  "items"|"resolutions"|"custom_fields"|"site_features",WorkbookRow[]>;
+  "items"|"resolutions",WorkbookRow[]>;
 function emptyRows():WorksheetRows {
   return {documents:[],work_locations:[],materials:[],sources:[],items:[],
-    resolutions:[],custom_fields:[],site_features:[]};
+    resolutions:[]};
 }
 function sumScaled(rows:readonly unknown[],field:string):bigint {
   return rows.reduce<bigint>((sum,row)=>{
@@ -44,7 +44,6 @@ function effectiveVersion(system:System,key:string):{items:unknown[];resolutions
 }
 function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
   const statuses:Record<string,string>={pending:"待确认",active:"有效",returned:"退回",cancelled:"已取消"};
-  const labels=system.catalog.displayLabels();
   return makeBusinessReport("demands",
     records.map(record=>({
       需求编号:record.demand_no,操作类型:record.operation_snapshot,
@@ -61,9 +60,10 @@ function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
         location.location_snapshot_json.tower_no||location.span_id,
       工作量:decimalText(location.quantity_scaled,4),计量单位:record.unit_snapshot,
       作业方式:location.work_mode==="outage"?"停电":location.work_mode==="non_outage"?"不停电":"未明确",
-      现场特征:Object.entries(location.site_features_json)
-        .map(([code,fact])=>(labels[code+"@"+fact.factor_version]||"历史价格特征")+"="+fact.value)
-        .join(" / "),
+      附加属性: Object.entries(location.attributes).map(([key,value]) => {
+        const field = system.standards.operationAttributes(record.operation_id,record.operation_version).items.find(item=>item.key===key);
+        return (field?.label || key)+"="+String(value);
+      }).join(" / "),
     }))),
   );
 }
@@ -88,50 +88,27 @@ function reportSettlement(system:System,records:SettlementWorkflow[]):Promise<Bu
 }
 function exportDemands(system:System,records:DemandRecord[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();
-  for(const record of records){
-    rows.documents.push({
-      ...record,expected_version:record.current_version,operation_name:record.operation_snapshot,
-    });
-    const start=rows.work_locations.length;
-    rows.work_locations.push(...record.work_locations.map(location=>({
-      ...location,demand_no:record.demand_no,
-      specification:location.location_snapshot_json.specification||"",
-      action:"upsert" as const,line_name:location.location_snapshot_json.line_name,
-      tower_no:location.location_snapshot_json.tower_no||undefined,
-      asset_no:location.physical_tower_id?
-        system.equipment.get("physical",location.physical_tower_id,true).asset_no:undefined,
+  const schemas=new Map<string,OperationAttribute>();
+  const cells=(values: Record<string,unknown>)=>Object.fromEntries(Object.entries(values).map(([key,value])=>[attributeColumn(key),value]));
+  for(const [index,record] of records.entries()){
+    const importRef="XQ"+String(index+1).padStart(3,"0");
+    const adopted=system.standards.operationAttributes(record.operation_id,record.operation_version).items;
+    for(const field of adopted) schemas.set(field.scope+"/"+field.key,field);
+    rows.documents.push({ ...record,import_ref:importRef,expected_version:record.current_version,
+      operation_name:record.operation_snapshot,...cells(record.attributes),
+      primary_source_id:record.sources[0]?.id,primary_source:record.sources[0]?.description,discovered_on:record.sources[0]?.discovered_on });
+    rows.work_locations.push(...record.work_locations.map((location,index)=>({
+      ...location,import_ref:importRef,location_ref:"WZ"+String(index+1).padStart(3,"0"),...cells(location.attributes),
+      specification:location.location_snapshot_json.specification||"",action:"upsert" as const,
+      line_name:location.location_snapshot_json.line_name,tower_no:location.location_snapshot_json.tower_no||undefined,
+      asset_no:location.location_snapshot_json.asset_no||undefined,
     })));
-    record.work_locations.forEach((location,index)=>{
-      for(const [code,feature] of Object.entries(location.site_features_json||{})){
-        const adopted=system.exchangePersistence.factorIdentityAtVersion(
-          code,feature.factor_version);
-        requireValue(adopted,"历史现场特征的采用版本不存在",409);
-        rows.site_features.push({
-          demand_no:record.demand_no,location_row:start+index+2,
-          location_kind:location.location_kind,
-          factor_id:adopted.id,factor_name:adopted.name,value:feature.value,
-        });
-      }
-    });
-    rows.materials.push(...record.materials.map(material=>({
-      ...material,demand_no:record.demand_no,
-      material_name:material.material_name,
-      material_model:material.model,
-      material_specification:material.specification,action:"upsert" as const,
-    })));
-    const fields:OperationField[]=JSON.parse(record.field_definitions_json||"[]");
-    for(const field of fields){
-      if(record.custom_fields?.[field.key]!==undefined)
-        rows.custom_fields.push({
-          demand_no:record.demand_no,field_key:field.key,
-          field_name:field.label,value:record.custom_fields[field.key],
-        });
-    }
-    rows.sources.push(...record.sources.map(source=>({
-      ...source,demand_no:record.demand_no,
-    })));
+    rows.materials.push(...record.materials.map(material=>({ ...material,import_ref:importRef,
+      material_name:material.material_name,material_model:material.model,material_specification:material.specification,
+      unit_name:material.unit_snapshot,action:"upsert" as const })));
+    rows.sources.push(...record.sources.slice(1).map(source=>({...source,import_ref:importRef,action:"upsert" as const})));
   }
-  return makeWorkbook("demands",rows,{lookups:lookups()});
+  return makeWorkbook("demands",rows,{lookups:lookups(),attributes:[...schemas.values()]});
 }
 function exportSettlements(system:System,records:SettlementWorkflow[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();

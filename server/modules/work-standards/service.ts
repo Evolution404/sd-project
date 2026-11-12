@@ -3,18 +3,16 @@ import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
 import type { Actor, ListQuery } from "../../shared/types/contracts.js";
 import { isObject } from "../../shared/types/contracts.js";
+import { validateAttributeSchema } from "../../shared/operation-attributes.js";
+import { quantityPrecisionFromFields } from "../../shared/quantity-precision.js";
 import type {
   OperationRecord,
   OperationVersion,
-  OperationField,
-  PricingFeatureDeclaration,
   WorkObjectRecord,
   WorkObjectScope,
 } from "../../shared/types/work-standards.js";
 import type { DictionaryService } from "../dictionaries/service.js";
-import type { PriceFactorService } from "../pricing/factors.js";
 import { definitionName, definitionStatus } from "../dictionaries/service.js";
-import { validateFactorDefinition } from "../pricing/features.js";
 import { jsonDocument } from "../../shared/json.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import {
@@ -48,7 +46,6 @@ function binary(value: unknown, label: string): 0 | 1 {
 export function createWorkStandards(
   repository: WorkStandardRepository,
   dictionaries: DictionaryService,
-  factors: PriceFactorService,
   database: Pick<Database, "transaction">,
   audit: AuditService,
 ) {
@@ -129,7 +126,7 @@ export function createWorkStandards(
         ),
         work_target_type: scope as WorkObjectScope,
         status,
-        sort_order: previous?.sort_order ?? 100,
+        sort_order: input.sort_order === undefined ? previous?.sort_order ?? 100 : integer(input.sort_order, "显示顺序"),
         reason: typeof input.reason === "string" ? input.reason : "",
         changed_by: actor.id,
         recorded_at: timestamp,
@@ -146,97 +143,22 @@ export function createWorkStandards(
       return result;
     });
   }
-  function extraFields(
-    value: unknown,
-    previous: OperationRecord | null,
-  ): string {
-    const document = jsonDocument(value, "附加字段");
-    requireValue(Array.isArray(document.value), "附加字段须为完整字段清单");
-    const old: OperationField[] = previous
-      ? JSON.parse(previous.fields_json)
-      : [];
-    const fields = document.value.map((field) => {
-      requireValue(isObject(field), "请完整填写附加字段");
-      const key =
-        field.key ||
-        old.find((item) => item.label === field.label)?.key ||
-        id();
-      requireValue(
-        typeof key === "string" &&
-          key &&
-          typeof field.label === "string" &&
-          field.label.trim() &&
-          typeof field.type === "string" &&
-          ["text", "number", "boolean", "date", "select"].includes(
-            field.type,
-          ) &&
-          typeof field.required === "boolean" &&
-          (field.type !== "select" ||
-            (Array.isArray(field.options) &&
-              field.options.length > 0 &&
-              field.options.every((option) => typeof option === "string"))),
-        "请完整填写附加字段名称、类型及可选内容",
-      );
-      return { ...field, key } as OperationField;
-    });
-    requireValue(
-      new Set(fields.map((field) => field.key)).size === fields.length,
-      "附加字段身份不能重复",
-    );
-    requireValue(
-      new Set(fields.map((field) => field.label)).size === fields.length,
-      "附加字段名称不能重复",
-    );
-    return jsonDocument(fields, "附加字段").text;
-  }
-  function declaredFeatures(
-    value: unknown,
-    previous: OperationRecord | null,
-  ): string {
-    const document = jsonDocument(value, "计价所需信息");
-    requireValue(Array.isArray(document.value), "计价所需信息须为完整特征清单");
-    const originals: PricingFeatureDeclaration[] = previous
-        ? JSON.parse(previous.pricing_features_json)
-        : [],
-      used = new Set<string>();
-    for (const declared of document.value) {
-      requireValue(
-        isObject(declared) &&
-          typeof declared.factor_id === "string" &&
-          typeof declared.factor_version === "number" &&
-          Number.isSafeInteger(declared.factor_version) &&
-          typeof declared.required === "boolean" &&
-          typeof declared.source === "string",
-        "请选择正式价格特征并明确是否计价必需",
-      );
-      requireValue(
-        !used.has(declared.factor_id),
-        "同一操作不能重复声明价格特征",
-      );
-      used.add(declared.factor_id);
-      factors.version(declared.factor_id, declared.factor_version);
-      const same = originals.some(
-        (old) =>
-          old.factor_id === declared.factor_id &&
-          old.factor_version === declared.factor_version &&
-          old.source === declared.source &&
-          old.required === declared.required,
-      );
-      requireValue(
-        declared.source === "manual",
-        "新增计价所需信息只能使用现场填写，台账属性请在价格适用条件中配置",
-      );
-      if (!same) {
-        const current = factors.get(declared.factor_id);
-        requireValue(
-          current.status === "active" &&
-            current.version === declared.factor_version,
-          "价格特征已更新或停用，请刷新后重新选择",
-          409,
-        );
+  function attributes(value: unknown): string {
+    const document = jsonDocument(value, "附加属性");
+    requireValue(Array.isArray(document.value), "附加属性须为定义清单");
+    const schema = validateAttributeSchema(document.value.map((field) => {
+      requireValue(isObject(field), "附加属性定义无效");
+      return { ...field, key: field.key || id() };
+    }));
+    for (const field of schema) {
+      if ((field.type === "integer" || field.type === "decimal") && field.unit_id) {
+        const unit = repository.unitVersion(field.unit_id, field.unit_version!);
+        requireValue(unit, "属性计量单位正式版本不存在", 404);
+        requireValue(quantityPrecisionFromFields(unit.fields_json) === field.precision,
+          `${field.label}精度须与采用的计量单位正式版本一致`);
       }
     }
-    return document.text;
+    return jsonDocument(schema, "附加属性").text;
   }
   function saveOperation(
     actor: Actor,
@@ -338,18 +260,8 @@ export function createWorkStandards(
         integer(quantity, "建议数量", 1), adoptedUnit.fields_json, adoptedUnit.name,
         "default_quantity_scaled",
       );
-      const fields = extraFields(
-        input.fields_json === undefined
-          ? previous?.fields_json || []
-          : input.fields_json,
-        previous,
-      );
-      const declarations = declaredFeatures(
-        input.pricing_features_json === undefined
-          ? previous?.pricing_features_json || []
-          : input.pricing_features_json,
-        previous,
-      );
+      const schema = attributes(input.attributes_schema_json === undefined
+        ? previous?.attributes_schema_json || [] : input.attributes_schema_json);
       if (!previous)
         repository.createOperation({
           id: operationId,
@@ -364,7 +276,7 @@ export function createWorkStandards(
           input.name === undefined ? previous?.name : input.name,
         ),
         status,
-        sort_order: previous?.sort_order ?? 100,
+        sort_order: input.sort_order === undefined ? previous?.sort_order ?? 100 : integer(input.sort_order, "显示顺序"),
         work_target_type: scope,
         work_object_id: objectId,
         default_unit_id: unitId,
@@ -378,8 +290,7 @@ export function createWorkStandards(
                 input.completion_standard === ""
               ? null
               : optionalText(input.completion_standard, "默认验收标准"),
-        fields_json: fields,
-        pricing_features_json: declarations,
+        attributes_schema_json: schema,
         allow_tower: allowTower,
         allow_span: allowSpan,
         default_location_kind: defaultLocation as "tower" | "span",
@@ -410,8 +321,7 @@ export function createWorkStandards(
           "default_unit_version",
           "default_quantity_scaled",
           "completion_standard",
-          "fields_json",
-          "pricing_features_json",
+          "attributes_schema_json",
           "allow_tower",
           "allow_span",
           "default_location_kind",
@@ -420,7 +330,7 @@ export function createWorkStandards(
         ] as const;
         requireValue(
           facts.some((key) =>
-            key === "fields_json" || key === "pricing_features_json"
+            key === "attributes_schema_json"
               ? jsonDocument(previous[key], "原操作定义").text !==
                 definition[key]
               : previous[key] !== definition[key],
@@ -454,6 +364,7 @@ export function createWorkStandards(
         item: getOperation(key, true),
         versions: repository.operationHistory(key),
         audits: audit.history("operations", key),
+        adoptions: repository.operationAdoptions(key),
       };
     },
     objectImpact(key: string) {
@@ -501,33 +412,10 @@ export function createWorkStandards(
       getOperation(key, true);
       return repository.operationHistory(key);
     },
-    operationPriceFeatures(key: string, version?: number) {
-      const selected = version
-        ? operationVersion(key, version)
-        : getOperation(key, true);
-      const items = repository
-        .pricingFeatures(key, selected.version)
-        .map((row) => {
-          requireValue(
-            row.code && row.name && row.fields_json,
-            "价格特征正式定义不存在",
-            409,
-          );
-          const declaration: PricingFeatureDeclaration = JSON.parse(
-            row.declaration_json,
-          );
-          return {
-            ...declaration,
-            code: row.code,
-            name: row.name,
-            definition: validateFactorDefinition(JSON.parse(row.fields_json)),
-            unit: row.unit_name || "",
-            current_version: row.current_version,
-            current_status: row.current_status,
-            current_name: row.current_name,
-          };
-        });
-      return { operation_id: key, operation_version: selected.version, items };
+    operationAttributes(key: string, version?: number) {
+      const selected = version ? operationVersion(key, version) : getOperation(key, true);
+      return { operation_id: key, operation_version: selected.version,
+        items: validateAttributeSchema(JSON.parse(selected.attributes_schema_json)) };
     },
     removeObject(
       actor: Actor,

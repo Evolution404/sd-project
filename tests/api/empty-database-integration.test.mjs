@@ -1,3 +1,4 @@
+import { attribute } from "../helpers.mjs";
 import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -49,14 +50,10 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
     transmission_center_length_mm: 123000, status: "draft",
   });
   assert.equal(s.catalog.list("spans")[0].transmission_center_length_mm, 123000);
-  const factor = save("factors", {
-    name: "施工难度", fields_json: { kind: "enum", values: ["普通", "困难"] },
-  });
+  const factor = attribute();
   const operation = save("operations", {
     name: "安装防鸟装置", work_object_id: object.id, default_unit_id: unit.id,
-    pricing_features_json: [{
-      factor_id: factor.id, factor_version: 1, required: true, source: "manual",
-    }],
+    attributes_schema_json: [factor],
   });
   const material = save("materials", { name: "防鸟装置材料", unit_id: unit.id, model: "A1" });
   const priority = save("priorities", { name: "紧急" });
@@ -68,11 +65,11 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
     title: "防鸟装置安装普通条件", operation_id: operation.id,
     pricing_mode: "per_unit", unit_price_fen: 3000,
     additional_conditions_json: {
-      [factor.code]: { factor_version: 1, op: "eq", value: "普通" },
+      [factor.key]: { op: "eq", value: "普通" },
     },
     price_source: "空库测试", price_date: "2026-01-01", effective_on: "2026-01-01", basis: "测试",
   });
-  assert.equal(s.catalog.operationPriceFeatures(operation.id).items[0].name, "施工难度");
+  assert.equal(s.catalog.operationAttributes(operation.id).items[0].label, "施工难度");
   const pricePreview = s.catalog.previewPrice(user, {
     ...price, existing_id: price.id, sample_quantity_scaled: 25000,
   });
@@ -83,7 +80,6 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
   const checks = [
     ["prices", price, { title: "防鸟装置安装普通条件修订" }],
     ["operations", operation, { name: "安装防鸟设施" }],
-    ["factors", factor, { name: "现场难度" }],
     ["materials", material, { model: "A2" }],
     ["spans", span, { transmission_center_length_mm: 124000 }],
     ["towers", tower1, { display_name: "甲线15号" }],
@@ -119,13 +115,11 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
   const { s, user, save, reopen } = blank(t);
   const unit = save("units", { name: "套" });
   const object = save("objects", { name: "防鸟装置", work_target_type: "physical" });
-  const factor = save("factors", { name: "施工难度",
-    fields_json: { kind: "enum", values: ["普通", "困难"] } });
+  const factor = attribute();
   const operation = save("operations", { name: "安装防鸟装置",
     work_object_id: object.id, default_unit_id: unit.id,
     completion_standard: "安装牢固",
-    pricing_features_json: [{ factor_id: factor.id, factor_version: 1,
-      source: "manual", required: true }] });
+    attributes_schema_json: [factor] });
   const tower = save("physical", { asset_no: "FRESH-T1", tower_type: "angle" });
   const price = save("prices", { title: "安装参考价", operation_id: operation.id,
     pricing_mode: "base_plus_unit", base_fee_fen: 10000, unit_price_fen: 2000,
@@ -136,7 +130,7 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
     operation_id: operation.id, problem_description: "缺少防鸟设施",
     work_locations: [{ location_kind: "physical_tower", physical_tower_id: tower.id,
       quantity_scaled: 20000,
-      site_features_json: { [factor.code]: { factor_version: 1, value: "普通" } } }],
+      attributes: { [factor.key]: "普通" } }],
     sources: [{ description: "班组巡视" }],
   });
   const originalDemand = demand.id;
@@ -144,7 +138,7 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
     operation_id: operation.id, expected_version: 1, problem_description: "需安装防鸟装置",
     work_locations: [{ location_kind: "physical_tower", physical_tower_id: tower.id,
       quantity_scaled: 30000,
-      site_features_json: { [factor.code]: { factor_version: 1, value: "困难" } } }],
+      attributes: { [factor.key]: "困难" } }],
     sources: demand.sources,
   }, demand.id);
   assert.equal(demand.current_version, 2);

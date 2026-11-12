@@ -24,12 +24,13 @@ for (const count of [100, 1000, 5000])
       work_locations = [];
     for (let i = 0; i < count; i++) {
       documents.push({
+        import_ref: `XQ${i}`,
         operation_name: operation.name,
         problem_description: "批量巡视事实",
         completion_standard: "安装牢固",
       });
       work_locations.push({
-        document_row: i + 2,
+        import_ref: `XQ${i}`,
         location_kind: "physical_tower",
         asset_no: `BULK-${i}`,
         quantity_scaled: 10000,

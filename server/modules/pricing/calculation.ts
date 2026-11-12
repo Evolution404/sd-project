@@ -1,4 +1,6 @@
-import type { PricingRule, PricingParameters, PricingTrace, QuantityBracket, FeeComponent, CalculationResult, ApplicablePriceRule, OperationPricingIdentity, PricingLocation, PriceCondition, SiteFeature } from "./model.js";
+import { attributeNumber } from "../../shared/operation-attributes.js";
+import type { AttributeValues } from "../../shared/types/operation-attributes.js";
+import type { PricingRule, PricingParameters, PricingTrace, QuantityBracket, FeeComponent, CalculationResult, ApplicablePriceRule, OperationPricingIdentity, PricingLocation, PriceCondition } from "./model.js";
 import { requireValue, integer } from "../../shared/errors/business-error.js";
 export const ENGINE_VERSION = "schema113-fixed-1";
 export function safeAmount(value: bigint): number {
@@ -168,22 +170,28 @@ export function explainMismatch(rule: ApplicablePriceRule, operation: OperationP
     reasons.push("作业规格不符合");
   if (rule.work_mode !== "both" && rule.work_mode !== location.work_mode)
     reasons.push("停电方式不符合");
-  const actual: Record<string, SiteFeature> = typeof location.site_features_json === "string"
-    ? JSON.parse(location.site_features_json) : (location.site_features_json || {});
+  const locationValues: AttributeValues = typeof location.attributes === "string"
+    ? JSON.parse(location.attributes) : location.attributes || {};
+  const demandValues: AttributeValues = typeof location.demand_attributes === "string"
+    ? JSON.parse(location.demand_attributes) : location.demand_attributes || operation.attributes || {};
+  const actual = { ...demandValues, ...locationValues };
   const conditions: Record<string, PriceCondition> = typeof rule.additional_conditions_json === "string"
     ? JSON.parse(rule.additional_conditions_json || "{}") : (rule.additional_conditions_json || {});
   for (const [key, condition] of Object.entries(conditions)) {
-    const feature = actual[key];
-    if (!feature || feature.factor_version !== condition.factor_version) {
-      reasons.push("现场特征缺失或正式版本不同：" + key);
-    } else if (condition.op === "eq" && feature.value !== condition.value) {
-      reasons.push("现场特征取值不符合：" + key);
-    } else if (condition.op === "range" && (typeof feature.value !== "number" || !Number.isSafeInteger(feature.value) ||
-        condition.min == null || condition.max == null || feature.value < condition.min || feature.value > condition.max)) {
-      reasons.push("现场特征超出适用范围：" + key);
-    } else if (!["eq", "range"].includes(condition.op)) {
-      reasons.push("现场特征匹配方式无效：" + key);
-    }
+    const value = actual[key];
+    const field = operation.attribute_schema?.find((item) => item.key === key);
+    if (value === undefined || value === null || value === "") {
+      reasons.push("附加属性缺失：" + key);
+    } else if (condition.op === "range") {
+      if ((typeof value !== "number" && typeof value !== "string") || condition.min === undefined || condition.max === undefined ||
+        attributeNumber(value, 4, "实际属性") < attributeNumber(condition.min, 4, "条件") ||
+        attributeNumber(value, 4, "实际属性") > attributeNumber(condition.max, 4, "条件"))
+        reasons.push("附加属性超出适用范围：" + key);
+    } else if (condition.op === "eq") {
+      const numeric = field?.type === "integer" || field?.type === "decimal";
+      if (numeric ? attributeNumber(value, field.precision, field.label) !== attributeNumber(condition.value, field.precision, field.label) : value !== condition.value)
+        reasons.push("附加属性取值不符合：" + key);
+    } else reasons.push("附加属性匹配方式无效：" + key);
   }
   return reasons;
 }

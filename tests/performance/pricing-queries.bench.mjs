@@ -11,7 +11,7 @@ import { createPriceRules } from "../../dist/server/modules/pricing/rules.js";
 import { createWorkStandards } from "../../dist/server/modules/work-standards/service.js";
 import { parseListQuery } from "../../dist/server/platform/http/list-query.js";
 
-test("100-location pricing has a fixed five reads and approval summary has two targeted reads", (t) => {
+test("100-location pricing has a fixed four reads and approval summary has two targeted reads", (t) => {
   const { s, user, save, operation, demandInput } = fixture(t);
   const towers = s.database.transaction(() =>
     Array.from({ length: 100 }, (_, index) =>
@@ -42,7 +42,6 @@ test("100-location pricing has a fixed five reads and approval summary has two t
   const standards = createWorkStandards(
     standardRepository,
     s.dictionaries,
-    s.factors,
     s.database,
     s.audit,
   );
@@ -64,7 +63,7 @@ test("100-location pricing has a fixed five reads and approval summary has two t
   const quote = pricing.quote(user, demand.id, { expected_version: 1 });
   assert.equal(quote.complete, true);
   assert.equal(quote.lines.length, 100);
-  assert.equal(reads, 5);
+  assert.equal(reads, 4);
   reads = 0;
   const summary = pricing.summary("no-such-approval");
   assert.equal(reads, 2);
@@ -91,7 +90,7 @@ test("100-location pricing has a fixed five reads and approval summary has two t
     "PRICING_SQL_BENCH",
     JSON.stringify({
       locations: 100,
-      quoteReads: 5,
+      quoteReads: 4,
       summaryReads: 2,
       listReads: 2,
       elapsedMs: Math.round(performance.now() - began),

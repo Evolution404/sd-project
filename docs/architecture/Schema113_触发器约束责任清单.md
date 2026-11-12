@@ -124,7 +124,7 @@
 | `operation_versions` | `immutable_operation_version_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `operation_versions` | `immutable_operation_version_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `operation_versions` | `object_type_guard_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
-| `operation_versions` | `operation_pricing_feature_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `operation_versions` | `operation_attribute_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `operation_versions` | `operation_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `operation_versions` | `operation_version_sequential_insert` | BEFORE/INSERT | 正式历史版本约束 |
 | `operations` | `operation_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
@@ -225,7 +225,7 @@
 | `reference_price_evaluations` | `reference_price_evaluation_insert_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `reference_price_versions` | `immutable_reference_price_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `reference_price_versions` | `immutable_reference_price_update` | BEFORE/UPDATE | 不可变历史或身份 |
-| `reference_price_versions` | `reference_price_factor_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `reference_price_versions` | `reference_price_attribute_definition_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `reference_price_versions` | `reference_price_formula_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `reference_price_versions` | `reference_price_quantity_bracket_guard` | BEFORE/INSERT | 正式历史版本约束 |
 | `reference_price_versions` | `reference_price_unit_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
@@ -271,3 +271,5 @@
 | `work_objects` | `work_object_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 
 | `project_approval_versions` | `project_approval_withdraw_guard` | 正式历史版本约束 | 草稿删除先写不可变撤回决定，保留已确认核价及全部范围历史；禁止伪造批准或覆盖原文 |
+
+| `demand_versions` | `demand_attribute_identity_guard` | INSERT | 需求级属性身份必须来自所采用操作正式版本，位置属性独立层级 |

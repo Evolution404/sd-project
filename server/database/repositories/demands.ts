@@ -15,7 +15,6 @@ interface SpanHistory {
   status: EquipmentStatus;
   transmission_center_length_mm: number | null;
 }
-interface FactorIdentity { id: string; code: string; }
 const candidateListSource: ListSource = {
   sql: "SELECT v.*, d.created_at, " +
     "json_extract(v.full_definition_json,'$.operation_snapshot') AS operation_snapshot, " +
@@ -100,15 +99,6 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
     },
     spanVersion(id: string, version: number): SpanHistory | undefined {
       return store.get("SELECT * FROM line_span_history WHERE span_id=? AND version_no=?", id, version) as SpanHistory | undefined;
-    },
-    factor(id: string): FactorIdentity | undefined {
-      return store.get("SELECT id,code FROM dictionary_items WHERE id=?", id) as FactorIdentity | undefined;
-    },
-    factorByCode(code: string): FactorIdentity | undefined {
-      return store.get("SELECT id,code FROM dictionary_items WHERE type_id='price_factor' AND code=?", code) as FactorIdentity | undefined;
-    },
-    factorVersion(id: string, version: number): DictionaryVersion | undefined {
-      return store.get("SELECT * FROM dictionary_item_versions WHERE item_id=? AND version=?", id, version) as DictionaryVersion | undefined;
     },
     duplicates(operationId: string, locations: DemandLocationKey[], exceptId?: string) {
       const probes = (["logical_tower_id","physical_tower_id","span_id"] as const)

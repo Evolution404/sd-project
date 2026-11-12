@@ -21,11 +21,11 @@ export async function handleWorkStandards(
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
   const service = system.standards,
     operation = key === "operations";
-  if (operation && subKey === "pricing-definitions") {
-    requireValue(read, "价格特征定义只允许查询", 405);
+  if (operation && subKey === "attributes") {
+    requireValue(read, "附加属性定义只允许查询", 405);
     const parameter = url.searchParams.get("version");
     return {
-      result: service.operationPriceFeatures(
+      result: service.operationAttributes(
         sub,
         parameter === null ? undefined : Number(parameter),
       ),

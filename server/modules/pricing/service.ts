@@ -155,33 +155,28 @@ export function createPricing(
       lines: QuoteLine[] = [];
     const effectiveRules = rules.effectiveLocationRules(date),
       diagnosticRules = rules.latestLocationRules();
-    const features = standards.operationPriceFeatures(
+    const features = standards.operationAttributes(
       demand.operation_id,
       demand.operation_version,
     ).items;
+    demand.attribute_schema = features;
     const labels = Object.fromEntries(
-      features.map((feature) => [feature.code, feature.name]),
+      features.map((feature) => [feature.key, feature.label]),
     );
     const selections = record(input.selections, "选择规则"),
       selectionBasis = record(input.selection_basis, "选价依据"),
       locationBases = record(input.bases, "逐位置计费基数");
     for (const [index, location] of locations.entries()) {
       const itemNo = location.item_no || index + 1;
-      const actual =
-        typeof location.site_features_json === "string"
-          ? JSON.parse(location.site_features_json)
-          : location.site_features_json || {};
-      const missingFeatures = features.filter(
-        (feature) =>
-          feature.required &&
-          actual[feature.code]?.factor_version !== feature.factor_version,
-      );
+      const actual = { ...demand.attributes, ...(typeof location.attributes === "string" ? JSON.parse(location.attributes) : location.attributes) };
+      const missingFeatures = features.filter((field) => field.enabled && field.requirement === "pricing" &&
+        (actual[field.key] === undefined || actual[field.key] === null || actual[field.key] === ""));
       if (missingFeatures.length) {
         missing.push({
           location_item_no: itemNo,
           reason:
             "缺少计价必需信息：" +
-            missingFeatures.map((feature) => feature.name).join("、"),
+            missingFeatures.map((feature) => feature.label).join("、"),
           candidates: [],
         });
         continue;
@@ -263,6 +258,9 @@ export function createPricing(
         amount_fen: result.amount_fen,
         calculation_inputs_json: JSON.stringify({
           location,
+          demand_attributes: demand.attributes,
+          operation_id: demand.operation_id,
+          operation_version: demand.operation_version,
           bases: locationBases[itemNo] || {},
           selection_basis: selectionBasis[itemNo] || null,
         }),
@@ -318,7 +316,9 @@ export function createPricing(
       pricing_date: date,
       status: "draft",
       engine_version: ENGINE_VERSION,
-      input_basis_json: JSON.stringify({ scope: scope?.id || null, locations }),
+      input_basis_json: JSON.stringify({ scope: scope?.id || null, locations,
+        demand_attributes: demand.attributes, operation_id: demand.operation_id,
+        operation_version: demand.operation_version }),
       created_by: actor.id,
       created_at: timestamp,
     });

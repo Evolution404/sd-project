@@ -123,7 +123,7 @@ price_fields={r["name"] for r in db.execute(
 assert {"operation_id","operation_version","unit_id","unit_version",
         "voltage_level_id","tower_type","work_mode",
         "additional_conditions_json","effective_on"}<=price_fields
-assert "reference_price_factor_definition_guard" in triggers
+assert "reference_price_attribute_definition_guard" in triggers
 # One physical location may have several installed devices, using an
 # immutable per-item, per-location-base, or quantity-bracket reference rule.
 assert {"pricing_mode","base_fee_fen","unit_price_fen",
@@ -132,9 +132,9 @@ assert "reference_price_quantity_bracket_guard" in triggers
 # Round16: operation type and immutable work-object/material definitions are
 # independent. Exact price-factor definitions, per-location work and price
 # evidence are normalized, rather than a new mutable reference-total column.
-assert "pricing_features_json" in {r["name"] for r in db.execute(
+assert "attributes_schema_json" in {r["name"] for r in db.execute(
     "PRAGMA table_xinfo(operation_versions)")}
-assert "operation_pricing_feature_definition_guard" in triggers
+assert "operation_attribute_definition_guard" in triggers
 assert "demand_version_work_locations" in tables
 assert "demand_version_work_locations_publish" in triggers
 assert "demand_work_location_immutable_insert" in triggers
@@ -145,7 +145,7 @@ assert {"initial_work_locations_json"} <= {r["name"] for r in
 work_locations={r["name"] for r in db.execute(
     "PRAGMA table_xinfo(demand_version_work_locations)")}
 assert {"demand_id","demand_version","item_no","location_kind",
-        "quantity_scaled","work_mode","site_features_json",
+        "quantity_scaled","work_mode","attributes_json",
         "location_snapshot_json"}<=work_locations
 for name in ("uq_demand_location_physical",
              "uq_demand_location_logical","uq_demand_location_span"):

@@ -25,7 +25,7 @@ function counts(system) {
     workObjects: system.catalog.list("objects").length,
     operations: system.catalog.list("operations").length,
     materials: system.catalog.list("materials").length,
-    priceFeatures: system.catalog.list("factors").length,
+    priceFeatures: system.standards.operations().reduce((sum,op)=>sum+JSON.parse(op.attributes_schema_json).length,0),
     priceRules: system.catalog.list("prices").length,
     demands: system.demands.list().length,
     frameworks: system.catalog.list("frameworks").length,
@@ -103,18 +103,14 @@ function populate(system, password) {
     const conductor = add("objects", {
       name: "导线", code: "DEMO-WO-CONDUCTOR", work_target_type: "line",
     });
-    const difficulty = add("factors", {
-      name: "【演示】现场作业难度", code: "DEMO-PRICE-DIFFICULTY",
-      fields_json: { kind: "enum", values: ["常规", "复杂"] },
-    });
+    const difficulty = { key: "demo-difficulty", label: "【演示】现场作业难度", scope: "location", source: "manual", type: "select",
+      requirement: "pricing", pricing: true, enabled: true, sort_order: 1, hint: "",
+      options: [{value:"常规",label:"常规"},{value:"复杂",label:"复杂"}] };
     const birdOperation = add("operations", {
       name: "安装防鸟装置", code: "DEMO-OP-BIRD",
       work_object_id: bird.id, default_unit_id: unitSet.id,
       completion_standard: "防鸟装置安装牢固、方向正确，现场验收合格",
-      pricing_features_json: [{
-        factor_id: difficulty.id, factor_version: 1,
-        source: "manual", required: true,
-      }],
+      attributes_schema_json: [difficulty],
     });
     const insulatorOperation = add("operations", {
       name: "更换绝缘子串", code: "DEMO-OP-INSULATOR",
@@ -164,13 +160,13 @@ function populate(system, password) {
     rule("【演示】防鸟安装—常规施工", "DEMO-PRICE-BIRD-EASY",
       birdOperation, 3600, {
         additional_conditions_json: {
-          [difficulty.code]: { factor_version: 1, op: "eq", value: "常规" },
+          [difficulty.key]: { op: "eq", value: "常规" },
         },
       });
     rule("【演示】防鸟安装—复杂施工", "DEMO-PRICE-BIRD-HARD",
       birdOperation, 5200, {
         additional_conditions_json: {
-          [difficulty.code]: { factor_version: 1, op: "eq", value: "复杂" },
+          [difficulty.key]: { op: "eq", value: "复杂" },
         },
       });
     rule("【演示】绝缘子串更换", "DEMO-PRICE-INSULATOR",
@@ -190,16 +186,16 @@ function populate(system, password) {
           location_kind: "physical_tower",
           physical_tower_id: towers220[0].physical.id,
           quantity_scaled: 20000,
-          site_features_json: {
-            [difficulty.code]: { factor_version: 1, value: "常规" },
+          attributes: {
+            [difficulty.key]: "常规",
           },
         },
         {
           location_kind: "physical_tower",
           physical_tower_id: towers220[1].physical.id,
           quantity_scaled: 30000,
-          site_features_json: {
-            [difficulty.code]: { factor_version: 1, value: "复杂" },
+          attributes: {
+            [difficulty.key]: "复杂",
           },
         },
       ],

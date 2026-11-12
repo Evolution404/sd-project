@@ -176,11 +176,6 @@ INSERT INTO role_permissions(role,permission_code) VALUES
  ('verifier','settlement.approve'),('verifier','demand.activate'),
  ('verifier','cost.confirm');
 CREATE TABLE dictionary_types (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL) STRICT;
--- Built-in pricing factor category; actual factors are configured as normal
--- versioned dictionary entries, never as hard-coded price table columns.
-INSERT INTO dictionary_types(id,title) VALUES('price_factor','参考价适用因素');
-
-
 -- Ordinary selectable dictionary values only; job operations are first-class.
 
 CREATE TABLE dictionary_items (
@@ -231,9 +226,8 @@ CREATE TABLE operation_versions (
  default_unit_version INTEGER NOT NULL CHECK(default_unit_version>0),
  default_quantity_scaled INTEGER CHECK(default_quantity_scaled IS NULL OR default_quantity_scaled>0),
  completion_standard TEXT,
- fields_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(fields_json)),
- pricing_features_json TEXT NOT NULL DEFAULT '[]'
-  CHECK(json_valid(pricing_features_json) AND json_type(pricing_features_json)='array'),
+ attributes_schema_json TEXT NOT NULL DEFAULT '[]'
+  CHECK(json_valid(attributes_schema_json) AND json_type(attributes_schema_json)='array'),
  allow_tower INTEGER NOT NULL CHECK(allow_tower IN (0,1)),
  allow_span INTEGER NOT NULL CHECK(allow_span IN (0,1)),
  default_location_kind TEXT NOT NULL CHECK(default_location_kind IN ('tower','span')),
@@ -297,8 +291,8 @@ CREATE TABLE demands (
  -- root status/version/confirmed_at/updated_at would be false duplicates.
  created_by TEXT NOT NULL REFERENCES users(id),
  created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0))),
- custom_fields_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(custom_fields_json)),
- field_definitions_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(field_definitions_json)),
+ initial_attributes_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(initial_attributes_json) AND json_type(initial_attributes_json)='object'),
  -- The original V1 source list; after publication, demand_versions.snapshot_json
  -- becomes the immutable authoritative complete location list for each version.
  initial_work_locations_json TEXT NOT NULL DEFAULT '[]'
@@ -398,10 +392,7 @@ CREATE TABLE demand_versions (
   (work_target_type='physical' AND physical_tower_id IS NOT NULL
    AND logical_tower_id IS NULL AND span_id IS NULL AND span_version IS NULL
    AND observed_physical_tower_id IS NULL)),
- CHECK(json_type(snapshot_json,'$.custom_fields_json') IS NULL OR
-  json_valid(json_extract(snapshot_json,'$.custom_fields_json'))),
- CHECK(json_type(snapshot_json,'$.field_definitions_json') IS NULL OR
-  json_valid(json_extract(snapshot_json,'$.field_definitions_json')))
+ CHECK(json_type(snapshot_json,'$.attributes') IS NULL OR json_type(snapshot_json,'$.attributes')='object')
 ) STRICT;
 
 -- Historical expected material list belongs to a DEMAND VERSION.
@@ -733,8 +724,8 @@ CREATE TABLE reference_price_versions (
  work_mode TEXT NOT NULL DEFAULT 'both'
   CHECK(work_mode IN ('outage','non_outage','both')),
  specification TEXT NOT NULL DEFAULT '',
- -- Immutable additional applicability predicates: stable factor codes keyed
- -- to exact dictionary definition versions (enum equality or integer range).
+ -- Immutable predicates keyed by the adopted operation attribute identity.
+ -- Choice/boolean equality and exact fixed-point numeric equality/ranges.
  -- Application matches input context, detects rule overlaps and snapshots
  -- selected rule/inputs into the approved price basis.
  additional_conditions_json TEXT NOT NULL DEFAULT '{}'
@@ -1835,15 +1826,8 @@ BEGIN SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM operation_versions o
  AND o.default_unit_id=NEW.unit_id)
  THEN RAISE(ABORT,'参考价格单位必须与操作类型固定单位一致') END; END;
 
--- Extensible price factors reuse the existing VERSIONED dictionary:
--- dictionary_types.id='price_factor'; item.code is a stable factor key;
--- item version fields_json.kind is either 'enum' or 'number'.
--- Every rule atomically embeds its full typed predicates in its immutable
--- reference_price_versions row; an older rule pins the exact factor version.
--- Category-match/pricing search itself remains an application function.
--- A single location-specific rule can price 1/2/3/... devices; price
--- quantity is NOT the number of towers. Brackets are immutable and validated
--- for non-overlap and well-defined per-band pricing.
+-- Rule predicates refer to the adopted operation attribute schema.
+-- Exact typed matching and decimal evaluation belong to the application domain.
 CREATE TRIGGER reference_price_quantity_bracket_guard
  BEFORE INSERT ON reference_price_versions
 BEGIN
@@ -1883,68 +1867,20 @@ BEGIN
         json_extract(second.value,'$.min_quantity_scaled')
  ) THEN RAISE(ABORT,'计价分档范围必须按数量递增且互不重叠') END;
 END;
--- A pure active -> inactive version is a formal withdrawal, not a new
--- price or applicability definition. Preserve the preceding validated
--- predicate versions unchanged even if a factor has subsequently evolved.
--- Every other INSERT remains subject to the latest-factor validation.
-CREATE TRIGGER reference_price_factor_definition_guard
+CREATE TRIGGER reference_price_attribute_definition_guard
  BEFORE INSERT ON reference_price_versions
- WHEN NOT (NEW.status='inactive' AND EXISTS(
- SELECT 1 FROM reference_price_versions prev
- WHERE prev.catalog_id=NEW.catalog_id AND prev.version_no=NEW.version_no-1
- AND prev.status='active'
- AND prev.title=NEW.title
- AND prev.operation_id=NEW.operation_id
- AND prev.operation_version=NEW.operation_version
- AND prev.unit_id=NEW.unit_id AND prev.unit_version=NEW.unit_version
- AND prev.voltage_level_id IS NEW.voltage_level_id
- AND prev.tower_type IS NEW.tower_type
- AND prev.work_mode=NEW.work_mode
- AND prev.specification=NEW.specification
- AND prev.additional_conditions_json=NEW.additional_conditions_json
- AND prev.pricing_mode=NEW.pricing_mode
- AND prev.pricing_scope=NEW.pricing_scope
- AND prev.calculation_params_json=NEW.calculation_params_json
- AND prev.fee_components_json=NEW.fee_components_json
- AND prev.base_fee_fen=NEW.base_fee_fen
- AND prev.unit_price_fen=NEW.unit_price_fen
- AND prev.quantity_brackets_json=NEW.quantity_brackets_json
- AND prev.price_source=NEW.price_source
- AND prev.price_date=NEW.price_date
- AND prev.effective_on=NEW.effective_on
- AND prev.basis=NEW.basis
- ))
 BEGIN
+ SELECT CASE WHEN EXISTS(SELECT key FROM json_each(NEW.additional_conditions_json) GROUP BY key HAVING COUNT(*)>1)
+ THEN RAISE(ABORT,'价格条件属性身份不能重复') END;
  SELECT CASE WHEN EXISTS(
-  SELECT 1 FROM json_each(NEW.additional_conditions_json) j
-  GROUP BY j.key HAVING COUNT(*)>1
- ) THEN RAISE(ABORT,'参考价扩展价格因素不能重复声明') END;
- SELECT CASE WHEN EXISTS(
-  SELECT 1 FROM json_each(NEW.additional_conditions_json) j
-  LEFT JOIN dictionary_items f
-   ON f.type_id='price_factor' AND f.code=j.key
-  LEFT JOIN dictionary_item_versions fv ON fv.item_id=f.id
-   AND fv.version=json_extract(j.value,'$.factor_version')
-  WHERE f.id IS NULL OR fv.id IS NULL
-   OR fv.status<>'active' OR fv.changed_at>NEW.created_at
-   OR fv.version<>(
-     SELECT MAX(vers.version) FROM dictionary_item_versions vers
-     WHERE vers.item_id=f.id)
-   OR json_type(j.value)<>'object'
-   OR json_type(j.value,'$.factor_version')<>'integer'
-   OR COALESCE((
-    (json_extract(fv.fields_json,'$.kind')='enum'
-      AND json_extract(j.value,'$.op')='eq'
-      AND json_type(j.value,'$.value')='text'
-      AND length(trim(json_extract(j.value,'$.value')))>0)
-    OR
-    (json_extract(fv.fields_json,'$.kind')='number'
-      AND json_extract(j.value,'$.op')='range'
-      AND json_type(j.value,'$.min')='integer'
-      AND json_type(j.value,'$.max')='integer'
-      AND json_extract(j.value,'$.min')<=json_extract(j.value,'$.max'))
-   ),0)=0
- ) THEN RAISE(ABORT,'参考价格扩展因素须引用有效的正式定义版本并使用正确值类型') END;
+  SELECT 1 FROM json_each(NEW.additional_conditions_json) condition
+  WHERE NOT EXISTS(
+   SELECT 1 FROM operation_versions ov JOIN json_each(ov.attributes_schema_json) attribute
+   WHERE ov.operation_id=NEW.operation_id AND ov.version=NEW.operation_version
+    AND json_extract(attribute.value,'$.key')=condition.key
+    AND json_extract(attribute.value,'$.enabled')=1
+    AND json_extract(attribute.value,'$.pricing')=1)
+ ) THEN RAISE(ABORT,'价格条件须引用采用操作正式版本的有效计价属性') END;
 END;
 
 
@@ -2031,7 +1967,7 @@ CREATE VIEW v_operation_current AS
 SELECT o.id,o.code,o.created_at,
  v.id AS current_version_id,v.version,v.name,v.status,v.sort_order,
  v.work_target_type,v.work_object_id,v.default_unit_id,v.default_unit_version,
- v.default_quantity_scaled,v.completion_standard,v.fields_json,
+ v.default_quantity_scaled,v.completion_standard,v.attributes_schema_json,
  v.allow_tower,v.allow_span,v.default_location_kind,v.default_target_object,
  v.entry_hint,v.changed_at AS updated_at
 FROM operations o JOIN operation_versions v ON v.operation_id=o.id
@@ -2751,8 +2687,7 @@ BEGIN
  AND prev.default_unit_version=NEW.default_unit_version
  AND prev.default_quantity_scaled IS NEW.default_quantity_scaled
  AND prev.completion_standard IS NEW.completion_standard
- AND prev.fields_json=NEW.fields_json
- AND prev.pricing_features_json=NEW.pricing_features_json
+ AND prev.attributes_schema_json=NEW.attributes_schema_json
  AND prev.allow_tower=NEW.allow_tower AND prev.allow_span=NEW.allow_span
  AND prev.default_location_kind=NEW.default_location_kind
  AND prev.default_target_object=NEW.default_target_object
@@ -3043,7 +2978,7 @@ BEGIN
  'observed_physical_tower_id',NEW.observed_physical_tower_id,
  'context_line_id',NEW.context_line_id,'span_id',NEW.span_id,
  'span_version',NEW.span_version,'span_snapshot_json',NEW.span_snapshot_json,
- 'custom_fields_json',NEW.custom_fields_json,'field_definitions_json',NEW.field_definitions_json,
+ 'attributes',json(NEW.initial_attributes_json),
  'work_locations',CASE WHEN json_array_length(NEW.initial_work_locations_json)>0
  THEN json(NEW.initial_work_locations_json)
  ELSE json_array(json_object(
@@ -3055,7 +2990,7 @@ BEGIN
     'span_id',NEW.span_id,'span_version',NEW.span_version,
     'quantity_scaled',NEW.quantity_scaled,
     'work_mode','unspecified',
-    'site_features_json',json('{}'),
+    'attributes',json('{}'),
     'location_snapshot_json',json_object(
       'line_name',NEW.line_name_snapshot,'tower_no',NEW.tower_no_snapshot,
       'physical_code',NEW.physical_code_snapshot))) END),
@@ -3070,19 +3005,19 @@ BEGIN
  INSERT INTO demand_versions(demand_id,version,quantity_scaled,operation_id,
  operation_version,work_object_id,unit_id,unit_version,snapshot_json,recorded_by,recorded_at)
  SELECT NEW.demand_id,NEW.version,
- json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.quantity_scaled'),
- json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.operation_id'),
- json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.operation_version'),
- json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.work_object_id'),
- json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.unit_id'),
- json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.unit_version'),
+ json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.quantity_scaled'),
+ json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.operation_id'),
+ json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.operation_version'),
+ json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.work_object_id'),
+ json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.unit_id'),
+ json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.unit_version'),
  CASE WHEN json_type(NEW.snapshot_json,'$.quantity_scaled')='integer'
   AND json_type(NEW.snapshot_json,'$.work_locations') IS NULL
   AND json_array_length(prev.snapshot_json,'$.work_locations')=1
- THEN json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),
+ THEN json_set(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),
   '$.work_locations[0].quantity_scaled',
-  json_extract(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.quantity_scaled'))
- ELSE json_patch(prev.snapshot_json,NEW.snapshot_json) END,
+  json_extract(json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))),'$.quantity_scaled'))
+ ELSE json_set(json_patch(prev.snapshot_json,NEW.snapshot_json),'$.attributes',json(COALESCE(json_extract(NEW.snapshot_json,'$.attributes'),json_extract(prev.snapshot_json,'$.attributes'),'{}'))) END,
  NEW.changed_by,NEW.changed_at
  FROM demand_versions prev
  WHERE prev.demand_id=NEW.demand_id AND prev.version=NEW.version-1;
@@ -3124,10 +3059,10 @@ BEGIN
  AND (CASE WHEN json_type(r.snapshot_json,'$.quantity_scaled')='integer'
   AND json_type(r.snapshot_json,'$.work_locations') IS NULL
   AND json_array_length(prior.snapshot_json,'$.work_locations')=1
- THEN json_set(json_patch(prior.snapshot_json,r.snapshot_json),
+ THEN json_set(json_set(json_patch(prior.snapshot_json,r.snapshot_json),'$.attributes',json(COALESCE(json_extract(r.snapshot_json,'$.attributes'),json_extract(prior.snapshot_json,'$.attributes'),'{}'))),
   '$.work_locations[0].quantity_scaled',
-  json_extract(json_patch(prior.snapshot_json,r.snapshot_json),'$.quantity_scaled'))
- ELSE json_patch(prior.snapshot_json,r.snapshot_json) END)=NEW.snapshot_json))
+  json_extract(json_set(json_patch(prior.snapshot_json,r.snapshot_json),'$.attributes',json(COALESCE(json_extract(r.snapshot_json,'$.attributes'),json_extract(prior.snapshot_json,'$.attributes'),'{}'))),'$.quantity_scaled'))
+ ELSE json_set(json_patch(prior.snapshot_json,r.snapshot_json),'$.attributes',json(COALESCE(json_extract(r.snapshot_json,'$.attributes'),json_extract(prior.snapshot_json,'$.attributes'),'{}'))) END)=NEW.snapshot_json))
  THEN RAISE(ABORT,'后续需求版本必须来自上一正式版本与真实修订内容') END;
  SELECT CASE WHEN json_extract(NEW.snapshot_json,'$.quantity_scaled') IS NOT NEW.quantity_scaled
  OR json_extract(NEW.snapshot_json,'$.operation_id') IS NOT NEW.operation_id
@@ -3923,9 +3858,9 @@ CREATE TABLE demand_version_work_locations (
  quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
  work_mode TEXT NOT NULL DEFAULT 'unspecified'
   CHECK(work_mode IN ('outage','non_outage','unspecified')),
- site_features_json TEXT NOT NULL DEFAULT '{}'
-  CHECK(json_valid(site_features_json)
-   AND json_type(site_features_json)='object'),
+ attributes_json TEXT NOT NULL DEFAULT '{}'
+  CHECK(json_valid(attributes_json)
+   AND json_type(attributes_json)='object'),
  location_snapshot_json TEXT NOT NULL DEFAULT '{}'
   CHECK(json_valid(location_snapshot_json)
    AND json_type(location_snapshot_json)='object'),
@@ -3950,7 +3885,7 @@ BEGIN
  THEN RAISE(ABORT,'需求正式版本必须包含完整的非空作业位置明细') END;
  INSERT INTO demand_version_work_locations(
   demand_id,demand_version,item_no,location_kind,logical_tower_id,
-  physical_tower_id,span_id,span_version,quantity_scaled,work_mode,site_features_json,
+  physical_tower_id,span_id,span_version,quantity_scaled,work_mode,attributes_json,
   location_snapshot_json)
  SELECT NEW.demand_id,NEW.version,CAST(x.key AS INTEGER)+1,
    json_extract(x.value,'$.location_kind'),
@@ -3960,7 +3895,7 @@ BEGIN
    json_extract(x.value,'$.span_version'),
    json_extract(x.value,'$.quantity_scaled'),
    COALESCE(json_extract(x.value,'$.work_mode'),'unspecified'),
-   COALESCE(json_extract(x.value,'$.site_features_json'),'{}'),
+   COALESCE(json_extract(x.value,'$.attributes'),'{}'),
    COALESCE(json_extract(x.value,'$.location_snapshot_json'),'{}')
  FROM json_each(NEW.snapshot_json,'$.work_locations') x;
  SELECT CASE WHEN
@@ -3982,7 +3917,7 @@ CREATE TRIGGER demand_work_location_immutable_insert
  BEFORE INSERT ON demand_version_work_locations
  -- Only the authoritative demand-version publish transaction may insert:
  -- enclosing AFTER INSERT trigger still has its immutable parent row.
- -- This extra check prevents fabricated cross-version identity and factors.
+ -- This extra check prevents fabricated cross-version identity and attributes.
 BEGIN
  SELECT CASE WHEN NOT EXISTS(
   SELECT 1 FROM demand_versions dv
@@ -3996,29 +3931,21 @@ BEGIN
    AND json_extract(x.value,'$.span_version') IS NEW.span_version
    AND json_extract(x.value,'$.quantity_scaled')=NEW.quantity_scaled
    AND COALESCE(json_extract(x.value,'$.work_mode'),'unspecified')=NEW.work_mode
-   AND COALESCE(json_extract(x.value,'$.site_features_json'),'{}')
-       =NEW.site_features_json
+   AND COALESCE(json_extract(x.value,'$.attributes'),'{}')
+       =NEW.attributes_json
    AND COALESCE(json_extract(x.value,'$.location_snapshot_json'),'{}')
        =NEW.location_snapshot_json
  ) THEN RAISE(ABORT,'需求逐位置明细只能从不可变正式需求版本完整快照原子投影，不得额外插入') END;
  SELECT CASE WHEN EXISTS(
-  SELECT 1 FROM json_each(NEW.site_features_json) feature
-  LEFT JOIN dictionary_items def ON def.type_id='price_factor'
-    AND def.code=feature.key
-  LEFT JOIN dictionary_item_versions ver
-    ON ver.item_id=def.id
-    AND ver.version=json_extract(feature.value,'$.factor_version')
-  WHERE def.id IS NULL OR ver.id IS NULL
-    OR json_type(feature.value)<>'object'
-    OR json_type(feature.value,'$.factor_version')<>'integer'
-    OR json_type(feature.value,'$.value') IS NULL
-    OR COALESCE(
-      (json_extract(ver.fields_json,'$.kind')='enum'
-       AND json_type(feature.value,'$.value')='text'
-       AND length(trim(json_extract(feature.value,'$.value')))>0)
-      OR (json_extract(ver.fields_json,'$.kind')='number'
-       AND json_type(feature.value,'$.value')='integer'),0)=0
- ) THEN RAISE(ABORT,'需求现场价格特征必须引用有版本的标准特征字典和合法实际值') END;
+  SELECT 1 FROM json_each(NEW.attributes_json) actual
+  WHERE NOT EXISTS(
+   SELECT 1 FROM demand_versions dv
+   JOIN operation_versions ov ON ov.operation_id=dv.operation_id AND ov.version=dv.operation_version
+   JOIN json_each(ov.attributes_schema_json) attribute
+   WHERE dv.demand_id=NEW.demand_id AND dv.version=NEW.demand_version
+    AND json_extract(attribute.value,'$.key')=actual.key
+    AND json_extract(attribute.value,'$.scope')='location')
+ ) THEN RAISE(ABORT,'位置属性须属于采用的正式操作定义及位置层级') END;
 END;
 CREATE TRIGGER demand_work_location_immutable_update
  BEFORE UPDATE ON demand_version_work_locations
@@ -4106,32 +4033,33 @@ BEGIN
  THEN RAISE(ABORT,'批准位置不得引用已在草稿中更换的其他需求版本') END;
 END;
 
--- Round 16: operation feature declarations are a versioned operation rule,
--- not price values. The same dictionary_item_version must appear in actual
--- demand site facts and price applicability predicates.
-CREATE TRIGGER operation_pricing_feature_definition_guard
+CREATE TRIGGER operation_attribute_definition_guard
  BEFORE INSERT ON operation_versions
 BEGIN
  SELECT CASE WHEN EXISTS(
- SELECT 1 FROM json_each(NEW.pricing_features_json) x
- LEFT JOIN dictionary_items f ON f.id=json_extract(x.value,'$.factor_id')
-  AND f.type_id='price_factor'
- LEFT JOIN dictionary_item_versions fv ON fv.item_id=f.id
-  AND fv.version=json_extract(x.value,'$.factor_version')
- WHERE json_type(x.value)<>'object'
- OR json_type(x.value,'$.factor_id')<>'text'
- OR json_type(x.value,'$.factor_version')<>'integer'
- OR json_type(x.value,'$.required') NOT IN ('true','false')
- OR json_type(x.value,'$.source')<>'text'
- OR json_extract(x.value,'$.source') NOT IN ('asset','manual','either')
- OR f.id IS NULL OR fv.id IS NULL
- OR fv.status<>'active' OR fv.changed_at>NEW.changed_at
- ) THEN RAISE(ABORT,'操作特征声明须引用有效正式价格特征字典、来源和必填规则') END;
+  SELECT 1 FROM json_each(NEW.attributes_schema_json) attribute
+  WHERE json_type(attribute.value)<>'object'
+   OR COALESCE(json_type(attribute.value,'$.key'),'')<>'text'
+   OR length(trim(json_extract(attribute.value,'$.key')))=0
+   OR COALESCE(json_extract(attribute.value,'$.scope'),'') NOT IN ('demand','location')
+ ) THEN RAISE(ABORT,'操作属性须包含稳定身份及明确层级') END;
  SELECT CASE WHEN EXISTS(
-  SELECT json_extract(x.value,'$.factor_id') factor_id
-  FROM json_each(NEW.pricing_features_json) x
-  GROUP BY factor_id HAVING COUNT(*)>1)
- THEN RAISE(ABORT,'同一操作版本不能重复声明相同作业特征') END;
+  SELECT json_extract(attribute.value,'$.key') FROM json_each(NEW.attributes_schema_json) attribute
+  GROUP BY json_extract(attribute.value,'$.key') HAVING COUNT(*)>1
+ ) THEN RAISE(ABORT,'同一操作版本不能重复声明属性身份') END;
+END;
+
+CREATE TRIGGER demand_attribute_identity_guard
+ BEFORE INSERT ON demand_versions
+BEGIN
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM json_each(NEW.snapshot_json,'$.attributes') actual
+  WHERE NOT EXISTS(
+   SELECT 1 FROM operation_versions ov JOIN json_each(ov.attributes_schema_json) attribute
+   WHERE ov.operation_id=NEW.operation_id AND ov.version=NEW.operation_version
+    AND json_extract(attribute.value,'$.key')=actual.key
+    AND json_extract(attribute.value,'$.scope')='demand')
+ ) THEN RAISE(ABORT,'需求属性须属于采用的正式操作定义及需求层级') END;
 END;
 
 -- Calculate in the application using decimal cents and scaled quantity.
@@ -4347,38 +4275,19 @@ BEGIN
      loc.quantity_scaled))
  THEN RAISE(ABORT,'参考价逐位置结果必须匹配正式操作版本、适用日期、计量单位和当次需求工作量') END;
  SELECT CASE WHEN EXISTS(
- SELECT 1 FROM reference_price_evaluations ev
- JOIN demand_versions dv ON dv.demand_id=ev.demand_id
-  AND dv.version=ev.demand_version
- JOIN operation_versions ov ON ov.operation_id=dv.operation_id
-  AND ov.version=dv.operation_version
- JOIN reference_price_versions pr ON pr.id=NEW.reference_price_version_id
- JOIN json_each(pr.additional_conditions_json) condition
- WHERE ev.id=NEW.evaluation_id AND NOT EXISTS(
-  SELECT 1 FROM json_each(ov.pricing_features_json) declared
-  JOIN dictionary_items factor ON factor.id=json_extract(declared.value,'$.factor_id')
-  WHERE factor.code=condition.key
-    AND json_extract(declared.value,'$.factor_version')=
-        json_extract(condition.value,'$.factor_version'))
- ) THEN RAISE(ABORT,'使用的价格适用因素必须由同版操作类型正式声明') END;
- SELECT CASE WHEN EXISTS(
- SELECT 1 FROM reference_price_evaluations ev
- JOIN demand_versions dv ON dv.demand_id=ev.demand_id
-  AND dv.version=ev.demand_version
- JOIN operation_versions ov ON ov.operation_id=dv.operation_id
-  AND ov.version=dv.operation_version
- JOIN demand_version_work_locations loc ON loc.demand_id=ev.demand_id
-  AND loc.demand_version=ev.demand_version AND loc.item_no=NEW.location_item_no
- JOIN json_each(ov.pricing_features_json) declared
- JOIN dictionary_items factor ON factor.id=json_extract(declared.value,'$.factor_id')
- WHERE ev.id=NEW.evaluation_id
-  AND json_extract(declared.value,'$.required')=1
-  AND NOT EXISTS(
-   SELECT 1 FROM json_each(loc.site_features_json) actual
-   WHERE actual.key=factor.code
-    AND json_extract(actual.value,'$.factor_version')=
-        json_extract(declared.value,'$.factor_version'))
- ) THEN RAISE(ABORT,'需求作业位置未完整提供操作类型要求的正式价格特征') END;
+  SELECT 1 FROM reference_price_evaluations ev
+  JOIN demand_versions dv ON dv.demand_id=ev.demand_id AND dv.version=ev.demand_version
+  JOIN operation_versions ov ON ov.operation_id=dv.operation_id AND ov.version=dv.operation_version
+  JOIN demand_version_work_locations loc ON loc.demand_id=ev.demand_id AND loc.demand_version=ev.demand_version AND loc.item_no=NEW.location_item_no
+  JOIN json_each(ov.attributes_schema_json) attribute
+  WHERE ev.id=NEW.evaluation_id
+   AND json_extract(attribute.value,'$.enabled')=1
+   AND json_extract(attribute.value,'$.requirement')='pricing'
+   AND NOT EXISTS(
+    SELECT 1 FROM json_each(CASE WHEN json_extract(attribute.value,'$.scope')='demand'
+      THEN json_extract(dv.snapshot_json,'$.attributes') ELSE loc.attributes_json END) actual
+    WHERE actual.key=json_extract(attribute.value,'$.key') AND actual.type<>'null')
+ ) THEN RAISE(ABORT,'正式计价缺少操作类型要求的统一属性') END;
 END;
 CREATE TRIGGER reference_price_evaluation_line_immutable_update
  BEFORE UPDATE ON reference_price_evaluation_lines

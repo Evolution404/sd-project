@@ -1,5 +1,5 @@
 import type { createStore } from "./store.js";
-import { equipmentSources, searchEquipment } from "./equipment-search.js";
+import { searchEquipment } from "./equipment-search.js";
 import type {
   EquipmentCatalogKind,
   EquipmentKind,
@@ -41,7 +41,7 @@ const sources: Record<EquipmentCatalogKind, string> = {
     COALESCE(NULLIF(p.asset_no,''),NULLIF(TRIM(COALESCE(p.tower_type,'') || ' · ' || p.model,' · '),''),'独立物理杆塔') AS physical_tower_id_label
     FROM logical_towers c JOIN transmission_lines l ON l.id=c.line_id
     LEFT JOIN voltage_levels v ON v.id=l.voltage_level_id LEFT JOIN physical_towers p ON p.id=c.physical_tower_id`,
-  physical: equipmentSources.physical.sql,
+  physical: "SELECT c.* FROM physical_towers c",
   spans: `SELECT c.*,l.name AS line_name,${line} AS line_id_label,
     start.tower_no AS start_tower_no,ending.tower_no AS end_tower_no,
     ${lineLabel("sl", "sv")} || ' · ' || start.tower_no AS start_tower_id_label,

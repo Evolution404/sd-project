@@ -67,7 +67,7 @@ export function dictionaryRepository(store: ReturnType<typeof createStore>) {
       countBusinessReferences(store, "dictionary_items", key) +
       (
         store.get(
-          `SELECT COUNT(*) AS total FROM dictionary_item_versions v JOIN dictionary_items i ON i.id=v.item_id WHERE i.type_id='price_factor' AND json_extract(v.fields_json,'$.unit_id')=?`,
+          `SELECT COUNT(*) AS total FROM operation_versions v JOIN json_each(v.attributes_schema_json) attribute WHERE json_extract(attribute.value,'$.unit_id')=?`,
           key,
         ) as { total: number }
       ).total,

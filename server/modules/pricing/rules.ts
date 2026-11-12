@@ -14,7 +14,8 @@ import type { EquipmentService } from "../equipment/service.js";
 import { definitionStatus } from "../dictionaries/service.js";
 import { jsonDocument } from "../../shared/json.js";
 import { calculate, validatePricingRule } from "./calculation.js";
-import { validateFactorCondition, priceRulesMayOverlap } from "./features.js";
+import { priceRulesMayOverlap } from "./features.js";
+import { validateAttributeCondition } from "../../shared/operation-attributes.js";
 import { authorize, id, now } from "../../platform/auth/service.js";
 import {
   requireValue,
@@ -257,39 +258,24 @@ export function createPriceRules(
         status === "inactive" &&
         sameDefinition(previous, definition),
     );
-    const features = standards.operationPriceFeatures(
-      operationId,
-      number,
-    ).items;
-    for (const [code, condition] of Object.entries(conditions.value)) {
-      requireValue(isObject(condition), "价格适用条件无效");
-      const declared = features.find(
-        (item) =>
-          item.code === code &&
-          item.factor_version === condition.factor_version,
-      );
-      requireValue(declared, "价格适用条件必须由所选操作类型的正式版本声明");
-      validateFactorCondition(declared.definition, condition, code);
-      requireValue(
-        retiring ||
-          (declared.current_version === declared.factor_version &&
-            declared.current_status === "active"),
-        "价格特征「" +
-          declared.current_name +
-          "」已更新或停用；仅变更为停用状态可保留原定义，修改价格请升级操作类型及适用条件",
-        409,
-      );
+    const attributes = standards.operationAttributes(operationId, number).items;
+    for (const [key, condition] of Object.entries(conditions.value)) {
+      const field = attributes.find((item) => item.key === key);
+      requireValue(field, "价格适用条件必须属于所采用操作类型的统一属性定义");
+      // Withdrawing a price preserves its previously validated predicates.
+      if (!retiring) validateAttributeCondition(field, condition);
     }
     return definition;
   }
   function overlaps(definition: PriceRuleVersion, excluded?: string) {
+    const schema = standards.operationAttributes(definition.operation_id, definition.operation_version).items;
     return repository
       .all()
       .filter(
         (row) =>
           !row.deleted &&
           row.id !== excluded &&
-          priceRulesMayOverlap(definition, row),
+          priceRulesMayOverlap(definition, row, schema),
       );
   }
   return {

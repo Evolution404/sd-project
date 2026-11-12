@@ -47,7 +47,7 @@ export function dispatchRoute(context: RouteContext) {
   requireValue(Object.hasOwn(routes, context.resource), '接口不存在', 404);
   if (context.resource === "catalog" && ["frameworks", "agreements"].includes(context.key)) return handleFunding(context);
   if (context.resource === "catalog" && ["objects","operations"].includes(context.key)) return handleWorkStandards(context);
-  if (context.resource === "catalog" && ["prices","factors"].includes(context.key)) return handlePriceCatalog(context);
+  if (context.resource === "catalog" && ["prices"].includes(context.key)) return handlePriceCatalog(context);
   if (context.resource === "catalog" && isEquipmentKind(context.key)) return handleEquipment(context);
   if (context.resource === "catalog" && isFoundationKind(context.key)) return handleDictionaries(context);
   if (context.resource === "catalog" && context.key === "materials") return handleMaterials(context);

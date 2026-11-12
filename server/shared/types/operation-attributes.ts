@@ -36,7 +36,11 @@ interface NumericAttribute extends AttributeBase {
   unit_id?: string;
   unit_version?: number;
 }
-export type OperationAttribute = TextAttribute | ChoiceAttribute | BooleanAttribute | NumericAttribute;
+export type OperationAttribute =
+  | TextAttribute
+  | ChoiceAttribute
+  | BooleanAttribute
+  | NumericAttribute;
 export interface AttributeCondition {
   op: "eq" | "range";
   value?: string | number | boolean;

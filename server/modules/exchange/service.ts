@@ -1,14 +1,15 @@
+import { attributeCells } from "./attribute-cells.js";
 import {
   parseWorkbook,
   makeWorkbook,
   makeBusinessReport,
   errorsWorkbook,
   issue,
+  attributeKey,
 } from "./workbook.js";
 import { createAssetExchange } from "./assets.js";
 import { createReferences } from "./references.js";
 import { cleanRow as clean, detailIdentity as identity, mergeDetails, differences } from "./details.js";
-import { validateFeatureValue } from "../pricing/features.js";
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
 import type {System} from "../../bootstrap.js";
@@ -20,8 +21,6 @@ import type {ParsedWorkbook,ParsedWorkbookRow,WorkbookKind,WorkbookIssue,Exchang
 import {BusinessError} from "../../shared/errors/business-error.js";
 import {isObject} from "../../shared/types/contracts.js";
 import type {DetailKind} from "./details.js";
-import type {OperationField,PricingFeatureDeclaration} from "../../shared/types/work-standards.js";
-import {validateFactorDefinition} from "../pricing/features.js";
 import {financeSettlementDraft} from "../finance/requests.js";
 import {createExchangeExporter} from "./export.js";
 export function createExchange(system:System) {
@@ -91,7 +90,7 @@ export function createExchange(system:System) {
     matchingMs = 0;
     const preparationStarted = performance.now();
     let validationMs = 0;
-    const numberKey = kind === "demands" ? "demand_no" : "number",
+    const numberKey = kind === "demands" ? "import_ref" : "number",
       grouped = new Map<string,Map<string,ParsedWorkbookRow[]>>(),
       sourceByPosition = new Map<string,ParsedWorkbookRow>();
     for (const [sheet, rows] of Object.entries(parsed.rows)) {
@@ -111,6 +110,7 @@ export function createExchange(system:System) {
       numbers = new Set<string>();
     for (const root of parsed.rows.documents) {
       const number = root[numberKey];
+      const originalIssueCount=issues.length;
       try {
         requireValue(
           typeof number === "string" && number.trim(),
@@ -150,14 +150,11 @@ export function createExchange(system:System) {
         }
         matchingMs += performance.now() - matchingStarted;
         requireValue(
-          !existing || (kind==="demands" ? existingDemand?.demand_no===number : existingSettlement?.number===number),
+          !existing || (kind==="demands" ? (!root.demand_no || existingDemand?.demand_no===root.demand_no) : existingSettlement?.number===number),
           "业务编号与稳定标识不一致",
         );
         if (kind === "demands" && !existing)
-          requireValue(
-            !exchangePersistence.demandNumberExists(number),
-            "业务编号已存在，更新必须携带稳定标识",
-          );
+          requireValue(!root.demand_no, "新增需求正式编号须留空，由服务端生成");
         if (kind === "settlements" && !existing)
           requireValue(
             !exchangePersistence.settlementNumberExists(root.project_id, number),
@@ -224,11 +221,6 @@ export function createExchange(system:System) {
             delete value[numberKey];
             for (const [field, data] of Object.entries(value))
               if (data === "__EMPTY__") value[field] = "";
-            if (
-              value.site_features_json &&
-              typeof value.site_features_json === "string"
-            )
-              value.site_features_json = JSON.parse(value.site_features_json);
             return value;
           });
           const priorDetails=payload[key];
@@ -267,7 +259,7 @@ export function createExchange(system:System) {
           payload.sources = rowsFor("sources", number).length
             ? rowsFor("sources", number).map((row) => {
                 const value = clean(row);
-                delete value.demand_no;
+                delete value.import_ref;
                 return value;
               })
             : existingDemand?.sources || [];
@@ -289,110 +281,58 @@ export function createExchange(system:System) {
             payload.operation_id,
             typeof payload.operation_version === "number" ? payload.operation_version : (existingDemand?.operation_version || operation.version),
           );
-          requireValue(adopted && typeof adopted.fields_json === "string" && typeof adopted.pricing_features_json === "string", "正式操作定义的采用版本缺失",409);
-          const definitions:OperationField[] = JSON.parse(adopted.fields_json);
-          const declaredFeatures:PricingFeatureDeclaration[] = JSON.parse(adopted.pricing_features_json);
-          for (const row of rowsFor("site_features", number)) {
-            try {
-              const locationRows = rowsFor("work_locations", number);
-              const sourceRow = row.location_row
-                ? locationRows.find(
-                    (location) => location._row === Number(row.location_row),
-                  )
-                : locationRows.length === 1
-                  ? locationRows[0]
-                  : null;
-              requireValue(sourceRow, "请填写本需求作业位置的工作表行号");
-              const workLocations=payload.work_locations;
-              requireValue(Array.isArray(workLocations) && workLocations.every(isObject),"正式作业位置结构不合法");
-              const location = workLocations.find((item) => identity("work_locations", item) === identity("work_locations", sourceRow));
-              requireValue(location, "现场特征未对应本需求真实位置");
-              const candidates = declaredFeatures
-                .map((feature) => ({
-                  feature,
-                  factor: catalog.get("factors", feature.factor_id, true),
-                }))
-                .filter((entry) =>
-                  row.factor_id
-                    ? entry.factor.id === row.factor_id
-                    : entry.factor.name === row.factor_name,
-                );
-              requireValue(
-                candidates.length === 1,
-                "特征名称须唯一对应本需求采用的正式定义",
-              );
-              const { factor, feature: declared } = candidates[0];
-              const factorCode = factor.code;
-              requireValue(declared, "价格特征不属于本需求采用的正式操作定义");
-              const version = exchangePersistence.factorAdoptedVersion(
-                factor.id, declared.factor_version);
-              requireValue(version,"价格特征冻结版本不存在",409);
-              const definition = validateFactorDefinition(JSON.parse(version.fields_json));
-              const rawFeatures=location.site_features_json;
-              const decodedFeatures:unknown = typeof rawFeatures==="string" ? JSON.parse(rawFeatures) : (rawFeatures ?? {});
-              requireValue(isObject(decodedFeatures),"现场价格特征结构无效");
-              const actual:Record<string,unknown>={...decodedFeatures};
-              if (row.value === undefined) continue;
-              if (row.value === null) delete actual[factorCode];
-              else {
-                let value = row.value;
-                if (definition.kind === "number") {
-                  requireValue(
-                    typeof value === "number" ||
-                      (typeof value === "string" && value.trim()),
-                    "整数现场特征不能为空",
-                  );
-                  value = Number(value);
-                } else value = String(value);
-                validateFeatureValue(definition, value, version.name);
-                actual[factorCode] = {
-                  factor_version: declared.factor_version,
-                  value,
-                };
-              }
-              location.site_features_json = actual;
-            } catch (error) {
-              issues.push(
-                issue(row._sheet, row._row, "value", row.value, error instanceof Error ? error.message : "价格特征未通过验证"),
-              );
-              throw error;
+          requireValue(adopted, "正式操作定义的采用版本缺失",409);
+          const definitions = system.standards.operationAttributes(payload.operation_id, adopted.version).items;
+          payload.attributes = { ...existingDemand?.attributes, ...attributeCells(definitions, "demand", root) };
+          const locationRefs = new Set<string>();
+          const workLocations = payload.work_locations;
+          requireValue(Array.isArray(workLocations) && workLocations.every(isObject), "作业位置结构无效");
+          for (const row of rowsFor("work_locations", number)) {
+            requireValue(typeof row.location_ref === "string" && row.location_ref.trim(), "作业位置缺少稳定的位置关联号");
+            requireValue(!locationRefs.has(row.location_ref), "同一需求的位置关联号冲突");
+            locationRefs.add(row.location_ref);
+            const location = workLocations.find(item => identity("work_locations",item) === identity("work_locations",row));
+            if (location && row.action !== "delete") {
+              const prior = isObject(location.attributes) ? location.attributes : {};
+              location.attributes = { ...prior, ...attributeCells(definitions, "location", row) };
             }
           }
-
-          const originalCustom=existingDemand?.custom_fields ?? payload.custom_fields ?? {};
-          requireValue(isObject(originalCustom), "补充字段必须为对象");
-          const customFields:Record<string,unknown>={...originalCustom};
-          payload.custom_fields=customFields;
-          for (const row of rowsFor("custom_fields", number)) {
-            const definition = definitions.find((field) =>
-              row.field_key
-                ? field.key === row.field_key
-                : field.label === row.field_name,
-            );
-            requireValue(definition, "补充现场字段未精确匹配正式操作定义");
-            if (row.value === undefined) continue;
-            let value = row.value;
-            if (value !== null && definition.type === "number") {
-              requireValue(
-                typeof value === "number" ||
-                  (typeof value === "string" &&
-                    value.trim() !== "" &&
-                    !Number.isNaN(Number(value))),
-                "补充数值格式错误",
-              );
-              value = Number(value);
+          // Every dynamic column must belong to this adopted operation and level.
+          for (const row of [root,...rowsFor("work_locations",number)])
+            for (const column of Object.keys(row).filter(key=>key.startsWith("attribute_"))) {
+              const scope = row === root ? "demand" : "location";
+              requireValue(definitions.some(field=>field.key===attributeKey(column) && field.scope===scope), "附加属性列不属于本需求采用的正式操作定义或层级");
             }
-            if (value !== null && definition.type === "boolean") {
-              requireValue(
-                ([true, false, "是", "否", "true", "false", "1", "0"] as unknown[]).includes(value),
-                "是或否字段取值错误",
-              );
-              value = ([true, "是", "true", "1"] as unknown[]).includes(value);
-            }
-            customFields[definition.key] = value;
+          if (root.primary_source !== undefined || root.discovered_on !== undefined) {
+            const sources = payload.sources;
+            requireValue(Array.isArray(sources), "来源结构无效");
+            const existingPrimary = existingDemand?.sources.find(item=>item.id===root.primary_source_id);
+            requireValue(!root.primary_source_id || existingPrimary, "主要来源身份与本需求不一致",409);
+            const primary = { id: existingPrimary?.id, description: root.primary_source ?? existingPrimary?.description,
+              discovered_on: root.discovered_on ?? existingPrimary?.discovered_on };
+            payload.sources = [...sources.filter(item=>!isObject(item)||item.id!==primary.id),primary];
           }
           const validationStarted = performance.now();
-          normalized = demands.normalize(payload, existingDemand);
+          try { normalized = demands.normalize(payload, existingDemand); }
+          catch (failure) {
+            if (failure instanceof BusinessError) {
+              const path=Object.keys(failure.fields)[0];
+              if (path) {
+                let source=root, field=path;
+                const position=/^work_locations\.(\d+)\.(.+)$/.exec(path);
+                if (position) {
+                  const item=workLocations[Number(position[1])];
+                  source=rowsFor("work_locations",number).find(row=>identity("work_locations",row)===identity("work_locations",item))||root;
+                  field=position[2];
+                }
+                const key=field.startsWith("attributes.") ? field.slice(11) : null;
+                const column=key ? "attribute_"+Buffer.from(key).toString("hex") : field;
+                const raw=isObject(source._raw_values)?source._raw_values[column]:source[column];
+                issues.push(issue(source._sheet,source._row,key?definitions.find(item=>item.key===key)?.label||key:field,raw,failure.message));
+              }
+            }
+            throw failure;
+          }
           const duplicates = demands.findDuplicates(
             normalized.operation_id,
             normalized.work_locations,
@@ -423,7 +363,7 @@ export function createExchange(system:System) {
           Array.isArray(payload.sources) &&
           payload.sources.some(
             (source:unknown) => isObject(source) && (
-              !source.id ||
+              source.action === "delete" || !source.id ||
               !existingDemand.sources.some(
                 (old) =>
                   old.id === source.id &&
@@ -454,7 +394,7 @@ export function createExchange(system:System) {
           row: root._row,
         });
       } catch (error) {
-        issues.push(
+        if (issues.length === originalIssueCount) issues.push(
           issue(
             root._sheet,
             root._row,
@@ -515,7 +455,15 @@ export function createExchange(system:System) {
     const invalidNumbers = new Set<string>();
     for (const problem of issues) {
       const source = sourceByPosition.get(problem.sheet + "\0" + problem.row);
-      if (source) invalidNumbers.add(String(source[numberKey] ?? ""));
+      if (source) {
+        invalidNumbers.add(String(source[numberKey] ?? ""));
+        if (kind === "demands") {
+          problem.import_ref = String(source.import_ref || "");
+          const root = parsed.rows.documents.find(row => row.import_ref === source.import_ref);
+          problem.demand_no = String(root?.demand_no || "");
+          problem.location_ref = String(source.location_ref || "");
+        }
+      }
     }
     return {
       documents: documents.filter((doc) => !invalidNumbers.has(doc.number)),
@@ -538,32 +486,18 @@ export function createExchange(system:System) {
     const started = performance.now();
     const parsed = await parseWorkbook(buffer, kind);
     const parsedAt = performance.now();
-    const numberKey = kind === "demands" ? "demand_no" : "number";
-    for (const root of parsed.rows.documents)
-      root[numberKey] ||= "row-" + root._row;
-    for (const [sheet, rows] of Object.entries(parsed.rows))
-      if (sheet !== "documents")
-        for (const row of rows) {
+    const numberKey = kind === "demands" ? "import_ref" : "number";
+    if (kind === "settlements") {
+      for (const root of parsed.rows.documents) root[numberKey] ||= "row-" + root._row;
+      for (const [sheet, rows] of Object.entries(parsed.rows))
+        if (sheet !== "documents") for (const row of rows) {
           if (row[numberKey]) continue;
-          const root = row.document_row
-            ? parsed.rows.documents.find(
-                (root) => root._row === Number(row.document_row),
-              )
-            : parsed.rows.documents.length === 1
-              ? parsed.rows.documents[0]
-              : null;
+          const root = row.document_row ? parsed.rows.documents.find(root => root._row === Number(row.document_row))
+            : parsed.rows.documents.length === 1 ? parsed.rows.documents[0] : null;
           if (root) row[numberKey] = root[numberKey];
-          else
-            parsed.issues.push(
-              issue(
-                row._sheet,
-                row._row,
-                "document_row",
-                row.document_row,
-                "多单据明细须指明对应清单的实际行号",
-              ),
-            );
+          else parsed.issues.push(issue(row._sheet,row._row,"document_row",row.document_row,"多结算单明细须明确归属"));
         }
+    }
     if (kind === "settlements" && options.projectId) {
       const project = system.projects.get(options.projectId);
       for (const root of parsed.rows.documents) {
@@ -618,6 +552,10 @@ export function createExchange(system:System) {
       unchanged: prepared.documents.filter((x) => x.action === "unchanged")
         .length,
       invalid: prepared.issues.length,
+      missing_devices: prepared.issues.filter(x=>/未匹配|不存在/.test(x.reason)).length,
+      ambiguous_locations: prepared.issues.filter(x=>/歧义/.test(x.reason)).length,
+      format_errors: prepared.issues.filter(x=>/格式|须为|必须为/.test(x.reason)).length,
+      precision_errors: prepared.issues.filter(x=>/精度|小数|整数数量/.test(x.reason)).length,
       conflicts: prepared.issues.filter((x) => x.field === "expected_version")
         .length,
     };
@@ -666,7 +604,7 @@ export function createExchange(system:System) {
               requireValue(typeof result.id==="string","提交后业务身份无效");
               const resultNumber = "demand_no" in result && typeof result.demand_no==="string" ? result.demand_no
                 : "number" in result && typeof result.number==="string" ? result.number : document.number;
-              results.push({number:resultNumber,id:result.id,action:document.action});
+              results.push({import_ref: body.kind === "demands" ? document.number : undefined,number:resultNumber,id:result.id,action:document.action});
             } catch (error) {
               if (input.atomic) throw error;
               failures.push(
@@ -750,7 +688,7 @@ export function createExchange(system:System) {
               ],
             }
           : {},
-        { lookups: lookupRows() },
+        { lookups: lookupRows(), attributes: kind === "demands" ? system.standards.operations().flatMap(operation=>system.standards.operationAttributes(operation.id,operation.version).items) : [] },
       );
     },
     results(actor:Actor,token:string) {
@@ -766,7 +704,8 @@ export function createExchange(system:System) {
       const result=rawResult as unknown as ExchangeCommitResult;
       return makeBusinessReport("exchange", [
         ...result.results.map((row) => ({
-          业务编号: row.number,
+          导入关联号: row.import_ref || "",
+          正式编号: row.number,
           处理结果:
             row.action === "create"
               ? "已新增"

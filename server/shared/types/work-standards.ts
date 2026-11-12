@@ -1,9 +1,7 @@
-import type { JsonValue } from "./contracts.js";
 import type {
   DefinitionStatus,
-  DictionaryItem,
-  DictionaryVersion,
 } from "./master-data.js";
+import type { AuditRecord } from "./contracts.js";
 export type WorkObjectScope = "line" | "physical" | "both";
 export interface WorkObjectVersion {
   id: string;
@@ -25,20 +23,6 @@ export interface WorkObjectRecord extends Omit<WorkObjectVersion, "id"> {
   label: string;
   deleted: boolean;
 }
-export interface OperationField {
-  key: string;
-  label: string;
-  type: "text" | "number" | "boolean" | "date" | "select";
-  required: boolean;
-  options?: string[];
-  [key: string]: JsonValue | undefined;
-}
-export interface PricingFeatureDeclaration {
-  factor_id: string;
-  factor_version: number;
-  source: string;
-  required: boolean;
-}
 export interface OperationVersion {
   id: string;
   operation_id: string;
@@ -52,8 +36,7 @@ export interface OperationVersion {
   default_unit_version: number;
   default_quantity_scaled: number | null;
   completion_standard: string | null;
-  fields_json: string;
-  pricing_features_json: string;
+  attributes_schema_json: string;
   allow_tower: 0 | 1;
   allow_span: 0 | 1;
   default_location_kind: "tower" | "span";
@@ -74,5 +57,13 @@ export interface OperationRecord extends Omit<OperationVersion, "id"> {
   label: string;
   deleted: boolean;
 }
-export type PriceFactorRecord = DictionaryItem;
-export type PriceFactorVersion = DictionaryVersion;
+export interface OperationAdoptions {
+  demands: { id: string; demand_no: string; demand_version: number; operation_version: number }[];
+  prices: { id: string; title: string; version_no: number; operation_version: number }[];
+}
+export interface OperationDetail {
+  item: OperationRecord;
+  versions: OperationVersion[];
+  audits: AuditRecord[];
+  adoptions: OperationAdoptions;
+}

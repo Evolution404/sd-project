@@ -23,10 +23,10 @@ export async function handleCatalog(context: RouteContext): Promise<{
             result = catalogFormDefinitions;
             break;
         case "catalog":
-            if (key === "operations" && subKey === "pricing-definitions") {
+            if (key === "operations" && subKey === "attributes") {
                 requireValue(read, "价格特征定义只允许查询", 405);
                 const adoptedVersion = Number(url.searchParams.get("version")) || undefined;
-                result = system.catalog.operationPriceFeatures(sub, adoptedVersion);
+                result = system.catalog.operationAttributes(sub, adoptedVersion);
                 break;
             }
             if (key === "prices" && sub === "preview") {

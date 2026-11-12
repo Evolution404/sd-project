@@ -114,3 +114,9 @@ export function approvedFixture(t) {
   const node = s.finance.node(user, project.id, { name: "人工费" });
   return { ...f, demand, framework, project, scope, approval, node };
 }
+
+export function attribute(overrides = {}) {
+  return { key: "difficulty", label: "施工难度", scope: "location", source: "manual", type: "select",
+    requirement: "pricing", pricing: true, enabled: true, sort_order: 1, hint: "",
+    options: [{value:"普通",label:"普通"},{value:"困难",label:"困难"}], ...overrides };
+}

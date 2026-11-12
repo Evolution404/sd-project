@@ -5,6 +5,7 @@ No application code, user database, frontend or network access.
 Usage: python3 -B docs/architecture/schema113_database_acceptance.py
 """
 from __future__ import annotations
+import json
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -2544,33 +2545,28 @@ finally:
 # factors. No price is attached to mutable operation or physical tower labels.
 db.execute("SAVEPOINT reference_price_contexts")
 try:
-    ok("price-factor dictionary category is preinstalled in clean Schema113",
-        row("SELECT title FROM dictionary_types WHERE id='price_factor'")
-            ['title']=='参考价适用因素')
-    add("dictionary_items",id="price_factor_terrain",type_id="price_factor",
-        code="terrain",created_at="2026-11-08T03:00:00.000Z")
-    add("dictionary_item_versions",id="factor_terrain_v1",
-        item_id="price_factor_terrain",version=1,name="地形条件",
-        status="active",fields_json='{"kind":"enum"}',
-        reason="价格因素首次定义",changed_by="u",
-        changed_at="2026-11-08T03:00:00.000Z")
-    add("dictionary_items",id="price_factor_height",type_id="price_factor",
-        code="height_mm",created_at="2026-11-08T03:00:00.000Z")
-    add("dictionary_item_versions",id="factor_height_v1",
-        item_id="price_factor_height",version=1,name="塔高毫米",
-        status="active",fields_json='{"kind":"number","unit":"mm"}',
-        reason="价格因素首次定义",changed_by="u",
-        changed_at="2026-11-08T03:00:00.000Z")
+    add("operations",id="context_op",code="CONTEXT-OP",created_at="2026-11-07T00:00:00.000Z")
+    add("operation_versions",id="context_op_v1",operation_id="context_op",version=1,
+        name="价格属性上下文",status="active",work_target_type="line",work_object_id="obj",
+        default_unit_id="unit",default_unit_version=1,allow_tower=1,allow_span=0,default_location_kind="tower",
+    attributes_schema_json=json.dumps([
+      {"key":"terrain","label":"地形","scope":"location","source":"manual","type":"select","enabled":True,"pricing":True},
+      {"key":"height_mm","label":"高度","scope":"location","source":"manual","type":"integer","enabled":True,"pricing":True},
+      {"key":"unpriced","label":"备注","scope":"location","source":"manual","type":"text","enabled":True,"pricing":False},
+      {"key":"disabled","label":"停用属性","scope":"location","source":"manual","type":"integer","enabled":False,"pricing":True}]),
+        changed_by="u",changed_at="2026-11-07T00:00:00.000Z")
+    ok("unified operation attributes replace the independent price-factor dictionary",
+        row("SELECT COUNT(*) n FROM dictionary_types WHERE id='price_factor'")['n']==0)
     add("voltage_levels",id="vol220",code="220",name="220kV")
     add("reference_price_catalog",id="price_angle",
         code="REF-PRICE-ANGLE",created_by="u",
         created_at="2026-11-08T03:00:00.000Z")
     add("reference_price_versions",id="price_angle_v1",
         catalog_id="price_angle",version_no=1,title="耐张塔山区参考价",
-        operation_id="op",operation_version=1,unit_id="unit",
+        operation_id="context_op",operation_version=1,unit_id="unit",
         unit_version=1,voltage_level_id="vol",tower_type="angle",
         work_mode="outage",additional_conditions_json=
-        '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"}}',
+        '{"terrain":{"context_op":"eq","value":"mountain"}}',
         status="active",unit_price_fen=250000,price_source="内部定额",
         price_date="2026-11-08",
         effective_on="2026-11-08",basis="电压塔型和山区条件",
@@ -2581,10 +2577,10 @@ try:
         created_at="2026-11-08T03:00:00.000Z")
     add("reference_price_versions",id="price_suspension_v1",
         catalog_id="price_suspension",version_no=1,title="直线塔平原参考价",
-        operation_id="op",operation_version=1,unit_id="unit",
+        operation_id="context_op",operation_version=1,unit_id="unit",
         unit_version=1,voltage_level_id="vol220",tower_type="suspension",
         work_mode="outage",additional_conditions_json=
-        '{"terrain":{"factor_version":1,"op":"eq","value":"plain"}}',
+        '{"terrain":{"context_op":"eq","value":"plain"}}',
         status="active",unit_price_fen=160000,price_source="内部定额",
         price_date="2026-11-08",
         effective_on="2026-11-08",basis="电压塔型和平原条件",
@@ -2592,7 +2588,7 @@ try:
         created_at="2026-11-08T03:01:00.000Z")
     ok("same operation and unit support independent voltage/tower/factor prices",
         row("SELECT COUNT(*) n FROM v_reference_price_current "
-            "WHERE operation_id='op' AND operation_version=1 "
+            "WHERE operation_id='context_op' AND operation_version=1 "
             "AND work_mode='outage'")['n']>=2
         and row("SELECT voltage_level_id,tower_type FROM reference_price_versions "
             "WHERE id='price_angle_v1'")['voltage_level_id']=='vol'
@@ -2602,64 +2598,63 @@ try:
             "WHERE id='price_suspension_v1'")['tower_type']=='suspension'
         and row("SELECT additional_conditions_json FROM reference_price_versions "
             "WHERE id='price_angle_v1'")['additional_conditions_json']
-            =='{"terrain":{"factor_version":1,"op":"eq","value":"mountain"}}')
+            =='{"terrain":{"context_op":"eq","value":"mountain"}}')
     blocked("reference price factors must be a valid JSON object",
         'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        ("invalid_price_factor","price_angle",2,"条件非法","op",1,
+        ("invalid_price_factor","price_angle",2,"条件非法","context_op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
          "2026-11-08","非法数组","无效规则",
          "u","2026-11-08T03:02:00.000Z",'[]'))
     blocked("reference price tower type cannot contain padding",
         'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,tower_type) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        ("invalid_price_tower","price_angle",2,"塔型非法","op",1,
+        ("invalid_price_tower","price_angle",2,"塔型非法","context_op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
          "2026-11-08","非法塔型","无效规则",
          "u","2026-11-08T03:02:00.000Z",' angle '))
     blocked_reason("price factor code must exist in the active versioned dictionary",
         'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
-        ("invalid_unknown_factor","price_angle",2,"无效因素","op",1,
+        "价格条件须引用采用操作正式版本的有效计价属性",
+        ("invalid_unknown_factor","price_angle",2,"无效因素","context_op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
          "2026-11-08","不存在的因素","无效规则",
          "u","2026-11-08T03:02:00.000Z",
-         '{"does_not_exist":{"factor_version":1,"op":"eq","value":"x"}}'))
-    blocked_reason("enum price factor cannot be used as a numeric range",
+         '{"does_not_exist":{"context_op":"eq","value":"x"}}'))
+    blocked_reason("unpriced attribute cannot be used as an applicability condition",
         'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
-        ("invalid_factor_type","price_angle",2,"错误因素值类型","op",1,
+        "价格条件须引用采用操作正式版本的有效计价属性",
+        ("invalid_factor_type","price_angle",2,"错误因素值类型","context_op",1,
          "unit",1,"active",250000,"内部定额","2026-11-08",
          "2026-11-08","因素类型不符","无效规则",
          "u","2026-11-08T03:02:00.000Z",
-         '{"terrain":{"factor_version":1,"op":"range","min":1,"max":2}}'))
+         '{"unpriced":{"context_op":"eq","value":"x"}}'))
     invalid_factor_sql=(
         'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at,additional_conditions_json) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
     def invalid_factor_args(label, value):
-        return (label,"price_angle",2,"无效因素","op",1,"unit",1,"active",
+        return (label,"price_angle",2,"无效因素","context_op",1,"unit",1,"active",
                 250000,"内部定额","2026-11-08","2026-11-08",
                 "测试无效因素","无效规则","u","2026-11-08T03:03:00.000Z",value)
-    blocked_reason("factor definition version must exist and be pinned",
+    blocked_reason("unknown attribute identity is rejected against adopted operation version",
         invalid_factor_sql,
-        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
+        "价格条件须引用采用操作正式版本的有效计价属性",
         invalid_factor_args("unknown_price_factor_version",
-            '{"terrain":{"factor_version":99,"op":"eq","value":"mountain"}}'))
-    blocked_reason("numeric reference factor interval cannot be reversed",
+            '{"unknown":{"context_op":"eq","value":"mountain"}}'))
+    blocked_reason("disabled attributes cannot appear in new price versions",
         invalid_factor_sql,
-        "参考价格扩展因素须引用有效的正式定义版本并使用正确值类型",
+        "价格条件须引用采用操作正式版本的有效计价属性",
         invalid_factor_args("invalid_numeric_factor_interval",
-            '{"height_mm":{"factor_version":1,"op":"range",'
-            '"min":60000,"max":30000}}'))
+            '{"disabled":{"context_op":"range","min":30000,"max":60000}}'))
     blocked_reason("duplicate JSON factor keys cannot double-declare one factor",
-        invalid_factor_sql,"参考价扩展价格因素不能重复声明",
+        invalid_factor_sql,"价格条件属性身份不能重复",
         invalid_factor_args("duplicate_price_factor_keys",
-            '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
-            '"terrain":{"factor_version":1,"op":"eq","value":"plain"}}'))
+            '{"terrain":{"context_op":"eq","value":"mountain"},'
+            '"terrain":{"context_op":"eq","value":"plain"}}'))
     add("reference_price_versions",id="price_angle_v2",
         catalog_id="price_angle",version_no=2,title="耐张塔山区参考价",
-        operation_id="op",operation_version=1,unit_id="unit",
+        operation_id="context_op",operation_version=1,unit_id="unit",
         unit_version=1,voltage_level_id="vol",tower_type="angle",
         work_mode="outage",additional_conditions_json=
-        '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
-        '"height_mm":{"factor_version":1,"op":"range","min":30000,"max":50000}}',
+        '{"terrain":{"context_op":"eq","value":"mountain"},'
+        '"height_mm":{"context_op":"range","min":30000,"max":50000}}',
         status="active",unit_price_fen=250000,price_source="内部定额",
         price_date="2026-11-08",
         effective_on="2026-11-08",basis="电压塔型和山区条件",
@@ -2674,9 +2669,9 @@ try:
         'INSERT INTO reference_price_versions(id,catalog_id,version_no,title,operation_id,operation_version,unit_id,unit_version,voltage_level_id,tower_type,work_mode,additional_conditions_json,status,unit_price_fen,price_source,price_date,effective_on,basis,reason,created_by,created_at) VALUES('+",".join("?" for _ in range(21))+")",
         "参考价正式版本没有真实价格或分类依据变化，不允许空改版",
         ("unchanged_price_conditions","price_angle",3,"耐张塔山区参考价",
-         "op",1,"unit",1,"vol","angle","outage",
-         '{"terrain":{"factor_version":1,"op":"eq","value":"mountain"},'
-         '"height_mm":{"factor_version":1,"op":"range","min":30000,"max":50000}}',
+         "context_op",1,"unit",1,"vol","angle","outage",
+         '{"terrain":{"context_op":"eq","value":"mountain"},'
+         '"height_mm":{"context_op":"range","min":30000,"max":50000}}',
          "active",250000,"内部定额","2026-11-08",
          "2026-11-08","电压塔型和山区条件","只改备注","u",
          "2026-11-08T03:05:00.000Z"))
@@ -4517,12 +4512,6 @@ try:
             "finalized_by='u',finalized_at='2026-11-08T05:00:00.000Z'"
             " WHERE id=?",(ev,))
 
-    add("dictionary_items",id="r16_terrain",type_id="price_factor",
-        code="r16_terrain",created_at="2026-11-08T04:20:00.000Z")
-    add("dictionary_item_versions",id="r16_terrain_v1",item_id="r16_terrain",
-        version=1,name="第十六轮地形",status="active",
-        fields_json='{"kind":"enum"}',changed_by="u",
-        changed_at="2026-11-08T04:21:00.000Z")
     add("work_objects",id="r16_object",code="R16-BIRD",
         created_at="2026-11-08T04:20:00.000Z")
     add("work_object_versions",id="r16_object_v1",
@@ -4531,25 +4520,24 @@ try:
         changed_by="u",recorded_at="2026-11-08T04:21:00.000Z")
     add("operations",id="r16_op",code="R16-INSTALL-BIRD",
         created_at="2026-11-08T04:21:00.000Z")
-    feature_config=json.dumps([{
-        "factor_id":"r16_terrain","factor_version":1,"source":"either",
-        "required":True}])
+    feature_config=json.dumps([{"key":"r16_terrain","label":"地形","scope":"location","source":"manual","type":"select",
+        "enabled":True,"pricing":True,"requirement":"pricing"}])
     add("operation_versions",id="r16_op_v1",operation_id="r16_op",
         version=1,name="安装防鸟装置",status="active",work_target_type="physical",
         work_object_id="r16_object",default_unit_id="unit",
         default_unit_version=1,allow_tower=1,allow_span=0,
-        default_location_kind="tower",pricing_features_json=feature_config,
+        default_location_kind="tower",attributes_schema_json=feature_config,
         changed_by="u",changed_at="2026-11-08T04:22:00.000Z")
     blocked_reason("operation feature must have a real official factor version",
         "INSERT INTO operation_versions(id,operation_id,version,name,"
         "status,work_target_type,work_object_id,default_unit_id,"
         "default_unit_version,allow_tower,allow_span,default_location_kind,"
-        "pricing_features_json,changed_by,changed_at)"
+        "attributes_schema_json,changed_by,changed_at)"
         " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        "操作特征声明须引用有效正式价格特征字典",
+        "操作属性须包含稳定身份及明确层级",
         ("r16_bad_operation_feature","r16_op",2,"非法作业特征",
          "active","physical","r16_object","unit",1,1,0,"tower",
-         '[{"factor_id":"ghost","factor_version":1,"source":"asset","required":true}]',
+         '[{"factor_id":"ghost","source":"asset","required":true}]',
          "u","2026-11-08T04:30:00.000Z"))
     add("physical_towers",id="r16_pt16",tower_code="R16-PT16",
         tower_type="straight",created_by="u",created_at="2026-11-08T04:22:00.000Z")
@@ -4559,8 +4547,7 @@ try:
         return [{
             "location_kind":"physical_tower","physical_tower_id":tower,
             "quantity_scaled":qty,
-            "site_features_json":{
-                "r16_terrain":{"factor_version":1,"value":"mountain"}},
+            "attributes":{"r16_terrain":"mountain"},
             "location_snapshot_json":{"label":label}}
             for tower,qty,label in zip(("pt","r16_pt16","r16_pt17"),
                 qs,("#15塔","#16塔","#17塔"))]
@@ -4693,7 +4680,7 @@ try:
         "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
         " VALUES('r16_missing_factor_line','r16_missing_factor_quote',1,"
         "'main','r16_price_base',10000,12000,'{}','{}')",
-        "需求作业位置未完整提供操作类型要求的正式价格特征")
+        "正式计价缺少操作类型要求的统一属性")
     # The correct per-tower base is counted for EACH work location.
     r16_eval("r16_full_quote",did="r16_d",ver=1)
     r16_price("outage_only",work_mode="outage",base=10000,unit=2000)
@@ -4826,18 +4813,14 @@ try:
     # Another different operation type and its own reference price; same
     # project total aggregates both approved demand-scopes, not a mutable total.
     r16_price("other_fixed",mode="fixed",op="op",unit=20000)
-    r16_price("undeclared_feature",mode="per_unit",op="op",unit=20000,
-        conditions={"r16_terrain":{"factor_version":1,"op":"eq",
-                                   "value":"mountain"}})
-    r16_eval("r16_other_quote",did="r16_other_d",ver=1,
-        scope_id="r16_ap_other")
-    blocked_reason("reference price cannot use site factor not declared by operation version",
-        "INSERT INTO reference_price_evaluation_lines(id,evaluation_id,"
-        "location_item_no,coverage_key,reference_price_version_id,"
-        "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
-        " VALUES('r16_undeclared','r16_other_quote',1,'main',"
-        "'r16_price_undeclared_feature',10000,20000,'{}','{}')",
-        "使用的价格适用因素必须由同版操作类型正式声明")
+    invalid_rule=dict(row("SELECT * FROM reference_price_versions WHERE id='r16_price_other_fixed'"))
+    invalid_rule.update(id="r16_undeclared_rule",version_no=2,
+        additional_conditions_json='{"r16_terrain":{"op":"eq","value":"mountain"}}')
+    blocked_reason("price condition identity must be declared by its adopted operation version",
+        "INSERT INTO reference_price_versions("+",".join(invalid_rule)+") VALUES("+
+        ",".join("?" for _ in invalid_rule)+")",
+        "价格条件须引用采用操作正式版本的有效计价属性",tuple(invalid_rule.values()))
+    r16_eval("r16_other_quote",did="r16_other_d",ver=1,scope_id="r16_ap_other")
     r16_line("r16_other_line","r16_other_quote",1,10000,20000,
         price="r16_price_other_fixed")
     r16_final("r16_other_quote")

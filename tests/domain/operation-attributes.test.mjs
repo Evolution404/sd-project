@@ -31,6 +31,7 @@ test("pricing eligibility, deferred requirements, disabled fields and exact sign
   assert.throws(() => validateAttributeSchema([{ ...base, options: [{ value: "a", label: "甲" }, { value: "a", label: "乙" }] }]), /不能重复/);
   assert.deepEqual(normalizeAttributeValues([{ ...base, requirement: "pricing" }], "location", {}, "locations"), {});
   assert.deepEqual(normalizeAttributeValues([{ ...base, enabled: false }], "location", {}, "locations"), {});
+  assert.throws(() => normalizeAttributeValues([{ ...base, enabled: false }], "location", { bird: "high" }, "locations"), /已启用/);
   validateAttributeCondition(base, { op: "eq", value: "high" });
   assert.throws(() => validateAttributeCondition(base, { op: "range", min: 1, max: 2 }), /只支持/);
   const decimal = { ...base, type: "decimal", precision: 4, min: "-1", max: "1" };

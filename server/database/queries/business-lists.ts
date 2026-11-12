@@ -35,12 +35,26 @@ export interface ProjectListRecord {
 
 const demandSource: ListSource = {
   sql: `SELECT v.*, d.created_at,
+    json_extract(v.full_definition_json,'$.operation_snapshot') AS operation_snapshot,
+    json_extract(v.full_definition_json,'$.unit_snapshot') AS unit_snapshot,
+    (SELECT GROUP_CONCAT(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name'))
+      FROM json_each(v.full_definition_json,'$.work_locations') loc) AS line_summary,
+    json_array_length(v.full_definition_json,'$.work_locations') AS location_count,
+    (SELECT m.name FROM v_project_demand_binding_current b JOIN v_project_management_current m
+      ON m.project_id=b.project_id WHERE b.demand_id=v.id) AS project_name,
+    MAX(v.definition_changed_at, COALESCE((SELECT recorded_at FROM demand_lifecycle_events event
+      WHERE event.demand_id=v.id ORDER BY event_seq DESC LIMIT 1),d.created_at),
+      COALESCE((SELECT event.recorded_at FROM project_demand_link_events event
+        JOIN project_demand_scopes scope ON scope.id=event.project_scope_id
+        WHERE scope.demand_id=v.id ORDER BY event.recorded_at DESC LIMIT 1),d.created_at)) AS last_handled_at,
+    CASE WHEN v.status='active' AND EXISTS(SELECT 1 FROM v_project_demand_binding_current binding WHERE binding.demand_id=v.id) THEN 'bound'
+      WHEN v.status='active' THEN 'unbound' WHEN v.status='returned' THEN 'pending' ELSE v.status END AS handling_view,
     (SELECT json_object('project_id', b.project_id, 'project_scope_id', b.project_scope_id,
       'demand_id', b.demand_id) FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) AS binding_json
     FROM v_demand_current v JOIN demands d ON d.id=v.id`,
   columns: ["id", "demand_no", "current_version", "quantity_scaled", "operation_id", "operation_version",
     "work_object_id", "unit_id", "unit_version", "target_object", "problem_description", "completion_standard",
-    "work_target_type", "priority_id", "expected_on", "status", "definition_changed_at", "created_at", "deleted"],
+    "work_target_type", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "location_count", "project_name", "last_handled_at", "handling_view", "definition_changed_at", "created_at", "deleted"],
   search: ["demand_no", "full_definition_json", "status"],
 };
 const projectSource: ListSource = {

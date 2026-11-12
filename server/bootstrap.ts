@@ -1,8 +1,6 @@
 import { priceRuleRepository } from "./database/repositories/price-rules.js";
 import { createPriceRules } from "./modules/pricing/rules.js";
-import { priceFactorRepository } from "./database/repositories/price-factors.js";
 import { workStandardRepository } from "./database/repositories/work-standards.js";
-import { createPriceFactors } from "./modules/pricing/factors.js";
 import { createWorkStandards } from "./modules/work-standards/service.js";
 import { dictionaryRepository } from "./database/repositories/dictionaries.js";
 import { quantityUnitRepository } from "./database/repositories/quantity-units.js";
@@ -57,11 +55,10 @@ export function createSystem(dataDir?: string) {
   const equipment = createEquipment(equipmentRepository(store), database, audit);
   const dictionaries = createDictionaries(dictionaryRepository(store),database,audit);
   const materials = createMaterials(materialRepository(store),dictionaries,database,audit);
-  const factors = createPriceFactors(priceFactorRepository(store),dictionaries,database,audit);
-  const standards = createWorkStandards(workStandardRepository(store),dictionaries,factors,database,audit);
+  const standards = createWorkStandards(workStandardRepository(store),dictionaries,database,audit);
   const priceRules = createPriceRules(priceRuleRepository(store),standards,equipment,database,audit);
   const funding = createFunding(fundingRepository(store), database, audit);
-  const catalog = createCatalog(catalogLabelRepository(store), equipment, audit, dictionaries, materials, factors, standards, priceRules, funding);
+  const catalog = createCatalog(catalogLabelRepository(store), equipment, audit, dictionaries, materials, standards, priceRules, funding);
   const demandRecords = demandRepository(store);
   const demands = createDemands(demandRecords, catalog, database);
   const pricing = createPricing(pricingRepository(store), priceRules, standards, database, audit);
@@ -72,7 +69,7 @@ export function createSystem(dataDir?: string) {
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
   return {
-    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, factors, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
+    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
     management: createManagement({ repository: managementRepository(store), identity, auth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

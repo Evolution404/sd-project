@@ -1,7 +1,7 @@
 import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fixture } from "../helpers.mjs";
+import { fixture, attribute } from "../helpers.mjs";
 test("quantity revisions retain adopted operation and unit definitions after master changes", (t) => {
   const { s, user, operation, demandInput, unit } = fixture(t);
   const demand = s.demands.save(user, demandInput);
@@ -130,50 +130,17 @@ test("deleting referenced equipment preserves real operating status while exclud
     /已删除/,
   );
 });
-test("versioned extra price features retain exact names and reject undeclared equipment duplicates", (t) => {
-  const { s, user, save, operation, demandInput } = fixture(t);
-  assert.throws(() => save("factors", {
-    name: "重复塔型属性",
-    fields_json: { kind: "enum", values: ["angle"], asset_field: "tower_type" },
-  }), /台账属性应直接作为价格适用条件/);
-  const factor = save("factors", {
-    code: "terrain",
-    name: "施工环境",
-    fields_json: { kind: "enum", values: ["山地", "平地"] },
-  });
-  s.catalog.save(user, "operations", {
-    ...operation,
-    expected_version: 1,
-    pricing_features_json: [{
-      factor_id: factor.id, factor_version: 1, source: "manual", required: true,
-    }],
-  }, operation.id);
-  const demand = s.demands.save(user, {
-    ...demandInput,
-    work_locations: demandInput.work_locations.map((loc) => ({
-      ...loc,
-      site_features_json: {
-        [factor.code]: { factor_version: 1, value: "山地" },
-      },
-    })),
-  });
-  assert.equal(demand.work_locations[0].site_features_json[factor.code].value, "山地");
-  assert.throws(() => s.demands.save(user, {
-    ...demandInput,
-    demand_no: "WRONG-FACT",
-    work_locations: demandInput.work_locations.map((loc) => ({
-      ...loc,
-      site_features_json: {
-        [factor.code]: { factor_version: 1, value: "不在候选范围" },
-      },
-    })),
-  }), /不在正式选项中/);
-  s.catalog.save(user, "factors", {
-    ...factor, name: "更新后的施工环境名称", expected_version: 1,
-  }, factor.id);
-  const labels = s.catalog.displayLabels();
-  assert.equal(labels[factor.code + "@1"], "施工环境");
-  assert.equal(labels[factor.code + "@2"], "更新后的施工环境名称");
+test("unified operation attributes retain exact adopted labels and actual values",t=>{
+ const {s,user,operation,demandInput}=fixture(t);
+ const field=attribute({key:"terrain",label:"施工环境",options:[{value:"山地",label:"山地"},{value:"平地",label:"平地"}]});
+ s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:[field]},operation.id);
+ const demand=s.demands.save(user,{...demandInput,work_locations:demandInput.work_locations.map(loc=>({...loc,attributes:{terrain:"山地"}}))});
+ assert.equal(demand.work_locations[0].attributes.terrain,"山地");
+ assert.throws(()=>s.demands.save(user,{...demandInput,work_locations:demandInput.work_locations.map(loc=>({...loc,attributes:{terrain:"未知"}}))}),/正式选项/);
+ s.standards.saveOperation(user,{expected_version:2,attributes_schema_json:[{...field,label:"新版施工环境"}]},operation.id);
+ assert.equal(s.standards.operationAttributes(operation.id,2).items[0].label,"施工环境");
+ assert.equal(s.standards.operationAttributes(operation.id,3).items[0].label,"新版施工环境");
+ assert.equal(s.demands.get(demand.id).operation_version,2);
 });
 test("explicit historical equipment correction preserves deletion and permits real retirement", (t) => {
   const { s, user, towers } = fixture(t);

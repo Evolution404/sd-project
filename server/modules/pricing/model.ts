@@ -1,3 +1,4 @@
+import type { AttributeCondition, AttributeValues, OperationAttribute } from "../../shared/types/operation-attributes.js";
 export interface QuantityBracket {
   min_quantity_scaled: number;
   max_quantity_scaled: number | null;
@@ -50,18 +51,10 @@ export interface CalculationResult {
   amount_fen: number;
   trace: PricingTrace;
 }
-export interface PriceCondition {
-  factor_version: number;
-  op: string;
-  value?: string;
-  min?: number;
-  max?: number;
-}
-export interface SiteFeature {
-  factor_version: number;
-  value: string | number;
-}
+export type PriceCondition = AttributeCondition;
 export interface OperationPricingIdentity {
+  attributes?: AttributeValues;
+  attribute_schema?: OperationAttribute[];
   operation_id: string;
   operation_version: number;
   unit_id: string;
@@ -79,5 +72,6 @@ export interface ApplicablePriceRule extends PricingRule, OperationPricingIdenti
 export interface PricingLocation {
   work_mode: string;
   location_snapshot_json?: string | { voltage_level_id?: string; tower_type?: string; specification?: string };
-  site_features_json?: string | Record<string, SiteFeature>;
+  attributes?: string | AttributeValues;
+  demand_attributes?: string | AttributeValues;
 }

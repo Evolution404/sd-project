@@ -82,7 +82,7 @@ export function pricingRepository(store: ReturnType<typeof createStore>) {
     applicableLocations(approvalId: string) {
       return store.query(
         `SELECT d.operation_id,d.operation_version,d.unit_id,d.unit_version,
-        l.work_mode,l.location_snapshot_json,l.site_features_json,l.quantity_scaled
+        json_extract(d.snapshot_json,'$.attributes') AS demand_attributes,l.work_mode,l.location_snapshot_json,l.attributes_json AS attributes,l.quantity_scaled
         FROM project_approval_scope_versions s
         JOIN demand_versions d ON d.demand_id=s.demand_id AND d.version=s.demand_version
         JOIN project_approval_work_locations selected ON selected.approval_scope_version_id=s.id

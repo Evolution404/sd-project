@@ -1,3 +1,4 @@
+import type { OperationAttribute } from "./operation-attributes.js";
 /** Excel exchange contracts: user-visible fields and server-owned identities are distinct. */
 export type WorkbookKind = "assets" | "demands" | "settlements";
 export type WorkbookReportKind = WorkbookKind | "exchange";
@@ -12,6 +13,10 @@ export interface WorkbookRow extends Record<string, unknown> {
   id?: string | null;
   number?: string | null;
   demand_no?: string | null;
+  import_ref?: string | null;
+  location_ref?: string | null;
+  primary_source?: string | null;
+  primary_source_id?: string | null;
   expected_version?: number | null;
   expected_edit_version?: number | null;
   action?: WorkbookRowAction | null;
@@ -94,6 +99,9 @@ export interface WorkbookRow extends Record<string, unknown> {
   value?: unknown;
 }
 export interface WorkbookIssue {
+  import_ref?: string;
+  demand_no?: string;
+  location_ref?: string;
   sheet: string;
   row: number;
   field: string;
@@ -121,6 +129,7 @@ export type WorkbookLayouts = Record<WorkbookKind, WorkbookSheetDefinition[]>;
 export interface WorkbookOptions {
   report?: boolean;
   lookups?: Record<string, unknown>[];
+  attributes?: OperationAttribute[];
 }
 export type AssetExchangeKind = "lines" | "physical" | "towers" | "spans";
 export type ExchangeMode = "create" | "update" | "mixed";
@@ -176,7 +185,7 @@ export interface ExchangeCommitInput {
   atomic:boolean;
 }
 export interface ExchangeCommitResult {
-  results:Array<{number:string;id:string;action:"create"|"update"|"unchanged"}>;
+  results:Array<{import_ref?:string;number:string;id:string;action:"create"|"update"|"unchanged"}>;
   issues:WorkbookIssue[];
   timings_ms:{revalidation:number;business_writes:number};
   submitted_at:string;

@@ -8,7 +8,6 @@ export async function handlePriceCatalog(
   const {
     system,
     actor,
-    key,
     sub,
     subKey,
     read,
@@ -19,11 +18,11 @@ export async function handlePriceCatalog(
     mutate,
   } = context;
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
-  if (key === "prices" && sub === "preview") {
+  if (sub === "preview") {
     requireValue(method === "POST", "仅支持规则预检查", 405);
     return { result: system.priceRules.preview(actor, input) };
   }
-  const service = key === "prices" ? system.priceRules : system.factors;
+  const service = system.priceRules;
   if (
     read &&
     sub &&

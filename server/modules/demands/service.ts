@@ -1,4 +1,4 @@
-import { currentSources, reviseSource } from "./sources.js";
+import { currentSources, reviseSource, removeSource } from "./sources.js";
 import type { Actor, ListQuery, Page } from "../../shared/types/contracts.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type { Database } from "../../database/connection.js";
@@ -6,10 +6,8 @@ import type { DemandRepository } from "../../database/repositories/demands.js";
 import type {
   DemandCatalog, DemandWriteInput, DemandRecord, DemandLocation, DemandListItem,
   NormalizedDemand, DemandStatus, DemandMaterialInput,
-  SiteFeatures
 } from "../../shared/types/demands.js";
-import type { OperationField, PricingFeatureDeclaration } from "../../shared/types/work-standards.js";
-import { validateFeatureValue } from "../pricing/features.js";
+import { normalizeAttributeValues, validateAttributeSchema } from "../../shared/operation-attributes.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import { authorize, documentCode, id, now } from "../../platform/auth/service.js";
 import {
@@ -22,9 +20,12 @@ function parseDemandInput(value: unknown): DemandWriteInput {
   requireValue(isObject(value), "需求内容必须为对象");
   requireValue(value.work_locations === undefined || Array.isArray(value.work_locations),
     "作业位置必须是列表");
+  requireValue(!Array.isArray(value.work_locations) || value.work_locations.every(isObject), "每个作业位置须为完整事实对象");
   requireValue(value.materials === undefined || Array.isArray(value.materials), "预计物资必须是列表");
   requireValue(value.sources === undefined || Array.isArray(value.sources), "来源必须是列表");
-  requireValue(value.custom_fields === undefined || isObject(value.custom_fields),
+  requireValue(!Array.isArray(value.materials) || value.materials.every(isObject), "每项预计物资须为对象");
+  requireValue(!Array.isArray(value.sources) || value.sources.every(isObject), "每项来源须为对象");
+  requireValue(value.attributes === undefined || isObject(value.attributes),
     "补充现场字段必须是对象");
   return value as DemandWriteInput;
 }
@@ -57,7 +58,6 @@ export function createDemands(
       work_locations: definition.work_locations,
       materials: repo.materials(key, row.current_version),
       sources: currentSources(repo, key),
-      custom_fields: JSON.parse(definition.custom_fields_json || "{}"),
       binding:
         repo.binding(key) || null,
     };
@@ -108,67 +108,8 @@ export function createDemands(
       !input.work_object_id || input.work_object_id === object.id,
       "作业对象必须与操作类型一致",
     );
-    const custom =
-      input.custom_fields === undefined
-        ? JSON.parse(previous?.custom_fields_json || "{}")
-        : input.custom_fields;
-    requireValue(
-      custom && typeof custom === "object" && !Array.isArray(custom),
-      "补充现场字段格式错误",
-    );
-    const fields = JSON.parse(op.fields_json) as OperationField[];
-    requireValue(
-      Object.keys(custom).every((key) =>
-        fields.some((field) => field.key === key),
-      ),
-      "补充现场字段必须属于采用的正式操作定义",
-    );
-    for (const field of fields) {
-      const value = custom[field.key],
-        fieldError = { ["custom_fields." + field.key]: `请核对${field.label}` };
-      requireValue(
-        !field.required ||
-          (value !== undefined && value !== null && value !== ""),
-        `请填写${field.label}`,
-        422,
-        fieldError,
-      );
-      if (value === undefined || value === null || value === "") continue;
-      requireValue(
-        field.type !== "text" || typeof value === "string",
-        `${field.label}须为文字`,
-        422,
-        fieldError,
-      );
-      requireValue(
-        field.type !== "number" ||
-          (typeof value === "number" && Number.isFinite(value)),
-        `${field.label}必须为数值`,
-        422,
-        fieldError,
-      );
-      requireValue(
-        field.type !== "boolean" || typeof value === "boolean",
-        `${field.label}必须为是或否`,
-        422,
-        fieldError,
-      );
-      requireValue(
-        field.type !== "select" || (typeof value === "string" && (field.options ?? []).includes(value)),
-        `${field.label}不在正式可选范围`,
-        422,
-        fieldError,
-      );
-      requireValue(
-        field.type !== "date" ||
-          (typeof value === "string" &&
-            /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-            !Number.isNaN(Date.parse(value))),
-        `${field.label}日期无效`,
-        422,
-        fieldError,
-      );
-    }
+    const schema = validateAttributeSchema(JSON.parse(op.attributes_schema_json));
+    const attributes = normalizeAttributeValues(schema, "demand", input.attributes ?? previous?.attributes ?? {}, "attributes");
     const rawLocations = input.work_locations ?? previous?.work_locations;
     requireValue(
       Array.isArray(rawLocations) && rawLocations.length > 0 && rawLocations.length <= 5000,
@@ -265,47 +206,21 @@ export function createDemands(
           : kind === "physical_tower"
             ? entity
             : null;
-      let parsedFeatures: unknown;
-      try {
-        parsedFeatures =
-          typeof loc.site_features_json === "string"
-            ? JSON.parse(loc.site_features_json)
-            : loc.site_features_json || {};
-      } catch {
-        requireValue(false, "现场特征格式错误");
-      }
-      requireValue(isObject(parsedFeatures), "现场特征须为具名事实对象");
-      const actual: SiteFeatures = {};
-      for (const [code, rawValue] of Object.entries(parsedFeatures)) {
-        requireValue(isObject(rawValue) && Number.isSafeInteger(rawValue.factor_version),
-          "现场特征须引用正式价格特征及其版本");
-        actual[code] = {
-          factor_version: integer(rawValue.factor_version, "价格特征版本", 1),
-          value: rawValue.value
-        };
-      }
       const voltage = line?.voltage_level_id ? catalog.get("voltages", line.voltage_level_id, true) : null;
-      const asset: { tower_type: string | null; voltage_name: string | null; voltage_code: string | null } = {
+      const original = previous?.operation_id === operationId && previous.operation_version === selectedVersion
+        ? previous.work_locations.find((item) => item.location_kind === kind && item[key] === entity.id) : undefined;
+      const frozen = original?.location_snapshot_json;
+      const snapshotAsset = frozen || {
+        voltage_level_id: line?.voltage_level_id || null,
         tower_type: physical?.tower_type || null,
-        voltage_name: voltage?.name || null,
-        voltage_code: voltage?.code || null
+        tower_nature: physical?.tower_nature || null,
       };
-      for (const [code, feature] of Object.entries(actual)) {
-        const factor = repo.factorByCode(code);
-        requireValue(
-          factor &&
-            feature &&
-            typeof feature === "object" &&
-            Number.isSafeInteger(feature.factor_version),
-          "现场特征须引用正式价格特征及其版本",
-        );
-        const version = repo.factorVersion(factor.id, feature.factor_version);
-        requireValue(version, "现场特征定义版本不存在");
-        const declared = (JSON.parse(op.pricing_features_json) as PricingFeatureDeclaration[]).find((item) =>
-          item.factor_id === factor.id && item.factor_version === feature.factor_version);
-        requireValue(declared, "现场价格特征不属于本操作类型的正式定义");
-        validateFeatureValue(JSON.parse(version.fields_json), feature.value, version.name);
-      }
+      const locationAttributes = normalizeAttributeValues(schema, "location", loc.attributes ?? original?.attributes ?? {},
+        `work_locations.${index}.attributes`, {
+          voltage_level_id: snapshotAsset.voltage_level_id,
+          tower_type: snapshotAsset.tower_type,
+          tower_nature: snapshotAsset.tower_nature,
+        });
       return {
         item_no: index + 1,
         location_kind: kind,
@@ -317,12 +232,13 @@ export function createDemands(
           unit.fields_json, unit.name, `work_locations.${index}.quantity_scaled`,
         ),
         work_mode: loc.work_mode || "unspecified",
-        site_features_json: actual,
+        attributes: locationAttributes,
         location_snapshot_json: {
+          physical_tower_id: frozen?.physical_tower_id ?? physical?.id ?? null,
           line_name: line?.name || "",
           line_id: line?.id || null,
-          voltage_level_id: line?.voltage_level_id || null,
-          voltage_code: asset.voltage_code,
+          voltage_level_id: snapshotAsset.voltage_level_id,
+          voltage_code: frozen?.voltage_code ?? voltage?.code ?? null,
           specification:
             loc.specification ||
             loc.location_snapshot_json?.specification ||
@@ -337,7 +253,8 @@ export function createDemands(
               .join(" / "),
           asset_no: physical?.asset_no || null,
           physical_code: physical?.tower_code || "",
-          tower_type: physical?.tower_type || null,
+          tower_type: snapshotAsset.tower_type,
+          tower_nature: snapshotAsset.tower_nature,
           span: kind === "span" ? entity : null,
           location_label:
             kind === "span"
@@ -443,13 +360,12 @@ export function createDemands(
       span_id: first.span_id || null,
       span_version: first.span_version || null,
       span_snapshot_json: first.span_id ? JSON.stringify(snapshot.span) : null,
-      observed_physical_tower_id: null,
+      observed_physical_tower_id: first.logical_tower_id ? snapshot.physical_tower_id : null,
       context_line_id: first.context_line_id || null,
       line_name_snapshot: snapshot.line_name,
       tower_no_snapshot: snapshot.tower_no,
       physical_code_snapshot: snapshot.physical_code,
-      custom_fields_json: JSON.stringify(custom),
-      field_definitions_json: op.fields_json,
+      attributes,
       work_locations: locations,
       materials,
     };
@@ -496,7 +412,7 @@ export function createDemands(
           delete snapshot.materials;
         const sourceChange = (input.sources || []).some(
           (source) =>
-            !source.id ||
+            source.action === "delete" || !source.id ||
             !previous.sources.some(
               (old) =>
                 old.id === source.id &&
@@ -523,12 +439,13 @@ export function createDemands(
           reason: input.reason || "",
         });
       } else {
-        const { work_locations, materials, ...root } = normalized;
+        const { work_locations, materials, attributes, ...root } = normalized;
         repo.createDemand({
           id: keyId,
           demand_no: documentCode("XQ", keyId),
           batch_id: context.batchId || null,
           ...root,
+          initial_attributes_json: JSON.stringify(attributes),
           initial_work_locations_json: JSON.stringify(work_locations),
           created_by: actor.id,
           created_at: timestamp,
@@ -545,7 +462,12 @@ export function createDemands(
       }
       if (input.sources)
         for (const source of input.sources) {
-          if (source.id) {
+          requireValue(source.action === undefined || source.action === "upsert" || source.action === "delete", "未知来源操作");
+          if (source.action === "delete") {
+            requireValue(source.id && repo.linkedSource(keyId, source.id), "删除来源须明确本需求已有来源身份");
+            removeSource(repo, catalog, actor, source.id);
+          } else if (source.id) {
+            requireValue(repo.linkedSource(keyId, source.id), "来源身份不属于本需求");
             const current = reviseSource(
               repo,
               catalog,

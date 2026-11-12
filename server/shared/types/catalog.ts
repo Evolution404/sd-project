@@ -1,6 +1,6 @@
 import type { JsonValue } from "./contracts.js";
 
-export type CatalogKind = "units" | "priorities" | "categories" | "factors" | "objects" | "operations"
+export type CatalogKind = "units" | "priorities" | "categories" | "objects" | "operations"
   | "materials" | "frameworks" | "agreements" | "organizations" | "voltages" | "lines" | "physical" | "towers" | "spans" | "prices";
 export type CatalogFieldType = "text" | "select" | "ref" | "json" | "money" | "quantity" | "integer" | "boolean" | "length_m" | "decimal" | "date";
 export interface CatalogField {

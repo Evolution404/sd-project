@@ -60,7 +60,7 @@ cost_version_id|实际费用正式确认或修订版本
 counterparty_name|执行协议合同相对方名称
 created_at|对象首次登记UTC时间
 created_by|登记业务对象的用户
-custom_fields_json|分类扩展业务字段的结构化数据
+initial_attributes_json|需求V1原始属性，正式发布后由需求正式快照负责每版完整事实
 decided_at|正式业务决定UTC时间
 decided_by|作出批准或拒绝决定的人
 decision|重复需求审查结果
@@ -100,7 +100,7 @@ evidence|现场实际或成本确认的书面依据
 expected_on|专业需求期望办理日期
 expires_at|登录会话或授权到期UTC时间
 external_record_id|一次性数据导入原始来源编号，不作为持续外部系统映射
-field_definitions_json|来源分类扩展字段定义
+attributes_schema_json|操作正式版本统一属性定义，需求和价格条件采用同一属性身份
 fields_json|标准业务字典/操作类型扩展字段
 file_id|不可变证据文件身份
 filename|证据文件原始名称
@@ -197,10 +197,9 @@ record_id|历史修订归属的原始业务事实
 recorded_at|历史业务事件录入数据库的UTC时间点
 recorded_by|登记正式业务事实的用户
 reference_price_version_id|逐位置计价事实或独立项目/批次费用所采用的参考价格精确不可变版本；不再直接存到项目需求关系上
-site_features_json|对应具体作业位置的真实现场价格特征值，键沿用同一price_factor字典编码并记录定义正式版本
+attributes_json|由需求正式快照原子投影的逐位置统一属性，不可独立修改
 pricing_scope|参考价作用域：work_location单作业位置、work_batch单批次、project整个子项目；不能把一次项目费用摊到每条需求重复收取
 pricing_inputs_json|项目或作业批次独立附加费用使用的实际次数/范围/日期等正式计算参数
-pricing_features_json|操作类型正式版本声明哪些统一price_factor字典特征参与录入/计价，含定义版本、数据来源及是否必需
 pricing_date|本次真实参考价核算采用的价格适用业务日期，不等同于价格来源制定日期
 location_snapshot_json|需求正式版本中某作业位置当时的线路、杆号、现场识别信息不可变快照，不用当下台账重新解释旧计价
 location_kind|作业位置类型：物理杆塔、逻辑杆塔或档距；位置事实与标准作业对象和具体物资不同

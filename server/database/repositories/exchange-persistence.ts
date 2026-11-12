@@ -1,7 +1,6 @@
 import type { createStore } from "./store.js";
 import type { ExchangeBatch } from "../../shared/types/exchange.js";
 import type { OperationVersion } from "../../shared/types/work-standards.js";
-import type { DictionaryVersion } from "../../shared/types/master-data.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 
 /**
@@ -46,17 +45,6 @@ export function exchangePersistenceRepository(store: Store) {
     operationAdoptedVersion(operationId: string, version: number): OperationVersion | undefined {
       return store.get<OperationVersion>(
         "SELECT * FROM operation_versions WHERE operation_id=? AND version=?", operationId, version);
-    },
-    factorAdoptedVersion(factorId: string, version: number): DictionaryVersion | undefined {
-      return store.get<DictionaryVersion>(
-        "SELECT * FROM dictionary_item_versions WHERE item_id=? AND version=?", factorId, version);
-    },
-    factorIdentityAtVersion(code: string, version: number): { id: string; name: string } | undefined {
-      return store.get<{ id: string; name: string }>(
-        `SELECT d.id,v.name FROM dictionary_items d
-        JOIN dictionary_item_versions v ON v.item_id=d.id
-        WHERE d.type_id='price_factor' AND d.code=? AND v.version=?`,
-        code, version);
     },
     scopeDemandId(scopeId: string): string | undefined {
       return store.get<{demand_id:string}>(

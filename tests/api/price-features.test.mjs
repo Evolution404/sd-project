@@ -1,159 +1,47 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fixture } from "../helpers.mjs";
+import { fixture, attribute } from "../helpers.mjs";
 
-test("extra factor definitions reject empty/duplicate enums and out-of-range integers", (t) => {
-  const { s, user, save, unit } = fixture(t);
-  assert.throws(() => save("factors", {
-    name: "空选项",
-    fields_json: { kind: "enum", values: [] },
-  }), /至少配置一个可选值/);
-  assert.throws(() => save("factors", {
-    name: "重复选项",
-    fields_json: { kind: "enum", values: ["困难", "困难"] },
-  }), /不能重复/);
-  assert.throws(() => save("factors", {
-    name: "不合法区间",
-    fields_json: { kind: "number", min: 8, max: 2 },
-  }), /最小值不能大于最大值/);
-  assert.throws(() => save("factors", {
-    name: "非法台账特征",
-    fields_json: { kind: "enum", values: ["220kV"], asset_field: "voltage_name" },
-  }), /台账属性应直接作为价格适用条件/);
-  assert.throws(() => save("factors", {
-    name: "塔型",
-    fields_json: { kind: "enum", values: ["角钢塔"] },
-  }), /已有正式业务字段/);
-  assert.throws(() => save("factors", {
-    name: "未知单位",
-    fields_json: { kind: "number", unit_id: "nonexistent", unit_version: 1 },
-  }), /不存在/);
-  const integer = save("factors", {
-    name: "吊装高度", code: "hoist-height",
-    fields_json: { kind: "number", unit_id: unit.id, unit_version: 1, min: 0, max: 200 },
-  });
-  assert.deepEqual(JSON.parse(integer.fields_json), {
-    kind: "number", unit_id: unit.id, unit_version: 1, min: 0, max: 200,
-  });
-  const changed = s.catalog.save(user, "factors", {
-    name: "吊装最大高度", expected_version: 1,
-  }, integer.id);
-  assert.equal(changed.version, 2);
-  assert.equal(s.catalog.history("factors", integer.id)[0].name, "吊装高度");
-  s.catalog.save(user, "units", { name: "套数", expected_version: 1 }, unit.id);
-  const renamed = s.catalog.save(user, "factors", {
-    name: "吊装高度（新版名称）", expected_version: 2,
-  }, integer.id);
-  assert.equal(renamed.version, 3);
-  assert.equal(JSON.parse(renamed.fields_json).unit_version, 1);
+test("operation attributes reject invalid definitions and pin numeric unit precision", (t) => {
+  const {s,user,operation,unit}=fixture(t);
+  const save=fields=>s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:fields},operation.id);
+  assert.throws(()=>save([attribute({options:[]})]),/至少配置/);
+  assert.throws(()=>save([attribute({options:[{value:"a",label:"甲"},{value:"a",label:"乙"}]})]),/不能重复/);
+  assert.throws(()=>save([attribute({type:"integer",precision:0,min:"8",max:"2"})]),/最小值/);
+  assert.throws(()=>save([attribute({label:"塔型"})]),/台账引用/);
+  assert.throws(()=>save([attribute({type:"integer",precision:0,unit_id:"missing",unit_version:1})]),/不存在/);
+  const changed=save([attribute({type:"integer",precision:0,unit_id:unit.id,unit_version:1,min:"0",max:"200"})]);
+  assert.equal(changed.version,2);
+  s.standards.saveOperation(user,{expected_version:2,attributes_schema_json:[attribute({type:"integer",precision:0,unit_id:unit.id,unit_version:1,label:"高度",min:"0",max:"200"})]},operation.id);
+  assert.equal(s.standards.operationAttributes(operation.id,2).items[0].label,"施工难度");
+  assert.equal(s.standards.operationAttributes(operation.id,3).items[0].label,"高度");
 });
-
-test("required extra site facts defer demand registration but block a complete quote; overlap warns", (t) => {
-  const { s, user, save, operation, unit, demandInput, towers } = fixture(t);
-  const factor = save("factors", {
-    name: "施工难度", code: "difficulty",
-    fields_json: { kind: "enum", values: ["普通", "困难"] },
-  });
-  const height = save("factors", {
-    name: "高度", code: "height",
-    fields_json: { kind: "number", unit_id: unit.id, unit_version: 1, min: 0, max: 100 },
-  });
-  assert.throws(() => s.catalog.save(user, "operations", {
-    expected_version: 1,
-    pricing_features_json: [
-      { factor_id: factor.id, factor_version: 1, source: "asset", required: true },
-    ],
-  }, operation.id), /只能使用现场填写/);
-  const newOp = s.catalog.save(user, "operations", {
-    expected_version: 1,
-    pricing_features_json: [
-      { factor_id: factor.id, factor_version: 1, source: "manual", required: true },
-      { factor_id: height.id, factor_version: 1, source: "manual", required: false },
-    ],
-  }, operation.id);
-  assert.equal(newOp.version, 2);
-  const incomplete = s.demands.save(user, {
-    ...demandInput, demand_no: "MISSING-FACT",
-    work_locations: [demandInput.work_locations[0]],
-  });
-  const missing = s.pricing.quote(user, incomplete.id, { expected_version: 1 });
-  assert.equal(missing.complete, false);
-  assert.match(missing.missing[0].reason, /施工难度/);
-  assert.throws(() => s.pricing.quote(user, incomplete.id, {
-    expected_version: 1, confirm: true,
-  }), /未完整计价/);
-  assert.throws(() => s.demands.save(user, {
-    ...demandInput, demand_no: "WRONG-ENUM",
-    work_locations: [{
-      ...demandInput.work_locations[0],
-      site_features_json: {
-        [factor.code]: { factor_version: 1, value: "未知难度" },
-      },
-    }],
-  }), /不在正式选项/);
-  assert.throws(() => s.demands.save(user, {
-    ...demandInput, demand_no: "WRONG-HEIGHT",
-    work_locations: [{
-      ...demandInput.work_locations[0],
-      site_features_json: {
-        [factor.code]: { factor_version: 1, value: "困难" },
-        [height.code]: { factor_version: 1, value: 101 },
-      },
-    }],
-  }), /不在允许的数值范围/);
-
-  assert.throws(() => save("prices", {
-    title: "无效施工难度", operation_id: operation.id, pricing_mode: "per_unit",
-    unit_price_fen: 1000,
-    additional_conditions_json: {
-      [factor.code]: { factor_version: 1, op: "eq", value: "不存在" },
-    },
-    price_source: "测试", price_date: "2026-01-01",
-    effective_on: "2026-01-01", basis: "测试",
-  }), /不在正式选项/);
-  const price = save("prices", {
-    title: "困难施工", operation_id: operation.id, pricing_mode: "per_unit",
-    unit_price_fen: 1000,
-    additional_conditions_json: {
-      [factor.code]: { factor_version: 1, op: "eq", value: "困难" },
-      [height.code]: { factor_version: 1, op: "range", min: 10, max: 100 },
-    },
-    price_source: "测试", price_date: "2026-01-01",
-    effective_on: "2026-01-01", basis: "验收测试",
-  });
-  assert.equal(price.warnings, undefined);
-
-  const demand = s.demands.save(user, {
-    ...demandInput, demand_no: "PRICED-FACT",
-    work_locations: [
-      { ...demandInput.work_locations[1],
-        site_features_json: {
-          [factor.code]: { factor_version: 1, value: "困难" },
-          [height.code]: { factor_version: 1, value: 15 },
-        },
-      },
-    ],
-  });
-  const quote = s.pricing.quote(user, demand.id, { expected_version: 1 });
-  assert.equal(quote.complete, true);
-  assert.equal(quote.total_fen, 2000);
-  assert.equal(s.pricing.quote(user, demand.id, {
-    expected_version: 1, confirm: true,
-  }).total_fen, 2000);
-  const overlapping = save("prices", {
-    title: "困难施工重叠", operation_id: operation.id, pricing_mode: "fixed",
-    unit_price_fen: 10000,
-    additional_conditions_json: {
-      [factor.code]: { factor_version: 1, op: "eq", value: "困难" },
-    },
-    price_source: "测试", price_date: "2026-01-01",
-    effective_on: "2026-01-01", basis: "验收测试",
-  });
-  assert.match(overlapping.warnings?.[0] || "", /困难施工/);
-  const ambiguous = s.pricing.quote(user, demand.id, { expected_version: 1 });
-  assert.equal(ambiguous.complete, false);
-  assert.match(ambiguous.missing[0].reason, /重叠规则/);
-  assert.equal(ambiguous.missing[0].candidates.length, 2);
+test("unified site facts defer registration, validate both scopes and price exact decimal ranges",(t)=>{
+  const {s,user,save,operation,demandInput}=fixture(t);
+  const fields=[attribute(),attribute({key:"height",label:"吊装高度",type:"decimal",precision:2,min:"0",max:"100",requirement:"optional"}),
+    attribute({key:"reason",label:"治理分类",scope:"demand",requirement:"save"}),
+    attribute({key:"note",label:"位置备注",type:"textarea",pricing:false,requirement:"optional"})];
+  s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:fields},operation.id);
+  const common={...demandInput,attributes:{reason:"普通"},work_locations:[demandInput.work_locations[0]]};
+  const missing=s.demands.save(user,common);
+  assert.match(s.pricing.quote(user,missing.id,{expected_version:1}).missing[0].reason,/施工难度/);
+  assert.throws(()=>s.pricing.quote(user,missing.id,{expected_version:1,confirm:true}),/未完整计价/);
+  assert.throws(()=>s.demands.save(user,{...common,work_locations:[{...demandInput.work_locations[1],attributes:{difficulty:"未知"}}]}),/正式选项/);
+  assert.throws(()=>s.demands.save(user,{...common,work_locations:[{...demandInput.work_locations[1],attributes:{difficulty:"困难",height:"100.01"}}]}),/范围/);
+  assert.throws(()=>save("prices",{title:"未启用计价属性",operation_id:operation.id,pricing_mode:"fixed",unit_price_fen:100,price_source:"测试",price_date:"2026-01-01",effective_on:"2026-01-01",basis:"测试",additional_conditions_json:{note:{op:"eq",value:"文本"}}}),/未启用计价/);
+  const price=save("prices",{title:"困难施工",operation_id:operation.id,pricing_mode:"per_unit",unit_price_fen:1000,
+    additional_conditions_json:{difficulty:{op:"eq",value:"困难"},height:{op:"range",min:"0.25",max:"15.50"},reason:{op:"eq",value:"普通"}},price_source:"测试",price_date:"2026-01-01",effective_on:"2026-01-01",basis:"测试"});
+  assert.equal(price.warnings,undefined);
+  const demand=s.demands.save(user,{...common,work_locations:[{...demandInput.work_locations[1],attributes:{difficulty:"困难",height:"0.25",note:"现场记录"}}]});
+  assert.equal(s.pricing.quote(user,demand.id,{expected_version:1,confirm:true}).total_fen,2000);
+  const overlap=save("prices",{title:"重叠规则",operation_id:operation.id,pricing_mode:"fixed",unit_price_fen:10000,additional_conditions_json:{difficulty:{op:"eq",value:"困难"}},price_source:"测试",price_date:"2026-01-01",effective_on:"2026-01-01",basis:"测试"});
+  assert.match(overlap.warnings[0],/困难施工/);
+  assert.match(s.pricing.quote(user,demand.id,{expected_version:1}).missing[0].reason,/重叠/);
+  s.standards.saveOperation(user,{expected_version:2,attributes_schema_json:fields.map(field=>({...field,enabled:false}))},operation.id);
+  const revised=s.demands.save(user,{expected_version:1,problem_description:"原定义下修订"},demand.id);
+  assert.equal(revised.operation_version,2);
+  assert.equal(revised.work_locations[0].attributes.height,"0.25");
+  assert.equal(s.demands.history(demand.id).reference_quotes.length,1);
 });
 test("price rule edit preserves adopted operation version until explicit upgrade and explains mismatches", (t) => {
   const { s, user, operation, price, demandInput } = fixture(t);
@@ -218,4 +106,20 @@ test("price rule edit preserves adopted operation version until explicit upgrade
   assert.equal(missing.complete, false);
   assert.match(JSON.stringify(missing.missing[0].diagnostics),
     /正式版本不同/);
+});
+test('boolean demand facts, integer location ranges and frozen asset facts price from one adopted schema', t => {
+  const {s,user,save,operation,demandInput}=fixture(t);
+  const fields=[attribute({key:'special',label:'特殊治理',scope:'demand',type:'boolean',requirement:'save'}),
+    attribute({key:'count',label:'安装层数',type:'integer',precision:0,min:'1',max:'10',requirement:'save'}),
+    attribute({key:'tower',label:'塔型',source:'asset',asset_field:'tower_type',options:[],requirement:'pricing'})];
+  s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:fields},operation.id);
+  save('prices',{title:'统一事实计价',operation_id:operation.id,pricing_mode:'per_unit',unit_price_fen:1200,
+    additional_conditions_json:{special:{op:'eq',value:true},count:{op:'range',min:1,max:3},tower:{op:'eq',value:'angle'}},
+    price_source:'正式测试依据',price_date:'2026-01-01',effective_on:'2026-01-01',basis:'引用统一属性'});
+  const demand=s.demands.save(user,{...demandInput,attributes:{special:true},work_locations:[{...demandInput.work_locations[0],attributes:{count:2}}]});
+  const result=s.pricing.quote(user,demand.id,{expected_version:1,confirm:true});
+  assert.equal(result.complete,true);
+  assert.equal(result.total_fen,3600);
+  assert.match(JSON.stringify(s.demands.history(demand.id).reference_quotes),/special/);
+  assert.equal(s.demands.get(demand.id).work_locations[0].attributes.tower,'angle');
 });

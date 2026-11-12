@@ -7,7 +7,7 @@ import { fixture, approvedFixture } from "../helpers.mjs";
 import { createExchange } from "../../dist/server/modules/exchange/service.js";
 import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 
-test("new demands use business names and worksheet rows, with protected identity roundtrip", async (t) => {
+test("new demands use business names and stable import references, with protected identity roundtrip", async (t) => {
   const { s, user, operation, towers } = fixture(t, { quantity_precision: 2 }),
     exchange = createExchange(s);
   const buffer = await makeWorkbook("demands", {
@@ -40,11 +40,12 @@ test("new demands use business names and worksheet rows, with protected identity
     await exchange.exportData(user, "demands", { ids: [created.id] }),
   );
   const root = workbook.getWorksheet("需求清单");
-  for (const key of ["id", "demand_no", "expected_version", "operation_id"]) {
+  for (const key of ["id", "expected_version", "operation_id"]) {
     const column = columnIndex(root, key);
     assert.ok(column > 0);
     assert.equal(root.getColumn(column).hidden, true);
   }
+  assert.equal(root.getColumn(columnIndex(root,"demand_no")).hidden,false);
   const positions = workbook.getWorksheet("作业位置");
   const quantity = columnIndex(positions, "quantity_scaled");
   positions.getRow(2).getCell(quantity).value = "3.5";

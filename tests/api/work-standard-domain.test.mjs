@@ -1,7 +1,7 @@
 import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fixture } from "../helpers.mjs";
+import { fixture, attribute } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { id, now } from "../../dist/server/platform/auth/service.js";
 
@@ -23,24 +23,24 @@ test("operation edits retain adopted unit versions, extension identities and ori
   });
   const input = {
     expected_version: 2,
-    fields_json: [{ label: "现场高度", type: "number", required: false }],
+    attributes_schema_json: [attribute({key:"height",label:"现场高度",type:"integer",precision:0,requirement:"optional"})],
   };
   const changed = s.standards.saveOperation(user, input, operation.id);
   assert.equal(changed.default_unit_version, 1);
   assert.equal(changed.default_unit_id_label, "套");
   assert.equal(changed.sort_order, 7);
-  const fieldId = JSON.parse(changed.fields_json)[0].key;
+  const fieldId = JSON.parse(changed.attributes_schema_json)[0].key;
   const revised = s.standards.saveOperation(
     user,
     { ...input, expected_version: 3, name: "正式新名称" },
     operation.id,
   );
-  assert.equal(JSON.parse(revised.fields_json)[0].key, fieldId);
+  assert.equal(JSON.parse(revised.attributes_schema_json)[0].key, fieldId);
   assert.throws(
     () =>
       s.standards.saveOperation(
         user,
-        { expected_version: 4, fields_json: JSON.parse(revised.fields_json) },
+        { expected_version: 4, attributes_schema_json: JSON.parse(revised.attributes_schema_json) },
         operation.id,
       ),
     /没有变化/,
@@ -48,7 +48,7 @@ test("operation edits retain adopted unit versions, extension identities and ori
 });
 
 test("deletion previews count adopted versions and reject changes between preview and confirmation", (t) => {
-  const { s, user, operation, price, demandInput, save } = fixture(t);
+  const { s, user, operation, price, demandInput } = fixture(t);
   const operationImpact = s.standards.operationImpact(operation.id);
   assert.ok(operationImpact.references > 0);
   s.demands.save(user, demandInput);
@@ -63,48 +63,11 @@ test("deletion previews count adopted versions and reject changes between previe
     /引用关系已变化/,
   );
   assert.equal(s.standards.getOperation(operation.id).status, "active");
-  const factor = save("factors", {
-    name: "专项难度",
-    fields_json: { kind: "enum", values: ["普通", "困难"] },
-  });
-  const factorImpact = s.factors.impact(factor.id);
-  s.standards.saveOperation(
-    user,
-    {
-      expected_version: 1,
-      pricing_features_json: [
-        {
-          factor_id: factor.id,
-          factor_version: 1,
-          source: "manual",
-          required: true,
-        },
-      ],
-    },
-    operation.id,
-  );
-  assert.throws(
-    () =>
-      s.factors.remove(
-        user,
-        factor.id,
-        factorImpact.expected_version,
-        factorImpact.references,
-      ),
-    /引用关系已变化/,
-  );
-  const current = s.factors.impact(factor.id);
-  s.factors.remove(
-    user,
-    factor.id,
-    current.expected_version,
-    current.references,
-  );
-  assert.equal(s.factors.get(factor.id, true).deleted, true);
-  assert.equal(
-    s.standards.operationPriceFeatures(operation.id, 2).items[0].name,
-    "专项难度",
-  );
+  const field=attribute({label:"专项难度"});
+  s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:[field]},operation.id);
+  assert.equal(s.standards.operationAttributes(operation.id,2).items[0].label,"专项难度");
+  s.standards.saveOperation(user,{expected_version:2,attributes_schema_json:[{...field,enabled:false}]},operation.id);
+  assert.equal(s.standards.operationAttributes(operation.id,2).items[0].enabled,true);
   assert.equal(s.priceRules.impact(price.id).references, 0);
 });
 
@@ -170,7 +133,7 @@ test("work standards and pricing HTTP use domain pagination, aggregate immutable
     }),
   });
   const cookie = login.headers.get("set-cookie").split(";")[0];
-  for (const kind of ["objects", "operations", "prices", "factors"]) {
+  for (const kind of ["objects", "operations", "prices"]) {
     const response = await fetch(
       `${url}/catalog/${kind}?page_size=1&sort=name&direction=asc`,
       { headers: { cookie } },

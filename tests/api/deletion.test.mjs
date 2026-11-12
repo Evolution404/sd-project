@@ -1,7 +1,7 @@
 import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { approvedFixture, fixture } from "../helpers.mjs";
+import { approvedFixture, fixture, attribute } from "../helpers.mjs";
 test("logical master deletion cannot be bypassed and formal settlement deletion retains void history", (t) => {
   const { s, user, project, scope, approval, node, save } = approvedFixture(t);
   const item = save("materials", {
@@ -77,30 +77,23 @@ test("logical master deletion cannot be bypassed and formal settlement deletion 
 });
 test("archive a price referencing an outdated feature after work-object and operation archival", (t) => {
   const { s, user, save, object, operation, demandInput } = fixture(t);
-  const factor = save("factors", {
-    name: "作业难度", fields_json: { kind: "enum", values: ["普通", "困难"] },
-  });
-  const operation2 = s.catalog.save(user, "operations", {
-    pricing_features_json: [
-      { factor_id: factor.id, factor_version: 1, source: "manual", required: true },
-    ],
-    expected_version: 1,
-  }, operation.id);
+  const factor = attribute({label:"作业难度"});
+  const operation2 = s.catalog.save(user,"operations",{expected_version:1,attributes_schema_json:[factor]},operation.id);
   const rule = save("prices", {
     title: "困难等级按位置定价",
     operation_id: operation.id, pricing_mode: "fixed", unit_price_fen: 2000,
     price_source: "空库验收", price_date: "2026-01-01",
     effective_on: "2026-01-01", basis: "测试依据",
     additional_conditions_json: {
-      [factor.code]: { factor_version: 1, op: "eq", value: "普通" },
+      [factor.key]: { op: "eq", value: "普通" },
     },
   });
   const demand = s.demands.save(user, {
     ...demandInput,
     work_locations: demandInput.work_locations.map((location) => ({
       ...location,
-      site_features_json: {
-        [factor.code]: { factor_version: 1, value: "普通" },
+      attributes: {
+        [factor.key]: "普通",
       },
     })),
   });
@@ -109,9 +102,6 @@ test("archive a price referencing an outdated feature after work-object and oper
   });
   assert.equal(confirmed.complete, true);
 
-  s.catalog.save(user, "factors", {
-    name: "作业难度正式定义修订", expected_version: 1,
-  }, factor.id);
   s.catalog.remove(user, "objects", object.id, 1);
   s.catalog.remove(user, "operations", operation.id, operation2.version);
   const removed = s.catalog.remove(user, "prices", rule.id, 1);

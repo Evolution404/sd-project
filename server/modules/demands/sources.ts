@@ -64,17 +64,7 @@ export function createSources(
       return database.transaction(() => reviseSource(repository, auditor, actor, key, input));
     },
     remove(actor: Actor, key: string) {
-      authorize(actor, "admin");
-      return database.transaction(() => {
-        const original = repository.source(key);
-        requireValue(original, "来源不存在", 404);
-        requireValue(
-          !repository.sourceDecisions(key).some(event => ["delete", "correct"].includes(event.action)),
-          "该来源已有后续处理，请刷新", 409
-        );
-        auditor.audit(actor, "sources", key, "delete", original, { logical: true });
-        return { deleted: true };
-      });
+      return database.transaction(() => removeSource(repository, auditor, actor, key));
     },
     history(key: string) {
       const original = repository.source(key);
@@ -82,4 +72,14 @@ export function createSources(
       return { original, decisions: repository.sourceDecisions(key) };
     }
   };
+}
+
+export function removeSource(repository: DemandRepository, auditor: SourceAuditor, actor: Actor, key: string) {
+  authorize(actor, "admin");
+  const original = repository.source(key);
+  requireValue(original, "来源不存在", 404);
+  requireValue(!repository.sourceDecisions(key).some(event => ["delete", "correct"].includes(event.action)),
+    "该来源已有后续处理，请刷新", 409);
+  auditor.audit(actor, "sources", key, "delete", original, { logical: true });
+  return { deleted: true };
 }

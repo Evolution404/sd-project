@@ -9,15 +9,15 @@ test("Excel preflight rejects fractional sets by row, commits only legitimate se
   const {s,user,operation,towers}=fixture(t);
   const exchange=createExchange(s);
   const documents=[
-    {demand_no:"PREC-EXCEL-VALID",operation_name:operation.name,
+    {import_ref:"PREC-EXCEL-VALID",operation_name:operation.name,
      problem_description:"批量导入完整件",completion_standard:"验收完好"},
-    {demand_no:"PREC-EXCEL-INVALID",operation_name:operation.name,
+    {import_ref:"PREC-EXCEL-INVALID",operation_name:operation.name,
      problem_description:"不得安装半套",completion_standard:"验收完好"},
   ];
   const rows=[
-    {demand_no:"PREC-EXCEL-VALID",location_kind:"physical_tower",
+    {import_ref:"PREC-EXCEL-VALID",location_kind:"physical_tower",
      asset_no:towers[0].asset_no,quantity_scaled:20000},
-    {demand_no:"PREC-EXCEL-INVALID",location_kind:"physical_tower",
+    {import_ref:"PREC-EXCEL-INVALID",location_kind:"physical_tower",
      asset_no:towers[1].asset_no,quantity_scaled:15000},
   ];
   const invalid=await exchange.preview(user,"demands",
