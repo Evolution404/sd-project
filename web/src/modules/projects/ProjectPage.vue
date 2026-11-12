@@ -14,6 +14,9 @@ import { demandContext, fundContext, projectContext } from "../../shared/navigat
 import type { ProjectAction } from "../../../../server/modules/projects/actions";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
+import { readAdoptedQuantityPrecision, readCurrentMaterialPrecision }
+  from "../../shared/api/quantity-precision";
+import type { PriceRuleRecord } from "../../../../server/shared/types/price-rules";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import PricingQuoteDialog from "../pricing/PricingQuoteDialog.vue";
 import FinancePanel from "../finance/FinancePanel.vue";
@@ -97,7 +100,57 @@ const rows = ref<Row[]>([]),
   approvalRows = ref<Row[]>([]),
   priceScopeContext = ref<Row | null>(null),
   quoteOpen = ref(false);
+const approvalQuantityError = ref<Record<string, boolean>>({});
+function approvalQuantityInvalid(path: string, invalid: boolean) {
+  approvalQuantityError.value = { ...approvalQuantityError.value, [path]: invalid };
+}
+const materialQuantityPrecision = ref<Record<string, number>>({});
+const materialQuantityErrors = ref<Record<string, string>>({});
+let materialPrecisionRequest = 0;
+watch(() => approvalRows.value.flatMap((scope: Row) =>
+  (scope.materials || []).map((item: Row) => String(item.material_id || "")))
+  .filter(Boolean).sort().join("|"), async () => {
+  const sequence = ++materialPrecisionRequest;
+  const ids = [...new Set<string>(approvalRows.value.flatMap((scope: Row) =>
+    (scope.materials || []).map((item: Row): string => String(item.material_id || ""))).filter(Boolean))];
+  materialQuantityPrecision.value = {};
+  materialQuantityErrors.value = {};
+  await Promise.all(ids.map(async id => {
+    try {
+      const precision = await readCurrentMaterialPrecision(id);
+      if (sequence === materialPrecisionRequest)
+        materialQuantityPrecision.value = { ...materialQuantityPrecision.value, [id]: precision };
+    } catch (failure) {
+      if (sequence === materialPrecisionRequest)
+        materialQuantityErrors.value = { ...materialQuantityErrors.value,
+          [id]: (failure as Error).message };
+    }
+  }));
+});
 const editingCharge = ref<Row | null>(null);
+const chargeQuantityPrecision = ref<number | undefined>();
+const chargePrecisionError = ref("");
+const chargeQuantityInvalid = ref(false);
+let chargePrecisionRequest = 0;
+watch(
+  () => dialog.value === "charge" ? String(form.value.reference_price_catalog_id || "") : "",
+  async ruleId => {
+    const seq = ++chargePrecisionRequest;
+    chargeQuantityPrecision.value = undefined;
+    chargePrecisionError.value = "";
+    chargeQuantityInvalid.value = false;
+    if (!ruleId) return;
+    try {
+      const price = await api<PriceRuleRecord>(
+        "/catalog/prices/" + encodeURIComponent(ruleId));
+      const precision = await readAdoptedQuantityPrecision(price.unit_id, price.unit_version);
+      if (seq === chargePrecisionRequest) chargeQuantityPrecision.value = precision;
+    } catch (failure) {
+      if (seq === chargePrecisionRequest)
+        chargePrecisionError.value = (failure as Error).message;
+    }
+  },
+);
 const showDeleted = ref(false);
 // Approval decision fields must remain visible: column customization cannot
 // hide a selected scope or its approved quantity during a formal submission.
@@ -300,6 +353,7 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
   }
   if (type === "approval") {
     approvalRows.value = [];
+    approvalQuantityError.value = {};
     const candidates = await api<Row[]>(`/projects/${detail.value!.id}/approval-candidates`);
     for (const demand of candidates) {
       const scope = detail.value!.scopes.find((item: Row) => item.id === demand.project_scope_id);
@@ -310,6 +364,9 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
         project_scope_id: scope.id,
         demand_version: demand.current_version,
         demand_no: demand.demand_no,        demand_status: demand.status,
+        unit_id: demand.unit_id,
+        unit_version: demand.unit_version,
+        quantity_precision: undefined,
         selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
         previous_demand_version: baseline?.demand_version,
         locations: demand.work_locations.map((loc: Row, index: number) => {
@@ -332,6 +389,21 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
         })) || [],
       });
     }
+    const currentApproval = approvalRows.value;
+    const unitRequests = new Map<string, Promise<number>>();
+    await Promise.all(currentApproval.map(async (scope: Row) => {
+      const key = String(scope.unit_id || "") + "@" + String(scope.unit_version || "");
+      if (!unitRequests.has(key))
+        unitRequests.set(key, readAdoptedQuantityPrecision(
+          String(scope.unit_id || ""), Number(scope.unit_version)));
+      try {
+        const precision = await unitRequests.get(key)!;
+        if (approvalRows.value === currentApproval) scope.quantity_precision = precision;
+      } catch (failure) {
+        if (approvalRows.value === currentApproval)
+          scope.precision_error = (failure as Error).message;
+      }
+    }));
     form.value = {
       approved_budget_fen: detail.value?.approval?.approved_budget_fen || 0,
       basis: "",
@@ -343,6 +415,27 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
 }
 async function save() {
   if (busy.value) return;
+  if (dialog.value === "charge" &&
+      (chargeQuantityPrecision.value === undefined || chargeQuantityInvalid.value)) {
+    ElMessage.error(chargePrecisionError.value ||
+      "计价规则采用的正式计量单位精度尚未确认，不能提交数量");
+    return;
+  }
+  if (dialog.value === "approval") {
+    const selectedScopes = approvalRows.value.filter((scope: Row) => scope.selected);
+    const invalid = selectedScopes.some((scope: Row) =>
+      typeof scope.quantity_precision !== "number" ||
+      scope.materials.some((item: Row) =>
+        materialQuantityPrecision.value[item.material_id] === undefined) ||
+      scope.locations.some((loc: Row) => approvalQuantityError.value[
+        "location." + scope.project_scope_id + "." + loc.location_item_no]) ||
+      scope.materials.some((item: Row) => approvalQuantityError.value[
+        "material." + scope.project_scope_id + "." + item.material_id]));
+    if (invalid) {
+      ElMessage.error("批准范围存在无效数量或未读取的冻结单位精度，请核对每项并重新提交");
+      return;
+    }
+  }
   busy.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
@@ -1038,7 +1131,10 @@ onMounted(async () => {
             required
             ><FieldControl
               v-model="form.quantity_scaled"
-              :field="{ type: 'quantity' }" /></ElFormItem
+              :field="{ type: 'quantity', quantityPrecision: chargeQuantityPrecision }"
+              @validity-change="chargeQuantityInvalid = $event" /></ElFormItem
+          ><ElAlert v-if="chargePrecisionError" type="error"
+            :title="chargePrecisionError" :closable="false" />
         ></template>
       </div>
       <ElAlert v-if="dialog === 'approval' && detail?.approval"
@@ -1059,10 +1155,14 @@ onMounted(async () => {
             <template #cell="{ row, column }">
               <ElCheckbox v-if="column.key === 'selected'" v-model="row.selected" />
               <FieldControl v-else-if="column.key === 'approved_quantity_scaled'"
-                v-model="row.approved_quantity_scaled" :field="{ type: 'quantity' }" />
+                v-model="row.approved_quantity_scaled"
+                :field="{ type: 'quantity', quantityPrecision: scope.quantity_precision }"
+                @validity-change="approvalQuantityInvalid('location.' + scope.project_scope_id + '.' + row.location_item_no, $event)" />
               <span v-else>{{ row[column.key] ?? '—' }}</span>
             </template>
           </BusinessTable>
+          <ElAlert v-if="scope.precision_error" type="error" :closable="false"
+            :title="'需求正式单位版本无效：' + scope.precision_error" />
           <h3 class="subheading">批准物资（按承接范围明确数量）</h3>
           <div
             v-for="(item, index) in scope.materials"
@@ -1074,7 +1174,8 @@ onMounted(async () => {
               :field="{ type: 'ref', reference: 'materials' }"
             /><FieldControl
               v-model="item.quantity_scaled"
-              :field="{ type: 'quantity' }"
+              :field="{ type: 'quantity', quantityPrecision: materialQuantityPrecision[item.material_id] }"
+              @validity-change="approvalQuantityInvalid('material.' + scope.project_scope_id + '.' + item.material_id, $event)"
             /><ElButton type="danger" @click="scope.materials.splice(index, 1)"
               >移除</ElButton
             >

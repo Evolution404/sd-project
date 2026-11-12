@@ -2,8 +2,7 @@
 import { computed, ref, onMounted, onUnmounted, watch, inject } from "vue";
 
 import { api, statusText } from "../api/client";
-import { ElMessage } from "element-plus";
-import { exactScaledInteger, quantityFitsUnitPrecision } from "../utils/fixed-scale";
+import { exactScaledDecimalText, formatScaledDecimal, quantityFitsUnitPrecision } from "../utils/fixed-scale";
 import type { CatalogKind, CatalogFieldType } from "../../../../server/shared/types/catalog";
 import type { Page } from "../../../../server/shared/types/contracts";
 interface FormField {
@@ -33,7 +32,7 @@ const props = defineProps<{
   selectedLabel?: string;
   filters?: Record<string, string>;
 }>();
-const emit = defineEmits(["update:modelValue"]);
+const emit = defineEmits(["update:modelValue", "validity-change"]);
 const options = ref<ReferenceOption[]>([]);
 const searchError = ref("");
 let failedQuery = "";
@@ -58,39 +57,87 @@ const switchValue = computed<boolean | number>({
   get: () => props.field.booleanNative ? Boolean(props.modelValue) : Number(props.modelValue || 0),
   set: v => emit("update:modelValue", v),
 });
+const validQuantityPrecision = computed(() =>
+  typeof props.field.quantityPrecision === "number" &&
+  Number.isInteger(props.field.quantityPrecision) &&
+  props.field.quantityPrecision >= 0 && props.field.quantityPrecision <= 4);
+const numericEditing = ref(false);
+const numericInput = ref("");
+const numericError = ref("");
+// Distinguish the echoed value of this control from an external form reset.
+// An invalid draft must survive an own-model echo, but never an external edit.
+let lastEmittedNumeric: number | null | undefined;
+let awaitingOwnEcho = false;
+function emitNumeric(value: number | null) {
+  lastEmittedNumeric = value;
+  awaitingOwnEcho = true;
+  emit("update:modelValue", value);
+}
+const numericPlaces = computed(() =>
+  props.field.type === "money" ? 2 :
+  props.field.type === "quantity" ? 4 :
+  props.field.type === "length_m" ? 3 : 0);
+const isFixedScaled = computed(() =>
+  ["money", "quantity", "length_m", "integer"].includes(props.field.type));
+watch(
+  () => [props.modelValue, props.field.type, props.field.quantityPrecision] as const,
+  (next, previous) => {
+    const definitionChanged = previous && (
+      next[1] !== previous[1] || next[2] !== previous[2]);
+    // A valid keystroke may emit the prior number immediately before a later
+    // invalid digit. Do not erase the later error when the old v-model echoes.
+    const ownEcho = awaitingOwnEcho && Object.is(next[0], lastEmittedNumeric);
+    awaitingOwnEcho = false;
+    if (definitionChanged || !ownEcho &&
+        (next[0] !== previous?.[0] || !numericEditing.value && !numericError.value)) {
+      numericInput.value = formatScaledDecimal(
+        typeof props.modelValue === "number" ? props.modelValue : null,
+        numericPlaces.value);
+      numericError.value = "";
+      emit("validity-change", false);
+    }
+  },
+  { immediate: true },
+);
+function updateNumericText(raw: string) {
+  numericInput.value = raw;
+  if (!raw.trim()) {
+    numericError.value = "";
+    emit("validity-change", false);
+    emitNumeric(null);
+    return;
+  }
+  const scaled = exactScaledDecimalText(raw, numericPlaces.value);
+  if (scaled === null) {
+    numericError.value = "数值小数位数超出精度或安全整数范围，不能保存";
+    emit("validity-change", true);
+    return;
+  }
+  if (props.field.type === "quantity") {
+    if (!validQuantityPrecision.value) {
+      numericError.value = "正式单位数量精度尚未确认，不能填写数量";
+      emit("validity-change", true);
+      return;
+    }
+    if (!quantityFitsUnitPrecision(scaled, props.field.quantityPrecision!)) {
+      numericError.value = "数量超过正式计量单位允许的小数位";
+      emit("validity-change", true);
+      return;
+    }
+  }
+  numericError.value = "";
+  emit("validity-change", false);
+  emitNumeric(scaled);
+}
+function numericBlur() {
+  numericEditing.value = false;
+  if (!numericError.value) numericInput.value = formatScaledDecimal(
+    typeof props.modelValue === "number" ? props.modelValue : null,
+    numericPlaces.value);
+}
 const numeric = computed({
-  get: () => {
-    if (typeof props.modelValue !== "number") return undefined;
-    const factor = props.field.type === "money" ? 100
-      : props.field.type === "quantity" ? 10000
-      : props.field.type === "length_m" ? 1000 : 1;
-    return props.modelValue / factor;
-  },
-  set: (v: number | undefined) => {
-    if (v == null) { emit("update:modelValue", null); return; }
-    if (!Number.isFinite(v)) {
-      ElMessage.warning("请输入有效数值");
-      return;
-    }
-    if (props.field.type === "decimal") {
-      emit("update:modelValue", v);
-      return;
-    }
-    const places = props.field.type === "money" ? 2
-      : props.field.type === "quantity" ? 4
-      : props.field.type === "length_m" ? 3 : 0;
-    const scaled = exactScaledInteger(v, places);
-    if (scaled === null) {
-      ElMessage.warning("数值超出安全范围或小数精度不合法");
-      return;
-    }
-    if (props.field.type === "quantity" &&
-        !quantityFitsUnitPrecision(scaled, props.field.quantityPrecision ?? 4)) {
-      ElMessage.warning("工作量超过计量单位允许的小数位");
-      return;
-    }
-    emit("update:modelValue", scaled);
-  },
+  get: () => typeof props.modelValue === "number" ? props.modelValue : undefined,
+  set: (value: number | undefined) => emit("update:modelValue", value ?? null),
 });
 let requestSequence = 0;
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -191,24 +238,25 @@ onUnmounted(() => {
     value-format="YYYY-MM-DD"
     :disabled="disabled"
   />
-  <ElInputNumber
-    v-else-if="['money', 'quantity', 'integer', 'decimal', 'length_m'].includes(field.type)"
-    v-model="numeric"
-    :precision="
-      field.type === 'money'
-        ? 2
-        : field.type === 'quantity'
-          ? (field.quantityPrecision ?? 4)
-          : field.type === 'length_m'
-            ? 3
-            : field.type === 'decimal'
-              ? 6
-              : 0
-    "
-    :step="field.type === 'quantity' ? 10 ** -(field.quantityPrecision ?? 4) : 1"
+  <ElInput
+    v-else-if="isFixedScaled && (field.type !== 'quantity' || validQuantityPrecision)"
+    :model-value="numericInput"
+    inputmode="decimal"
+    autocomplete="off"
     :disabled="disabled"
-    :min="field.type === 'length_m' ? 0 : undefined"
+    @focus="numericEditing = true"
+    @update:model-value="updateNumericText"
+    @blur="numericBlur"
+  />
+  <ElAlert v-else-if="field.type === 'quantity'"
+    type="warning" :closable="false"
+    title="尚未确认正式单位数量精度，此处不能填写数量。" />
+  <ElInputNumber
+    v-else-if="field.type === 'decimal'"
+    v-model="numeric"
+    :precision="6"
     :controls="false"
+    :disabled="disabled"
   />
   <ElInput
     v-else-if="field.type === 'json'"
@@ -223,6 +271,8 @@ onUnmounted(() => {
     :disabled="disabled"
     :type="field.type === 'password' ? 'password' : 'text'"
   />
+  <ElAlert v-if="isFixedScaled && numericError"
+    type="error" :closable="false" :title="numericError" />
   <ElAlert
     v-if="field.type === 'ref' && ambiguous"
     type="warning"

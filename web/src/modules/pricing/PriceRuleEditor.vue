@@ -9,7 +9,8 @@ import type {
   PriceRuleRecord,
   PriceRulePreview,
 } from "../../../../server/shared/types/price-rules";
-import type { OperationRecord } from "../../../../server/shared/types/work-standards";
+import type { OperationRecord, OperationVersion } from "../../../../server/shared/types/work-standards";
+import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import type { FieldErrors } from "../../../../server/shared/types/contracts";
 import { api, money, quantity } from "../../shared/api/client";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
@@ -47,9 +48,39 @@ const form = ref<PriceDraft>({}),
   checkError = ref(""),
   checking = ref(false),
   checkPanel = ref<HTMLElement | null>(null),
-  sampleQuantity = ref(10000);
+  sampleQuantity = ref(10000),
+  pricingQuantityPrecision = ref<number | undefined>(),
+  pricingPrecisionError = ref(""),
+  sampleQuantityInvalid = ref(false),
+  pricingInputsInvalid = ref(false);
+let precisionRequest = 0;
 const guard = useDialogDraftGuard(() => form.value);
 const existing = computed(() => (props.copy ? null : props.editing));
+watch(
+  () => [props.open, form.value.operation_id, form.value.operation_version, latestVersion.value] as const,
+  async ([open, operationId, chosenVersion, latest]) => {
+    const seq = ++precisionRequest;
+    pricingQuantityPrecision.value = undefined;
+    pricingPrecisionError.value = "";
+    if (!open || typeof operationId !== "string" || !operationId) return;
+    const version = chosenVersion ?? latest;
+    if (!Number.isSafeInteger(version) || Number(version) < 1) return;
+    try {
+      const history = await api<OperationVersion[]>(
+        "/catalog/operations/history/" + encodeURIComponent(operationId),
+      );
+      const adopted = history.find(item => item.version === version);
+      if (!adopted) throw Error("采用的操作定义正式版本不存在");
+      const precision = await readAdoptedQuantityPrecision(
+        adopted.default_unit_id, adopted.default_unit_version);
+      if (seq === precisionRequest) pricingQuantityPrecision.value = precision;
+    } catch (failure) {
+      if (seq === precisionRequest)
+        pricingPrecisionError.value = (failure as Error).message;
+    }
+  },
+  { immediate: true },
+);
 let versionRequest = 0;
 watch(
   () => props.open,
@@ -62,6 +93,8 @@ watch(
     checkError.value = "";
     latestVersion.value = null;
     sampleQuantity.value = 10000;
+    sampleQuantityInvalid.value = false;
+    pricingInputsInvalid.value = false;
     for (const field of fields.value) {
       const value = props.editing
         ? (props.editing as unknown as Record<string, unknown>)[field.key]
@@ -151,6 +184,11 @@ function visible(field: CatalogField) {
 }
 async function preview() {
   if (checking.value) return;
+  if (pricingQuantityPrecision.value === undefined ||
+      sampleQuantityInvalid.value || pricingInputsInvalid.value) {
+    ElMessage.error(pricingPrecisionError.value || "正式单位精度未确认或数量输入无效，请核对后再试算");
+    return;
+  }
   checking.value = true;
   check.value = null;
   checkError.value = "";
@@ -205,6 +243,14 @@ async function save() {
     if (!(await formRef.value?.validate().catch(() => false))) {
       await focusError();
       return;
+    }
+    // Report missing required business fields in their own tab first.
+    // Once the form is complete, a missing frozen unit or invalid quantity
+    // still prevents every formal preview and write.
+    if (pricingQuantityPrecision.value === undefined ||
+        sampleQuantityInvalid.value || pricingInputsInvalid.value) {
+      throw new Error(pricingPrecisionError.value ||
+        "正式单位精度未确认或存在无效数量，不能保存规则");
     }
     await preview();
     if (!check.value?.valid)
@@ -328,10 +374,16 @@ async function save() {
         </ElFormItem>
       </div>
       <PriceConditionsEditor v-if="tab === 'conditions'" :rule="form" />
-      <PricingModelEditor v-if="tab === 'pricing'" :rule="form" />
+      <PricingModelEditor v-if="tab === 'pricing'" :rule="form"
+        :quantity-precision="pricingQuantityPrecision"
+        @validity-change="pricingInputsInvalid = $event" />
+      <ElAlert v-if="pricingPrecisionError" type="error" :closable="false"
+        :title="'正式计量单位精度读取失败：' + pricingPrecisionError" />
       <div ref="checkPanel" class="panel" style="margin-top: 12px">
         <ElFormItem label="示例工作量（用于检查计算结果）"
-          ><FieldControl v-model="sampleQuantity" :field="{ type: 'quantity' }"
+          ><FieldControl v-model="sampleQuantity"
+            :field="{ type: 'quantity', quantityPrecision: pricingQuantityPrecision }"
+            @validity-change="sampleQuantityInvalid = $event"
         /></ElFormItem>
         <ElAlert
           v-if="checkError"

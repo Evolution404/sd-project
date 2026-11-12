@@ -21,3 +21,22 @@ test("unit frozen quantity precision rejects fractional indivisible units", () =
   assert.equal(quantityFitsUnitPrecision(10000,-1),false);
   assert.equal(quantityFitsUnitPrecision(10000,5),false);
 });
+
+
+test("exact decimal text accepts only representable amounts without coercion", async () => {
+  const { exactScaledDecimalText, formatScaledDecimal } = await import("../../web/src/shared/utils/fixed-scale.ts");
+  for (const [text,scale,expected] of [
+    ["0.25",4,2500], ["0.2500",4,2500], ["0.2501",4,2501],
+    ["1.5",4,15000],["-1.25",2,-125], ["0.07",2,7],
+    ["0.00010",4,1], ["5",0,5],["-0.0001",4,-1],
+  ]) assert.equal(exactScaledDecimalText(text,scale),expected,text);
+  for (const [text,scale] of [
+    ["0.2501",2],["0.5",0],["1.5",0],["1e3",4],
+    ["1.200001",4],["9007199254740992",0],
+    ["0.".padEnd(10000,"0"),4],["--1",2],[".",4],
+  ]) assert.equal(exactScaledDecimalText(text,scale),null,text.slice(0,25));
+  assert.equal(formatScaledDecimal(2501,4),"0.2501");
+  assert.equal(formatScaledDecimal(5000,4),"0.5");
+  assert.equal(formatScaledDecimal(-125,2),"-1.25");
+  assert.equal(formatScaledDecimal(9007199254740991,0),"9007199254740991");
+});

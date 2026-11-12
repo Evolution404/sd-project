@@ -95,7 +95,7 @@ try {
   assert.equal(await button(verifier.detail,"新增正式核对").isEnabled(),true);
   await button(verifier.bill,"批准").click();
   await verifier.page.locator(".el-message-box:visible .el-button--primary").click();
-  await verifier.detail.getByText("批准",{exact:true}).first().waitFor();
+  await verifier.bill.getByText(/第\s*\d+\s*版.*已审核/).waitFor();
   const reviewed=s.finance.settlement(draft.id);
   assert.equal(reviewed.review.action,"approve");
   assert.equal(reviewed.review.actor_id,actors.verifier.id);

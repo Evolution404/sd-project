@@ -240,7 +240,7 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
       field("tower_type", "塔型", "text", { nullable: true }),
       field("tower_nature", "杆塔性质", "select", { options: ["straight", "tension"], nullable: true }),
       field("model", "型号"),
-      field("height_scaled", "杆塔高度（米）", "quantity"),
+      field("height_scaled", "杆塔高度（米）", "quantity", { quantityPrecision: 4 }),
       field("purpose", "用途"),
       field("longitude", "经度", "decimal"),
       field("latitude", "纬度", "decimal"),

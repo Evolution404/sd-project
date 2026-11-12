@@ -87,6 +87,8 @@ export interface ApprovalCandidate {
   current_version: number;
   demand_no: string;
   status: string;
+  unit_id: string;
+  unit_version: number;
   work_locations: Array<{
     location_snapshot_json: {
       location_label?: string; physical_code?: string; tower_no?: string
@@ -102,6 +104,8 @@ interface ApprovalCandidateRow {
   current_version: number;
   demand_no: string;
   status: string;
+  unit_id: string;
+  unit_version: number;
   full_definition_json: string;
 }
 export interface ProjectDashboardBase {
@@ -276,7 +280,8 @@ export function projectReadRepository(store: Store) {
     /** Batch approval editor candidates from current formal demand versions. */
     projectApprovalCandidates(projectId: string): ApprovalCandidate[] {
       const rows = store.query(`SELECT scope.id AS project_scope_id, d.id,
-        current.current_version, d.demand_no, current.status, current.full_definition_json
+        current.current_version, d.demand_no, current.status,
+        current.unit_id,current.unit_version,current.full_definition_json
         FROM project_demand_scopes scope
         JOIN v_project_demand_binding_current bind
           ON bind.project_scope_id=scope.id

@@ -7,6 +7,8 @@ export interface CatalogField {
   key: string;
   label: string;
   type: CatalogFieldType;
+  /** Explicit precision for dimensioned fixed-scale fields; units use formal versions. */
+  quantityPrecision?: number;
   options?: string[];
   default?: JsonValue;
   reference?: CatalogKind;

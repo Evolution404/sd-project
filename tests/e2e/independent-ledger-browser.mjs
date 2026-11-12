@@ -179,7 +179,17 @@ try {
     .click();
   await page.getByRole("heading", { name: /最少录入甲线/ }).waitFor();
   await page.getByRole("button", { name: "整基更换", exact: true }).click();
-  await page.getByLabel("新杆塔杆塔高度（米）", { exact: true }).fill("25");
+  const replacementHeight = page.getByRole("dialog", { name: "整基杆塔更换" })
+    .locator(".el-form-item").filter({ hasText: "新杆塔杆塔高度（米）" })
+    .locator("input");
+  await replacementHeight.fill("25.00001");
+  await page.getByText("数值小数位数超出精度或安全整数范围", { exact: false }).waitFor();
+  const requestsBeforeInvalidReplacement = submitted.length;
+  await page.getByRole("button", { name: "确认整基更换", exact: true }).click();
+  assert.equal(submitted.length, requestsBeforeInvalidReplacement,
+    "invalid fixed-scale replacement height must not be submitted");
+  assert.equal(s.catalog.get("physical", first.physical_tower_id).status, "active");
+  await replacementHeight.fill("25");
   await page.getByRole("button", { name: "确认整基更换", exact: true }).click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   assert.equal(

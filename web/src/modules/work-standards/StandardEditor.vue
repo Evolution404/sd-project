@@ -11,6 +11,7 @@ import type {
 } from "../../../../server/shared/types/work-standards";
 import type { FieldErrors } from "../../../../server/shared/types/contracts";
 import { api } from "../../shared/api/client";
+import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import ExtraFieldsEditor from "./ExtraFieldsEditor.vue";
@@ -40,6 +41,36 @@ const fields = computed(() =>
   ].filter((field) => !field.systemManaged),
 );
 const guard = useDialogDraftGuard(() => form.value);
+const adoptedQuantityPrecision = ref<number | undefined>();
+const adoptedPrecisionError = ref("");
+const adoptedPrecisionLoading = ref(false);
+const invalidDefaultQuantity = ref(false);
+let precisionRequest = 0;
+watch(() => [props.open, props.kind, form.value.default_unit_id,
+  form.value.adopt_current_unit, props.editing] as const,
+async ([open, kind, unitId, adoptCurrent, editing]) => {
+  const seq = ++precisionRequest;
+  adoptedQuantityPrecision.value = undefined;
+  adoptedPrecisionError.value = "";
+  adoptedPrecisionLoading.value = false;
+  invalidDefaultQuantity.value = false;
+  if (!open || kind !== "operations" || typeof unitId !== "string" || !unitId) return;
+  adoptedPrecisionLoading.value = true;
+  try {
+    const frozenVersion = editing && "default_unit_id" in editing &&
+      editing.default_unit_id === unitId && !adoptCurrent
+      ? editing.default_unit_version : null;
+    const version = frozenVersion || (await api<{ version: number }>(
+      "/catalog/units/" + encodeURIComponent(unitId) + "?deleted=true")).version;
+    const precision = await readAdoptedQuantityPrecision(unitId, version);
+    if (seq === precisionRequest) adoptedQuantityPrecision.value = precision;
+  } catch (failure) {
+    if (seq === precisionRequest)
+      adoptedPrecisionError.value = "正式计量单位精度读取失败：" + (failure as Error).message;
+  } finally {
+    if (seq === precisionRequest) adoptedPrecisionLoading.value = false;
+  }
+}, { immediate: true });
 function fact(row: OperationRecord | WorkObjectRecord, key: string): unknown {
   return (row as unknown as Record<string, unknown>)[key];
 }
@@ -116,6 +147,13 @@ async function save() {
       await focusError();
       return;
     }
+    if (props.kind === "operations" &&
+        (adoptedPrecisionLoading.value || adoptedQuantityPrecision.value === undefined ||
+          invalidDefaultQuantity.value)) {
+      tab.value = "template";
+      throw new Error(adoptedPrecisionError.value ||
+        "建议数量对应的正式计量单位精度尚未确认，请检查单位配置和数值");
+    }
     if (form.value.price_features_load_error) {
       tab.value = "pricingInfo";
       throw new Error(form.value.price_features_load_error);
@@ -187,7 +225,10 @@ async function save() {
         >
           <FieldControl
             v-model="form[field.key]"
-            :field="field"
+            :field="field.key === 'default_quantity_scaled'
+              ? { ...field, quantityPrecision: adoptedQuantityPrecision } : field"
+            @validity-change="field.key === 'default_quantity_scaled' &&
+              (invalidDefaultQuantity = $event)"
             :selected-label="
               field.key === 'default_unit_id' &&
               editing &&
@@ -199,6 +240,10 @@ async function save() {
           />
         </ElFormItem>
       </div>
+      <ElAlert v-if="kind === 'operations' && tab === 'template' && adoptedPrecisionError"
+        type="error" :closable="false" :title="adoptedPrecisionError" />
+      <ElAlert v-if="kind === 'operations' && tab === 'template' && adoptedPrecisionLoading"
+        type="info" :closable="false" title="正在读取正式计量单位精度" />
       <ExtraFieldsEditor
         v-if="kind === 'operations' && tab === 'extra'"
         :operation="form"

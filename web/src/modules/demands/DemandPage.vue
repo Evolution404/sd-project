@@ -13,6 +13,7 @@ import { createProjectForDemand, projectContext, setupContext } from "../../shar
 import { parkDemandDraft, takeDemandDraft } from "../../shared/forms/demand-draft-handoff";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
+import { readAdoptedQuantityPrecision, readCurrentMaterialPrecision } from "../../shared/api/quantity-precision";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import PricingQuoteDialog from "../pricing/PricingQuoteDialog.vue";
 import SiteFeaturesEditor from "../pricing/SiteFeaturesEditor.vue";
@@ -25,22 +26,35 @@ const adoptedOperation = ref<OperationVersion | null>(null),
 // Requests for previous definitions can resolve out of order when switching
 // operation types quickly; only the latest explicit selection may modify draft.
 let operationChangeSequence = 0;
-const workQuantityPrecision = ref(4);
+type PrecisionLoadStatus = "loading" | "ready" | "error";
+const workQuantityPrecision = ref<number | null>(null);
+const quantityPrecisionStatus = ref<PrecisionLoadStatus>("loading");
+const quantityPrecisionError = ref("");
 let unitPrecisionSequence = 0;
 async function syncWorkQuantityPrecision(selected: OperationRecord | OperationVersion | null) {
   const sequence = ++unitPrecisionSequence;
-  workQuantityPrecision.value = 4;
-  if (!selected?.default_unit_id) return;
-  try {
-    const response = await api<{ versions: Array<{ version: number; quantity_precision?: number }> }>(
-      "/catalog/units/" + selected.default_unit_id + "?history=true",
-    );
+  workQuantityPrecision.value = null;
+  quantityPrecisionStatus.value = "loading";
+  quantityPrecisionError.value = "";
+  const fail = (message: string) => {
     if (sequence !== unitPrecisionSequence) return;
-    const adopted = response.versions.find(row => row.version === selected.default_unit_version);
-    workQuantityPrecision.value = adopted?.quantity_precision ?? 4;
+    quantityPrecisionStatus.value = "error";
+    quantityPrecisionError.value = message;
+  };
+  if (!selected?.default_unit_id ||
+      !Number.isSafeInteger(selected.default_unit_version) ||
+      selected.default_unit_version <= 0) {
+    fail("所选操作类型缺少正式采用的计量单位及版本，请在作业标准中核实。");
+    return;
+  }
+  try {
+    const precision = await readAdoptedQuantityPrecision(
+      selected.default_unit_id, selected.default_unit_version);
+    if (sequence !== unitPrecisionSequence) return;
+    workQuantityPrecision.value = precision;
+    quantityPrecisionStatus.value = "ready";
   } catch (failure) {
-    if (sequence === unitPrecisionSequence)
-      ElMessage.warning("未能读取计量单位精度，保存仍将由服务端校验：" + (failure as Error).message);
+    fail("正式计量单位版本读取失败：" + (failure as Error).message);
   }
 }
 
@@ -160,6 +174,44 @@ const rows = ref<Row[]>([]),
   quoteOpen = ref(false),
   formRef = ref(),
   showDeleted = ref(false);
+// Material quantities use their material's currently adopted formal unit.
+const quantityDraftErrors = ref<Record<string, boolean>>({});
+function quantityInvalid(path: string, invalid: boolean) {
+  quantityDraftErrors.value = { ...quantityDraftErrors.value, [path]: invalid };
+}
+const materialQuantityPrecision = ref<Record<string, number>>({});
+const materialPrecisionErrors = ref<Record<string, string>>({});
+const materialLoading = ref<Record<string, boolean>>({});
+let materialRequestSequence = 0;
+function precisionForMaterial(id: string | undefined): number | undefined {
+  return id ? materialQuantityPrecision.value[id] : undefined;
+}
+watch(
+  () => form.value?.materials?.map((item: Row) => String(item.material_id || "")).join("|") || "",
+  async () => {
+    const sequence = ++materialRequestSequence;
+    const ids = [...new Set<string>(((form.value?.materials || []) as Row[])
+      .map((item: Row): string => String(item.material_id || "")).filter(Boolean))];
+    materialQuantityPrecision.value = {};
+    materialPrecisionErrors.value = {};
+    materialLoading.value = Object.fromEntries(ids.map(id => [id, true]));
+    await Promise.all(ids.map(async id => {
+      try {
+        const precision = await readCurrentMaterialPrecision(id);
+        if (sequence === materialRequestSequence)
+          materialQuantityPrecision.value = { ...materialQuantityPrecision.value, [id]: precision };
+      } catch (failure) {
+        if (sequence === materialRequestSequence)
+          materialPrecisionErrors.value = { ...materialPrecisionErrors.value,
+            [id]: "物资单位精度读取失败：" + (failure as Error).message };
+      } finally {
+        if (sequence === materialRequestSequence)
+          materialLoading.value = { ...materialLoading.value, [id]: false };
+      }
+    }));
+  },
+  { immediate: true },
+);
 const setupStatus = ref<"loading" | "ready" | "missing" | "error">("loading");
 async function checkOperationSetup() {
   setupStatus.value = "loading";
@@ -294,6 +346,7 @@ const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 async function edit(row?: Row) {
+  quantityDraftErrors.value = {};
   editing.value = row || null;  needsCompletionReview.value = false;
   const value = row ? await api("/demands/" + row.id) : null;
   form.value = value
@@ -353,6 +406,9 @@ async function operationRecord(key: string): Promise<OperationRecord | null> {
 async function chooseOperation(selectedId: string | null) {
   const sequence = ++operationChangeSequence;
   ++unitPrecisionSequence;
+  workQuantityPrecision.value = null;
+  quantityPrecisionStatus.value = "loading";
+  quantityPrecisionError.value = "";
   const requestedId = String(selectedId || "");
   form.value.operation_id = requestedId;
   const current = () => sequence === operationChangeSequence &&
@@ -426,6 +482,28 @@ function addLocation() {
 }
 async function save() {
   if (loading.value) return;
+  const invalidDraft = [
+    ...(form.value.work_locations || []).map((_: Row, index: number) =>
+      "work_locations." + index + ".quantity_scaled"),
+    ...(form.value.materials || []).map((_: Row, index: number) =>
+      "materials." + index + ".quantity_scaled"),
+  ].some(path => quantityDraftErrors.value[path]);
+  if (invalidDraft) {
+    ElMessage.error("存在尚未更正的数量输入，请按字段提示修正后保存");
+    return;
+  }
+  if (form.value.work_locations?.length &&
+      (quantityPrecisionStatus.value !== "ready" || workQuantityPrecision.value === null)) {
+    ElMessage.error(quantityPrecisionError.value || "正式计量单位精度尚未加载完成，不能保存工作量");
+    return;
+  }
+  const invalidMaterial = (form.value.materials || []).find((item: Row) =>
+    precisionForMaterial(item.material_id) === undefined);
+  if (invalidMaterial) {
+    ElMessage.error(materialPrecisionErrors.value[invalidMaterial.material_id] ||
+      "物资采用的计量单位精度尚未确定，不能保存预计数量");
+    return;
+  }
   loading.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
@@ -810,6 +888,14 @@ onMounted(async () => {
         /></ElFormItem>
       </div>
       <h3 class="subheading">作业位置与工作量</h3>
+      <ElAlert v-if="operation && quantityPrecisionStatus === 'loading'"
+        title="正在读取正式采用单位的数量精度，读取完成后才能填写数量。"
+        type="info" :closable="false" />
+      <ElAlert v-if="operation && quantityPrecisionStatus === 'error'"
+        :title="quantityPrecisionError" type="error" :closable="false">
+        <ElButton size="small" type="primary" link
+          @click="syncWorkQuantityPrecision(operation)">重新读取正式单位版本</ElButton>
+      </ElAlert>
       <ElAlert
         v-if="operation"
         :title="
@@ -871,16 +957,20 @@ onMounted(async () => {
               }"
               :filters="locationLineIds[Number(index)] ? { line_id: locationLineIds[Number(index)]! } : {}" /></ElFormItem
           ><ElFormItem
-            :label="workQuantityPrecision === 0 ? '实际数量（整数）' : '实际数量（最多' + workQuantityPrecision + '位小数）'"
+            :label="workQuantityPrecision === null ? '实际数量（待核实单位精度）' :
+              workQuantityPrecision === 0 ? '实际数量（整数）' :
+              '实际数量（最多' + workQuantityPrecision + '位小数）'"
             :prop="['work_locations', String(index), 'quantity_scaled']"
             :rules="[
               { required: true, message: '请填写实际数量' },
               { type: 'number', min: 1, message: '实际数量必须大于0' },
             ]"
+            :error="errors['work_locations.' + index + '.quantity_scaled']"
             required
             ><FieldControl
               v-model="loc.quantity_scaled"
-              :field="{ type: 'quantity', quantityPrecision: workQuantityPrecision }" /></ElFormItem
+              :field="{ type: 'quantity', quantityPrecision: workQuantityPrecision ?? undefined }"
+              @validity-change="quantityInvalid('work_locations.' + index + '.quantity_scaled', $event)" /></ElFormItem
           ><ElFormItem label="作业方式"
             ><ElSelect v-model="loc.work_mode"
               ><ElOption label="未明确" value="unspecified" /><ElOption
@@ -904,10 +994,13 @@ onMounted(async () => {
         <FieldControl
           v-model="item.material_id"
           :field="{ type: 'ref', reference: 'materials' }"
-        /><FieldControl
-          v-model="item.quantity_scaled"
-          :field="{ type: 'quantity' }"
-        /><ElButton type="danger" @click="form.materials.splice(index, 1)"
+        /><ElFormItem :error="errors['materials.' + index + '.quantity_scaled']">
+          <FieldControl
+            v-model="item.quantity_scaled"
+            :field="{ type: 'quantity', quantityPrecision: precisionForMaterial(item.material_id) }"
+            @validity-change="quantityInvalid('materials.' + index + '.quantity_scaled', $event)"
+          />
+        </ElFormItem><ElButton type="danger" @click="form.materials.splice(index, 1)"
           >移除</ElButton
         >
       </div>

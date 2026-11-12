@@ -130,8 +130,8 @@ try {
       .click();
     await select("项目需求", demand.demand_no);
     await page
-      .getByLabel("本次新增解决量", { exact: true })
-      .fill(String(resolved));
+      .locator(".el-form-item").filter({ hasText: "本次新增解决量" })
+      .locator("input").fill(String(resolved));
     await page
       .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
       .getByRole("button", { name: "保存草稿", exact: true })

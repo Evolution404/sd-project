@@ -32,3 +32,37 @@ export function quantityFitsUnitPrecision(quantityScaled: number, precision: num
     precision >= 0 && precision <= 4 &&
     quantityScaled % 10 ** (4 - precision) === 0;
 }
+
+/** Parse decimal text exactly; never let an input widget coerce 0.2501 to 0.25. */
+export function exactScaledDecimalText(text: string, places: number): number | null {
+  if (!Number.isInteger(places) || places < 0 || places > 4) return null;
+  // No user input can represent a safe fixed-scale integer with >64 digits.
+  // Reject before BigInt/large exponent work.
+  if (text.length > 64) return null;
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(text.trim());
+  if (!match) return null;
+  const decimals = match[3] || "";
+  const value = BigInt(match[2] + decimals);
+  const shift = places - decimals.length;
+  const power = 10n ** BigInt(Math.abs(shift));
+  const magnitude = shift >= 0
+    ? value * power
+    : value % power === 0n ? value / power : null;
+  if (magnitude === null) return null;
+  const signed = match[1] === "-" ? -magnitude : magnitude;
+  return signed <= BigInt(Number.MAX_SAFE_INTEGER) &&
+    signed >= BigInt(Number.MIN_SAFE_INTEGER) ? Number(signed) : null;
+}
+
+/** Display monetary, quantity and measured-length integers without float artifacts. */
+export function formatScaledDecimal(value: number | null | undefined, places: number): string {
+  if (value === null || value === undefined) return "";
+  if (!Number.isSafeInteger(value) || !Number.isInteger(places) || places < 0 || places > 4)
+    return "";
+  const scaled = BigInt(value);
+  const positive = scaled < 0n ? -scaled : scaled;
+  const unit = 10n ** BigInt(places);
+  const fractional = places ? "." + String(positive % unit).padStart(places, "0").replace(/0+$/, "") : "";
+  return (scaled < 0n ? "-" : "") + String(positive / unit) +
+    (fractional === "." ? "" : fractional);
+}

@@ -11,6 +11,7 @@ const can = useAccess();
 import { ref, watch, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
+import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
@@ -23,10 +24,50 @@ import {
   quantity,
   statusText,
 } from "../../shared/api/client";
-const formRef = ref();
 type FocusKind = "cost" | "settlement" | "reconciliation";
 type FocusedRecord = { kind: FocusKind; id: string };
 const props = defineProps<{ project: Row; focus?: FocusedRecord | null }>();
+const formRef = ref();
+const scopePrecision = ref<Record<string, number>>({});
+const scopePrecisionError = ref("");
+const invalidQuantity = ref<Record<string, boolean>>({});
+function markQuantityInvalid(path: string, invalid: boolean) {
+  invalidQuantity.value = { ...invalidQuantity.value, [path]: invalid };
+}
+let scopePrecisionRequest = 0;
+watch(() => [
+  props.project.id,
+  (props.project.scopes || []).map((scope: Row) => scope.id + ':' + (scope.demand_version || '')).join('|'),
+  props.project.approval?.id || '',
+] as const, async ([projectId]) => {
+  const sequence = ++scopePrecisionRequest;
+  scopePrecision.value = {};
+  scopePrecisionError.value = "";
+  try {
+    const candidates = await api<Array<{
+      project_scope_id: string;
+      unit_id: string;
+      unit_version: number;
+    }>>("/projects/" + projectId + "/approval-candidates");
+    const units = new Map<string, Promise<number>>();
+    await Promise.all(candidates.map(async item => {
+      const key = item.unit_id + "@" + item.unit_version;
+      if (!units.has(key)) units.set(key,
+        readAdoptedQuantityPrecision(item.unit_id, item.unit_version));
+      const precision = await units.get(key)!;
+      if (sequence === scopePrecisionRequest) {
+        scopePrecision.value = {
+          ...scopePrecision.value, [item.project_scope_id]: precision,
+        };
+      }
+    }));
+  } catch (failure) {
+    if (sequence === scopePrecisionRequest)
+      scopePrecisionError.value = "正式单位精度读取失败：" + (failure as Error).message;
+  }
+}, { immediate: true });
+
+
 const focusedFact = ref<Row | Row[] | null>(null);
 const focusedLoading = ref(false);
 const focusedError = ref("");
@@ -163,6 +204,7 @@ const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function edit(type: string, row?: Row) {
+  invalidQuantity.value = {};
   editing.value = row || null;
   dialog.value = type;
   if (type === "cost")
@@ -222,6 +264,20 @@ function edit(type: string, row?: Row) {
 }
 async function save() {
   if (busy.value) return;
+  if (dialog.value === "settlement") {
+    const documents = (form.value.items || []) as Row[];
+    const resolutions = (form.value.resolutions || []) as Row[];
+    if (documents.some(item => item.project_scope_id &&
+        scopePrecision.value[item.project_scope_id] === undefined) ||
+        resolutions.some(item => !item.project_scope_id ||
+          scopePrecision.value[item.project_scope_id] === undefined) ||
+        documents.some((_, i) => invalidQuantity.value["items." + i]) ||
+        resolutions.some((_, i) => invalidQuantity.value["resolutions." + i])) {
+      ElMessage.error(scopePrecisionError.value ||
+        "本次结算数量缺少有效冻结单位精度或仍有输入错误，请核对后重试");
+      return;
+    }
+  }
   busy.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
@@ -417,6 +473,8 @@ watch(() => props.project.id, load, { immediate: true });
     <p class="muted">参考价格、批准预算、真实费用和分期结算是不同业务事实，不要求相等。缺少任何需求报价时不显示完整参考总价。</p>
   </div>
   <CostCategoryWorkspace :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
+  <ElAlert v-if="scopePrecisionError" type="error" :closable="false"
+    :title="scopePrecisionError" class="panel" />
   <div class="panel">
     <div class="toolbar">
       <h2>实际费用</h2>
@@ -694,7 +752,9 @@ watch(() => props.project.id, load, { immediate: true });
             ><ElFormItem label="费用计价数量"
               ><FieldControl
                 v-model="item.quantity_scaled"
-                :field="{ type: 'quantity' }" /></ElFormItem
+                :field="{ type: 'quantity', quantityPrecision: item.project_scope_id
+                  ? scopePrecision[item.project_scope_id] : 4 }"
+                @validity-change="markQuantityInvalid('items.' + index, $event)" /></ElFormItem
             ><ElFormItem label="本次金额（元）" required
               ><FieldControl
                 v-model="item.amount_fen"
@@ -733,7 +793,8 @@ watch(() => props.project.id, load, { immediate: true });
             ><ElFormItem label="本次新增解决量" required
               ><FieldControl
                 v-model="r.resolved_quantity_scaled"
-                :field="{ type: 'quantity' }" /></ElFormItem
+                :field="{ type: 'quantity', quantityPrecision: scopePrecision[r.project_scope_id] }"
+                @validity-change="markQuantityInvalid('resolutions.' + index, $event)" /></ElFormItem
             ><ElFormItem label="完成依据"
               ><ElInput v-model="r.evidence"
             /></ElFormItem>

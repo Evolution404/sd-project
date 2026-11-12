@@ -47,13 +47,13 @@ try {
   await select("操作类型", "安装防鸟装置");
   await page.getByLabel("问题描述", { exact: true }).fill("三基塔防鸟装置缺失");
   await select("作业设备", "T15");
-  await page.getByRole("spinbutton").nth(0).fill("3");
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-form-item").filter({hasText:"实际数量（整数）"}).locator("input").nth(0).fill("3");
   await page.getByRole("button", { name: "添加位置", exact: true }).click();
   await select("作业设备", "T16", 1);
-  await page.getByRole("spinbutton").nth(1).fill("2");
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-form-item").filter({hasText:"实际数量（整数）"}).locator("input").nth(1).fill("2");
   await page.getByRole("button", { name: "添加位置", exact: true }).click();
   await select("作业设备", "T17", 2);
-  await page.getByRole("spinbutton").nth(2).fill("4");
+  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-form-item").filter({hasText:"实际数量（整数）"}).locator("input").nth(2).fill("4");
   await page.getByLabel("来源说明", { exact: true }).fill("现场巡视记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });

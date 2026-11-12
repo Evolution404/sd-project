@@ -23,6 +23,7 @@ const preview = ref<ReplacementPreview | null>(null),
   loading = ref(false),
   saving = ref(false),
   error = ref("");
+const invalidNumericFields = ref<Record<string, boolean>>({});
 const fields = computed(() =>
   (props.definition?.fields || []).filter(
     (field) => !["status", "asset_no"].includes(field.key),
@@ -51,6 +52,7 @@ watch(
   (open) => {
     if (open) {
       form.value = {};
+      invalidNumericFields.value = {};
       guard.capture();
       void load();
     } else sequence++;
@@ -64,6 +66,10 @@ function close(done?: () => void) {
 }
 async function save() {
   if (!preview.value || saving.value) return;
+  if (Object.values(invalidNumericFields.value).some(Boolean)) {
+    ElMessage.error("新杆塔存在无效数值，请修正输入后再确认更换");
+    return;
+  }
   saving.value = true;
   try {
     await api(
@@ -122,6 +128,7 @@ async function save() {
           ><FieldControl
             v-model="form[field.key as keyof EquipmentRecord]"
             :field="field"
+            @validity-change="invalidNumericFields[field.key] = $event"
         /></ElFormItem></div
     ></ElForm>
     <template #footer

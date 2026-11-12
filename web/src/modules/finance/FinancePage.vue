@@ -3,7 +3,7 @@ import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, money, statusText, type Row } from "../../shared/api/client";
 import type { Page } from "../../../../server/shared/types/contracts";
-import type { FinanceListItem } from "../../../../server/shared/types/finance";
+import type { FinanceListItem, FinanceRecordDetail } from "../../../../server/shared/types/finance";
 import { useListRoute } from "../../shared/composables/use-list-route";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -36,15 +36,15 @@ const crossKind = computed({
   set: (value: string) => { kind.value = value; },
 });
 const selectedRecord = ref<FinanceListItem | null>(null);
-const recordContent = ref<Row | Row[] | null>(null);
+const recordContent = ref<FinanceRecordDetail | FinanceRecordDetail[] | null>(null);
 const recordOpen = ref(false), recordLoading = ref(false), recordError = ref("");
 let recordSequence = 0;
 const recordTitle = computed(() => kind.value === "costs" ? "真实费用记录" :
   kind.value === "settlements" ? "独立结算单" : "正式费用核对记录");
-const currentRecord = computed<Row | null>(() => {
+const currentRecord = computed<FinanceRecordDetail | null>(() => {
   if (!recordContent.value) return null;
   if (Array.isArray(recordContent.value))
-    return [...recordContent.value].sort((a, b) => b.version_no - a.version_no)[0] || null;
+    return [...recordContent.value].sort((a, b) => (b.version_no ?? 0) - (a.version_no ?? 0))[0] || null;
   return recordContent.value;
 });
 const recordVersions = computed(() => Array.isArray(recordContent.value) ? recordContent.value : null);
@@ -57,7 +57,7 @@ async function viewRecord(row: FinanceListItem) {
     : kind.value === "settlements" ? `/settlements/${row.id}`
     : `/reconciliations/${row.id}`;
   try {
-    const result = await api<Row | Row[]>(path);
+    const result = await api<FinanceRecordDetail | FinanceRecordDetail[]>(path);
     if (sequence === recordSequence) recordContent.value = result;
   } catch (failure) {
     if (sequence === recordSequence) recordError.value = (failure as Error).message;
@@ -204,7 +204,7 @@ onMounted(() => { void load(); });
           </ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'reconciliations'" label="核对依据">{{ currentRecord?.evidence || '—' }}</ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'settlements'" label="审核结果">
-            {{ statusText[currentRecord?.review?.action] || currentRecord?.review?.action || '待审核' }}
+            {{ statusText[currentRecord?.review?.action || ''] || currentRecord?.review?.action || '待审核' }}
           </ElDescriptionsItem>
         </ElDescriptions>
       </div>
@@ -215,7 +215,7 @@ onMounted(() => { void load(); });
           <template #cell="{ row, column }">
             <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
             <span v-else-if="column.key === 'quantity_scaled'">{{ row.quantity_scaled == null ? '—' : row.quantity_scaled / 10000 }}</span>
-            <span v-else>{{ row[column.key] || '—' }}</span>
+            <span v-else>{{ column.key === 'evidence' ? (row.evidence || '—') : '—' }}</span>
           </template>
         </BusinessTable>
       </div>
