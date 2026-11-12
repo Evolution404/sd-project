@@ -266,7 +266,7 @@ onMounted(async () => {
       </p>
     </div>
     <div class="page-heading-actions">
-      <ElButton :disabled="!can('admin') || !definitions[kind]" type="primary" @click="edit()"
+      <ElButton :data-guide-action="kind === 'physical' ? 'ledger.physical' : kind === 'towers' ? 'ledger.logical' : kind === 'spans' ? 'ledger.span' : voltage ? 'dictionaries.voltage' : 'ledger.line'" :disabled="!can('admin') || !definitions[kind]" type="primary" @click="edit()"
         >新增{{ definitions[kind]?.title }}</ElButton
       ><ExchangePanel
         v-if="!voltage"
@@ -403,7 +403,7 @@ onMounted(async () => {
           :disabled="!can('admin') || detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
-        ><ElButton @click="viewHistory(detail)">完整历史</ElButton
+        ><ElButton data-guide-action="ledger.history" @click="viewHistory(detail)">完整历史</ElButton
         ><ElButton
           v-if="
             kind === 'physical' &&

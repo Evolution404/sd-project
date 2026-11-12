@@ -159,10 +159,18 @@ export function httpServer(
       const outcome = await dispatchRoute({ system, actor, resource, read, key, sub, subKey, action,
         method, input, deleted, url, req, res, mutate, workbook, page, exchange, evidence });
       if (outcome) json(res, 200, outcome.result);
-      if (system.training.enabled && resource==="exchange" && key==="demands" &&
-          outcome && typeof outcome.result==="object" && outcome.result!==null) {
-        if (sub==="preview") system.training.record(actor.id,"excel_preview");
-        if (sub==="commit") system.training.record(actor.id,"excel_commit");
+      if (system.training.enabled && resource==="exchange" &&
+          outcome && isObject(outcome.result)) {
+        const result=outcome.result;
+        if (sub==="preview" && key==="demands" && typeof result.token==="string" && isObject(result.summary)) {
+          const hasIssues=Array.isArray(result.issues) && result.issues.length>0;
+          system.training.record(actor.id,
+            hasIssues?"excel_invalid_preview":"excel_valid_preview",result.token);
+        }
+        if (sub==="commit" && result.kind==="demands" && Array.isArray(result.results) &&
+            result.results.some(entry=>isObject(entry) &&
+              (entry.action==="create"||entry.action==="update")))
+          system.training.record(actor.id,"excel_commit",key);
       }
     } catch (error) {
       const failure = errorResponse(error);

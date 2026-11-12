@@ -237,7 +237,7 @@ onMounted(() => void load());
       <p>{{ introduction }}</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" :disabled="!can('write')" @click="startEdit()">新增{{ title }}</ElButton>
+      <ElButton :data-guide-action="isAgreement ? 'agreements.create' : 'frameworks.create'" type="primary" :disabled="!can('write')" @click="startEdit()">新增{{ title }}</ElButton>
     </div>
   </div>
   <div class="panel">

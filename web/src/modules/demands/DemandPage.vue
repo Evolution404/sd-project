@@ -312,7 +312,7 @@ onMounted(async () => {
           :selected-ids="selected.map((x) => x.id)"
           :query="query"
           @changed="load" @inspect="detailDialog.open($event)"
-        /><ElButton :disabled="!can('write')" type="primary" @click="edit()"
+        /><ElButton data-guide-action="demands.create" :disabled="!can('write')" type="primary" @click="edit()"
           >新增需求</ElButton
         >
       </div>
@@ -374,13 +374,13 @@ onMounted(async () => {
         <ElButton v-if="['pending','returned'].includes(detail.status)"
           type="primary" :disabled="!can('demand.activate')"
           :title="can('demand.activate') ? undefined : '需要需求确认权限，请交由审核人员办理'"
-          @click="transition(detail,'active')">
+          data-guide-action="demands.confirm" @click="transition(detail,'active')">
           确认需求有效
         </ElButton>
         <ElButton v-else-if="detail.status === 'active' && !detail.binding"
           type="primary" :disabled="!can('write')"
           :title="can('write') ? undefined : '关联子项目需要编辑权限'"
-          @click="openProjectPicker">
+          data-guide-action="demands.link" @click="openProjectPicker">
           关联子项目
         </ElButton>
         <ElButton v-else-if="detail.binding?.project_id" type="primary" @click="openLinkedProject">

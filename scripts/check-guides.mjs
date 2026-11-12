@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { guideModules } from "../web/src/guides/registry/modules.ts";
 import { guideActions } from "../web/src/guides/registry/actions.ts";
 import { guideCourses } from "../web/src/guides/registry/journeys.ts";
@@ -35,9 +35,30 @@ for(const course of guideCourses){
   assert.ok(course.purpose&&course.checkpoint);
   assert.ok(ids.includes(course.routeName)||course.routeName==="excel");
 }
+function sourceFiles(folder){
+  return readdirSync(folder,{withFileTypes:true}).flatMap(entry=>{
+    const path=folder+"/"+entry.name;
+    return entry.isDirectory()?sourceFiles(path):entry.isFile()&&path.endsWith(".vue")?[path]:[];
+  });
+}
+const anchorLines=sourceFiles("web/src/modules").flatMap(path=>
+  readFileSync(path,"utf8").split("\n").filter(line=>line.includes("data-guide-action")));
+const anchored=guideActions.filter(action=>anchorLines.some(line=>
+  line.includes('data-guide-action="'+action.id+'"')||line.includes("'"+action.id+"'")));
+const anchoredIds=new Set(anchored.map(a=>a.id));
+for(const module of guideModules)
+  assert.ok(anchored.some(a=>a.module===module.id),
+    module.id+" has no live business action anchor");
+assert.ok(anchoredIds.size>=18,"All 12 modules require a meaningful stable control locator");
+const liveIds=[...anchorLines.flatMap(line=>
+  [...line.matchAll(/['"]([a-z][a-z0-9-]+\.[a-z][a-z0-9-]+)['"]/g)].map(m=>m[1]))];
+for(const id of liveIds)
+  assert.ok(guideActions.some(a=>a.id===id), "Unexpected live action anchor "+id);
 const host=readFileSync("web/src/guides/components/GuideHost.vue","utf8");
-assert.ok(host.includes("ElTour") && host.includes("ElDrawer"));
+assert.ok(host.includes("ElTour") && host.includes("ElDrawer") &&
+  host.includes("locateAction") && host.includes("resolveGuideActionTarget"));
 assert.ok(!host.includes("v-html")&&!host.includes("api(")&&!host.includes("fetch("),
   "Read-only GuideHost cannot execute business API commands or render unsafe HTML");
 console.log("P10_REGISTRY_OK",guideModules.length,"modules,",guideActions.length,
-  "semantic actions,",guideCourses.length,"L01-L12 courses, local static text, no guide writes");
+  "semantic actions,",anchoredIds.size,"direct action anchors,",
+  guideCourses.length,"L01-L12 courses, local static text, no guide writes");

@@ -87,3 +87,11 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 - 字典正式版本独立保留，停用不改写已登记物理塔/需求价格快照，Excel台账中文名称必须正确归一化为字典身份。
 - 入口：基础数据两页签；物理杆塔新建/修改使用标准选择器，标签「杆塔材质」；验证：tests/api/tower-dictionaries.test.mjs、tests/e2e/tower-dictionaries-browser.mjs 和所有Schema113契约。
 - P10并行WIP已由唯一执行AI接管，要求服务端只读训练检查、训练DATA_DIR独立以及Windows离线包内置启动能力；不能把阅读进度当实操完成。
+
+
+## 2026-11-12 P10第二轮收口——不能以教程登记代替按钮及训练验收
+
+- 12模块/82已登记动作仍不能冒充100%业务按钮帮助覆盖。已实现真实控件语义锚点及读-only ElTour操作定位；当多个行级按钮、未展开菜单或目标不存在时只给文字指引，绝不替用户点击。
+- P10帮助清单须由scripts/generate-guide-inventory.mjs生成，标出有锚点/待核验；npm run check:guides检查全部12模块均有真实锚点。继续扩展时须同时覆盖动态菜单、模态框、只读/审批角色和浏览器证据，不可简单增大注册数。
+- P10独立训练L11完成标准由真实Excel错误预检、纠正后的有效预检与**同一批次正式导入**构成；不能以任意两次预检和任意一次提交算通过。证据仅写实例私有不含凭据的类别状态，不新增第二套正式业务流水。
+- 学员实操从各领域正式存储事实判定，L02/L06/L10必须用正确连接的设备、项目、协议、真实费用、当前有效结算和结项的同一业务身份，禁止用互不相关的行数凑齐。新增自动化tests/api/training-business-journey.test.mjs、tests/api/training-course-evidence.test.mjs及tests/e2e/guide-actions-live-browser.mjs须持续绿灯。

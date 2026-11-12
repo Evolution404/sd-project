@@ -1,22 +1,35 @@
-import { writeFileSync } from "node:fs";
+import { writeFileSync, readFileSync, readdirSync } from "node:fs";
 import { guideModules } from "../web/src/guides/registry/modules.ts";
 import { guideActions } from "../web/src/guides/registry/actions.ts";
 import { guideCourses } from "../web/src/guides/registry/journeys.ts";
 const safe=x=>String(x||"—").replace(/\|/g,"／").replace(/\n/g,"；");
 const labels={admin:"管理员",editor:"编辑",verifier:"审核",viewer:"只读"};
+function sourceFiles(folder){
+  return readdirSync(folder,{withFileTypes:true}).flatMap(entry=>{
+    const path=folder+"/"+entry.name;
+    return entry.isDirectory()?sourceFiles(path):entry.isFile()&&path.endsWith(".vue")?[path]:[];
+  });
+}
+const anchorLines=sourceFiles("web/src/modules").flatMap(path=>
+  readFileSync(path,"utf8").split("\n").filter(line=>line.includes("data-guide-action")));
+function anchored(id){
+  return anchorLines.some(line=>line.includes('data-guide-action="'+id+'"')||
+    line.includes("'"+id+"'"));
+}
+const anchoredActions=guideActions.filter(a=>anchored(a.id));
 const entries=[
  "# P10 业务操作帮助覆盖清单",
  "",
  "> 此清单由当前语义注册表生成。登记条目不等于已完成全部业务动作盘点或浏览器角色/状态验证；需继续对照实际按钮、动态弹窗和权限逐项复核。由 scripts/generate-guide-inventory.mjs 生成。",
  "",
  "- 12个主模块："+guideModules.length+"／12；Excel专题：单列。",
- "- 已登记语义动作类型："+guideActions.length+"；未登记动作和豁免尚需逐模块审计，不能据此宣称100%覆盖。",
+ "- 已登记语义动作类型："+guideActions.length+"；其中已有真实控件语义锚点："+anchoredActions.length+"；其余只具备说明，仍需补充真实操作定位或批准豁免，不能宣称100%覆盖。",
  "- 已声明L01～L12课程："+guideCourses.length+"；目前说明和阅读计划不代表独立训练实操通过。",
  "",
- "|模块|actionId|操作名称|用途|角色|典型状态|前置条件|正式操作结果|风险与历史|锚点|关联课程|",
- "|---|---|---|---|---|---|---|---|---|---|---|",
+ "|模块|actionId|操作名称|用途|角色|典型状态|前置条件|正式操作结果|风险与历史|目前可定位|锚点|关联课程|",
+ "|---|---|---|---|---|---|---|---|---|---|---|---|",
  ...guideActions.map(a=>"|"+[a.module,a.id,a.title,a.purpose,a.roles.map(r=>labels[r]).join("、"),
-  a.states.join("、"),a.prerequisite,a.result,a.risk,a.target||"需按当前活动弹窗和业务状态选择",a.courseIds.join("、")]
+  a.states.join("、"),a.prerequisite,a.result,a.risk,anchored(a.id)?"真实控件有锚点":"待补真实控件锚点/豁免",a.target||"需按当前活动弹窗和业务状态选择",a.courseIds.join("、")]
     .map(safe).join("|")+"|"),
  "",
  "## 仍需完成的真实覆盖审计",
@@ -31,4 +44,4 @@ const entries=[
  ...guideCourses.map(c=>"- "+c.id+" "+c.title+"："+c.purpose+"；服务端检查点："+c.checkpoint),
  ""];
 writeFileSync("docs/implementation/P10_业务操作帮助覆盖清单.md",entries.join("\n"));
-console.log("P10_INVENTORY_GENERATED actions="+guideActions.length);
+console.log("P10_INVENTORY_GENERATED actions="+guideActions.length+" anchored="+anchoredActions.length);

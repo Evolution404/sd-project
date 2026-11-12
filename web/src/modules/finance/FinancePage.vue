@@ -143,8 +143,8 @@ onMounted(() => { void load(); });
   </div>
   <div class="toolbar finance-work-mode">
     <ElRadioGroup v-model="mode">
-      <ElRadioButton value="projects">按项目办理</ElRadioButton>
-      <ElRadioButton value="cross">跨项目查询</ElRadioButton>
+      <ElRadioButton value="projects" data-guide-action="finance.project-mode">按项目办理</ElRadioButton>
+      <ElRadioButton value="cross" data-guide-action="finance.cross">跨项目查询</ElRadioButton>
     </ElRadioGroup>
   </div>
   <div v-if="mode === 'cross'" class="finance-record-kinds">

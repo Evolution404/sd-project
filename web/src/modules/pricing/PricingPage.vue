@@ -269,7 +269,7 @@ onMounted(async () => {
       <p>维护版本化参考价格及额外现场特征，正式报价记录具体规则和计算依据。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" :disabled="!can('admin')" @click="edit()"
+      <ElButton data-guide-action="pricing.create" type="primary" :disabled="!can('admin')" @click="edit()"
         >新增{{ definitions[kind]?.title }}</ElButton
       >
     </div>

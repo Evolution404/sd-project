@@ -194,7 +194,7 @@ onMounted(() => {
       <p>账号角色、内网访问与操作审计。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton v-if="tab !== 'audit'" type="primary" :disabled="!can('admin')" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
+      <ElButton :data-guide-action="tab === 'users' ? 'system.user' : 'system.ip'" v-if="tab !== 'audit'" type="primary" :disabled="!can('admin')" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
     </div>
   </div>
   <ElTabs v-model="tab"

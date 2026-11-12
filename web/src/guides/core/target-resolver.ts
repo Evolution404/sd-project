@@ -19,3 +19,15 @@ function visible(node:HTMLElement) {
   const rect=node.getBoundingClientRect();
   return rect.width>0 && rect.height>0 && getComputedStyle(node).visibility!=="hidden";
 }
+
+
+/** Only an unambiguous and visible semantic business control can be highlighted. */
+export function resolveGuideActionTarget(actionId:string):HTMLElement|null {
+  if (!/^[a-z][a-z0-9-]{1,40}\.[a-z][a-z0-9-]{1,50}$/.test(actionId))
+    return null;
+  const matches=Array.from(document.querySelectorAll<HTMLElement>(
+    '[data-guide-action="'+actionId+'"]',
+  )).filter(visible);
+  // Dynamic rows can produce many equal actions. Never point at an arbitrary record.
+  return matches.length===1?matches[0]:null;
+}

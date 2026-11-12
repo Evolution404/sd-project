@@ -725,7 +725,7 @@ onMounted(async () => {
         <ElButton
           :disabled="!can('write')"
           type="primary"
-          @click="editProject()"
+          data-guide-action="projects.create" @click="editProject()"
           >新增子项目</ElButton
         >
       </div>

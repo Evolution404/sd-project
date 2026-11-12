@@ -92,7 +92,7 @@ onMounted(refreshDashboard);
       <p>专业需求、项目批准、实际费用与结算的当前情况。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton size="small" @click="refreshDashboard" :loading="loading">刷新待办与预警</ElButton>
+      <ElButton data-guide-action="dashboard.filter" size="small" @click="refreshDashboard" :loading="loading">刷新待办与预警</ElButton>
     </div>
   </div>
   <div class="metric-grid">

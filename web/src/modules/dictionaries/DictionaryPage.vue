@@ -184,7 +184,7 @@ onMounted(load);
       <p>{{ title }}与正式版本</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" :disabled="!can('admin')" @click="edit()"
+      <ElButton :data-guide-action="kind === 'tower_natures' ? 'dictionaries.tower-nature' : kind === 'tower_materials' ? 'dictionaries.tower-material' : kind === 'units' ? 'dictionaries.unit' : 'dictionaries.category'" type="primary" :disabled="!can('admin')" @click="edit()"
         >新增{{ title }}</ElButton
       >
     </div>

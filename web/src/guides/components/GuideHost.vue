@@ -7,8 +7,8 @@ import { guideModules, guideModuleForRoute } from "../registry/modules";
 import { guideActions } from "../registry/actions";
 import { guideCourses } from "../registry/journeys";
 import { clearProgress, readProgress, writeProgress, GUIDE_COURSE_VERSION, type LearningProgress } from "../core/progress";
-import { resolveGuideTarget } from "../core/target-resolver";
-import type { GuideModule, GuideCourse } from "../core/types";
+import { resolveGuideTarget, resolveGuideActionTarget } from "../core/target-resolver";
+import type { GuideAction, GuideModule, GuideCourse } from "../core/types";
 const props = defineProps<{open:boolean; actor:Actor; routeKey:string}>();
 const emit = defineEmits<{ "update:open":[boolean] }>();
 const open = computed({ get:()=>props.open, set:v=>emit("update:open",v) });
@@ -16,6 +16,14 @@ const tab = ref("current"), query=ref(""), tourOpen=ref(false), tourStep=ref(0);
 const selectedCourse = ref<GuideCourse|null>(null);
 const courseStep = ref(0);
 const selectedModule = ref<GuideModule|null>(null);
+const selectedAction = ref<GuideAction|null>(null);
+const tourSteps = computed(() => selectedAction.value ? [{
+  id:selectedAction.value.id,
+  title:selectedAction.value.title,
+  target:'[data-guide-action="'+selectedAction.value.id+'"]',
+  description:selectedAction.value.purpose+"；操作前："+selectedAction.value.prerequisite+
+    "；正式结果："+selectedAction.value.result+"；风险："+selectedAction.value.risk,
+}] : (tourModule.value?.steps??[]));
 const progress = ref<Readonly<Record<string,LearningProgress>>>({});
 type CourseCheck = {id:string;completed:boolean;details:string};
 type TrainingChecks = {training:boolean;courses:CourseCheck[]};
@@ -56,7 +64,7 @@ watch(()=>props.actor.id,()=>{
   trainingRequest++;trainingChecks.value=null;trainingError.value="";
 },{immediate:true});
 watch(()=>props.routeKey,()=>{
-  tourOpen.value=false;selectedModule.value=null;tourStep.value=0;
+  tourOpen.value=false;selectedModule.value=null;selectedAction.value=null;tourStep.value=0;
 });
 watch(()=>props.open,(value)=>{
   // Starting a tour intentionally closes the drawer. Do not close the tour
@@ -65,12 +73,23 @@ watch(()=>props.open,(value)=>{
   else trainingRequest++;
 });
 function startTour(module:GuideModule) {
-  selectedModule.value=module;
+  selectedAction.value=null;selectedModule.value=module;
   tourStep.value=0;
   open.value=false;
   tourOpen.value=true;
 }
-function closeTour() {tourOpen.value=false;selectedModule.value=null;}
+function closeTour() {tourOpen.value=false;selectedModule.value=null;selectedAction.value=null;}
+function locateAction(action:GuideAction) {
+  if (!resolveGuideActionTarget(action.id)) {
+    ElMessage.warning("当前没有唯一可定位的“"+action.title+"”控件。请进入所属业务模块，切换对应页签或打开具体单据后重试；不会自动办理任何业务。");
+    return;
+  }
+  selectedModule.value=null;
+  selectedAction.value=action;
+  tourStep.value=0;
+  open.value=false;
+  tourOpen.value=true;
+}
 function finishTour() {
   closeTour();
   ElMessage.info("已阅读页面说明。实际业务操作和训练完成需要分别验证。");
@@ -131,6 +150,7 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
             <ElCollapseItem v-for="action in moduleActions" :key="action.id"
               :title="action.title" :name="action.id">
               <p>{{ action.purpose }}</p>
+              <ElButton size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
               <p><strong>操作前：</strong>{{ action.prerequisite }}</p>
               <p><strong>操作后：</strong>{{ action.result }}</p>
               <p><strong>风险与历史：</strong>{{ action.risk }}</p>
@@ -151,6 +171,7 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
           <ElCollapseItem v-for="action in filteredActions" :key="action.id"
             :title="action.title+' · '+action.module" :name="action.id">
             <p>{{ action.purpose }}</p>
+            <ElButton size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
             <p><strong>前置条件：</strong>{{ action.prerequisite }}</p>
             <p><strong>业务结果：</strong>{{ action.result }}</p>
             <p><strong>风险：</strong>{{ action.risk }}</p>
@@ -232,8 +253,9 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
   <ElTour v-model="tourOpen" :current="tourStep" :mask="true"
     :target-area-clickable="false" :close-on-press-escape="true"
     @change="tourStep=$event" @close="closeTour" @finish="finishTour">
-    <ElTourStep v-for="step in tourModule?.steps||[]" :key="step.id"
-      :target="()=>resolveGuideTarget(step.target)" :title="step.title"
+    <ElTourStep v-for="step in tourSteps" :key="step.id"
+      :target="()=>selectedAction ? resolveGuideActionTarget(selectedAction.id) : resolveGuideTarget(step.target)"
+      :title="step.title"
       :description="step.description" />
   </ElTour>
 </template>

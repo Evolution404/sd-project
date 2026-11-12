@@ -268,7 +268,7 @@ onMounted(async () => {
       <p>维护固定单位、作业对象和录入模板，正式定义变更保留历史。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" :disabled="!can('admin')" @click="edit()"
+      <ElButton :data-guide-action="kind === 'objects' ? 'standards.object' : 'standards.operation'" type="primary" :disabled="!can('admin')" @click="edit()"
         >新增{{ definitions[kind]?.title }}</ElButton
       >
     </div>

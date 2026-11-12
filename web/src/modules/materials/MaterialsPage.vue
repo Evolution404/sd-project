@@ -206,7 +206,7 @@ onMounted(load);
       <p>物资名称、型号规格与正式版本</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton type="primary" :disabled="!can('admin')" @click="edit()"
+      <ElButton data-guide-action="materials.create" type="primary" :disabled="!can('admin')" @click="edit()"
         >新增物资</ElButton
       >
     </div>
