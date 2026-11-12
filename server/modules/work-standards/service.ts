@@ -16,6 +16,7 @@ import { definitionName, definitionStatus } from "../dictionaries/service.js";
 import { jsonDocument } from "../../shared/json.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import {
+  BusinessError,
   requireValue,
   expectedVersion,
   integer,
@@ -144,22 +145,29 @@ export function createWorkStandards(
     });
   }
   function attributes(value: unknown): string {
-    const document = jsonDocument(value, "附加属性");
-    requireValue(Array.isArray(document.value), "附加属性须为定义清单");
-    const schema = validateAttributeSchema(document.value.map((field) => {
-      requireValue(isObject(field), "附加属性定义无效");
-      return { ...field, key: field.key || id() };
-    }));
-    for (const field of schema) {
-      if ((field.type === "integer" || field.type === "decimal") && field.unit_id) {
-        const unit = repository.unitVersion(field.unit_id, field.unit_version!);
-        requireValue(unit, "属性计量单位正式版本不存在", 404);
-        requireValue(quantityPrecisionFromFields(unit.fields_json) === field.precision,
-          `${field.label}精度须与采用的计量单位正式版本一致`);
+    try {
+      const document = jsonDocument(value, "附加属性");
+      requireValue(Array.isArray(document.value), "附加属性须为定义清单");
+      const schema = validateAttributeSchema(document.value.map((field) => {
+        requireValue(isObject(field), "附加属性定义无效");
+        return { ...field, key: field.key || id() };
+      }));
+      for (const field of schema) {
+        if ((field.type === "integer" || field.type === "decimal") && field.unit_id) {
+          const unit = repository.unitVersion(field.unit_id, field.unit_version!);
+          requireValue(unit, "属性计量单位正式版本不存在", 404);
+          requireValue(quantityPrecisionFromFields(unit.fields_json) === field.precision,
+            `${field.label}精度须与采用的计量单位正式版本一致`);
+        }
       }
+      return jsonDocument(schema, "附加属性").text;
+    } catch (failure) {
+      if (failure instanceof BusinessError)
+        throw new BusinessError(failure.message, failure.status, { attributes_schema_json: failure.message });
+      throw failure;
     }
-    return jsonDocument(schema, "附加属性").text;
   }
+
   function saveOperation(
     actor: Actor,
     input: Record<string, unknown>,

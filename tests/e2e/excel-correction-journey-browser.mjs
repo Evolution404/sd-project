@@ -34,15 +34,15 @@ async function waitPreview(dialog,valid,invalid) {
   await dialog.getByText("无效 "+invalid,{exact:true}).waitFor();
 }
 const documents=[
-  {demand_no:"E2-JOURNEY-VALID",operation_name:operation.name,
+  {import_ref:"E2-JOURNEY-VALID",operation_name:operation.name,
     problem_description:"合法完整工作量",completion_standard:"整套安装完好"},
-  {demand_no:"E2-JOURNEY-FIX",operation_name:operation.name,
+  {import_ref:"E2-JOURNEY-FIX",operation_name:operation.name,
     problem_description:"需要纠正半套工作量",completion_standard:"整套安装完好"},
 ];
 const locations=[
-  {demand_no:documents[0].demand_no,location_kind:"physical_tower",
+  {import_ref:documents[0].import_ref,location_kind:"physical_tower",
     asset_no:towers[0].asset_no,quantity_scaled:20000},
-  {demand_no:documents[1].demand_no,location_kind:"physical_tower",
+  {import_ref:documents[1].import_ref,location_kind:"physical_tower",
     asset_no:towers[1].asset_no,quantity_scaled:15000},
 ];
 

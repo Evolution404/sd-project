@@ -19,7 +19,13 @@ export function attributeNumber(
       (typeof value === "number" && Number.isSafeInteger(value)),
     `${label}须使用精确十进制数值`,
   );
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(String(value));
+  // At precision 0..4, numbers longer than 32 characters cannot be a
+  // meaningful exact business quantity. Reject before regex/BigInt parsing.
+  requireValue(Number.isInteger(precision) && precision >= 0 && precision <= 4,
+    `${label}数值精度无效`);
+  const raw = String(value);
+  requireValue(raw.length <= 32, `${label}超出安全数值范围`);
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(raw);
   requireValue(
     match && (match[3]?.length || 0) <= precision,
     `${label}最多保留${precision}位小数`,
@@ -63,6 +69,7 @@ export function validateAttributeValue(
     case "multiselect":
       requireValue(
         Array.isArray(value) &&
+          value.length <= 100 &&
           value.every(
             (item) =>
               typeof item === "string" &&
@@ -110,6 +117,7 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
         /^[A-Za-z0-9_-]{1,100}$/.test(field.key) &&
         typeof field.label === "string" &&
         field.label.trim() &&
+        field.label.length <= 100 &&
         ["demand", "location"].includes(String(field.scope)) &&
         ["manual", "asset"].includes(String(field.source)) &&
         [
@@ -126,7 +134,8 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
         typeof field.pricing === "boolean" &&
         typeof field.enabled === "boolean" &&
         Number.isSafeInteger(field.sort_order) &&
-        typeof field.hint === "string",
+        typeof field.hint === "string" &&
+        field.hint.length <= 2000,
       "请完整配置属性身份、名称、层级、来源、类型和必填规则",
     );
     requireValue(
@@ -170,6 +179,7 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
     if (field.type === "select" || field.type === "multiselect") {
       requireValue(
         Array.isArray(field.options) &&
+          field.options.length <= 100 &&
           (field.source === "asset" || field.options.length > 0),
         "选项类型至少配置一个可选值",
       );
@@ -179,9 +189,11 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
           isObject(option) &&
             typeof option.value === "string" &&
             option.value.trim() === option.value &&
-            option.value &&
+            option.value.length > 0 &&
+            option.value.length <= 100 &&
             typeof option.label === "string" &&
             option.label.trim() &&
+            option.label.length <= 100 &&
             !values.has(option.value),
           "选项须有稳定编码和名称，编码不能重复",
         );
@@ -235,6 +247,7 @@ export function normalizeAttributeValues(
 ): AttributeValues {
   requireValue(isObject(raw), "附加属性须为具名值对象");
   const definitions = schema.filter((field) => field.scope === scope && field.enabled);
+  requireValue(Object.keys(raw).length <= 100, "附加属性值最多100项");
   const values: AttributeValues = {};
   requireValue(
     Object.keys(raw).every((key) =>

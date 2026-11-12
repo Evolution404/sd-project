@@ -50,7 +50,7 @@ try {
   const buffer = await makeWorkbook("demands", {
     documents: [
       {
-        demand_no: "HTTP-LAN-001",
+        import_ref: "HTTP-LAN-001",
         operation_name: "安装防鸟装置",
         problem_description: "内网HTTP浏览器批量录入",
         completion_standard: "安装牢固",
@@ -58,7 +58,7 @@ try {
     ],
     work_locations: [
       {
-        demand_no: "HTTP-LAN-001",
+        import_ref: "HTTP-LAN-001",
         location_kind: "physical_tower",
         asset_no: "T15",
         quantity_scaled: 10000,
@@ -75,6 +75,7 @@ try {
   await page.getByRole("button", { name: "确认提交有效单据" }).click();
   await page.getByText("已处理 1 张单据，失败 0 项").waitFor();
   assert.equal(s.demands.list().length, 1);
+  await page.getByText("下载模板与维护导出",{exact:true}).click();
   const downloaded = page.waitForEvent("download");
   await page
     .getByRole("button", { name: "筛选结果维护导出", exact: true })

@@ -27,13 +27,18 @@ interface ExchangePreviewResponse {
     updated: number;
     unchanged: number;
     conflicts: number;
+    missing_devices:number;
+    ambiguous_locations:number;
+    format_errors:number;
+    precision_errors:number;
   };
 }
 type ExchangeDisplayRow = ExchangePreviewDocument | WorkbookIssue;
 function rowField(row: ExchangeDisplayRow, key: string): unknown {
   return Object.entries(row).find(([field]) => field === key)?.[1];
 }
-const emit = defineEmits(["changed"]);
+const emit = defineEmits<{changed:[];inspect:[id:string]}>();
+const exchangeSections=ref(["template","upload"]);
 const dialog = ref(false),
   mode = ref<ExchangeMode>("mixed"),
   atomic = ref(props.kind === "assets"),
@@ -77,12 +82,15 @@ const documentPage = ref(1),
   issuePage = ref(1),
   activePreviewTab = ref<'documents' | 'issues'>('documents');
 const documentColumns: TableColumn[] = [
-  { key: "number", label: "业务编号", minWidth: 155 },
+  { key: "number", label: props.kind === "demands" ? "导入关联号" : "业务编号", minWidth: 155 },
   { key: "action", label: "动作", minWidth: 105 },
   { key: "expectedResult", label: "预计结果", minWidth: 150, sortable: false, filterable: false },
   { key: "changes", label: "逐字段变化", minWidth: 335, sortable: false, filterable: false },
 ];
 const issueColumns: TableColumn[] = [
+  {key:"import_ref",label:"导入关联号",minWidth:135},
+  {key:"demand_no",label:"正式需求编号",minWidth:155},
+  {key:"location_ref",label:"位置关联号",minWidth:130},
   { key: "sheet", label: "工作表", minWidth: 120 },
   { key: "row", label: "行号", minWidth: 95 },
   { key: "field", label: "字段", minWidth: 155, sortable: false, filterable: false },
@@ -181,6 +189,7 @@ async function upload(file: UploadFile) {
     const value = await response.json();
     if (!response.ok) throw new Error(value.message);
     preview.value = value as ExchangePreviewResponse;
+    exchangeSections.value=["preview"];
     requestKey.value = newClientId();
     // Show errors immediately instead of leaving them hidden behind the first tab.
     activePreviewTab.value = value.issues?.length ? 'issues' : 'documents';
@@ -201,6 +210,7 @@ async function commit() {
       "POST",
       { request_key: requestKey.value, atomic: atomic.value },
     );
+    exchangeSections.value=["result"];
     ElMessage.success("导入结果已保存");
     emit("changed");
   } catch (e) {
@@ -238,6 +248,8 @@ async function commit() {
       @click="cancelPreview"
       >取消预检</ElButton
     >
+    <ElCollapse v-model="exchangeSections">
+    <ElCollapseItem title="下载模板与维护导出" name="template">
     <div class="toolbar">
       <ElButton
         @click="
@@ -253,6 +265,8 @@ async function commit() {
         >勾选项维护导出</ElButton
       ><ElButton @click="exportFile(true)">业务报表</ElButton>
     </div>
+    </ElCollapseItem>
+    <ElCollapseItem title="上传并预检" name="upload">
     <ElAlert
       :title="
         kind === 'assets'
@@ -280,12 +294,12 @@ async function commit() {
         ><ElButton :disabled="!can('write')" type="primary" :loading="busy"
           >上传并预检</ElButton
         ></ElUpload
-      ><ElCheckbox v-model="atomic" :disabled="busy"
-        >整个批次全部成功或全部回滚</ElCheckbox
       >
     </div>
+    </ElCollapseItem>
+    <ElCollapseItem title="查看差异并确认提交" name="preview">
     <template v-if="preview"
-      ><div class="toolbar">
+      ><ElCheckbox v-model="atomic" :disabled="busy">整个批次全部成功或全部回滚</ElCheckbox><div class="toolbar">
         <ElTag>共 {{ preview.summary.documents }} 张单据</ElTag
         ><ElTag type="success">有效 {{ preview.documents.length }}</ElTag
         ><ElTag type="danger"
@@ -296,6 +310,7 @@ async function commit() {
         ><ElTag>新增 {{ preview.summary.created }}</ElTag
         ><ElTag>更新 {{ preview.summary.updated }}</ElTag
         ><ElTag type="info">无变化 {{ preview.summary.unchanged }}</ElTag
+        ><ElTag type="danger">缺失设备 {{preview.summary.missing_devices||0}} / 位置歧义 {{preview.summary.ambiguous_locations||0}} / 格式 {{preview.summary.format_errors||0}} / 精度 {{preview.summary.precision_errors||0}}</ElTag
         ><ElTag type="danger">问题 {{ preview.issues.length }}</ElTag
         ><ElButton
           @click="
@@ -341,6 +356,8 @@ async function commit() {
             :page-size="30"
             layout="prev,pager,next,total" /></ElTabPane></ElTabs
     ></template>
+    </ElCollapseItem>
+    <ElCollapseItem title="下载结果与回查" name="result">
     <ElAlert
       v-if="result"
       class="error-banner"
@@ -361,6 +378,12 @@ async function commit() {
       @click="download(`/exchange/${preview!.token}/results`, '导入结果.xlsx')"
       >下载导入结果</ElButton
     >
+    <BusinessTable v-if="result && kind === 'demands'" :rows="result.results" :columns="[{key:'import_ref',label:'导入关联号'},{key:'number',label:'正式需求编号'},{key:'action',label:'处理结果'}]"
+      table-key="exchange:demand-results" client-side :max-height="300" :actions-width="120">
+      <template #cell="{row,column}">{{column.key==='import_ref'?row.import_ref:column.key==='number'?row.number:row.action==='create'?'已新增':row.action==='update'?'已更新':'保持原值'}}</template>
+      <template #actions="{row}"><ElButton size="small" @click="dialog=false;emit('inspect',row.id)">查看需求</ElButton></template>
+    </BusinessTable>
+    </ElCollapseItem></ElCollapse>
     <template #footer
       ><ElButton :disabled="busy" @click="dialog = false">关闭</ElButton
       ><ElButton

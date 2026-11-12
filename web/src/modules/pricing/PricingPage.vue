@@ -10,7 +10,6 @@ import type {
   Page,
   AuditRecord,
 } from "../../../../server/shared/types/contracts";
-import type { PriceFactorRecord } from "../../../../server/shared/types/work-standards";
 import type { PriceRuleRecord } from "../../../../server/shared/types/price-rules";
 import { api, statusText, money, quantity } from "../../shared/api/client";
 import { factText } from "../../shared/utils/display";
@@ -25,9 +24,8 @@ import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import RowActions from "../../shared/ui/RowActions.vue";
 import PriceRuleEditor from "./PriceRuleEditor.vue";
-import FactorEditor from "./FactorEditor.vue";
-type Kind = "prices" | "factors";
-type Item = PriceRuleRecord | PriceFactorRecord;
+type Kind = "prices";
+type Item = PriceRuleRecord;
 interface Detail {
   item: Item;
   versions: unknown[];
@@ -64,9 +62,6 @@ const definitions = shallowRef<Partial<Record<Kind, CatalogFormDefinition>>>(
 const copying = ref(false);
 const editingRule = computed(() =>
   editing.value && "catalog_id" in editing.value ? editing.value : null,
-);
-const editingFactor = computed(() =>
-  editing.value && "type_id" in editing.value ? editing.value : null,
 );
 const detail = computed(() => detailState.value?.item || null);
 const fields = computed(() =>
@@ -154,7 +149,7 @@ async function history(row: Item) {
   if (detail.value?.id === row.id) showHistory.value = true;
 }
 function version(row: Item): number {
-  return "version" in row ? row.version : row.version_no;
+  return row.version_no;
 }
 async function remove(row: Item) {
   try {
@@ -279,11 +274,6 @@ onMounted(async () => {
       >
     </div>
   </div>
-  <ElTabs v-model="kind"
-    ><ElTabPane name="prices" label="参考价格规则" /><ElTabPane
-      name="factors"
-      label="价格特征"
-  /></ElTabs>
   <div class="panel">
     <div class="toolbar">
       <ElInput
@@ -430,10 +420,5 @@ onMounted(async () => {
     :copy="copying"
     :refresh="refresh"
   />
-  <FactorEditor
-    v-else
-    v-model:open="editor"
-    :editing="editingFactor"
-    :refresh="refresh"
-  />
+
 </template>

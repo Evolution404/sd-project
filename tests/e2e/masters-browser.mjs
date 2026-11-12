@@ -1,3 +1,4 @@
+import {addOperationAttribute,chooseDemandLocations} from "./field-helper.mjs";
 import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
@@ -111,20 +112,14 @@ try {
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("浏览器安装");
   await select("作业对象", "浏览器专用对象");
+  await page.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
   await select("固定计量单位", "件");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("tab", { name: "录入模板", exact: true })
     .click();
   await page.getByLabel("默认验收标准", { exact: true }).fill("安装牢固");
-  await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
-    .getByRole("tab", { name: "附加字段", exact: true })
-    .click();
-  await page.getByRole("button", { name: "添加现场字段", exact: true }).click();
-  await page.getByLabel("字段名称", { exact: true }).fill("测试作业高度");
-  await select("录入方式", "数值");
-  await page.locator(".el-switch:visible").last().click();
+  await addOperationAttribute(page,{label:"测试作业高度",type:"小数",scope:"需求级",precision:2,requirement:"保存必填"});
   await save();
   await selectNavigation(page, "专业需求");
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
@@ -133,7 +128,7 @@ try {
     .getByLabel("问题描述", { exact: true })
     .fill("真实动态附加字段验收");
   await page.getByLabel("测试作业高度", { exact: true }).fill("12.5");
-  await select("作业设备", "T15");
+  await chooseDemandLocations(page,["T15"]);
   await page.getByLabel("来源说明", { exact: true }).fill("浏览器现场记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
@@ -141,7 +136,7 @@ try {
     .list()
     .find((row) => row.problem_description === "真实动态附加字段验收");
   assert.ok(demand.demand_no.startsWith("XQ-"));
-  assert.equal(Object.values(s.demands.get(demand.id).custom_fields)[0], 12.5);
+  assert.equal(Object.values(s.demands.get(demand.id).attributes)[0], "12.5");
   assert.equal(s.catalog.list("voltages").length, 0);
   assert.equal(s.catalog.list("voltages", true)[0].name, "110千伏");
   // Saving now opens the demand's next-step workspace; close it before leaving
@@ -150,63 +145,35 @@ try {
     .getByRole("heading", { name: /真实动态附加字段验收/ }).waitFor();
   await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page.locator(".business-detail-dialog:visible").waitFor({ state: "hidden" });
-  // New extra price factors have constrained enum/integer editors.
-  await selectNavigation(page, "作业标准");
+  await selectNavigation(page,"作业标准");
+  await page.getByRole("tab",{name:"操作类型",exact:true}).click();
+  await page.getByRole("row").filter({hasText:"浏览器安装"}).getByRole("button",{name:"更多操作"}).click();
+  await page.getByRole("menuitem",{name:"编辑",exact:true}).last().click();
+  const factorEditor=page.getByRole("dialog",{name:"编辑操作类型",exact:true});
+  assert.equal(await factorEditor.getByRole("tab").count(),5);
+  await addOperationAttribute(page,{label:"施工难度",type:"单选",options:["普通","困难"],pricing:true,requirement:"计价必需"});
+  await addOperationAttribute(page,{label:"施工高度",type:"整数",precision:0,min:0,max:100,pricing:true});
+  await save();
+  const configured=s.catalog.list("operations").find(item=>item.name==="浏览器安装");
+  assert.equal(configured.version,2);
+  const definitions=JSON.parse(configured.attributes_schema_json);
+  assert.equal(definitions.find(field=>field.label==="施工难度").pricing,true);
+  assert.equal(definitions.find(field=>field.label==="施工高度").max,"100");
   await selectNavigation(page, "参考价格");
-  await page.getByRole("tab", { name: "价格特征", exact: true }).click();
-  await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
-  const factorEditor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
-  await factorEditor.getByLabel("名称", { exact: true }).fill("施工难度");
-  assert.equal(await factorEditor.getByText("可自动取得的台账事实").count(), 0);
-  for (const item of ["普通", "困难"]) {
-    await factorEditor.getByPlaceholder("输入选项名称").fill(item);
-    await factorEditor.getByRole("button", { name: "添加选项" }).click();
-  }
-  await save();
-  const difficulty = s.catalog.list("factors").find((item) => item.name === "施工难度");
-  assert.deepEqual(JSON.parse(difficulty.fields_json).values, ["普通", "困难"]);
-
-  await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
-  await factorEditor.getByLabel("名称", { exact: true }).fill("施工高度");
-  await factorEditor.getByText("整数", { exact: true }).click();
-  await select("计量单位（选填）", "件");
-  await factorEditor.getByLabel("最小允许值（选填）").fill("0");
-  await factorEditor.getByLabel("最大允许值（选填）").fill("100");
-  await save();
-  const height = s.catalog.list("factors").find((item) => item.name === "施工高度");
-  const heightDefinition = JSON.parse(height.fields_json);
-  assert.equal(heightDefinition.min, 0);
-  assert.equal(heightDefinition.max, 100);
-  assert.ok(heightDefinition.unit_id);
-
-  await selectNavigation(page, "作业标准");
-  await page.getByRole("tab", { name: "操作类型", exact: true }).click();
-  await page.getByRole("row").filter({ hasText: "浏览器安装" })
-    .getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "编辑", exact: true }).last().click();
-  assert.equal(await factorEditor.getByRole("tab").count(), 4);
-  await factorEditor.getByRole("tab", { name: "计价所需信息" }).click();
-  await factorEditor.getByRole("button", { name: "添加计价信息" }).click();
-  await select("额外价格特征", "施工难度");
-  await factorEditor.locator(".el-switch:visible").last().click();
-  await save();
-  assert.equal(s.catalog.get("operations", s.catalog.list("operations").find(
-    (item) => item.name === "浏览器安装").id).version, 2);
-
-  await selectNavigation(page, "参考价格");
-  await page.getByRole("tab", { name: "参考价格规则", exact: true }).click();
   await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
-  assert.deepEqual(await factorEditor.getByRole("tab").allTextContents(),
+  const priceEditor=page.getByRole("dialog",{name:"新增参考价格规则",exact:true});
+  await priceEditor.waitFor();
+  assert.deepEqual(await priceEditor.getByRole("tab").allTextContents(),
     ["基本信息", "适用条件", "计价方式"]);
-  await factorEditor.getByRole("tab", { name: "适用条件" }).click();
-  assert.equal(await factorEditor.getByLabel("适用电压").isVisible(), true);
-  await factorEditor.getByRole("tab", { name: "计价方式" }).click();
-  assert.equal(await factorEditor.getByLabel("计价模型").isVisible(), true);
+  await priceEditor.getByRole("tab", { name: "适用条件" }).click();
+  assert.equal(await priceEditor.getByLabel("适用电压").isVisible(), true);
+  await priceEditor.getByRole("tab", { name: "计价方式" }).click();
+  assert.equal(await priceEditor.getByLabel("计价模型").isVisible(), true);
   await page.screenshot({
     path: join(output, "price-features-settings-browser.png"),
     fullPage: true,
   });
-  await factorEditor.getByRole("button", { name: "取消" }).click();
+  await priceEditor.getByRole("button", { name: "取消" }).click();
 
   assert.deepEqual(errors, []);
   console.log(

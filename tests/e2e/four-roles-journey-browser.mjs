@@ -75,7 +75,7 @@ try {
   assert.equal((await rejectedMutation(editor,"/demands/"+pending.id+"/status",mutation)).status,403);
   const pricingDefinitionFailures=[];
   editor.on("response",res=>{
-    if (res.url().includes("/pricing-definitions") && res.status() >= 400)
+    if (res.url().includes("/attributes") && res.status() >= 400)
       pricingDefinitionFailures.push({status:res.status(),url:res.url()});
   });
   await editorDetail.getByRole("button",{name:"修订需求"}).click();

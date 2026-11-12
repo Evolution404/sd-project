@@ -3,7 +3,7 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { fixture } from "../helpers.mjs";
+import { fixture, attribute } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
@@ -20,15 +20,10 @@ s.auth.saveUser(user, {
   username: "ux_readonly", password: "viewerReadOnly123",
   role: "viewer", status: "active",
 });
-const factor = save("factors", {
-  name: "现场施工难度",
-  fields_json: { kind: "enum", values: ["普通", "困难"] },
-});
+const factor = attribute({requirement:"optional"});
 s.catalog.save(user, "operations", {
   expected_version: 1,
-  pricing_features_json: [
-    { factor_id: factor.id, factor_version: 1, source: "manual", required: false },
-  ],
+  attributes_schema_json: [factor],
 }, operation.id);
 const oldRule = save("prices", {
   title: "需要停用的历史参考价",
@@ -40,12 +35,10 @@ const oldRule = save("prices", {
   effective_on: "2026-01-01",
   basis: "现场定额核验",
   additional_conditions_json: {
-    [factor.code]: { factor_version: 1, op: "eq", value: "普通" },
+    [factor.key]: { op: "eq", value: "普通" },
   },
 });
-s.catalog.save(user, "factors", {
-  name: "新版施工难度", expected_version: 1,
-}, factor.id);
+s.catalog.save(user,"operations",{expected_version:2,attributes_schema_json:[{...factor,label:"现行施工环境名称"}]},operation.id);
 const server = httpServer(s);
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const browser = await chromium.launch(existsSync(chromium.executablePath())

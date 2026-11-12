@@ -67,8 +67,9 @@ try {
     name: "编辑操作类型",
     exact: true,
   });
+  await standardEditor.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
   await standardEditor.getByText("套", { exact: true }).waitFor();
-  assert.equal(await standardEditor.getByRole("tab").count(), 4);
+  assert.equal(await standardEditor.getByRole("tab").count(), 5);
   for (const width of [1500, 1280, 960, 760]) {
     await page.setViewportSize({ width, height: 1000 });
     await standardEditor

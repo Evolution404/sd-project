@@ -79,7 +79,7 @@ try {
   await detail.getByText('档距', { exact: true }).waitFor();
   await detail.getByRole('button', { name: '关闭详情' }).click();
   await page.getByRole('button', { name: '新增操作类型', exact: true }).click();
-  assert.equal(await editor.getByRole('tab').count(), 4);
+  assert.equal(await editor.getByRole('tab').count(), 5);
   assert.equal(await editor.getByText('影响与预览', { exact: true }).count(), 0);
   await editor.getByRole('button', { name: '取消', exact: true }).click();
   await selectNavigation(page, '专业需求');

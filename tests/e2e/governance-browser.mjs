@@ -87,12 +87,14 @@ try {
   assert.ok((await completion.inputValue()).includes("防鸟装置"));
   await operationChoice.click();
   await page.getByRole("option", { name: "更换绝缘子串", exact: true }).last().click();
+  await page.getByRole("dialog",{name:"核对操作类型变化",exact:true}).getByRole("button",{name:"应用新定义",exact:true}).click();
   await page.waitForFunction(() => Array.from(document.querySelectorAll("textarea"))
     .some(element => element.value.includes("绝缘子")), null, { timeout: 7000 });
   assert.ok((await completion.inputValue()).includes("绝缘子"));
   await completion.fill("用户自己编写的验收标准");
   await operationChoice.click();
   await page.getByRole("option", { name: "安装防鸟装置", exact: true }).last().click();
+  await page.getByRole("dialog",{name:"核对操作类型变化",exact:true}).getByRole("button",{name:"应用新定义",exact:true}).click();
   assert.equal(await completion.inputValue(), "用户自己编写的验收标准");
   await demandEditor.getByText("当前验收标准包含手工填写内容", { exact: false }).waitFor();
   await demandEditor.getByRole("button", { name: "取消", exact: true }).click();

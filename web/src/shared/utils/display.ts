@@ -3,7 +3,11 @@ export const fieldNames: Record<string, string> = {
   work_locations: "作业位置及各位置工作量",
   materials: "预计物资",
   sources: "需求来源",
-  site_features_json: "现场价格特征",
+  attributes: "附加属性",
+  attributes_json: "位置附加属性",
+  attributes_schema_json: "采用的附加属性定义",
+  import_ref: "导入关联号",
+  location_ref: "位置关联号",
   custom_fields: "补充现场字段",
   demand_no: "需求编号",
   operation_id: "操作类型",
@@ -124,8 +128,6 @@ export const fieldNames: Record<string, string> = {
   fee_components_json: "组合费用",
   quantity_brackets_json: "数量阶梯",
   fields_json: "附加字段定义",
-  field_definitions_json: "采用字段定义",
-  pricing_features_json: "计价特征声明",
   additional_conditions_json: "适用现场条件",
   location_snapshot_json: "当时设备信息",
   cost_fen: "真实费用",
@@ -137,7 +139,6 @@ export const fieldNames: Record<string, string> = {
   resolutions: "本次新增解决情况",
   item_no: "明细序号",
   coverage_key: "费用范围",
-  factor_version: "采用特征版本",
   value: "现场值",
   min: "最小值",
   max: "最大值",
@@ -241,10 +242,7 @@ export function factText(
     ? entries
         .map(
           ([key, item]) =>
-            (item && typeof item === "object" && "factor_version" in item
-              ? labels[key + "@" + item.factor_version] ||
-                fieldName(key, labels)
-              : fieldName(key, labels)) +
+            fieldName(key, labels) +
             " " +
             factText(item, key, labels, actors, depth + 1),
         )

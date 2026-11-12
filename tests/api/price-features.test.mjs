@@ -5,7 +5,7 @@ import { fixture, attribute } from "../helpers.mjs";
 test("operation attributes reject invalid definitions and pin numeric unit precision", (t) => {
   const {s,user,operation,unit}=fixture(t);
   const save=fields=>s.standards.saveOperation(user,{expected_version:1,attributes_schema_json:fields},operation.id);
-  assert.throws(()=>save([attribute({options:[]})]),/至少配置/);
+  assert.throws(()=>save([attribute({options:[]})]),error=>/至少配置/.test(error.fields.attributes_schema_json));
   assert.throws(()=>save([attribute({options:[{value:"a",label:"甲"},{value:"a",label:"乙"}]})]),/不能重复/);
   assert.throws(()=>save([attribute({type:"integer",precision:0,min:"8",max:"2"})]),/最小值/);
   assert.throws(()=>save([attribute({label:"塔型"})]),/台账引用/);

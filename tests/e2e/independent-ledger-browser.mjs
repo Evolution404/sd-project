@@ -3,7 +3,7 @@ import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { fixture } from "../helpers.mjs";
+import { fixture, attribute } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 const cleanup = [],
@@ -11,24 +11,15 @@ const cleanup = [],
     after: (action) => cleanup.push(action),
   }),
   server = httpServer(s);
-const factor = s.catalog.save(user, "factors", {
-  name: "正式施工环境",
-  fields_json: { kind: "enum", values: ["山地"] },
-});
+const factor = attribute({key:"terrain",label:"正式施工环境",options:[{value:"山地",label:"山地"}]});
+
 s.catalog.save(
   user,
   "operations",
   {
     ...operation,
     expected_version: 1,
-    pricing_features_json: [
-      {
-        factor_id: factor.id,
-        factor_version: 1,
-        source: "manual",
-        required: true,
-      },
-    ],
+    attributes_schema_json: [factor],
   },
   operation.id,
 );
@@ -40,18 +31,13 @@ s.demands.save(user, {
       location_kind: "physical_tower",
       physical_tower_id: towers[0].id,
       quantity_scaled: 10000,
-      site_features_json: {
-        [factor.code]: { factor_version: 1, value: "山地" },
+      attributes: {
+        [factor.key]: "山地",
       },
     },
   ],
 });
-s.catalog.save(
-  user,
-  "factors",
-  { ...factor, name: "现行施工环境名称", expected_version: 1 },
-  factor.id,
-);
+s.catalog.save(user,"operations",{expected_version:2,attributes_schema_json:[{...factor,label:"现行施工环境名称"}]},operation.id);
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(
   existsSync(chromium.executablePath())
@@ -251,7 +237,7 @@ try {
     .click();
   await page.getByText("正式施工环境 · 山地", { exact: true }).waitFor();
   await page.getByRole("button", { name: "关闭详情", exact: true }).click();
-  assert.ok(!(await page.locator("body").innerText()).includes(factor.code));
+  assert.ok(!(await page.locator("body").innerText()).includes(factor.key));
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
   await selectNavigation(page, "输电设备台账");

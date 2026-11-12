@@ -1,3 +1,4 @@
+import {addOperationAttribute} from "./field-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -101,7 +102,6 @@ try {
     ["ledger", "新增线路"],
     ["standards", "新增操作类型"],
     ["standards/objects", "新增作业对象"],
-    ["pricing/factors", "新增价格特征"],
     ["pricing/prices", "新增参考价格规则"],
     ["demands", "新增需求"],
     ["projects", "新增子项目"],
@@ -126,27 +126,15 @@ try {
   await select("归属范围", "杆塔");
   await save();
 
-  await visit("pricing/factors");
-  await page.getByRole("button", { name: "新增价格特征", exact: true }).click();
-  await dialog.getByLabel("名称", { exact: true }).fill("施工难度");
-  for (const value of ["普通", "困难"]) {
-    await dialog.getByPlaceholder("输入选项名称").fill(value);
-    await dialog.getByRole("button", { name: "添加选项", exact: true }).click();
-  }
-  await save();
-  assert.equal(s.catalog.list("factors").length, 1);
-
   await visit("standards/operations");
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("安装防鸟装置");
   await select("作业对象", "防鸟装置");
+  await dialog.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
   await select("固定计量单位", "套");
   await dialog.getByRole("tab", { name: "录入模板" }).click();
   await dialog.getByLabel("默认验收标准", { exact: true }).fill("安装牢固");
-  await dialog.getByRole("tab", { name: "计价所需信息" }).click();
-  await dialog.getByRole("button", { name: "添加计价信息" }).click();
-  await select("额外价格特征", "施工难度");
-  await dialog.locator(".el-switch:visible").last().click();
+  await addOperationAttribute(page,{label:"施工难度",type:"单选",options:["普通","困难"],pricing:true,requirement:"计价必需"});
   await auditOpenDialog("operation-price-features", 760);
   await save();
   assert.equal(s.catalog.list("operations").length, 1);

@@ -1,19 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { api } from "../../shared/api/client";
-import type { FactorDefinition } from "../../../../server/modules/pricing/features";
-import type { PriceCondition } from "../../../../server/modules/pricing/model";
 import type {
-  PriceFactorRecord,
-  PricingFeatureDeclaration,
-} from "../../../../server/shared/types/work-standards";
-import type { Page } from "../../../../server/shared/types/contracts";
-interface Feature extends PricingFeatureDeclaration {
-  code: string;
-  name: string;
-  definition: FactorDefinition;
-  unit: string;
-}
+  OperationAttribute,
+  AttributeCondition,
+} from "../../../../server/shared/types/operation-attributes";
 const props = defineProps<{
   rule: {
     operation_id?: unknown;
@@ -24,91 +15,55 @@ const props = defineProps<{
     price_features_load_error?: string;
   };
 }>();
-const definitions = ref<Feature[]>([]);
-const conditions = ref<Record<string, PriceCondition>>({});
-const knownFactors = ref<PriceFactorRecord[]>([]);
-async function loadKnownFactors() {
-  const all: PriceFactorRecord[] = [];
-  for (let page = 1; page <= 1000; page++) {
-    const result = await api<Page<PriceFactorRecord>>(
-      "/catalog/factors?page_size=200&deleted=true&page=" + page,
-    );
-    all.push(...result.items);
-    if (all.length >= result.total) return all;
-  }
-  throw new Error("价格特征数量超出查询范围");
-}
-loadKnownFactors()
-  .then((items) => {
-    knownFactors.value = items;
-  })
-  .catch(() => {
-    knownFactors.value = [];
-  });
-const staleCodes = computed(() =>
-  Object.keys(conditions.value).filter(
-    (code) =>
-      !definitions.value.some(
-        (item) =>
-          item.code === code &&
-          item.factor_version === conditions.value[code]?.factor_version,
-      ),
-  ),
-);
-let requestId = 0;
-
+const definitions = ref<OperationAttribute[]>([]),
+  conditions = ref<Record<string, AttributeCondition>>({}),
+  loading = ref(false),
+  error = ref("");
+let sequence = 0;
 watch(
   () => props.rule,
   (rule) => {
-    try {
-      conditions.value = JSON.parse(
-        String(rule.additional_conditions_json || "{}"),
-      );
-    } catch {
-      conditions.value = {};
-    }
+    conditions.value = JSON.parse(
+      String(rule.additional_conditions_json || "{}"),
+    );
   },
   { immediate: true },
 );
-const loading = ref(false);
-const loadError = ref("");
-const reloadCount = ref(0);
 watch(
   () => [
     props.rule.operation_id,
     props.rule.operation_version,
     props.rule.adopt_latest_operation_version,
-    reloadCount.value,
   ],
   async () => {
-    const request = ++requestId;
-    const operationId = props.rule.operation_id;
+    const seq = ++sequence;
     definitions.value = [];
-    loadError.value = "";
-    props.rule.price_features_load_error = "";
-    if (!operationId) {
-      loading.value = false;
-      props.rule.price_features_loading = false;
-      return;
-    }
+    error.value = "";
+    if (!props.rule.operation_id) return;
     loading.value = true;
     props.rule.price_features_loading = true;
+    props.rule.price_features_load_error = "";
     try {
-      const requestedVersion = props.rule.operation_version;
-      const url =
+      const result = await api<{ items: OperationAttribute[] }>(
         "/catalog/operations/" +
-        operationId +
-        "/pricing-definitions" +
-        (requestedVersion ? "?version=" + requestedVersion : "");
-      const response = await api<{ items: Feature[] }>(url);
-      if (request === requestId) definitions.value = response.items;
-    } catch (error) {
-      if (request === requestId) {
-        loadError.value = (error as Error).message;
-        props.rule.price_features_load_error = loadError.value;
+          props.rule.operation_id +
+          "/attributes" +
+          (props.rule.operation_version &&
+          !props.rule.adopt_latest_operation_version
+            ? "?version=" + props.rule.operation_version
+            : ""),
+      );
+      if (seq === sequence)
+        definitions.value = result.items.filter(
+          (field) => field.pricing && field.enabled,
+        );
+    } catch (failure) {
+      if (seq === sequence) {
+        error.value = (failure as Error).message;
+        props.rule.price_features_load_error = error.value;
       }
     } finally {
-      if (request === requestId) {
+      if (seq === sequence) {
         loading.value = false;
         props.rule.price_features_loading = false;
       }
@@ -116,22 +71,17 @@ watch(
   },
   { immediate: true },
 );
-function enable(feature: Feature, selected: boolean) {
-  if (selected)
-    conditions.value[feature.code] = {
-      factor_version: feature.factor_version,
-      op: feature.definition.kind === "number" ? "range" : "eq",
-      ...(feature.definition.kind === "number"
-        ? { min: feature.definition.min ?? 0, max: feature.definition.min ?? 0 }
-        : {
-            value: feature.definition.values?.[0]
-              ? typeof feature.definition.values[0] === "string"
-                ? feature.definition.values[0]
-                : feature.definition.values[0].value
-              : "",
-          }),
+const stale = computed(() =>
+  Object.keys(conditions.value).filter(
+    (key) => !definitions.value.some((field) => field.key === key),
+  ),
+);
+function enable(field: OperationAttribute, value: boolean) {
+  if (value)
+    conditions.value[field.key] = {
+      op: field.type === "integer" || field.type === "decimal" ? "range" : "eq",
     };
-  else delete conditions.value[feature.code];
+  else delete conditions.value[field.key];
 }
 watch(
   conditions,
@@ -145,91 +95,87 @@ watch(
   <section class="full-width">
     <ElAlert
       v-if="loading"
+      title="正在读取操作类型统一属性"
       type="info"
       :closable="false"
-      title="正在读取正式价格特征定义"
     />
-    <ElAlert
-      v-if="loadError"
-      type="error"
-      :closable="false"
-      :title="'无法读取价格特征：' + loadError"
-    />
-    <ElButton v-if="loadError" @click="reloadCount++">重试加载</ElButton>
-    <h3 class="subheading">额外现场条件</h3>
-    <p class="muted">
-      不勾选表示不限制该特征。电压等级、塔型、作业方式和规格直接使用上面的已有业务字段。
-    </p>
-    <div v-for="feature in definitions" :key="feature.code" class="panel">
+    <ElAlert v-if="error" :title="error" type="error" :closable="false" />
+    <div v-for="field in definitions" :key="field.key" class="panel">
       <ElCheckbox
-        :model-value="!!conditions[feature.code]"
-        @change="enable(feature, Boolean($event))"
-        >限制{{ feature.name }}</ElCheckbox
+        :model-value="!!conditions[field.key]"
+        @change="enable(field, Boolean($event))"
+        >限制{{ field.label }}（{{
+          field.scope === "demand" ? "需求级" : "位置级"
+        }}）</ElCheckbox
       >
-      <div v-if="conditions[feature.code]" class="form-grid">
-        <template v-if="feature.definition.kind === 'number'">
-          <ElFormItem
-            :label="'最小值' + (feature.unit ? '（' + feature.unit + '）' : '')"
-            required
-          >
-            <ElInputNumber
-              v-model="conditions[feature.code].min"
-              :precision="0"
-              :min="feature.definition.min ?? -9007199254740991"
-              :max="feature.definition.max ?? 9007199254740991"
-            />
-          </ElFormItem>
-          <ElFormItem
-            :label="'最大值' + (feature.unit ? '（' + feature.unit + '）' : '')"
-            required
-          >
-            <ElInputNumber
-              v-model="conditions[feature.code].max"
-              :precision="0"
-              :min="feature.definition.min ?? -9007199254740991"
-              :max="feature.definition.max ?? 9007199254740991"
-            />
-          </ElFormItem>
+      <div v-if="conditions[field.key]" class="form-grid">
+        <template v-if="field.type === 'integer' || field.type === 'decimal'">
+          <ElFormItem label="匹配方式"
+            ><ElSelect v-model="conditions[field.key].op"
+              ><ElOption label="范围匹配" value="range" /><ElOption
+                label="精确匹配"
+                value="eq" /></ElSelect
+          ></ElFormItem>
+          <template v-if="conditions[field.key].op === 'range'">
+            <ElFormItem label="最小值" required
+              ><ElInput v-model="conditions[field.key].min"
+            /></ElFormItem>
+            <ElFormItem label="最大值" required
+              ><ElInput v-model="conditions[field.key].max"
+            /></ElFormItem>
+          </template>
+          <ElFormItem v-else label="适用数值" required
+            ><ElInput
+              :model-value="String(conditions[field.key].value ?? '')"
+              @update:model-value="conditions[field.key].value = $event"
+              @change="
+                field.type === 'integer' &&
+                (conditions[field.key].value = Number(
+                  conditions[field.key].value,
+                ))
+              "
+          /></ElFormItem>
         </template>
-        <ElFormItem v-else label="适用取值" required>
-          <ElSelect
-            v-if="feature.definition.values?.length"
-            v-model="conditions[feature.code].value"
-          >
-            <ElOption
-              v-for="option in feature.definition.values"
-              :key="String(option)"
-              :value="typeof option === 'string' ? option : option.value"
-              :label="typeof option === 'string' ? option : option.label"
-            />
-          </ElSelect>
-          <ElInput
-            v-else
-            v-model="conditions[feature.code].value"
-            placeholder="旧版本自由文字条件"
-          />
-        </ElFormItem>
+        <ElFormItem
+          v-else-if="field.type === 'boolean'"
+          label="适用取值"
+          required
+          ><ElSelect v-model="conditions[field.key].value"
+            ><ElOption label="是" :value="true" /><ElOption
+              label="否"
+              :value="false" /></ElSelect
+        ></ElFormItem>
+        <ElFormItem
+          v-else-if="field.type === 'select' && field.source === 'manual'"
+          label="适用取值"
+          required
+          ><ElSelect v-model="conditions[field.key].value"
+            ><ElOption
+              v-for="option in field.options"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value" /></ElSelect
+        ></ElFormItem>
+        <ElFormItem v-else label="台账正式取值" required
+          ><ElInput
+            :model-value="String(conditions[field.key].value ?? '')"
+            @update:model-value="conditions[field.key].value = $event"
+        /></ElFormItem>
       </div>
     </div>
-    <div v-if="staleCodes.length" class="panel">
-      <ElAlert
-        title="存在与当前操作类型不兼容的历史适用条件。请核对后逐项移除，或切回原操作类型。"
-        :closable="false"
-        type="warning"
-      />
-      <div class="toolbar" style="flex-wrap: wrap; margin-top: 12px">
-        <ElButton
-          v-for="(code, index) in staleCodes"
-          :key="code"
-          type="danger"
-          plain
-          @click="delete conditions[code]"
-          >移除原条件：{{
-            knownFactors.find((item) => item.code === code)?.name ||
-            "第" + (Number(index) + 1) + "项"
-          }}</ElButton
-        >
-      </div>
-    </div>
+    <ElAlert
+      v-if="!loading && !definitions.length"
+      title="该操作正式版本尚未开放附加属性计价条件"
+      type="info"
+      :closable="false"
+    />
+    <ElButton
+      v-for="key in stale"
+      :key="key"
+      type="danger"
+      plain
+      @click="delete conditions[key]"
+      >移除不适用的原条件</ElButton
+    >
   </section>
 </template>

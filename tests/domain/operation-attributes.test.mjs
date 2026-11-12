@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { validateAttributeSchema, normalizeAttributeValues, validateAttributeCondition, attributeNumber } from "../../dist/server/shared/operation-attributes.js";
+import { validateAttributeSchema, normalizeAttributeValues, validateAttributeCondition, attributeNumber, validateAttributeValue } from "../../dist/server/shared/operation-attributes.js";
 
 const base = { key: "bird", label: "鸟害等级", scope: "location", source: "manual", type: "select",
   requirement: "save", pricing: true, enabled: true, sort_order: 1, hint: "按现场填写",
@@ -47,4 +47,21 @@ test("equipment facts are referenced from real assets and cannot be edited indep
   assert.deepEqual(normalizeAttributeValues([field], "location", {}, "locations", { tower_type: "角钢塔" }), { tower: "角钢塔" });
   assert.throws(() => normalizeAttributeValues([field], "location", { tower: "另一塔型" }, "locations", { tower_type: "角钢塔" }), /真实台账/);
   assert.throws(() => validateAttributeSchema([{ ...field, source: "manual", asset_field: undefined }]), /台账引用/);
+});
+
+test("untrusted attribute input rejects extreme numeric and oversized schema values before BigInt conversion", () => {
+  assert.throws(() => attributeNumber("9".repeat(100_000), 4, "数值"), /安全数值范围/);
+  assert.throws(() => attributeNumber("9".repeat(25), 4, "数值"), /安全数值范围/);
+  assert.throws(() => attributeNumber("0.00001", 4, "数值"), /4位/);
+  assert.throws(() => attributeNumber("1", 999999, "数值"), /精度无效/);
+  assert.throws(() => validateAttributeSchema([{ ...base, label: "名".repeat(101) }]), /完整配置/);
+  assert.throws(() => validateAttributeSchema([{ ...base, hint: "注".repeat(2001) }]), /完整配置/);
+  assert.throws(() => validateAttributeSchema([{ ...base, options: Array.from({ length: 101 }, (_, i) => ({
+    value: String(i), label: String(i),
+  })) }]), /至少配置/);
+  assert.throws(() => validateAttributeSchema([{ ...base, options: [{ value: "x".repeat(101), label: "过长" }] }]), /选项须/);
+  assert.throws(() => normalizeAttributeValues([base], "location",
+    Object.fromEntries(Array.from({ length: 101 }, (_, i) => [String(i), "x"])), "attributes"), /最多100项/);
+  const multiselect = { ...base, type: "multiselect", pricing: false };
+  assert.throws(() => validateAttributeValue(multiselect, Array(101).fill("high")), /正式选项/);
 });

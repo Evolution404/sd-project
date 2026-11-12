@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-import { selectFormChoice } from "./field-helper.mjs";
+import { selectFormChoice, chooseDemandLocations } from "./field-helper.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup=[];
@@ -44,14 +44,15 @@ async function openDetail() {
   await page.getByRole("button",{name:"登录",exact:true}).click();
   const detail=page.locator(".business-detail-dialog:visible");
   await detail.getByRole("button",{name:"修订需求"}).click();
-  await editor.getByText("实际数量（整数）").first().waitFor();
+  await editor.getByText("需求数量（整数）").first().waitFor();
 }
 try {
   await openDetail();
   assert.equal(s.demands.get(original.id).operation_version,1);
   assert.equal(s.demands.get(original.id).unit_version,1);
   await page.screenshot({path:join(out,"01-frozen-old-unit-precision.png"),fullPage:true});
-  const count=editor.locator(".el-form-item").filter({hasText:/实际数量/}).locator("input").first();
+  await editor.getByRole("tab",{name:"作业位置与工作量",exact:true}).click();
+  const count=editor.locator(".quantity-cell input:visible").first();
   await count.fill("1.5");
   await count.press("Tab");
   await editor.getByText("数量超过正式计量单位允许的小数位").waitFor();
@@ -74,7 +75,7 @@ try {
   await page.screenshot({path:join(out,"02-loading-failure-blocked.png"),fullPage:true});
   await page.unroute("**/api/catalog/units/"+unit.id+"?history=true");
   await editor.getByRole("button",{name:"重新读取正式单位版本"}).click();
-  await editor.getByText("实际数量（整数）").first().waitFor();
+  await editor.getByText("需求数量（整数）").first().waitFor();
   // The latest operation version uses two places, but frozen edit is still zero.
   await editor.getByRole("button",{name:"取消",exact:true}).click();
   await page.locator(".el-message-box:visible .el-button--primary").click().catch(()=>{});
@@ -82,8 +83,10 @@ try {
   await detail.waitFor({state:"hidden"});
   await page.getByRole("button",{name:"新增需求",exact:true}).click();
   await selectFormChoice(page,"操作类型",operation.name,editor);
-  await editor.getByText("实际数量（最多2位小数）").first().waitFor();
-  const amount=editor.locator(".el-form-item").filter({hasText:/实际数量/}).locator("input").first();
+  await editor.getByText("需求数量（最多2位小数）").first().waitFor();
+  await chooseDemandLocations(page,["T16"]);
+  await editor.getByRole("tab",{name:"作业位置与工作量",exact:true}).click();
+  const amount=editor.locator(".quantity-cell input:visible").first();
   await amount.fill("0.25");
   await amount.press("Tab");
   assert.equal(await amount.inputValue(),"0.25");
@@ -97,13 +100,18 @@ try {
     await new Promise(resolve=>setTimeout(resolve,350));
     await route.continue();
   });
+  await editor.getByRole("tab",{name:"基本信息",exact:true}).click();
   await selectFormChoice(page,"操作类型",independentOperation.name,editor);
-  await editor.getByText("实际数量（整数）").first().waitFor();
+  await page.getByRole("dialog",{name:"核对操作类型变化",exact:true}).getByRole("button",{name:"应用新定义",exact:true}).click();
+  await editor.getByText("需求数量（整数）").first().waitFor();
   await selectFormChoice(page,"操作类型",operation.name,editor);
+  await page.getByRole("dialog",{name:"核对操作类型变化",exact:true}).getByRole("button",{name:"应用新定义",exact:true}).click();
+  await editor.getByRole("tab",{name:"基本信息",exact:true}).click();
   await selectFormChoice(page,"操作类型",independentOperation.name,editor);
-  await editor.getByText("实际数量（整数）").first().waitFor();
+  await page.getByRole("dialog",{name:"核对操作类型变化",exact:true}).getByRole("button",{name:"应用新定义",exact:true}).click();
+  await editor.getByText("需求数量（整数）").first().waitFor();
   await page.waitForTimeout(500);
-  assert.equal(await editor.getByText("实际数量（最多2位小数）").count(),0,
+  assert.equal(await editor.getByText("需求数量（最多2位小数）").count(),0,
     "stale earlier unit history must not overwrite last selection");
   assert.deepEqual(failures,[]);
   console.log("ADOPTED_QUANTITY_PRECISION_BROWSER_OK frozen old version, forbidden 1.5 set, failed lookup no writes, retry, 0.25 allowed/0.2501 forbidden, rapid selection");

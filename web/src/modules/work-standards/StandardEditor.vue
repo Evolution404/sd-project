@@ -14,8 +14,8 @@ import { api } from "../../shared/api/client";
 import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import FieldControl from "../../shared/ui/FieldControl.vue";
-import ExtraFieldsEditor from "./ExtraFieldsEditor.vue";
-import OperationFeaturesEditor from "./OperationFeaturesEditor.vue";
+import AttributesEditor from "./AttributesEditor.vue";
+import OperationVersionHistory from "./OperationVersionHistory.vue";
 const props = defineProps<{
   open: boolean;
   kind: "operations" | "objects";
@@ -25,9 +25,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ "update:open": [value: boolean]; saved: [] }>();
 interface StandardDraft extends Record<string, unknown> {
-  fields_json?: unknown;
-  pricing_features_json?: unknown;
-  price_features_load_error?: string;
+  attributes_schema_json?: string;
 }
 const form = ref<StandardDraft>({}),
   formRef = ref<FormInstance>(),
@@ -105,8 +103,8 @@ function close(done?: () => void) {
 }
 function group(field: CatalogField) {
   if (props.kind === "objects") return "basic";
-  if (field.key === "fields_json") return "extra";
-  if (field.key === "pricing_features_json") return "pricingInfo";
+  if (field.key === "attributes_schema_json") return "extra";
+  if (["default_unit_id","allow_tower","allow_span","default_location_kind"].includes(field.key)) return "scope";
   return [
     "completion_standard",
     "entry_hint",
@@ -119,7 +117,7 @@ function group(field: CatalogField) {
 function visible(field: CatalogField) {
   return (
     props.kind === "objects" ||
-    !["work_target_type", "fields_json", "pricing_features_json"].includes(
+    !["work_target_type", "attributes_schema_json"].includes(
       field.key,
     )
   );
@@ -132,8 +130,7 @@ async function focusError() {
     (field) => field.key === invalid?.prop || errors.value[field.key],
   );
   if (field) tab.value = group(field);
-  else if (errors.value.fields_json) tab.value = "extra";
-  else if (errors.value.pricing_features_json) tab.value = "pricingInfo";
+  else if (errors.value.attributes_schema_json) tab.value = "extra";
   await nextTick();
   (formRef.value?.$el as HTMLElement | undefined)
     ?.querySelector<HTMLElement>(".el-form-item.is-error input")
@@ -153,10 +150,6 @@ async function save() {
       tab.value = "template";
       throw new Error(adoptedPrecisionError.value ||
         "建议数量对应的正式计量单位精度尚未确认，请检查单位配置和数值");
-    }
-    if (form.value.price_features_load_error) {
-      tab.value = "pricingInfo";
-      throw new Error(form.value.price_features_load_error);
     }
     const version =
       props.editing &&
@@ -187,22 +180,20 @@ async function save() {
     append-to-body
     :model-value="open"
     :title="(editing ? '编辑' : '新增') + (definition?.title || '')"
-    width="800px"
+    width="min(980px, 96vw)"
     :close-on-click-modal="false"
     :before-close="close"
     @update:model-value="emit('update:open', $event)"
   >
     <ElForm ref="formRef" :model="form" label-position="top" novalidate>
       <ElTabs v-if="kind === 'operations'" v-model="tab">
-        <ElTabPane label="基本定义" name="basic" /><ElTabPane
-          label="录入模板"
-          name="template"
-        />
-        <ElTabPane label="附加字段" name="extra" /><ElTabPane
-          label="计价所需信息"
-          name="pricingInfo"
-        />
+        <ElTabPane label="基本定义" name="basic" />
+        <ElTabPane label="作业范围与计量" name="scope" />
+        <ElTabPane label="录入模板" name="template" />
+        <ElTabPane label="附加属性" name="extra" />
+        <ElTabPane label="正式版本与引用" name="versions" />
       </ElTabs>
+      <p v-if="tab === 'basic' && editing" class="muted">系统稳定编码 {{editing.code}}</p>
       <div class="form-grid">
         <ElFormItem
           v-for="field in fields"
@@ -244,14 +235,12 @@ async function save() {
         type="error" :closable="false" :title="adoptedPrecisionError" />
       <ElAlert v-if="kind === 'operations' && tab === 'template' && adoptedPrecisionLoading"
         type="info" :closable="false" title="正在读取正式计量单位精度" />
-      <ExtraFieldsEditor
-        v-if="kind === 'operations' && tab === 'extra'"
-        :operation="form"
-      />
-      <OperationFeaturesEditor
-        v-if="kind === 'operations' && tab === 'pricingInfo'"
-        :operation="form"
-      />
+      <AttributesEditor v-if="kind === 'operations' && tab === 'extra'" :model-value="form.attributes_schema_json || '[]'"
+        @update:model-value="form.attributes_schema_json=$event" />
+      <section v-if="kind === 'operations' && tab === 'versions'">
+        <p v-if="!editing" class="muted">首次保存后建立正式版本。</p>
+        <OperationVersionHistory v-else :id="editing.id" />
+      </section>
     </ElForm>
     <template #footer
       ><ElButton @click="close()">取消</ElButton

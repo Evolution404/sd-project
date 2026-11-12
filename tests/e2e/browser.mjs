@@ -46,14 +46,13 @@ try {
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
   await select("操作类型", "安装防鸟装置");
   await page.getByLabel("问题描述", { exact: true }).fill("三基塔防鸟装置缺失");
-  await select("作业设备", "T15");
-  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-form-item").filter({hasText:"实际数量（整数）"}).locator("input").nth(0).fill("3");
-  await page.getByRole("button", { name: "添加位置", exact: true }).click();
-  await select("作业设备", "T16", 1);
-  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-form-item").filter({hasText:"实际数量（整数）"}).locator("input").nth(1).fill("2");
-  await page.getByRole("button", { name: "添加位置", exact: true }).click();
-  await select("作业设备", "T17", 2);
-  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-form-item").filter({hasText:"实际数量（整数）"}).locator("input").nth(2).fill("4");
+  await page.getByRole("button",{name:"添加作业位置",exact:true}).click();
+  const picker=page.getByRole("dialog",{name:"添加作业位置",exact:true});
+  for (const name of ["T15","T16","T17"]) await picker.getByRole("checkbox",{name:"选择"+name,exact:true}).locator("xpath=ancestor::label[1]").click();
+  await picker.getByRole("button",{name:"添加已选位置",exact:true}).click();
+  await page.getByRole("tab",{name:"作业位置与工作量",exact:true}).click();
+  const counts=page.locator(".demand-editor .quantity-cell input:visible");
+  for (const [index,value] of ["3","2","4"].entries()) await counts.nth(index).fill(value);
   await page.getByLabel("来源说明", { exact: true }).fill("现场巡视记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
@@ -168,6 +167,7 @@ try {
   console.log(
     "SCHEMA113_BROWSER_OK login, 3-location demand, 480.00 quote, Excel workbench, 12 modules, 1500/1280/960/760px",
   );
+} catch(error) { await page.screenshot({path:join(output,"dux-browser-failure.png"),fullPage:true}); throw error;
 } finally {
   await browser.close();
   await new Promise((resolve) => server.close(resolve));
