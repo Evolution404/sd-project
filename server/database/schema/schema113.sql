@@ -3636,6 +3636,14 @@ CREATE TRIGGER active_physical_tower_retire_guard
  AND l.status='active')
 BEGIN SELECT RAISE(ABORT,'仍有在运逻辑杆塔关联，物理杆塔不可停用或退役；须先处理相关线路'); END;
 
+CREATE TRIGGER demand_adopted_return_guard
+ BEFORE INSERT ON demand_lifecycle_events
+ WHEN NEW.event_seq>1 AND NEW.to_status='returned'
+ AND EXISTS(
+  SELECT 1 FROM v_project_demand_binding_current held
+  WHERE held.demand_id=NEW.demand_id)
+BEGIN SELECT RAISE(ABORT,'需求已被子项目承接，必须正式修订或先明确解绑，不能退回'); END;
+
 CREATE TRIGGER demand_adopted_cancel_guard
  BEFORE INSERT ON demand_lifecycle_events
  WHEN NEW.event_seq>1 AND NEW.to_status='cancelled'

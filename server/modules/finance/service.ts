@@ -20,7 +20,7 @@ import type {
   CostNodeInput, ActualCostInput,
   SettlementDraftInput, NormalizedSettlementDraft,
   SettlementVersion, SettlementWorkflow,
-  SettlementSubmitInput, SettlementReviewInput,
+  SettlementSubmitInput, SettlementReviewInput, SettlementResubmitInput,
   ReconciliationInput
 } from "../../shared/types/finance-workflows.js";
 
@@ -273,6 +273,8 @@ export function createFinance(
         requireValue(!repo.settlementDeleted(key), "结算单已删除");
       if (previous) {
         requireValue(previous.project_id === projectId, "结算单不属于本项目");
+        requireValue(previous.review?.action !== "submit",
+          "结算已经提交审核，审核完成前不得编制或修订草稿", 409);
         expectedVersion(
           previous.version?.version_no || 0,
           input.expected_version,
@@ -316,6 +318,8 @@ export function createFinance(
       const current = settlement(key);
       requireValue(!repo.settlementDeleted(key),
         "结算单已删除，不可再次提交", 409);
+      requireValue(current.review?.action !== "submit",
+        "结算正在审核，不能重复提交或覆盖正式版本", 409);
       expectedVersion(current.version?.version_no || 0, input.expected_version);
       requireValue(current.draft, "没有待提交草稿");
       expectedVersion(current.draft.edit_version, input.expected_edit_version);
@@ -410,6 +414,28 @@ export function createFinance(
       return settlement(key);
     });
   }
+  function resubmit(actor: Actor, key: string, input: SettlementResubmitInput) {
+    authorize(actor, "write");
+    return repo.transaction(() => {
+      const current = settlement(key);
+      requireValue(!repo.settlementDeleted(key), "结算单已删除，不能重新提交", 409);
+      requireValue(current.version && current.review?.action === "return",
+        "只有审核退回且未重新修订的正式结算版本可原版重新提交", 409);
+      requireValue(!current.draft, "已有修订草稿，请提交新版本而不是原版重提", 409);
+      expectedVersion(current.version.version_no, input.expected_version);
+      expectedVersion(current.review.event_seq, input.expected_event_seq);
+      repo.appendReview({
+        id: id(),
+        settlement_version_id: current.version.id,
+        event_seq: current.review.event_seq + 1,
+        action: "submit",
+        actor_id: actor.id,
+        recorded_at: now(),
+        reason: "退回后原版本重新提交，内容未变更",
+      });
+      return settlement(key);
+    });
+  }
   function summary(projectId: string) {
     const basis = projects.summaryBasis(projectId);
     return financialSummary(
@@ -454,6 +480,7 @@ export function createFinance(
     settlement,
     saveDraft,
     submit,
+    resubmit,
     validateDraft,
     summary,
     costTree(actor: Actor, projectId: string) {
@@ -495,6 +522,9 @@ export function createFinance(
           ["approve", "return", "reject"].includes(input.action),
           "审核动作无效",
         );
+        if (input.action === "return")
+          requireValue(typeof input.reason === "string" && input.reason.trim().length > 0,
+            "退回结算必须填写退回原因", 422);
         repo.appendReview({
           id: id(),
           settlement_version_id: current.version.id,
@@ -504,7 +534,7 @@ export function createFinance(
           recorded_at: now(),
           effective_on:
             input.action === "approve" ? input.effective_on || today() : null,
-          reason: input.reason || "",
+          reason: input.reason?.trim() || "",
         });
         return settlement(key);
       });

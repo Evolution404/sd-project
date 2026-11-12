@@ -204,6 +204,10 @@ const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function edit(type: string, row?: Row) {
+  if (type === "settlement" && row?.review?.action === "submit") {
+    ElMessage.warning("该结算正在审核，审核结束前不能修改；如需调整，请先由审核人员退回");
+    return;
+  }
   invalidQuantity.value = {};
   editing.value = row || null;
   dialog.value = type;
@@ -307,12 +311,28 @@ async function save() {
 }
 async function action(row: Row, name: string) {
   try {
-    await ElMessageBox.confirm(
-      name === "submit"
-        ? "确认将完整结算草稿正式提交审核？"
-        : "确认记录本次结算审核决定？",
-      "结算确认",
-    );
+    let reason: string | undefined;
+    if (name === "return") {
+      const result = await ElMessageBox.prompt(
+        "请填写具体退回原因，编制人员将据此修改或按原版本重新提交。",
+        "退回结算",
+        {
+          inputType: "textarea",
+          inputPlaceholder: "填写需要补正的内容或退回依据",
+          inputValidator: (value: string) => !!value.trim() || "退回原因不能为空",
+          confirmButtonText: "确认退回",
+          cancelButtonText: "取消",
+        },
+      );
+      reason = result.value.trim();
+    } else {
+      await ElMessageBox.confirm(
+        name === "submit"
+          ? "确认将完整结算草稿正式提交审核？正式提交后，审核结束前不可再修订。"
+          : "确认批准当前正式结算版本？批准后任何内容变化均需生成新版本重新审核。",
+        "结算确认",
+      );
+    }
     await api(
       `/settlements/${row.id}/${name === "submit" ? "submit" : "review"}`,
       "POST",
@@ -321,6 +341,7 @@ async function action(row: Row, name: string) {
         expected_edit_version: row.draft?.edit_version || 0,
         expected_event_seq: row.review?.event_seq || 0,
         action: name,
+        reason,
       },
     );
     await load();
@@ -329,9 +350,26 @@ async function action(row: Row, name: string) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
+async function resubmitBill(row: Row) {
+  try {
+    await ElMessageBox.confirm(
+      "原结算版本与金额、明细、解决量均不变，仅重新提交审核。若需要修改内容，请改用“修订结算”编制新版本。",
+      "原版重新提交",
+    );
+    await api(`/settlements/${row.id}/resubmit`, "POST", {
+      expected_version: row.version?.version_no || 0,
+      expected_event_seq: row.review?.event_seq || 0,
+    });
+    await load();
+    emit("changed");
+    ElMessage.success("原结算版本已重新提交审核");
+  } catch (e) {
+    if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
 async function voidCost(row: Row) {
   try {
-    await ElMessageBox.confirm("撤销保留原始费用和历史核对。", "撤销费用");
+    await ElMessageBox.confirm("作废后该费用不再计入有效费用，但继续显示在正常列表中；原始版本及历史核对永久保留。", "作废费用", { type: "warning" });
     await api(`/projects/${props.project.id}/costs/${row.entry_id}`, "POST", {
       ...row,
       request_key: undefined,
@@ -364,8 +402,8 @@ async function removeBill(row: Row) {
 async function removeCost(row: Row) {
   try {
     await ElMessageBox.confirm(
-      "删除将正式撤销当前费用，历史和核对记录保留。",
-      "确认删除",
+      "此操作仅限管理员：费用将先作废，再从正常列表隐藏；原始版本和历史核对保留，可通过“包含已删除费用”查看。",
+      "管理员删除费用",
     );
     await api(
       `/projects/${props.project.id}/costs/${row.entry_id}`,
@@ -501,15 +539,15 @@ watch(() => props.project.id, load, { immediate: true });
       @sort-change="financeTableSort('costs', $event)" @filter-change="financeTableFilter('costs', $event)">
       <template #cell="{ row, column }">
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
-        <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag>
+        <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已作废' : statusText[row.status] || row.status }}</ElTag>
         <span v-else>{{ row[column.key] ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
           { label: '附件', run: () => evidence = { ownerKind: 'cost_version_id', ownerId: row.id } },
           { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('cost', row) },
-          { label: '撤销', guideActionId: 'finance.void', danger: true, disabled: !can('cost.confirm') || row.deleted || row.status === 'voided', run: () => voidCost(row) },
-          { label: '删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeCost(row) },
+          { label: '作废费用', guideActionId: 'finance.void', danger: true, disabled: !can('cost.confirm') || row.deleted || row.status === 'voided', run: () => voidCost(row) },
+          { label: '管理员删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeCost(row) },
         ]" />
       </template>
     </BusinessTable>
@@ -542,7 +580,10 @@ watch(() => props.project.id, load, { immediate: true });
       @selection-change="selected = $event" @sort-change="financeTableSort('bills', $event)"
       @filter-change="financeTableFilter('bills', $event)">
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'review'">第 {{ row.version?.version_no || 0 }} 版 · {{ row.draft ? '有草稿' : statusText[row.review?.action] || '待编制' }}</span>
+        <span v-if="column.key === 'review'">
+          第 {{ row.version?.version_no || 0 }} 版 · {{ row.review?.action === 'submit' ? '待审核' : row.review?.action === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.review?.action] || '待编制' }}
+          <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
+        </span>
         <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item: Row) => sum + item.amount_fen, 0)) }}</span>
         <span v-else>{{ row[column.key] ?? '—' }}</span>
       </template>
@@ -552,8 +593,9 @@ watch(() => props.project.id, load, { immediate: true });
             { label: '批准', guideActionId: 'finance.approve', primary: true, disabled: !can('settlement.approve'), run: () => action(row, 'approve') },
             { label: '退回', disabled: !can('settlement.approve'), run: () => action(row, 'return') },
           ] : []),
-          ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !can('write'), run: () => action(row, 'submit') }] : []),
-          { label: '编制 / 修订', disabled: !can('write'), run: () => edit('settlement', row) },
+          ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !can('write') || row.review?.action === 'submit', run: () => action(row, 'submit') }] : []),
+          ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', primary: true, disabled: !can('write'), run: () => resubmitBill(row) }] : []),
+          { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', disabled: !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
           ...(row.version ? [{ label: '附件', run: () => evidence = { ownerKind: 'settlement_version_id', ownerId: row.version.id } }] : []),
           { label: '历史', guideActionId: 'finance.history', run: () => showHistory(row) },
           { label: '删除', danger: true, disabled: !can('admin'), run: () => removeBill(row) },

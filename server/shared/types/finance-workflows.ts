@@ -142,6 +142,10 @@ export interface SettlementSubmitInput {
   expected_version: number;
   expected_edit_version: number;
 }
+export interface SettlementResubmitInput {
+  expected_version: number;
+  expected_event_seq: number;
+}
 export interface SettlementReviewInput {
   expected_version: number;
   expected_event_seq: number;

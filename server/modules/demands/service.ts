@@ -572,6 +572,8 @@ export function createDemands(
         const last = repo.lastLifecycle(key);
         requireValue(last, "需求初始状态事件不存在", 409);
         expectedVersion(last.event_seq, input.expected_event_seq);
+        requireValue(!(input.status === "returned" && repo.binding(key)),
+          "需求已由子项目承接，不能退回；请正式修订需求，或先按项目规则明确解除关联", 409);
         repo.appendLifecycle({
           id: id(),
           demand_id: key,

@@ -51,7 +51,7 @@ try {
     "the deleted badge must not be covered by the fixed operation column");
   assert.equal(await deletedCost.getByRole("button", { name: "附件" }).isDisabled(), false);
   await deletedCost.getByRole("button", { name: "更多操作" }).click();
-  for (const action of ["更正", "撤销", "删除"])
+  for (const action of ["更正", "作废费用", "管理员删除"])
     assert.equal(await page.getByRole("menuitem", { name: action, exact: true }).last().isDisabled(), true);
   await page.keyboard.press("Escape");
   await page.screenshot({ path: join(out, "deleted-finance-760.png"), fullPage: true });

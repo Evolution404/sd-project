@@ -58,6 +58,8 @@ try {
   await detail.getByRole("button", { name: "进入承接项目", exact: true }).waitFor();
   assert.equal(s.demands.get(waiting.id).binding.project_id, project.id);
   await detail.getByRole("button", { name: "更多操作", exact: true }).click();
+  assert.equal(await page.getByRole("menuitem", { name: "退回", exact: true }).isDisabled(), true,
+    "a bound demand cannot be returned; revisions or explicit unlink are required");
   assert.equal(await page.getByRole("menuitem", { name: "取消需求", exact: true }).isDisabled(), true,
     "a bound demand must first be explicitly released before cancellation");
   assert.equal(await page.getByRole("menuitem", { name: "删除", exact: true }).isDisabled(), true,

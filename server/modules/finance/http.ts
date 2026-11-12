@@ -3,7 +3,7 @@ import { isObject } from "../../shared/types/contracts.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { requireValue } from '../../shared/errors/business-error.js';
 import { financeKind, financeSubmit, financeDeleteSettlement,
-  financeReview, financeReconciliation, financeDeleteReconciliation } from "./requests.js";
+  financeReview, financeResubmit, financeReconciliation, financeDeleteReconciliation } from "./requests.js";
 export async function handleFinance(context: RouteContext): Promise<{
     result: unknown;
 } | undefined> {
@@ -27,6 +27,8 @@ export async function handleFinance(context: RouteContext): Promise<{
                 result = mutate("admin", () => system.finance.removeSettlement(actor, key, financeDeleteSettlement(input)));
             else if (sub === "submit")
                 result = mutate("write", () => system.finance.submit(actor, key, financeSubmit(input)));
+            else if (sub === "resubmit")
+                result = mutate("write", () => system.finance.resubmit(actor, key, financeResubmit(input)));
             else if (sub === "review")
                 result = mutate("settlement.approve", () => system.finance.review(actor, key, financeReview(input)));
             else if (sub === "draft" && method === "DELETE")

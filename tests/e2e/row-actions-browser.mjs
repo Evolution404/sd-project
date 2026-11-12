@@ -92,7 +92,7 @@ try {
   await page.getByRole("button", { name: "进入项目办理" }).click();
   await billRow.getByRole("button", { name: "附件", exact: true }).waitFor();
   await billRow.getByRole("button", { name: "更多操作" }).click();
-  for (const label of ["批准", "退回", "编制 / 修订", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
+  for (const label of ["批准", "退回", "审核中（禁止修订）", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
   assert.deepEqual(errors, []);
   console.log("ROW_ACTIONS_BROWSER_OK 8 layouts, cancel, state priority and viewer restrictions");
 } finally {

@@ -14,7 +14,7 @@
 | 状态事件合法性 | 3 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 2 |
-| 跨表关联和身份完整性 | 36 |
+| 跨表关联和身份完整性 | 37 |
 
 ## 完整触发器清单
 
@@ -47,6 +47,7 @@
 | `demand_duplicate_reviews` | `duplicate_review_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `demand_duplicate_reviews` | `duplicate_review_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 | `demand_lifecycle_events` | `demand_adopted_cancel_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `demand_lifecycle_events` | `demand_adopted_return_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `demand_lifecycle_events` | `demand_lifecycle_initial_guard` | BEFORE/INSERT | 状态事件合法性 |
 | `demand_lifecycle_events` | `demand_lifecycle_no_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `demand_lifecycle_events` | `demand_lifecycle_no_update` | BEFORE/UPDATE | 不可变历史或身份 |

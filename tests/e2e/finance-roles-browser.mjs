@@ -83,7 +83,7 @@ try {
   });
   assert.equal(await viewMenu.getByRole("menuitem",{name:"批准",exact:true}).isDisabled(),true);
   assert.equal(await viewMenu.getByRole("menuitem",{name:"历史",exact:true}).isEnabled(),true);
-  assert.equal(await viewMenu.getByRole("menuitem",{name:"编制 / 修订",exact:true}).isDisabled(),true);
+  assert.equal(await viewMenu.getByRole("menuitem",{name:"审核中（禁止修订）",exact:true}).isDisabled(),true);
   await viewer.page.keyboard.press("Escape");
   await viewer.page.screenshot({path:join(output,"03-viewer.png"),fullPage:true});
   assert.equal(s.finance.settlement(draft.id).review.action,"submit");

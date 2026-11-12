@@ -4,7 +4,7 @@ import type { FinanceListKind } from "../../shared/types/finance.js";
 import type {
   CostNodeInput, ActualCostInput, SettlementDraftInput,
   SettlementItemInput, SettlementResolutionInput, SettlementSubmitInput,
-  SettlementReviewInput, SettlementReviewAction, ReconciliationInput,
+  SettlementReviewInput, SettlementReviewAction, SettlementResubmitInput, ReconciliationInput,
 } from "../../shared/types/finance-workflows.js";
 
 function str(value: unknown, label: string): string {
@@ -51,6 +51,10 @@ export function financeVersion(input:Record<string,unknown>) {
 export function financeSubmit(input:Record<string,unknown>):SettlementSubmitInput {
   return {expected_version:num(input.expected_version,"结算版本"),
     expected_edit_version:num(input.expected_edit_version,"结算草稿编辑版本")};
+}
+export function financeResubmit(input:Record<string,unknown>):SettlementResubmitInput {
+  return {expected_version:num(input.expected_version,"结算版本"),
+    expected_event_seq:num(input.expected_event_seq,"审核事件版本")};
 }
 export function financeDeleteSettlement(input:Record<string,unknown>) {
   return {...financeVersion(input),

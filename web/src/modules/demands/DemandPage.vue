@@ -118,7 +118,7 @@ function secondaryAction(action: string) {
   if (action === "edit") void edit(detail.value);
   if (action === "history") void showHistory();
   if (action === "quote") quoteOpen.value = true;
-  if (action === "return") void transition(detail.value, "returned");
+  if (action === "return" && !detail.value.binding) void transition(detail.value, "returned");
   if (action === "cancel") void transition(detail.value, "cancelled");
   if (action === "delete") void remove(detail.value);
 }
@@ -255,6 +255,10 @@ async function saved(id:string) {
   await detailDialog.open(id);
 }
 async function transition(row: DemandListItem | DemandRecord, status: DemandStatus) {
+  if (status === "returned" && row.binding) {
+    ElMessage.warning("需求已关联子项目，不能退回；请先办理正式修订或根据项目规则显式解绑");
+    return;
+  }
   try {
     await ElMessageBox.confirm(
       status === "active" ? "确认将本需求转为有效，供子项目承接？" :
@@ -412,7 +416,7 @@ onMounted(async () => {
             <ElDropdownMenu>
               <ElDropdownItem data-guide-action="demands.quote" command="quote">参考价试算</ElDropdownItem>
               <ElDropdownItem data-guide-action="demands.history" command="history">完整历史</ElDropdownItem>
-              <ElDropdownItem v-if="detail.status === 'active'" data-guide-action="demands.return" command="return" :disabled="!can('demand.activate') || detail.deleted">退回</ElDropdownItem>
+              <ElDropdownItem v-if="detail.status === 'active'" data-guide-action="demands.return" command="return" :title="detail.binding ? '已承接的需求不能退回，请正式修订或先明确解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding">退回</ElDropdownItem>
               <ElDropdownItem v-if="detail.status !== 'cancelled'" data-guide-action="demands.return" command="cancel" :title="detail.binding ? '需求已被子项目承接，请先办理显式解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding" divided>取消需求</ElDropdownItem>
               <ElDropdownItem data-guide-action="demands.delete" command="delete" :title="detail.status !== 'cancelled' ? '需要先取消需求且解除项目关联' : undefined" :disabled="!can('admin') || detail.deleted || detail.status !== 'cancelled'">删除</ElDropdownItem>
             </ElDropdownMenu>
