@@ -12,11 +12,14 @@ import { searchPage, type ListSource } from "../queries/business-lists.js";
 const objectSql = `SELECT c.*,v.work_object_id,v.reason,v.changed_by,v.recorded_at FROM v_work_object_current c
  JOIN work_object_versions v ON v.id=c.current_version_id`;
 const operationSql = `SELECT o.id,o.code,o.created_at,v.operation_id,v.version,v.name,v.status,v.sort_order,
- v.work_target_type,v.work_object_id,v.default_unit_id,v.default_unit_version,v.default_quantity_scaled,
- v.completion_standard,v.attributes_schema_json,v.allow_tower,v.allow_span,v.default_location_kind,
+ v.work_object_id,v.work_object_version_no,adopted.object_position,adopted.attribution_unit,
+ v.default_unit_id,v.default_unit_version,v.default_quantity_scaled,
+ v.completion_standard,v.attributes_schema_json,
  v.default_target_object,v.entry_hint,v.reason,v.changed_by,v.changed_at,v.id AS current_version_id,v.changed_at AS updated_at,
  COALESCE(unit.name,'历史计量单位待核对') AS default_unit_id_label,COALESCE(object.name,'历史作业对象待核对') AS work_object_id_label
  FROM operations o JOIN operation_versions v ON v.operation_id=o.id
+ JOIN work_object_versions adopted ON adopted.work_object_id=v.work_object_id
+  AND adopted.version_no=v.work_object_version_no
  LEFT JOIN dictionary_item_versions unit ON unit.item_id=v.default_unit_id AND unit.version=v.default_unit_version
  LEFT JOIN v_work_object_current object ON object.id=v.work_object_id`;
 const currentOperationSql =
@@ -29,10 +32,8 @@ const operationSource: ListSource = {
     "code",
     "name",
     "status",
-    "work_target_type",
-    "allow_tower",
-    "allow_span",
-    "default_location_kind",
+    "object_position",
+    "attribution_unit",
     "default_target_object",
     "completion_standard",
     "entry_hint",
@@ -60,13 +61,14 @@ const objectSource: ListSource = {
     "code",
     "name",
     "status",
-    "work_target_type",
+    "object_position",
+    "attribution_unit",
     "version_no",
     "sort_order",
     "created_at",
     "deleted",
   ],
-  search: ["name", "code", "status", "work_target_type"],
+  search: ["name", "code", "status", "object_position", "attribution_unit"],
 };
 export function workStandardRepository(store: ReturnType<typeof createStore>) {
   function rows<T>(
@@ -93,6 +95,9 @@ export function workStandardRepository(store: ReturnType<typeof createStore>) {
         operationSql + " WHERE o.id=? AND v.version=?",
         [id, version],
       )[0],
+    objectVersion: (id: string, version: number) =>
+      store.get("SELECT * FROM work_object_versions WHERE work_object_id=? AND version_no=?", id, version) as
+        WorkObjectVersion | undefined,
     unitVersion: (id: string, version: number) =>
       store.get("SELECT name,fields_json FROM dictionary_item_versions WHERE item_id=? AND version=?", id, version) as
         { name: string; fields_json: string } | undefined,

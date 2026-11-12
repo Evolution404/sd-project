@@ -66,8 +66,8 @@ export const money = (value: number | null | undefined) =>
 export const quantity = (value: number | undefined) =>
   displayFixed(value || 0, 4, true);
 export const statusText: Record<string, string> = {
-  straight: "直线",
-  tension: "耐张",
+  straight: "直线塔",
+  tension: "耐张塔",
   create: "新增",
   new: "新建实物",
   shared: "共用已有实物",
@@ -97,6 +97,8 @@ export const statusText: Record<string, string> = {
   span: "档距",
   physical_tower: "物理杆塔",
   logical_tower: "逻辑杆塔",
+  body: "本体",
+  corridor: "通道",
   fixed: "固定金额",
   per_unit: "数量乘单价",
   base_plus_unit: "基础费加单价",

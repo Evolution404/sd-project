@@ -88,6 +88,10 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
         filters: includePending ? {...query.filters} : {...query.filters, status: "active"}
       });
     },
+    workObjectVersion(id: string, version: number): {object_position: "body"|"corridor"; attribution_unit: "physical_tower"|"logical_tower"; name:string; version_no:number} | undefined {
+      return store.get("SELECT object_position,attribution_unit,name,version_no FROM work_object_versions WHERE work_object_id=? AND version_no=?",id,version) as
+        {object_position:"body"|"corridor";attribution_unit:"physical_tower"|"logical_tower";name:string;version_no:number} | undefined;
+    },
     operationVersion(id: string, version: number): OperationVersion | undefined {
       return store.get("SELECT * FROM operation_versions WHERE operation_id=? AND version=?", id, version) as OperationVersion | undefined;
     },

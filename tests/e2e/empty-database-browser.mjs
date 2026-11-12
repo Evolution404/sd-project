@@ -123,14 +123,14 @@ try {
   await visit("standards/objects");
   await page.getByRole("button", { name: "新增作业对象", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("防鸟装置");
-  await select("归属范围", "杆塔");
+  await select("对象位置", "本体");
+  await select("归属单元", "物理杆塔");
   await save();
 
   await visit("standards/operations");
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("安装防鸟装置");
   await select("作业对象", "防鸟装置");
-  await dialog.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
   await select("固定计量单位", "套");
   await dialog.getByRole("tab", { name: "录入模板" }).click();
   await dialog.getByLabel("默认验收标准", { exact: true }).fill("安装牢固");

@@ -4,11 +4,22 @@ import { Setting, Filter, Rank } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import type { TableInstance } from "element-plus";
 import type { Row } from "../api/client";
-export type TableColumn = { key: string; label: string; minWidth?: number; sortable?: boolean; filterable?: boolean; hideable?: boolean; customHeader?: boolean };
+export type TableColumn = {
+  key: string; label: string; minWidth?: number;
+  sortable?: boolean; filterable?: boolean; hideable?: boolean;
+  customHeader?: boolean;
+  /** Stable server whitelist keys; capabilities are never inferred from a display label. */
+  sortKey?: string; filterKey?: string;
+  /** Hidden on a new per-entity preference profile until explicitly selected. */
+  defaultVisible?: boolean;
+};
 const props = withDefaults(defineProps<{
   rows: TRow[]; columns: TableColumn[]; tableKey: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
+  /** If omitted, only client-side tables and explicitly controlled remote tables show controls. */
+  sortMode?: "local" | "remote" | "off";
+  filterMode?: "local" | "remote" | "off";
   filterState?: Record<string, string>;
   searchActive?: boolean;
   sortState?: { prop: string; order: "ascending" | "descending" | null };
@@ -28,30 +39,46 @@ function valueAt(row: object, key: string): unknown {
   return (row as Record<string, unknown>)[key];
 }
 type Pref = { order: string[]; hidden: string[]; fixed: string[]; widths: Record<string, number> };
+function defaultPref(): Pref {
+  return {
+    order: [], hidden: props.columns.filter(col => col.defaultVisible === false).map(col => col.key),
+    fixed: [], widths: {},
+  };
+}
 function readPref(): Pref {
   try {
-    const saved = JSON.parse(localStorage.getItem("sd-columns:" + props.tableKey) || "{}");
+    const raw = localStorage.getItem("sd-columns:" + props.tableKey);
+    if (!raw) return defaultPref();
+    const saved: Partial<Pref> = JSON.parse(raw);
     return {
       order: Array.isArray(saved.order) ? saved.order : [],
-      hidden: Array.isArray(saved.hidden) ? saved.hidden : [],
+      hidden: Array.isArray(saved.hidden) ? saved.hidden : defaultPref().hidden,
       fixed: Array.isArray(saved.fixed) ? saved.fixed : [],
-      widths: saved.widths || {},
+      widths: saved.widths && typeof saved.widths === "object" ? saved.widths : {},
     };
-  } catch { return { order: [], hidden: [], fixed: [], widths: {} }; }
+  } catch { return defaultPref(); }
 }
 const pref = ref<Pref>({ order: [], hidden: [], fixed: [], widths: {} });
+const sortingEnabled = computed(() => props.sortMode === "off" ? false
+  : props.sortMode === "remote" || props.sortMode === "local" ? true
+    : props.clientSide || props.sortState !== undefined);
+const filteringEnabled = computed(() => props.filterMode === "off" ? false
+  : props.filterMode === "remote" || props.filterMode === "local" ? true
+    : props.clientSide || props.filterState !== undefined);
 const filters = ref<Record<string, string>>({});
 const activeFilterCount = computed(() =>
   Object.values(filters.value).filter(value => String(value ?? "").trim()).length);
-const hasActiveFilters = computed(() => props.searchActive || activeFilterCount.value > 0);
+const hasActiveFilters = computed(() => props.searchActive ||
+  (filteringEnabled.value && activeFilterCount.value > 0));
 function clearFilters() {
   filters.value = {};
   if (props.searchActive) emit("clear-search");
-  else if (!props.clientSide) emit("filter-change", {});
+  else if (!props.clientSide && filteringEnabled.value) emit("filter-change", {});
 }
 const table = ref<TableInstance>();
 watch(() => props.filterState, value => { if (value) filters.value = { ...value }; }, { immediate: true, deep: true });
 watch(() => props.sortState, async value => {
+  if (!sortingEnabled.value) return;
   await nextTick();
   if (value?.prop && value.order) table.value?.sort(value.prop, value.order);
   else table.value?.clearSort();
@@ -89,8 +116,8 @@ function defaultColumnWidth(col: TableColumn) {
   // room for sortable arrows, filter actions and header cell padding.
   const textWidth = [...col.label].reduce((sum, char) =>
     sum + (/[^\x00-\x7f]/.test(char) ? 14.5 : 8), 0);
-  const controls = (col.sortable === false ? 0 : 20)
-    + (col.filterable === false ? 0 : 28);
+  const controls = (!sortingEnabled.value || col.sortable === false ? 0 : 20)
+    + (!filteringEnabled.value || col.filterable === false ? 0 : 28);
   return Math.ceil(Math.max(col.minWidth ?? 130, textWidth + controls + 28));
 }
 function savedColumnWidth(col: TableColumn) {
@@ -176,21 +203,22 @@ function resize(newWidth: number, _oldWidth: number, column: { property?: string
   persist();
 }
 function reset() {
-  pref.value = { order: [], hidden: [], fixed: [], widths: {} };
+  pref.value = defaultPref();
   filters.value = {};
   localSort.value = { key: "", order: "" };
-  table.value?.clearSort();
+  if (sortingEnabled.value) table.value?.clearSort();
   persist();
   if (!props.clientSide) {
-    emit("filter-change", {});
-    emit("sort-change", { key: "", order: "" });
+    if (filteringEnabled.value) emit("filter-change", {});
+    if (sortingEnabled.value) emit("sort-change", { key: "", order: "" });
   }
 }
 function filter() {
-  if (!props.clientSide)
+  if (filteringEnabled.value && !props.clientSide)
     emit("filter-change", Object.fromEntries(Object.entries(filters.value).filter(([, value]) => value.trim())));
 }
 function handleSort(value: { prop?: string | null; order?: string | null }) {
+  if (!sortingEnabled.value) return;
   const sort = { key: value.prop || "", order: value.order || "" };
   if (props.clientSide) localSort.value = sort;
   else if (sort.key !== props.sortState?.prop || sort.order !== (props.sortState?.order || "")) emit("sort-change", sort);
@@ -229,13 +257,14 @@ watch(() => props.tableKey, async () => {
       <ElTableColumn v-if="selectable" type="selection" width="48" fixed="left" />
       <ElTableColumn v-for="col in shownColumns" :key="col.key" :prop="col.key" :label="col.label"
         :min-width="columnMinWidth(col)" :width="columnWidth(col)"
-        :sortable="col.sortable === false ? false : 'custom'" :sort-orders="['ascending', 'descending']"
+        :sortable="!sortingEnabled || col.sortable === false ? false : 'custom'"
+        :sort-orders="['ascending', 'descending']"
         :fixed="pref.fixed.includes(col.key) ? 'left' : false" resizable show-overflow-tooltip>
         <template #header>
           <slot v-if="col.customHeader && $slots.header" name="header" :column="col" />
           <template v-else>
             <span class="business-column-title">{{ col.label }}</span>
-            <ElPopover v-if="col.filterable !== false" trigger="click" width="220" placement="bottom">
+            <ElPopover v-if="filteringEnabled && col.filterable !== false" trigger="click" width="220" placement="bottom">
               <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" />
               <template #reference><ElButton class="business-filter-button" text size="small" :aria-label="'筛选' + col.label" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
             </ElPopover>

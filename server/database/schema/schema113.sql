@@ -220,17 +220,14 @@ CREATE TABLE operation_versions (
  name TEXT NOT NULL CHECK(length(trim(name))>0),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
  sort_order INTEGER NOT NULL DEFAULT 100,
- work_target_type TEXT NOT NULL CHECK(work_target_type IN ('line','physical')),
  work_object_id TEXT NOT NULL REFERENCES work_objects(id) ON DELETE RESTRICT,
+ work_object_version_no INTEGER NOT NULL CHECK(work_object_version_no>0),
  default_unit_id TEXT NOT NULL REFERENCES dictionary_items(id) ON DELETE RESTRICT,
  default_unit_version INTEGER NOT NULL CHECK(default_unit_version>0),
  default_quantity_scaled INTEGER CHECK(default_quantity_scaled IS NULL OR default_quantity_scaled>0),
  completion_standard TEXT,
  attributes_schema_json TEXT NOT NULL DEFAULT '[]'
   CHECK(json_valid(attributes_schema_json) AND json_type(attributes_schema_json)='array'),
- allow_tower INTEGER NOT NULL CHECK(allow_tower IN (0,1)),
- allow_span INTEGER NOT NULL CHECK(allow_span IN (0,1)),
- default_location_kind TEXT NOT NULL CHECK(default_location_kind IN ('tower','span')),
  default_target_object TEXT NOT NULL DEFAULT '',
  entry_hint TEXT NOT NULL DEFAULT '',
  reason TEXT NOT NULL DEFAULT '',
@@ -239,10 +236,8 @@ CREATE TABLE operation_versions (
  UNIQUE(operation_id,version),
  FOREIGN KEY(default_unit_id,default_unit_version)
  REFERENCES dictionary_item_versions(item_id,version) ON DELETE RESTRICT,
- CHECK(allow_tower+allow_span>=1),
- CHECK((default_location_kind='tower' AND allow_tower=1)
- OR (default_location_kind='span' AND allow_span=1)),
- CHECK(work_target_type='line' OR allow_span=0)
+ FOREIGN KEY(work_object_id,work_object_version_no)
+ REFERENCES work_object_versions(work_object_id,version_no) ON DELETE RESTRICT
 ) STRICT;
 
 
@@ -278,7 +273,8 @@ CREATE TABLE demands (
  physical_tower_id TEXT REFERENCES physical_towers(id) ON DELETE RESTRICT,
  observed_physical_tower_id TEXT REFERENCES physical_towers(id) ON DELETE RESTRICT,
  line_name_snapshot TEXT NOT NULL, tower_no_snapshot TEXT NOT NULL, physical_code_snapshot TEXT,
- work_target_type TEXT NOT NULL CHECK(work_target_type IN ('line','physical')),
+ object_position TEXT NOT NULL CHECK(object_position IN ('body','corridor')),
+ attribution_unit TEXT NOT NULL CHECK(attribution_unit IN ('physical_tower','logical_tower')),
  operation_id TEXT NOT NULL REFERENCES operations(id) ON DELETE RESTRICT, operation_version INTEGER NOT NULL, operation_snapshot TEXT NOT NULL,
  work_object_id TEXT NOT NULL REFERENCES work_objects(id) ON DELETE RESTRICT,
  work_object_snapshot TEXT NOT NULL,
@@ -310,14 +306,14 @@ CREATE TABLE demands (
  CHECK((span_id IS NULL AND span_version IS NULL AND span_snapshot_json IS NULL)
     OR (span_id IS NOT NULL AND span_version>0 AND span_snapshot_json IS NOT NULL AND json_valid(span_snapshot_json))),
  CHECK(
-  (work_target_type='line' AND logical_tower_id IS NOT NULL
+  (attribution_unit='logical_tower' AND logical_tower_id IS NOT NULL
    AND physical_tower_id IS NULL AND span_id IS NULL AND context_line_id IS NULL)
   OR
-  (work_target_type='line' AND span_id IS NOT NULL
+  (attribution_unit='logical_tower' AND span_id IS NOT NULL
    AND logical_tower_id IS NULL AND physical_tower_id IS NULL
    AND observed_physical_tower_id IS NULL AND context_line_id IS NULL)
   OR
-  (work_target_type='physical' AND physical_tower_id IS NOT NULL
+  (attribution_unit='physical_tower' AND physical_tower_id IS NOT NULL
    AND logical_tower_id IS NULL AND span_id IS NULL
    AND observed_physical_tower_id IS NULL)
   ),
@@ -347,8 +343,8 @@ CREATE TABLE demand_versions (
  VIRTUAL CHECK(COALESCE(length(trim(problem_description))>0,0)),
  completion_standard TEXT GENERATED ALWAYS AS (json_extract(snapshot_json,'$.completion_standard'))
  VIRTUAL CHECK(COALESCE(length(trim(completion_standard))>0,0)),
- work_target_type TEXT GENERATED ALWAYS AS (json_extract(snapshot_json,'$.work_target_type'))
- VIRTUAL CHECK(COALESCE(work_target_type IN ('line','physical'),0)),
+ attribution_unit TEXT GENERATED ALWAYS AS (json_extract(snapshot_json,'$.attribution_unit'))
+ VIRTUAL CHECK(COALESCE(attribution_unit IN ('physical_tower','logical_tower'),0)),
  logical_tower_id TEXT GENERATED ALWAYS AS (json_extract(snapshot_json,'$.logical_tower_id'))
  VIRTUAL REFERENCES logical_towers(id) ON DELETE RESTRICT,
  physical_tower_id TEXT GENERATED ALWAYS AS (json_extract(snapshot_json,'$.physical_tower_id'))
@@ -379,17 +375,18 @@ CREATE TABLE demand_versions (
  CHECK(COALESCE(json_type(snapshot_json,'$.target_object')='text'
    AND json_type(snapshot_json,'$.problem_description')='text'
    AND json_type(snapshot_json,'$.completion_standard')='text'
-   AND json_type(snapshot_json,'$.work_target_type')='text',0)),
+   AND json_type(snapshot_json,'$.attribution_unit')='text'
+   AND json_type(snapshot_json,'$.object_position')='text',0)),
  CHECK(
-  (work_target_type='line' AND logical_tower_id IS NOT NULL
+  (attribution_unit='logical_tower' AND logical_tower_id IS NOT NULL
    AND physical_tower_id IS NULL AND span_id IS NULL AND span_version IS NULL
    AND context_line_id IS NULL)
   OR
-  (work_target_type='line' AND span_id IS NOT NULL AND span_version>0
+  (attribution_unit='logical_tower' AND span_id IS NOT NULL AND span_version>0
    AND logical_tower_id IS NULL AND physical_tower_id IS NULL
    AND context_line_id IS NULL AND observed_physical_tower_id IS NULL)
   OR
-  (work_target_type='physical' AND physical_tower_id IS NOT NULL
+  (attribution_unit='physical_tower' AND physical_tower_id IS NOT NULL
    AND logical_tower_id IS NULL AND span_id IS NULL AND span_version IS NULL
    AND observed_physical_tower_id IS NULL)),
  CHECK(json_type(snapshot_json,'$.attributes') IS NULL OR json_type(snapshot_json,'$.attributes')='object')
@@ -935,7 +932,8 @@ CREATE TABLE work_object_versions (
  work_object_id TEXT NOT NULL REFERENCES work_objects(id) ON DELETE RESTRICT,
  version_no INTEGER NOT NULL CHECK(version_no>0),
  name TEXT NOT NULL CHECK(length(trim(name))>0),
- work_target_type TEXT NOT NULL CHECK(work_target_type IN ('line','physical','both')),
+ object_position TEXT NOT NULL CHECK(object_position IN ('body','corridor')),
+ attribution_unit TEXT NOT NULL CHECK(attribution_unit IN ('physical_tower','logical_tower')),
  status TEXT NOT NULL CHECK(status IN ('active','inactive')),
  sort_order INTEGER NOT NULL DEFAULT 100,
  reason TEXT NOT NULL DEFAULT '',
@@ -1288,7 +1286,7 @@ CREATE TABLE project_closures (
 
 
 -- PROPOSED INDEXES: FKs, portfolio queries and settlement-driven operations.
-CREATE INDEX idx_work_object_versions_domain ON work_object_versions(work_target_type,status,sort_order);
+CREATE INDEX idx_work_object_versions_domain ON work_object_versions(object_position,attribution_unit,status,sort_order);
 CREATE INDEX idx_operation_versions_work_object ON operation_versions(work_object_id,status);
 CREATE INDEX idx_approval_materials_scope ON project_approval_material_items(project_scope_id,approval_version_id);
 CREATE INDEX idx_settlement_items_scope ON settlement_items(project_scope_id,settlement_id);
@@ -1418,19 +1416,13 @@ WHERE r.status='active' AND current_cost.status='active';
 CREATE TRIGGER object_type_guard_insert BEFORE INSERT ON operation_versions
 BEGIN
  SELECT CASE WHEN NOT EXISTS(
- SELECT 1 FROM v_work_object_current o WHERE o.id=NEW.work_object_id
- AND o.status='active'
- AND o.work_target_type IN ('both',NEW.work_target_type))
- AND NOT (
-  NEW.status='inactive' AND EXISTS(
-   SELECT 1 FROM operation_versions old
-   WHERE old.operation_id=NEW.operation_id
-   AND old.version=NEW.version-1
-   AND old.work_object_id=NEW.work_object_id
-   AND old.work_target_type=NEW.work_target_type
-  )
- )
- THEN RAISE(ABORT,'标准作业对象不适用于当前操作类型') END;
+  SELECT 1 FROM work_object_versions obj
+  WHERE obj.work_object_id=NEW.work_object_id AND obj.version_no=NEW.work_object_version_no
+ ) THEN RAISE(ABORT,'操作类型引用的作业对象正式版本不存在') END;
+ SELECT CASE WHEN NEW.status='active' AND NOT EXISTS(
+  SELECT 1 FROM v_work_object_current current
+  WHERE current.id=NEW.work_object_id AND current.status='active'
+ ) THEN RAISE(ABORT,'活动操作不得引用已停用作业对象') END;
 END;
 -- The unit is governed once in the unified master, not copied on every demand.
 CREATE TRIGGER material_master_unit_insert BEFORE INSERT ON materials
@@ -1728,12 +1720,17 @@ END;
 -- Retained original asset, demand, category or audit rule.
 CREATE TRIGGER demand_definition_insert BEFORE INSERT ON demands
 BEGIN
- SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM operation_versions o
- WHERE o.operation_id=NEW.operation_id AND o.version=NEW.operation_version
- AND o.work_target_type=NEW.work_target_type AND o.default_unit_id=NEW.unit_id
- AND ((NEW.span_id IS NULL AND o.allow_tower=1) OR
-      (NEW.span_id IS NOT NULL AND o.allow_span=1)))
- THEN RAISE(ABORT,'需求操作类型、单位或位置不符合操作定义') END;
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM operation_versions o
+  JOIN work_object_versions obj ON obj.work_object_id=o.work_object_id
+   AND obj.version_no=o.work_object_version_no
+  WHERE o.operation_id=NEW.operation_id AND o.version=NEW.operation_version
+   AND o.work_object_id=NEW.work_object_id
+   AND o.default_unit_id=NEW.unit_id
+   AND obj.attribution_unit=NEW.attribution_unit AND obj.object_position=NEW.object_position
+   AND (NEW.span_id IS NULL OR (obj.object_position='corridor'
+        AND obj.attribution_unit='logical_tower'))
+ ) THEN RAISE(ABORT,'需求单位、归属单元或对象位置与正式操作定义不一致') END;
  SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM dictionary_items u
  WHERE u.id=NEW.unit_id AND u.type_id='unit')
  THEN RAISE(ABORT,'需求计量单位类型无效') END;
@@ -1935,9 +1932,7 @@ CREATE INDEX idx_spans_line_status ON line_spans(line_id,status);
 CREATE TRIGGER demand_work_object_match_insert BEFORE INSERT ON demands
 BEGIN SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM operation_versions o WHERE o.operation_id=NEW.operation_id
- AND o.version=NEW.operation_version
- AND o.work_object_id=NEW.work_object_id
- AND o.work_target_type=NEW.work_target_type)
+ AND o.version=NEW.operation_version AND o.work_object_id=NEW.work_object_id)
  THEN RAISE(ABORT,'需求标准作业对象必须来自所选操作类型') END; END;
 
 
@@ -1966,11 +1961,13 @@ WHERE v.version=(SELECT MAX(x.version) FROM dictionary_item_versions x
 CREATE VIEW v_operation_current AS
 SELECT o.id,o.code,o.created_at,
  v.id AS current_version_id,v.version,v.name,v.status,v.sort_order,
- v.work_target_type,v.work_object_id,v.default_unit_id,v.default_unit_version,
+ v.work_object_id,v.work_object_version_no,obj.object_position,obj.attribution_unit,
+ v.default_unit_id,v.default_unit_version,
  v.default_quantity_scaled,v.completion_standard,v.attributes_schema_json,
- v.allow_tower,v.allow_span,v.default_location_kind,v.default_target_object,
- v.entry_hint,v.changed_at AS updated_at
+ v.default_target_object,v.entry_hint,v.changed_at AS updated_at
 FROM operations o JOIN operation_versions v ON v.operation_id=o.id
+JOIN work_object_versions obj ON obj.work_object_id=v.work_object_id
+ AND obj.version_no=v.work_object_version_no
 WHERE v.version=(SELECT MAX(x.version) FROM operation_versions x
  WHERE x.operation_id=o.id);
 
@@ -2006,7 +2003,7 @@ WHERE v.version_no=(SELECT MAX(x.version_no) FROM agreement_versions x
 
 CREATE VIEW v_work_object_current AS
 SELECT o.id,o.code,o.created_at,
- v.id AS current_version_id,v.version_no,v.name,v.work_target_type,
+ v.id AS current_version_id,v.version_no,v.name,v.object_position,v.attribution_unit,
  v.status,v.sort_order
 FROM work_objects o JOIN work_object_versions v ON v.work_object_id=o.id
 WHERE v.version_no=(SELECT MAX(x.version_no) FROM work_object_versions x
@@ -2659,8 +2656,8 @@ BEGIN
  SELECT CASE WHEN NEW.version_no>1 AND EXISTS(
  SELECT 1 FROM work_object_versions prev
  WHERE prev.work_object_id=NEW.work_object_id AND prev.version_no=NEW.version_no-1
- AND prev.name=NEW.name AND prev.work_target_type=NEW.work_target_type
- AND prev.status=NEW.status AND prev.sort_order=NEW.sort_order)
+ AND prev.name=NEW.name AND prev.object_position=NEW.object_position
+ AND prev.attribution_unit=NEW.attribution_unit AND prev.status=NEW.status AND prev.sort_order=NEW.sort_order)
  THEN RAISE(ABORT,'作业对象定义无变化，不得新增空历史') END;
 END;
 CREATE TRIGGER operation_root_immutable_update BEFORE UPDATE ON operations
@@ -2681,15 +2678,13 @@ BEGIN
  SELECT 1 FROM operation_versions prev
  WHERE prev.operation_id=NEW.operation_id AND prev.version=NEW.version-1
  AND prev.name=NEW.name AND prev.status=NEW.status
- AND prev.sort_order=NEW.sort_order AND prev.work_target_type=NEW.work_target_type
- AND prev.work_object_id=NEW.work_object_id
+ AND prev.sort_order=NEW.sort_order AND prev.work_object_id=NEW.work_object_id
+ AND prev.work_object_version_no=NEW.work_object_version_no
  AND prev.default_unit_id=NEW.default_unit_id
  AND prev.default_unit_version=NEW.default_unit_version
  AND prev.default_quantity_scaled IS NEW.default_quantity_scaled
  AND prev.completion_standard IS NEW.completion_standard
  AND prev.attributes_schema_json=NEW.attributes_schema_json
- AND prev.allow_tower=NEW.allow_tower AND prev.allow_span=NEW.allow_span
- AND prev.default_location_kind=NEW.default_location_kind
  AND prev.default_target_object=NEW.default_target_object
  AND prev.entry_hint=NEW.entry_hint)
  THEN RAISE(ABORT,'操作类型正式版本没有真实定义变化，不允许空改版') END;
@@ -2970,7 +2965,8 @@ BEGIN
  'unit_id',NEW.unit_id,'unit_version',NEW.unit_version,'unit_snapshot',NEW.unit_snapshot,
  'line_name_snapshot',NEW.line_name_snapshot,'tower_no_snapshot',NEW.tower_no_snapshot,
  'physical_code_snapshot',NEW.physical_code_snapshot,
- 'work_target_type',NEW.work_target_type,'target_object',NEW.target_object,
+ 'object_position',NEW.object_position,
+ 'attribution_unit',NEW.attribution_unit,'target_object',NEW.target_object,
  'completion_standard',NEW.completion_standard,'problem_description',NEW.problem_description,
  'priority_id',NEW.priority_id,'priority_snapshot',NEW.priority_snapshot,
  'expected_on',NEW.expected_on,
@@ -3073,13 +3069,15 @@ BEGIN
  THEN RAISE(ABORT,'需求结构化字段必须与完整需求历史快照一致') END;
  SELECT CASE WHEN NOT EXISTS(
  SELECT 1 FROM operation_versions op
+ JOIN work_object_versions obj ON obj.work_object_id=op.work_object_id
+  AND obj.version_no=op.work_object_version_no
  WHERE op.operation_id=NEW.operation_id AND op.version=NEW.operation_version
- AND op.work_object_id=NEW.work_object_id
- AND op.work_target_type=NEW.work_target_type
+ AND op.work_object_id=NEW.work_object_id AND obj.attribution_unit=NEW.attribution_unit
+ AND obj.object_position=json_extract(NEW.snapshot_json,'$.object_position')
  AND op.default_unit_id=NEW.unit_id
- AND ((NEW.span_id IS NULL AND op.allow_tower=1)
- OR (NEW.span_id IS NOT NULL AND op.allow_span=1)))
- THEN RAISE(ABORT,'需求完整版本的作业类型、作业对象和计量单位必须与正式操作定义一致') END;
+ AND (NEW.span_id IS NULL OR (obj.object_position='corridor'
+      AND obj.attribution_unit='logical_tower')))
+ THEN RAISE(ABORT,'需求完整版本的对象位置、归属单元和单位须与采用的作业对象版本一致') END;
  SELECT CASE WHEN NEW.priority_id IS NOT NULL AND NOT EXISTS(
  SELECT 1 FROM dictionary_items d WHERE d.id=NEW.priority_id AND d.type_id='priority')
  THEN RAISE(ABORT,'需求版本优先级不是有效的优先级字典') END;
@@ -3185,7 +3183,8 @@ SELECT d.id,d.demand_no,d.batch_id,v.version AS current_version,
  json_extract(v.snapshot_json,'$.target_object') AS target_object,
  json_extract(v.snapshot_json,'$.problem_description') AS problem_description,
  json_extract(v.snapshot_json,'$.completion_standard') AS completion_standard,
- json_extract(v.snapshot_json,'$.work_target_type') AS work_target_type,
+ json_extract(v.snapshot_json,'$.object_position') AS object_position,
+ json_extract(v.snapshot_json,'$.attribution_unit') AS attribution_unit,
  json_extract(v.snapshot_json,'$.priority_id') AS priority_id,
  json_extract(v.snapshot_json,'$.expected_on') AS expected_on,
  json_extract(v.snapshot_json,'$.logical_tower_id') AS logical_tower_id,
@@ -3907,10 +3906,12 @@ BEGIN
  SELECT CASE WHEN EXISTS(
   SELECT 1 FROM demand_version_work_locations loc
   WHERE loc.demand_id=NEW.demand_id AND loc.demand_version=NEW.version
-   AND ((NEW.work_target_type='physical'
+   AND ((NEW.attribution_unit='physical_tower'
       AND loc.location_kind<>'physical_tower')
-   OR (NEW.work_target_type='line'
-      AND loc.location_kind='physical_tower')))
+   OR (NEW.attribution_unit='logical_tower'
+      AND loc.location_kind='physical_tower')
+   OR (loc.location_kind='span' AND
+      json_extract(NEW.snapshot_json,'$.object_position')<>'corridor')))
  THEN RAISE(ABORT,'需求作业位置类型必须与操作类型设备定位方式一致') END;
 END;
 CREATE TRIGGER demand_work_location_immutable_insert

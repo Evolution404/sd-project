@@ -196,7 +196,7 @@ test("quantity revision retains adopted span history until explicit current-defi
   const object = save("objects", {
     code: "span-object",
     name: "导线",
-    work_target_type: "line",
+    object_position: "corridor", attribution_unit: "logical_tower",
   });
   const operation = save("operations", {
     code: "span-op",
@@ -204,10 +204,6 @@ test("quantity revision retains adopted span history until explicit current-defi
     completion_standard: "缺陷处理完成",
     work_object_id: object.id,
     default_unit_id: unit.id,
-    work_target_type: "line",
-    allow_tower: 0,
-    allow_span: 1,
-    default_location_kind: "span",
   });
   const demand = s.demands.save(user, {
     operation_id: operation.id,

@@ -238,7 +238,8 @@ def demand(name,batch_id=None):
         observed_physical_tower_id=row("SELECT physical_tower_id FROM logical_towers WHERE id='tower'")["physical_tower_id"],
         line_name_snapshot=row("SELECT name FROM transmission_lines WHERE id='line'")["name"],
         tower_no_snapshot="001",
-        work_target_type="line",operation_id="op",operation_version=1,
+        object_position="body",attribution_unit="logical_tower",
+        operation_id="op",operation_version=1,
         operation_snapshot="更换",work_object_id="obj",work_object_snapshot="绝缘子",
         target_object="A相",quantity_scaled=10000,unit_id="unit",
         unit_version=1,unit_snapshot="套",completion_standard="合格",
@@ -292,13 +293,14 @@ add("logical_towers",id="tower",logical_code="T",line_id="line",created_by="u",
     physical_tower_id="pt",tower_no="001",sort_rank=1)
 add("work_objects",id="obj",code="OBJ",created_at="2026-11-07T00:00:00.000Z")
 add("work_object_versions",id="objv1",work_object_id="obj",version_no=1,
-    name="绝缘子",work_target_type="line",status="active",reason="首次发布",
+    name="绝缘子",object_position="body",attribution_unit="logical_tower",
+    status="active",reason="首次发布",
     changed_by="u",recorded_at="2026-11-07T00:00:00.000Z")
 add("operations",id="op",code="OP",created_at="2026-11-07T00:00:00.000Z")
 add("operation_versions",id="ov",operation_id="op",version=1,
-    name="更换",status="active",work_target_type="line",
-    work_object_id="obj",default_unit_id="unit",default_unit_version=1,allow_tower=1,
-    allow_span=0,default_location_kind="tower",reason="首次定义",
+    name="更换",status="active",
+    work_object_id="obj",work_object_version_no=1,
+    default_unit_id="unit",default_unit_version=1,reason="首次定义",
     changed_by="u",changed_at="2026-11-07T00:00:00.000Z")
 add("materials",id="master1",code="MAT-001",name="绝缘子",
     model="A",unit_id="unit",created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
@@ -1406,7 +1408,7 @@ blocked_demand_v4("full demand version cannot blank its completion standard",
 blocked_demand_v4("full demand version rejects nonexistent logical tower FK",
                   {"logical_tower_id":"tower-does-not-exist"})
 blocked_demand_v4("full demand version rejects invalid work location category",
-                  {"work_target_type":"physical"})
+                  {"attribution_unit":"physical_tower"})
 blocked_demand_v4("full demand version rejects wrong priority dictionary type",
                   {"priority_id":"expense"})
 blocked_demand_v4("full demand version rejects invalid expected business date",
@@ -2547,8 +2549,8 @@ db.execute("SAVEPOINT reference_price_contexts")
 try:
     add("operations",id="context_op",code="CONTEXT-OP",created_at="2026-11-07T00:00:00.000Z")
     add("operation_versions",id="context_op_v1",operation_id="context_op",version=1,
-        name="价格属性上下文",status="active",work_target_type="line",work_object_id="obj",
-        default_unit_id="unit",default_unit_version=1,allow_tower=1,allow_span=0,default_location_kind="tower",
+        name="价格属性上下文",status="active",work_object_id="obj",work_object_version_no=1,
+        default_unit_id="unit",default_unit_version=1,
     attributes_schema_json=json.dumps([
       {"key":"terrain","label":"地形","scope":"location","source":"manual","type":"select","enabled":True,"pricing":True},
       {"key":"height_mm","label":"高度","scope":"location","source":"manual","type":"integer","enabled":True,"pricing":True},
@@ -3664,36 +3666,34 @@ try:
          '2026-11-07T00:05:00.000Z'))
     blocked_reason('work object historical version cannot predate root',
         'INSERT INTO work_object_versions('
-        'id,work_object_id,version_no,name,work_target_type,status,reason,'
-        'changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        'id,work_object_id,version_no,name,object_position,attribution_unit,status,reason,'
+        'changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
         '作业对象正式版本不得倒签或早于根身份',
-        ('obj_early','obj',2,'新绝缘子','line','active','倒签','u',
+        ('obj_early','obj',2,'新绝缘子','body','logical_tower','active','倒签','u',
          '2026-11-06T23:59:59.000Z'))
     blocked_reason('same work object definition cannot create an empty version',
         'INSERT INTO work_object_versions('
-        'id,work_object_id,version_no,name,work_target_type,status,reason,'
-        'changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        'id,work_object_id,version_no,name,object_position,attribution_unit,status,reason,'
+        'changed_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?)',
         '作业对象定义无变化，不得新增空历史',
-        ('obj_repeat','obj',2,'绝缘子','line','active','只改备注','u',
+        ('obj_repeat','obj',2,'绝缘子','body','logical_tower','active','只改备注','u',
          '2026-11-07T00:01:00.000Z'))
     blocked_reason('operation version must change actual operation definition',
         'INSERT INTO operation_versions('
-        'id,operation_id,version,name,status,work_target_type,work_object_id,'
-        'default_unit_id,default_unit_version,allow_tower,allow_span,'
-        'default_location_kind,reason,changed_by,changed_at)'
-        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'id,operation_id,version,name,status,work_object_id,work_object_version_no,'
+        'default_unit_id,default_unit_version,reason,changed_by,changed_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
         '操作类型正式版本没有真实定义变化，不允许空改版',
-        ('op_duplicate','op',2,'更换','active','line','obj','unit',1,
-         1,0,'tower','无实质定义变化','u','2026-11-07T23:10:00.000Z'))
+        ('op_duplicate','op',2,'更换','active','obj',1,'unit',1,
+         '无实质定义变化','u','2026-11-07T23:10:00.000Z'))
     blocked_reason('operation definition cannot predate original template',
         'INSERT INTO operation_versions('
-        'id,operation_id,version,name,status,work_target_type,work_object_id,'
-        'default_unit_id,default_unit_version,allow_tower,allow_span,'
-        'default_location_kind,reason,changed_by,changed_at)'
-        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        'id,operation_id,version,name,status,work_object_id,work_object_version_no,'
+        'default_unit_id,default_unit_version,reason,changed_by,changed_at)'
+        ' VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
         '操作类型完整定义不得早于根身份或上一正式版本',
-        ('op_early','op',2,'拆除','active','line','obj','unit',1,
-         1,0,'tower','倒签','u','2026-11-06T23:59:59.000Z'))
+        ('op_early','op',2,'拆除','active','obj',1,'unit',1,
+         '倒签','u','2026-11-06T23:59:59.000Z'))
     add('reference_price_catalog',id='price_history_audit',
         code='AUDIT-PRICE',created_by='u',
         created_at='2026-11-07T23:10:00.000Z')
@@ -3737,9 +3737,9 @@ try:
         created_at='2026-11-07T23:10:00.000Z')
     add('operation_versions',id='op_delete_guard_v1',
         operation_id='op_delete_guard',version=1,
-        name='独立正式操作定义',status='active',work_target_type='line',
-        work_object_id='obj',default_unit_id='unit',default_unit_version=1,
-        allow_tower=1,allow_span=0,default_location_kind='tower',
+        name='独立正式操作定义',status='active',
+        work_object_id='obj',work_object_version_no=1,
+        default_unit_id='unit',default_unit_version=1,
         reason='正式发布',changed_by='u',
         changed_at='2026-11-07T23:10:00.000Z')
     blocked_reason('unreferenced published operation version remains immutable',
@@ -3766,15 +3766,15 @@ try:
         created_at="2026-11-08T03:00:00.000Z")
     add("work_object_versions",id="bird_object_v1",
         work_object_id="bird_object",version_no=1,name="防鸟装置",
-        work_target_type="physical",status="active",changed_by="u",
+        object_position="body",attribution_unit="physical_tower",
+        status="active",changed_by="u",
         recorded_at="2026-11-08T03:00:00.000Z")
     add("operations",id="bird_op",code="INSTALL-BIRD",
         created_at="2026-11-08T03:00:00.000Z")
     add("operation_versions",id="bird_op_v1",operation_id="bird_op",
         version=1,name="安装防鸟装置",status="active",
-        work_target_type="physical",work_object_id="bird_object",
+        work_object_id="bird_object",work_object_version_no=1,
         default_unit_id="unit",default_unit_version=1,
-        allow_tower=1,allow_span=0,default_location_kind="tower",
         changed_by="u",changed_at="2026-11-08T03:00:00.000Z")
     for kind,mode,base,unit,brackets in (
         ("unit","per_unit",0,200,[]),
@@ -4516,27 +4516,27 @@ try:
         created_at="2026-11-08T04:20:00.000Z")
     add("work_object_versions",id="r16_object_v1",
         work_object_id="r16_object",version_no=1,
-        name="防鸟装置",work_target_type="physical",status="active",
+        name="杆塔基础",object_position="body",attribution_unit="physical_tower",
+        status="active",
         changed_by="u",recorded_at="2026-11-08T04:21:00.000Z")
     add("operations",id="r16_op",code="R16-INSTALL-BIRD",
         created_at="2026-11-08T04:21:00.000Z")
     feature_config=json.dumps([{"key":"r16_terrain","label":"地形","scope":"location","source":"manual","type":"select",
         "enabled":True,"pricing":True,"requirement":"pricing"}])
     add("operation_versions",id="r16_op_v1",operation_id="r16_op",
-        version=1,name="安装防鸟装置",status="active",work_target_type="physical",
-        work_object_id="r16_object",default_unit_id="unit",
-        default_unit_version=1,allow_tower=1,allow_span=0,
-        default_location_kind="tower",attributes_schema_json=feature_config,
+        version=1,name="基础修理",status="active",
+        work_object_id="r16_object",work_object_version_no=1,
+        default_unit_id="unit",default_unit_version=1,
+        attributes_schema_json=feature_config,
         changed_by="u",changed_at="2026-11-08T04:22:00.000Z")
     blocked_reason("operation feature must have a real official factor version",
         "INSERT INTO operation_versions(id,operation_id,version,name,"
-        "status,work_target_type,work_object_id,default_unit_id,"
-        "default_unit_version,allow_tower,allow_span,default_location_kind,"
-        "attributes_schema_json,changed_by,changed_at)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "status,work_object_id,work_object_version_no,default_unit_id,"
+        "default_unit_version,attributes_schema_json,changed_by,changed_at)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         "操作属性须包含稳定身份及明确层级",
         ("r16_bad_operation_feature","r16_op",2,"非法作业特征",
-         "active","physical","r16_object","unit",1,1,0,"tower",
+         "active","r16_object",1,"unit",1,
          '[{"factor_id":"ghost","source":"asset","required":true}]',
          "u","2026-11-08T04:30:00.000Z"))
     add("physical_towers",id="r16_pt16",tower_code="R16-PT16",
@@ -4554,10 +4554,10 @@ try:
     add("demands",id="r16_d",demand_no="R16-D-001",
         physical_tower_id="pt",context_line_id="line",
         line_name_snapshot="220kV现场某线路",tower_no_snapshot="#15",
-        work_target_type="physical",
+        object_position="body",attribution_unit="physical_tower",
         operation_id="r16_op",operation_version=1,
-        operation_snapshot="安装防鸟装置",
-        work_object_id="r16_object",work_object_snapshot="防鸟装置",
+        operation_snapshot="基础修理",
+        work_object_id="r16_object",work_object_snapshot="杆塔基础",
         target_object="各塔防鸟装置",quantity_scaled=90000,
         unit_id="unit",unit_version=1,unit_snapshot="套",
         completion_standard="安装验收合格",problem_description="鸟害隐患",
@@ -4595,16 +4595,16 @@ try:
         "需求正式版本的逐位置工作量和现场特征不可覆盖")
     blocked_reason("root total cannot disagree with multi-location sum",
         "INSERT INTO demands(id,demand_no,physical_tower_id,context_line_id,"
-        "line_name_snapshot,tower_no_snapshot,work_target_type,"
+        "line_name_snapshot,tower_no_snapshot,object_position,attribution_unit,"
         "operation_id,operation_version,operation_snapshot,work_object_id,"
         "work_object_snapshot,target_object,quantity_scaled,unit_id,unit_version,"
         "unit_snapshot,completion_standard,problem_description,created_by,"
         "created_at,initial_work_locations_json) VALUES("
-        +",".join("?" for _ in range(22))+")",
+        +",".join("?" for _ in range(23))+")",
         "正式需求版本总工作量必须等于全部作业位置数量之和",
         ("r16_wrong_sum","R16-WRONG-SUM","pt","line","某线路","#15",
-        "physical","r16_op",1,"安装防鸟装置","r16_object",
-        "防鸟装置","防鸟装置",10000,"unit",1,"套","合格","隐患",
+        "body","physical_tower","r16_op",1,"基础修理","r16_object",
+        "杆塔基础","杆塔基础",10000,"unit",1,"套","合格","隐患",
         "u","2026-11-08T04:31:00.000Z",json.dumps(r16_locations())))
 
     # Fixed, whole-tier, progressive, group, rate, composite and min/max
@@ -4666,9 +4666,9 @@ try:
     add("demands",id="r16_missing_factor",demand_no="R16-MISSING-FACTOR",
         physical_tower_id="pt",context_line_id="line",
         line_name_snapshot="价格因素缺失测试",tower_no_snapshot="#15",
-        work_target_type="physical",operation_id="r16_op",
-        operation_version=1,operation_snapshot="安装防鸟装置",
-        work_object_id="r16_object",work_object_snapshot="防鸟装置",
+        object_position="body",attribution_unit="physical_tower",
+        operation_id="r16_op",operation_version=1,operation_snapshot="基础修理",
+        work_object_id="r16_object",work_object_snapshot="杆塔基础",
         target_object="防鸟装置",quantity_scaled=10000,
         unit_id="unit",unit_version=1,unit_snapshot="套",
         completion_standard="合格",problem_description="条件待核实",

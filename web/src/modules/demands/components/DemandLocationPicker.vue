@@ -11,6 +11,12 @@ import { api } from "../../../shared/api/client";
 import BusinessTable from "../../../shared/ui/BusinessTable.vue";
 import FieldControl from "../../../shared/ui/FieldControl.vue";
 import { parseTowerList } from "../composables/location-selection";
+import {
+  equipmentLocationColumns,
+  equipmentLocationPreferenceKey,
+  equipmentLocationQueryKind,
+  equipmentLocationDisplay,
+} from "../composables/equipment-location-columns";
 const props = defineProps<{
   open: boolean;
   operation: OperationRecord;
@@ -28,18 +34,17 @@ const line = ref<string | null>(null),
   rows = ref<EquipmentRecord[]>([]),
   loading = ref(false),
   bulkLoading = ref(false),
-  appliedSearch = ref("");
+  appliedSearch = ref(""),
+  sortKey = ref(""),
+  sortDirection = ref<"asc" | "desc">("desc"),
+  columnFilters = ref<Record<string, string>>({});
 const chosen = ref<Record<string, EquipmentRecord>>({}),
   pasted = ref(""),
   issues = ref<{ id: string; number: string; result: string }[]>([]);
 let sequence = 0;
-const reference = computed(() =>
-  kind.value === "span"
-    ? "spans"
-    : kind.value === "physical_tower" && !line.value
-      ? "physical"
-      : "towers",
-);
+// One record = one business identity: line filters must not swap physical
+// towers for logical tower rows (one physical tower can carry many circuits).
+const reference = computed(() => equipmentLocationQueryKind(kind.value, line.value));
 const excluded = computed(
   () =>
     new Set(
@@ -110,20 +115,24 @@ function applySearch() {
     void load();
   }
 }
-const columns = [
-  {
-    key: "selected",
-    label: "本页选择",
-    sortable: false,
-    filterable: false,
-    hideable: false,
-    customHeader: true,
-    minWidth: 144,
-  },
-  { key: "label", label: "作业设备", minWidth: 240 },
-  { key: "tower_no", label: "杆号或档距", minWidth: 150 },
-  { key: "line_name", label: "所属线路", minWidth: 180 },
-];
+const columns = computed(() => equipmentLocationColumns(kind.value));
+function tableSort(value: { key: string; order: string }) {
+  const selected = columns.value.find(col => col.key === value.key);
+  sortKey.value = value.order && selected?.sortable ? selected.sortKey || "" : "";
+  sortDirection.value = value.order === "ascending" ? "asc" : "desc";
+  page.value = 1;
+  void load();
+}
+function tableFilter(values: Record<string, string>) {
+  const valid = new Map(columns.value
+    .filter(col => col.filterable && col.filterKey)
+    .map(col => [col.key, col.filterKey!]));
+  columnFilters.value = Object.fromEntries(Object.entries(values)
+    .filter(([key, value]) => valid.has(key) && value.trim())
+    .map(([key, value]) => [valid.get(key)!, value]));
+  page.value = 1;
+  void load();
+}
 watch(
   () => props.open,
   (open) => {
@@ -135,17 +144,22 @@ watch(
       line.value = null;
       query.value = "";
       appliedSearch.value = "";
+      sortKey.value = "";
+      sortDirection.value = "desc";
+      columnFilters.value = {};
       page.value = 1;
       kind.value =
-        props.operation.work_target_type === "physical"
-          ? "physical_tower"
-          : props.operation.default_location_kind === "span"
-            ? "span"
-            : "logical_tower";
+        props.operation.attribution_unit === "physical_tower"
+          ? "physical_tower" : "logical_tower";
       void load();
     }
   },
 );
+watch(kind, () => {
+  sortKey.value = "";
+  sortDirection.value = "desc";
+  columnFilters.value = {};
+});
 watch([line, kind, appliedSearch], () => {
   invalidateBulkSelection();
   page.value = 1;
@@ -161,7 +175,9 @@ function parameters(
     page_size: "100",
     q: search,
     line_id: current.lineId || "",
-    filters: JSON.stringify({ status: "active" }),
+    sort: sortKey.value || "created_at",
+    direction: sortDirection.value,
+    filters: JSON.stringify({ status: "active", ...columnFilters.value }),
     deleted: "false",
   });
 }
@@ -271,7 +287,13 @@ async function paste() {
       const matches = candidates.filter((row) =>
         kind.value === "span"
           ? row.start_tower_no + "~" + row.end_tower_no === number
-          : row.tower_no === number,
+          : kind.value === "physical_tower"
+            ? (row.bindings || []).some(binding =>
+                binding.line_id === line.value &&
+                binding.logical_status !== "retired" &&
+                !binding.logical_deleted &&
+                binding.tower_no === number)
+            : row.tower_no === number,
       );
       let result = "匹配成功";
       if (seen.has(number)) result = "清单重复";
@@ -301,8 +323,13 @@ function add() {
         : undefined;
     return {
       id: newClientId(),
-      label: row.tower_no || row.label,
-      line_name: row.line_name || row.line_id_label || "",
+      label: selectedKind === "physical_tower"
+        ? row.asset_no || row.tower_code ||
+            equipmentLocationDisplay(selectedKind, row, "related_towers").toString()
+        : selectedKind === "span"
+          ? equipmentLocationDisplay(selectedKind, row, "span").toString()
+          : equipmentLocationDisplay(selectedKind, row, "tower_no").toString(),
+      line_name: row.line_name || row.related_lines || row.line_id_label || "",
       location_kind: selectedKind,
       logical_tower_id: selectedKind === "logical_tower" ? row.id : undefined,
       physical_tower_id: physical,
@@ -353,9 +380,8 @@ function add() {
       />
       <ElSelect
         v-if="
-          operation.work_target_type === 'line' &&
-          operation.allow_tower &&
-          operation.allow_span
+          operation.attribution_unit === 'logical_tower' &&
+          operation.object_position === 'corridor'
         "
         v-model="kind"
         ><ElOption label="逻辑杆塔" value="logical_tower" /><ElOption
@@ -365,7 +391,8 @@ function add() {
       <ElInput
         v-model="query"
         clearable
-        placeholder="搜索杆号或设备"
+        :placeholder="kind === 'span' ? '搜索档距端点' :
+          kind === 'physical_tower' ? '搜索资产编号或关联杆号' : '搜索杆号或线路'"
         :disabled="bulkLoading"
         @change="applySearch"
         @keyup.enter="applySearch"
@@ -383,10 +410,15 @@ function add() {
     <BusinessTable
       :rows="available"
       :columns="columns"
-      table-key="demand:location-picker"
+      :table-key="equipmentLocationPreferenceKey(kind)"
       :loading="loading"
       :max-height="320"
       :actions-width="0"
+      :sort-state="{ prop: sortKey, order: sortKey ?
+        (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
+      :filter-state="columnFilters"
+      @sort-change="tableSort"
+      @filter-change="tableFilter"
     >
       <template #header="{ column }">
         <ElCheckbox v-if="column.key === 'selected'"
@@ -405,13 +437,9 @@ function add() {
           :disabled="loading || bulkLoading"
           :aria-label="'选择' + row.label"
           @change="choose(row, Boolean($event))"
-        /><span v-else-if="column.key === 'tower_no'">{{
-          row.tower_no || row.start_tower_no + " ~ " + row.end_tower_no
-        }}</span
-        ><span v-else-if="column.key === 'line_name'">{{
-          row.line_name || row.line_id_label || row.related_lines || "独立实物"
-        }}</span
-        ><span v-else>{{ row.label }}</span></template
+        /><span v-else>{{
+          equipmentLocationDisplay(kind, row, column.key)
+        }}</span></template
       >
     </BusinessTable>
     <ElPagination
@@ -441,6 +469,7 @@ function add() {
             { key: 'result', label: '匹配结果' },
           ]"
           table-key="demand:paste-results"
+          sort-mode="off" filter-mode="off"
           :max-height="180"
           :actions-width="0"
           ><template #cell="{ row, column }">{{

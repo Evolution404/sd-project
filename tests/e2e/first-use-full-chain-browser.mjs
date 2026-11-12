@@ -88,7 +88,8 @@ try {
   await visit("standards/objects");
   await page.getByRole("button", { name: "新增作业对象", exact: true }).click();
   await editor.getByLabel("名称", { exact: true }).fill("防鸟装置");
-  await choice("归属范围", "杆塔");
+  await choice("对象位置", "本体");
+  await choice("归属单元", "逻辑杆塔");
   await save();
   await visit("standards/operations");
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();

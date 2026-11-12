@@ -323,6 +323,7 @@ async function commit() {
         ><ElTabPane label="单据与逐字段变化" name="documents"
           ><BusinessTable :key="requestKey + ':documents'" :table-key="'exchange:' + kind + ':documents'"
               :rows="displayedDocuments" :columns="documentColumns" :max-height="380" compact
+              sort-mode="remote" filter-mode="remote"
               @sort-change="onDocumentsSort" @filter-change="onDocumentsFilter">
               <template #cell="{ row, column }">
                 <span v-if="column.key === 'action'">{{ row.action === 'create' ? '新增' : row.action === 'update' ? '修改' : '保持原值' }}</span>
@@ -344,6 +345,7 @@ async function commit() {
         ><ElTabPane label="问题清单" name="issues"
           ><BusinessTable :key="requestKey + ':issues'" :table-key="'exchange:' + kind + ':issues'"
               :rows="displayedIssues" :columns="issueColumns" :max-height="380" compact
+              sort-mode="remote" filter-mode="remote"
               @sort-change="onIssuesSort" @filter-change="onIssuesFilter">
               <template #cell="{ row, column }">
                 <span v-if="column.key === 'field'">{{ fieldName(row.field) }}</span>

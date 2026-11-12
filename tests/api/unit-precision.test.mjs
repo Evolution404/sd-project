@@ -53,7 +53,7 @@ test("explicitly decimal unit allows 0.25 but rejects unsupported finer quantiti
   const unit = save("units", { name: "平方米", quantity_precision: 2 });
   const operation = save("operations", {
     name: "设施表面处理", work_object_id: object.id,
-    default_unit_id: unit.id, work_target_type: "physical", completion_standard: "处理完成",
+    default_unit_id: unit.id, completion_standard: "处理完成",
   });
   const demand = s.demands.save(user, {
     ...demandInput, operation_id: operation.id,

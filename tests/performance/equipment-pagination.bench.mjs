@@ -39,7 +39,9 @@ test("1,000 lines and 10,000 logical towers preserve SQL search and pagination c
     lineId: "bench-line-0500", page_size: 20, sort: "tower_no", direction: "desc",
   });
   assert.equal(towers.total, 10);
-  assert.equal(towers.items[0].tower_no, "#9");
+  // Natural numeric order: #10 > #9, not lexical string order.
+  assert.equal(towers.items[0].tower_no, "#10");
+  assert.equal(towers.items.at(-1).tower_no, "#1");
   const physical = s.catalog.search("physical", {
     q: "压力线路0500", page_size: 20,
   });

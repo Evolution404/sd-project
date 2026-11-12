@@ -20,7 +20,7 @@ for (const [index, value] of Array.from(
   });
 const object = save("objects", {
   name: "线路侧防鸟装置",
-  work_target_type: "line",
+  object_position: "body", attribution_unit: "logical_tower",
 });
 const fields = [
   attribute({

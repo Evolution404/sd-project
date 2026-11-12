@@ -1,3 +1,4 @@
+import type { ObjectPosition, AttributionUnit } from "./work-standards.js";
 import type { AttributeValues } from "./operation-attributes.js";
 import type { Actor, ListQuery, Page } from "./contracts.js";
 import type { OperationRecord } from "./work-standards.js";
@@ -127,7 +128,8 @@ export interface NormalizedDemand {
   operation_snapshot: string;
   work_object_id: string;
   work_object_snapshot: string;
-  work_target_type: "line" | "physical";
+  object_position: ObjectPosition;
+  attribution_unit: AttributionUnit;
   unit_id: string;
   unit_version: number;
   unit_snapshot: string;

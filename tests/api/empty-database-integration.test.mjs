@@ -37,7 +37,7 @@ const versionOf = (row) => row.version_no || row.version || 1;
 test("EMPTY DB: dictionary, standards, ledger, funding masters support create/edit/delete + formal history", (t) => {
   const { s, user, save } = blank(t);
   const unit = save("units", { name: "套" });
-  const object = save("objects", { name: "防鸟装置", work_target_type: "physical" });
+  const object = save("objects", { name: "物理杆塔作业对象", object_position: "body", attribution_unit: "physical_tower" });
   const voltage = save("voltages", { name: "220kV" });
   const line = save("lines", { name: "空库线路甲", voltage_level_id: voltage.id });
   const physical = save("physical", { asset_no: "EMPTY-T15", tower_type: "angle" });
@@ -114,7 +114,7 @@ test("EMPTY DB: dictionary, standards, ledger, funding masters support create/ed
 test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged settlements -> delete/restore history", (t) => {
   const { s, user, save, reopen } = blank(t);
   const unit = save("units", { name: "套" });
-  const object = save("objects", { name: "防鸟装置", work_target_type: "physical" });
+  const object = save("objects", { name: "物理杆塔作业对象", object_position: "body", attribution_unit: "physical_tower" });
   const factor = attribute();
   const operation = save("operations", { name: "安装防鸟装置",
     work_object_id: object.id, default_unit_id: unit.id,

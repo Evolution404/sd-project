@@ -21,7 +21,7 @@ const independentUnit=save("units",{name:"个",quantity_precision:0});
 const independentOperation=save("operations",{
   name:"安装单个装置",work_object_id:operation.work_object_id,
   default_unit_id:independentUnit.id,
-  work_target_type:"physical",completion_standard:"安装完好",
+  completion_standard:"安装完好",
 });
 const server=httpServer(s);
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));

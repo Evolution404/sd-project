@@ -154,6 +154,12 @@ export function searchEquipment(
   }
   for (const [key, value] of Object.entries(filters).slice(0, 20)) {
     if (!allowed.has(key) || typeof value !== "string") continue;
+    if (key === "status") {
+      // "inactive" contains "active" as a substring; this is a state filter.
+      where.push("status=?");
+      parameters.push(value.slice(0, 128));
+      continue;
+    }
     where.push(
       "instr(lower(COALESCE(CAST(" +
         searchableColumn(key) +
@@ -200,15 +206,22 @@ export function searchEquipment(
   const sort =
     options.sort && allowed.has(options.sort) ? options.sort : "created_at";
   const direction = options.direction === "asc" ? "ASC" : "DESC";
+  // Natural numeric-aware ordering is evaluated in SQLite *before* pagination.
+  // The identifier is a whitelist-validated field, never a raw client SQL value.
+  const towerNumber = ["tower_no", "start_tower_no", "end_tower_no"].includes(sort);
+  const relatedTowerNumbers = kind === "physical" && sort === "related_towers";
+  const expression = relatedTowerNumbers
+    ? "equipment_related_natural_key(" + JSON.stringify(sort) + ")"
+    : towerNumber ? "equipment_natural_key(" + JSON.stringify(sort) + ")"
+      : JSON.stringify(sort);
+  const order = expression + " " + direction +
+    (towerNumber ? ", " + JSON.stringify(sort) + " " + direction : "") +
+    ", id ASC";
   const items = store.query(
     statement +
       "SELECT * FROM catalog_rows" +
       predicate +
-      " ORDER BY " +
-      JSON.stringify(sort) +
-      " " +
-      direction +
-      ", id ASC LIMIT ? OFFSET ?",
+      " ORDER BY " + order + " LIMIT ? OFFSET ?",
     kind,
     ...parameters,
     pageSize,

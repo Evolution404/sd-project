@@ -2,13 +2,15 @@ import type {
   DefinitionStatus,
 } from "./master-data.js";
 import type { AuditRecord } from "./contracts.js";
-export type WorkObjectScope = "line" | "physical" | "both";
+export type ObjectPosition = "body" | "corridor";
+export type AttributionUnit = "physical_tower" | "logical_tower";
 export interface WorkObjectVersion {
   id: string;
   work_object_id: string;
   version_no: number;
   name: string;
-  work_target_type: WorkObjectScope;
+  object_position: ObjectPosition;
+  attribution_unit: AttributionUnit;
   status: DefinitionStatus;
   sort_order: number;
   reason: string;
@@ -30,16 +32,13 @@ export interface OperationVersion {
   name: string;
   status: DefinitionStatus;
   sort_order: number;
-  work_target_type: "line" | "physical";
   work_object_id: string;
+  work_object_version_no: number;
   default_unit_id: string;
   default_unit_version: number;
   default_quantity_scaled: number | null;
   completion_standard: string | null;
   attributes_schema_json: string;
-  allow_tower: 0 | 1;
-  allow_span: 0 | 1;
-  default_location_kind: "tower" | "span";
   default_target_object: string;
   entry_hint: string;
   reason: string;
@@ -47,6 +46,9 @@ export interface OperationVersion {
   changed_at: string;
 }
 export interface OperationRecord extends Omit<OperationVersion, "id"> {
+  /** Read-only projection from the operation's adopted immutable object version. */
+  object_position: ObjectPosition;
+  attribution_unit: AttributionUnit;
   id: string;
   code: string;
   created_at: string;

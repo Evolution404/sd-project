@@ -71,9 +71,12 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
     fields: [
       name,
       status,
-      field("work_target_type", "归属范围", "select", {
-        options: ["line", "physical"],
-        default: "line",
+      field("object_position", "对象位置", "select", {
+        options: ["body", "corridor"],
+        required: true,
+      }),
+      field("attribution_unit", "归属单元", "select", {
+        options: ["physical_tower", "logical_tower"],
         required: true,
       }),
     ],
@@ -92,17 +95,7 @@ export const catalogDefinitions: Record<CatalogKind, CatalogDefinition> = {
       status,
       ref("work_object_id", "作业对象", "objects", true),
       ref("default_unit_id", "固定计量单位", "units", true),
-      field("work_target_type", "归属范围", "select", {
-        options: ["line", "physical"],
-        default: "line",
-        required: true,
-      }),
-      field("allow_tower", "允许杆塔", "boolean", { default: 1 }),
-      field("allow_span", "允许档距", "boolean", { default: 0 }),
-      field("default_location_kind", "默认作业位置", "select", {
-        options: ["tower", "span"],
-        default: "tower",
-      }),
+
       field("default_target_object", "默认部位"),
       field("completion_standard", "默认验收标准", "text", { nullable: true }),
       field("entry_hint", "录入提示"),

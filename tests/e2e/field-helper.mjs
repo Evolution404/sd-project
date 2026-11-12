@@ -1,6 +1,4 @@
 export async function selectFormChoice(page, label, name, scope = page) {
-  if(label === "固定计量单位" && await scope.getByRole("tab",{name:"作业范围与计量",exact:true}).count())
-    await scope.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
   const item = scope.locator(".el-form-item").filter({has:page.getByText(label,{exact:true})}).first();
   const wrapper = item.locator(".el-select__wrapper").first();
   await wrapper.click();

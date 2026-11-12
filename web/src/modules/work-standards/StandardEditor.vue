@@ -92,6 +92,8 @@ watch(
             : JSON.stringify(initial)
           : initial;
     }
+    if (props.kind === "operations" && props.editing)
+      form.value.adopt_current_object = false;
     guard.capture();
   },
 );
@@ -104,7 +106,6 @@ function close(done?: () => void) {
 function group(field: CatalogField) {
   if (props.kind === "objects") return "basic";
   if (field.key === "attributes_schema_json") return "extra";
-  if (["default_unit_id","allow_tower","allow_span","default_location_kind"].includes(field.key)) return "scope";
   return [
     "completion_standard",
     "entry_hint",
@@ -117,9 +118,7 @@ function group(field: CatalogField) {
 function visible(field: CatalogField) {
   return (
     props.kind === "objects" ||
-    !["work_target_type", "attributes_schema_json"].includes(
-      field.key,
-    )
+    field.key !== "attributes_schema_json"
   );
 }
 async function focusError() {
@@ -188,12 +187,17 @@ async function save() {
     <ElForm ref="formRef" :model="form" label-position="top" novalidate>
       <ElTabs v-if="kind === 'operations'" v-model="tab">
         <ElTabPane label="基本定义" name="basic" />
-        <ElTabPane label="作业范围与计量" name="scope" />
         <ElTabPane label="录入模板" name="template" />
         <ElTabPane label="附加属性" name="extra" />
         <ElTabPane label="正式版本与引用" name="versions" />
       </ElTabs>
       <p v-if="tab === 'basic' && editing" class="muted">系统稳定编码 {{editing.code}}</p>
+      <p v-if="kind === 'operations' && tab === 'basic'" class="muted">
+        对象位置与归属单元统一在作业对象中配置，操作类型继承所采用的作业对象正式版本，不重复设置。
+      </p>
+      <ElCheckbox v-if="kind === 'operations' && editing && tab === 'basic'"
+        :model-value="Boolean(form.adopt_current_object)"
+        @update:model-value="form.adopt_current_object = Boolean($event)">采用作业对象当前正式版本（更新归属单元和对象位置）</ElCheckbox>
       <div class="form-grid">
         <ElFormItem
           v-for="field in fields"

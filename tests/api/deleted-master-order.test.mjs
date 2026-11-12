@@ -30,7 +30,7 @@ test("remove linked work object first, then operation and price without losing i
     ...first, id: "forbidden-new-active-operation-version",
     name: "非法发布的有效操作版本",
     version: operationBefore.version + 1, changed_at: later,
-  }), /作业对象不适用于当前操作类型/);
+  }), /活动操作不得引用已停用作业对象/);
 
   const operationDeleted = s.catalog.remove(user, "operations", operation.id, operationBefore.version);
   assert.equal(operationDeleted.deleted, true);

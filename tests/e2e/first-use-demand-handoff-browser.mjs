@@ -51,7 +51,8 @@ try {
   await page.waitForURL(url => url.hash.includes("/standards/objects") && url.hash.includes("returnTo"));
   await page.getByRole("button", { name: "新增作业对象" }).click();
   await editor.getByLabel("名称", { exact: true }).fill("防鸟装置");
-  await choose("归属范围", "杆塔");
+  await choose("对象位置", "本体");
+  await choose("归属单元", "逻辑杆塔");
   await save();
   await page.waitForURL(url => url.hash.includes("/standards/operations") && url.hash.includes("returnTo"));
   await page.getByRole("button", { name: "新增操作类型" }).click();

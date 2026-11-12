@@ -54,7 +54,7 @@ const demandSource: ListSource = {
     FROM v_demand_current v JOIN demands d ON d.id=v.id`,
   columns: ["id", "demand_no", "current_version", "quantity_scaled", "operation_id", "operation_version",
     "work_object_id", "unit_id", "unit_version", "target_object", "problem_description", "completion_standard",
-    "work_target_type", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "location_count", "project_name", "last_handled_at", "handling_view", "definition_changed_at", "created_at", "deleted"],
+    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "location_count", "project_name", "last_handled_at", "handling_view", "definition_changed_at", "created_at", "deleted"],
   search: ["demand_no", "full_definition_json", "status"],
 };
 const projectSource: ListSource = {

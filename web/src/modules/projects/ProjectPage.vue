@@ -1153,7 +1153,8 @@ onMounted(async () => {
             {{ scope.demand_status !== 'active' ? ' · 需求待确认，暂不可纳入批准' : '' }}
           </ElCheckbox
           ><BusinessTable :table-key="'project:approval-editor:' + scope.project_scope_id"
-            :rows="scope.locations" :columns="approvalEditorColumns" compact>
+            :rows="scope.locations" :columns="approvalEditorColumns"
+            sort-mode="off" filter-mode="off" compact>
             <template #cell="{ row, column }">
               <ElCheckbox v-if="column.key === 'selected'" v-model="row.selected" />
               <FieldControl v-else-if="column.key === 'approved_quantity_scaled'"

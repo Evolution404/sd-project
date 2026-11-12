@@ -13,7 +13,7 @@ const lineA = save("lines", { name: "多分页选择甲线", voltage_level_id: v
 const lineB = save("lines", { name: "跨线路选择乙线", voltage_level_id: voltage.id });
 for (let index = 1; index <= 125; index++)
   save("towers", { line_id: index <= 122 ? lineA.id : lineB.id, tower_no: String(index) });
-const object = save("objects", { name: "作业设备", work_target_type: "line" });
+const object = save("objects", { name: "作业设备", object_position: "body", attribution_unit: "logical_tower" });
 const operation = save("operations", {
   name: "全选交互专项作业", work_object_id: object.id,
   default_unit_id: unit.id, completion_standard: "选定作业范围准确",
@@ -120,3 +120,8 @@ try {
   await new Promise(resolve => server.close(resolve));
   for (const fn of cleanup.reverse()) await fn();
 }
+
+
+// Keep location entity columns, remote natural sorting, physical deduplication
+// and per-kind preferences in the normal browser acceptance command.
+await import("./location-schema-sort-browser.mjs");

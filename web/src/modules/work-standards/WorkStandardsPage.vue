@@ -108,11 +108,7 @@ const fields = computed(() =>
 );
 const columns = computed<TableColumn[]>(() =>
   fields.value
-    .filter(
-      (field) =>
-        field.type !== "json" &&
-        (kind.value === "objects" || field.key !== "work_target_type"),
-    )
+    .filter((field) => field.type !== "json")
     .map((field) => ({
       key: field.key,
       label: field.label,

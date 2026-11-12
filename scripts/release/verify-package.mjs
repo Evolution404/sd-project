@@ -209,14 +209,14 @@ try {
   }
   const unit = await write("/catalog/units", { name: "套" });
   const object = await write("/catalog/objects", {
-    name: "防鸟装置",
-    work_target_type: "physical",
+    name: "物理杆塔检修",
+    object_position: "body",
+    attribution_unit: "physical_tower",
   });
   const operation = await write("/catalog/operations", {
     name: "包装验收操作",
     work_object_id: object.id,
     default_unit_id: unit.id,
-    work_target_type: "physical",
     completion_standard: "安装牢固",
   });
   const tower = await write("/catalog/physical", { asset_no: "离线验收实物" });

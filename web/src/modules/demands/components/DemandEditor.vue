@@ -233,8 +233,8 @@ async function changeOperation(value: unknown, allowSame = false) {
     const incompatible = draft.value.work_locations.filter(
       (row) =>
         (row.location_kind === "physical_tower") !==
-          (next.work_target_type === "physical") ||
-        (row.location_kind === "span" ? !next.allow_span : !next.allow_tower),
+          (next.attribution_unit === "physical_tower") ||
+        (row.location_kind === "span" && next.object_position !== "corridor"),
     );
     const retired = Object.keys(draft.value.attributes).filter(
       (key) =>

@@ -240,7 +240,7 @@ try {
   const unit = save("units", { name: "个", quantity_precision: 0 });
   const object = save("objects", {
     name: "线路侧防鸟设施",
-    work_target_type: "line",
+    object_position: "body", attribution_unit: "logical_tower",
   });
   const operationMap = new Map(),
     lines = new Map(),
@@ -267,8 +267,6 @@ try {
         completion_standard:
           principle || raw.sheets[0].rows[0].cells[String(mode.column)],
         attributes_schema_json: attributes,
-        allow_tower: 1,
-        allow_span: 0,
       }),
     );
   }

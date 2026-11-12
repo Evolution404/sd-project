@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { selectNavigation } from "./navigation-helper.mjs";
+import { selectFormChoice } from "./field-helper.mjs";
 const cleanup = [],
   { s, user, unit, operation, price } = fixture({
     after: (action) => cleanup.push(action),
@@ -67,9 +68,11 @@ try {
     name: "编辑操作类型",
     exact: true,
   });
-  await standardEditor.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
+  await standardEditor.getByRole("tab",{name:"基本定义",exact:true}).click();
   await standardEditor.getByText("套", { exact: true }).waitFor();
-  assert.equal(await standardEditor.getByRole("tab").count(), 5);
+  assert.equal(await standardEditor.getByRole("tab").count(), 4);
+  assert.equal(await standardEditor.getByRole("tab",{name:"作业范围与计量"}).count(),0);
+  await standardEditor.getByLabel("固定计量单位",{exact:true}).waitFor();
   for (const width of [1500, 1280, 960, 760]) {
     await page.setViewportSize({ width, height: 1000 });
     await standardEditor
@@ -103,6 +106,8 @@ try {
     exact: true,
   });
   await objectEditor.getByLabel("名称", { exact: true }).fill("独立作业对象");
+  await selectFormChoice(page, "对象位置", "本体", objectEditor);
+  await selectFormChoice(page, "归属单元", "物理杆塔", objectEditor);
   await objectEditor.getByRole("button", { name: "保存", exact: true }).click();
   await objectEditor.waitFor({ state: "hidden" });
   await action(

@@ -17,8 +17,6 @@ actual_quantity_scaled|按统一缩放因子保存的实际数量
 addition_reason|超出预计清单时可选的补充说明；管理员无需填写，不影响批准历史
 after_json|操作后的结构化审计事实
 agreement_id|业务归属执行协议
-allow_span|操作类型是否允许选择档距
-allow_tower|操作类型是否允许选择杆塔
 additional_conditions_json|参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行
 base_fee_fen|参考价格每个作业位置收取一次的固定基础费，人民币分，不随同位置设备数量重复收取
 amount_fen|本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额
@@ -65,7 +63,6 @@ decided_at|正式业务决定UTC时间
 decided_by|作出批准或拒绝决定的人
 decision|重复需求审查结果
 decision_reason|审核决定的可选说明；管理员可留空，审核人和时间必须真实
-default_location_kind|操作类型默认选用位置种类
 default_quantity_scaled|新增需求时建议的数量缩放整数
 default_target_object|操作类型默认作业对象位置说明
 default_unit_id|操作类型默认计量单位字典身份
@@ -279,9 +276,11 @@ version|正式定义或设备当前连续版本
 version_no|历史记录版本序号
 voltage_level_id|线路设备所在电压等级
 work_mode|作业方式，停电或不停电等
+object_position|对象位置：本体（杆塔本体作业）或通道（杆塔之间的线路通道作业）
+attribution_unit|归属单元：物理杆塔或逻辑杆塔，决定同塔多回的需求独立身份与去重
 work_object_id|操作类型对应的作业对象身份
+work_object_version_no|操作类型引用的作业对象不可变正式版本号，继承对象位置与归属单元
 work_object_snapshot|正式需求确认时的作业对象名称
-work_target_type|作业对象定位方式，线路逻辑对象或物理设备
 worksheet_name|来源Excel工作表名称
 '''
 notes={}

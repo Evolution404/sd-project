@@ -16,14 +16,13 @@ export function fixture(t, { quantity_precision = 0 } = {}) {
     object = save("objects", {
       code: "bird",
       name: "防鸟装置",
-      work_target_type: "physical",
+      object_position: "body", attribution_unit: "physical_tower",
     });
   const operation = save("operations", {
     code: "install",
     name: "安装防鸟装置",
     default_unit_id: unit.id,
     work_object_id: object.id,
-    work_target_type: "physical",
     completion_standard: "安装牢固",
     default_target_object: "防鸟装置",
   });

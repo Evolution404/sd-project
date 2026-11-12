@@ -95,13 +95,13 @@ function populate(system, password) {
     addSpans(line110, towers110);
 
     const bird = add("objects", {
-      name: "防鸟装置", code: "DEMO-WO-BIRD", work_target_type: "physical",
+      name: "防鸟装置", code: "DEMO-WO-BIRD", object_position: "body", attribution_unit: "logical_tower",
     });
     const insulator = add("objects", {
-      name: "绝缘子串", code: "DEMO-WO-INSULATOR", work_target_type: "physical",
+      name: "绝缘子串", code: "DEMO-WO-INSULATOR", object_position: "body", attribution_unit: "logical_tower",
     });
     const conductor = add("objects", {
-      name: "导线", code: "DEMO-WO-CONDUCTOR", work_target_type: "line",
+      name: "导线", code: "DEMO-WO-CONDUCTOR", object_position: "corridor", attribution_unit: "logical_tower",
     });
     const difficulty = { key: "demo-difficulty", label: "【演示】现场作业难度", scope: "location", source: "manual", type: "select",
       requirement: "pricing", pricing: true, enabled: true, sort_order: 1, hint: "",
@@ -120,8 +120,6 @@ function populate(system, password) {
     const spanOperation = add("operations", {
       name: "处理导线缺陷", code: "DEMO-OP-CONDUCTOR",
       work_object_id: conductor.id, default_unit_id: unitSection.id,
-      work_target_type: "line", allow_tower: 0, allow_span: 1,
-      default_location_kind: "span",
       completion_standard: "导线缺陷消除，验收无遗留问题",
     });
     const birdMaterial = add("materials", {
@@ -183,16 +181,16 @@ function populate(system, password) {
       materials: [{ material_id: birdMaterial.id, quantity_scaled: 50000 }],
       work_locations: [
         {
-          location_kind: "physical_tower",
-          physical_tower_id: towers220[0].physical.id,
+          location_kind: "logical_tower",
+          logical_tower_id: towers220[0].logical.id,
           quantity_scaled: 20000,
           attributes: {
             [difficulty.key]: "常规",
           },
         },
         {
-          location_kind: "physical_tower",
-          physical_tower_id: towers220[1].physical.id,
+          location_kind: "logical_tower",
+          logical_tower_id: towers220[1].logical.id,
           quantity_scaled: 30000,
           attributes: {
             [difficulty.key]: "复杂",
@@ -209,8 +207,8 @@ function populate(system, password) {
       operation_id: insulatorOperation.id,
       problem_description: "【演示】110kV河湾线21号杆塔绝缘子串老化",
       work_locations: [{
-        location_kind: "physical_tower",
-        physical_tower_id: towers110[0].physical.id,
+        location_kind: "logical_tower",
+        logical_tower_id: towers110[0].logical.id,
         quantity_scaled: 10000,
       }],
       sources: [{ description: "【演示】现场定期检查记录" }],

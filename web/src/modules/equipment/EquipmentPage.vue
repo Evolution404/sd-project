@@ -31,6 +31,7 @@ import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EquipmentEditor from "./EquipmentEditor.vue";
 import EquipmentReplacementDialog from "./EquipmentReplacementDialog.vue";
 import { equipmentColumns } from "./columns";
+import { towerTypeLabel, towerNatureLabel } from "../../shared/utils/tower-labels.mjs";
 const props = withDefaults(defineProps<{ voltage?: boolean }>(), {
   voltage: false,
 });
@@ -170,6 +171,8 @@ async function viewHistory(row: EquipmentRecord) {
 }
 function cell(row: EquipmentRecord, column: TableColumn): unknown {
   const value = row[column.key as keyof EquipmentRecord];
+  if (column.key === "tower_type") return towerTypeLabel(value);
+  if (column.key === "tower_nature") return towerNatureLabel(value);
   if (value === null || value === undefined || value === "") return "—";
   if (
     column.key === "height_scaled" ||

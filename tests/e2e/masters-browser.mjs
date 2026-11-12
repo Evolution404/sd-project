@@ -96,12 +96,13 @@ try {
     .getByRole("button", { name: "新增作业对象", exact: true })
     .click();
   await page.getByLabel("名称", { exact: true }).fill("浏览器专用对象");
-  await page.getByLabel("归属范围", { exact: true }).press("ArrowDown");
-  await page.getByRole("option", { name: "线路", exact: true }).last().waitFor();
-  await page.getByRole("option", { name: "杆塔", exact: true }).last().click();
+  await select("对象位置", "本体");
+  await select("归属单元", "物理杆塔");
   await save();
   await page.getByRole("row").filter({ hasText: "浏览器专用对象" })
-    .getByText("杆塔", { exact: true }).waitFor();
+    .getByText("物理杆塔", { exact: true }).waitFor();
+  await page.getByRole("row").filter({ hasText: "浏览器专用对象" })
+    .getByText("本体", { exact: true }).waitFor();
   await selectNavigation(page, "基础数据");
   await page.getByRole("tab", { name: "计量单位", exact: true }).click();
   await page.getByRole("button", { name: "新增计量单位", exact: true }).click();
@@ -112,7 +113,6 @@ try {
   await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
   await page.getByLabel("名称", { exact: true }).fill("浏览器安装");
   await select("作业对象", "浏览器专用对象");
-  await page.getByRole("tab",{name:"作业范围与计量",exact:true}).click();
   await select("固定计量单位", "件");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
@@ -150,7 +150,7 @@ try {
   await page.getByRole("row").filter({hasText:"浏览器安装"}).getByRole("button",{name:"更多操作"}).click();
   await page.getByRole("menuitem",{name:"编辑",exact:true}).last().click();
   const factorEditor=page.getByRole("dialog",{name:"编辑操作类型",exact:true});
-  assert.equal(await factorEditor.getByRole("tab").count(),5);
+  assert.equal(await factorEditor.getByRole("tab").count(),4);
   await addOperationAttribute(page,{label:"施工难度",type:"单选",options:["普通","困难"],pricing:true,requirement:"计价必需"});
   await addOperationAttribute(page,{label:"施工高度",type:"整数",precision:0,min:0,max:100,pricing:true});
   await save();

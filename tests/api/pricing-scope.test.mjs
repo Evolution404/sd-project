@@ -15,7 +15,6 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
       name: "检查防鸟装置",
       default_unit_id: unit.id,
       work_object_id: object.id,
-      work_target_type: "physical",
       completion_standard: "检查完毕",
     }),
     tower = save("physical", { tower_code: "T18" });

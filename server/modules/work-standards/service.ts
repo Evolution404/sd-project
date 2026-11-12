@@ -9,7 +9,8 @@ import type {
   OperationRecord,
   OperationVersion,
   WorkObjectRecord,
-  WorkObjectScope,
+  ObjectPosition,
+  AttributionUnit,
 } from "../../shared/types/work-standards.js";
 import type { DictionaryService } from "../dictionaries/service.js";
 import { definitionName, definitionStatus } from "../dictionaries/service.js";
@@ -39,10 +40,6 @@ function optionalText(value: unknown, label: string): string {
     `${label}必须为文本`,
   );
   return value || "";
-}
-function binary(value: unknown, label: string): 0 | 1 {
-  requireValue(value === 0 || value === 1, `${label}须选择是或否`);
-  return value;
 }
 export function createWorkStandards(
   repository: WorkStandardRepository,
@@ -100,18 +97,14 @@ export function createWorkStandards(
           ? previous?.status || "active"
           : input.status,
       );
-      const scope =
-        input.work_target_type === undefined
-          ? previous?.work_target_type || "line"
-          : input.work_target_type;
-      requireValue(
-        scope === "line" ||
-          scope === "physical" ||
-          (scope === "both" &&
-            previous?.work_target_type === scope &&
-            status === "inactive"),
-        "请选择线路或共用物理杆塔作为唯一归属范围",
-      );
+      const objectPosition = input.object_position === undefined
+        ? previous?.object_position : input.object_position;
+      const attributionUnit = input.attribution_unit === undefined
+        ? previous?.attribution_unit : input.attribution_unit;
+      requireValue(objectPosition === "body" || objectPosition === "corridor",
+        "对象位置必须选择本体或通道");
+      requireValue(attributionUnit === "physical_tower" || attributionUnit === "logical_tower",
+        "归属单元必须选择物理杆塔或逻辑杆塔");
       if (!previous)
         repository.createObject({
           id: objectId,
@@ -125,7 +118,8 @@ export function createWorkStandards(
         name: definitionName(
           input.name === undefined ? previous?.name : input.name,
         ),
-        work_target_type: scope as WorkObjectScope,
+        object_position: objectPosition as ObjectPosition,
+        attribution_unit: attributionUnit as AttributionUnit,
         status,
         sort_order: input.sort_order === undefined ? previous?.sort_order ?? 100 : integer(input.sort_order, "显示顺序"),
         reason: typeof input.reason === "string" ? input.reason : "",
@@ -202,14 +196,20 @@ export function createWorkStandards(
         "作业对象已停用，请更换关联对象或停用操作类型",
         409,
       );
-      const scope =
-        status === "inactive" && previous?.work_object_id === objectId
-          ? previous.work_target_type
-          : object.work_target_type;
       requireValue(
-        scope === "line" || scope === "physical",
-        "操作类型须关联唯一归属范围的作业对象",
+        !["work_target_type", "allow_tower", "allow_span", "default_location_kind"]
+          .some(key => Object.prototype.hasOwnProperty.call(input,key)),
+        "操作类型不得重复配置对象位置、归属单元或旧作业范围",
       );
+      requireValue(
+        input.adopt_current_object === undefined || typeof input.adopt_current_object === "boolean",
+        "是否采用作业对象当前版本必须为是或否",
+      );
+      const objectVersion = !previous || objectId !== previous.work_object_id ||
+        input.adopt_current_object === true
+        ? object.version_no : previous.work_object_version_no;
+      const adoptedObject = repository.objectVersion(objectId, objectVersion);
+      requireValue(adoptedObject, "采用的作业对象正式版本不存在", 404);
       const unitId = text(
         input.default_unit_id === undefined
           ? previous?.default_unit_id
@@ -231,35 +231,6 @@ export function createWorkStandards(
         input.adopt_current_unit === true ? unit.version : previous.default_unit_version;
       const adoptedUnit = repository.unitVersion(unitId, adoptedUnitVersion);
       requireValue(adoptedUnit, "采用的计量单位正式版本不存在", 404);
-      const allowTower =
-        scope === "physical"
-          ? 1
-          : binary(
-              input.allow_tower === undefined
-                ? (previous?.allow_tower ?? 1)
-                : input.allow_tower,
-              "允许杆塔",
-            );
-      const allowSpan =
-        scope === "physical"
-          ? 0
-          : binary(
-              input.allow_span === undefined
-                ? (previous?.allow_span ?? 0)
-                : input.allow_span,
-              "允许档距",
-            );
-      const defaultLocation =
-        scope === "physical"
-          ? "tower"
-          : input.default_location_kind === undefined
-            ? previous?.default_location_kind || "tower"
-            : input.default_location_kind;
-      requireValue(
-        (defaultLocation === "tower" && allowTower === 1) ||
-          (defaultLocation === "span" && allowSpan === 1),
-        "默认作业位置须属于允许的位置类型",
-      );
       const quantity =
         input.default_quantity_scaled === undefined
           ? (previous?.default_quantity_scaled ?? null)
@@ -285,8 +256,8 @@ export function createWorkStandards(
         ),
         status,
         sort_order: input.sort_order === undefined ? previous?.sort_order ?? 100 : integer(input.sort_order, "显示顺序"),
-        work_target_type: scope,
         work_object_id: objectId,
+        work_object_version_no: objectVersion,
         default_unit_id: unitId,
         // A revision retains its adopted unit version until explicitly refreshed.
         default_unit_version: adoptedUnitVersion,
@@ -299,9 +270,6 @@ export function createWorkStandards(
               ? null
               : optionalText(input.completion_standard, "默认验收标准"),
         attributes_schema_json: schema,
-        allow_tower: allowTower,
-        allow_span: allowSpan,
-        default_location_kind: defaultLocation as "tower" | "span",
         default_target_object: optionalText(
           input.default_target_object === undefined
             ? previous?.default_target_object || ""
@@ -323,16 +291,13 @@ export function createWorkStandards(
           "name",
           "status",
           "sort_order",
-          "work_target_type",
           "work_object_id",
+          "work_object_version_no",
           "default_unit_id",
           "default_unit_version",
           "default_quantity_scaled",
           "completion_standard",
           "attributes_schema_json",
-          "allow_tower",
-          "allow_span",
-          "default_location_kind",
           "default_target_object",
           "entry_hint",
         ] as const;

@@ -96,10 +96,9 @@ export function createDemands(
     const unitDefinition = repo.unitVersion(op.default_unit_id, op.default_unit_version);
     requireValue(unitDefinition, "正式计量单位版本不存在", 404);
     const unit = { ...unitDefinition, id: op.default_unit_id };
-    const object =
-      sameOperation && previous && selectedVersion === previous.operation_version
-        ? { id: previous.work_object_id, name: previous.work_object_snapshot }
-        : catalog.get("objects", op.work_object_id);
+    const adoptedObject = repo.workObjectVersion(op.work_object_id, op.work_object_version_no);
+    requireValue(adoptedObject, "所选操作类型引用的作业对象正式版本不存在", 404);
+    const object = { ...adoptedObject, id: op.work_object_id };
     requireValue(
       !input.unit_id || input.unit_id === unit.id,
       "单位必须与操作类型一致",
@@ -123,12 +122,12 @@ export function createDemands(
         "作业位置类型无效",
       );
       requireValue(
-        (op.work_target_type === "physical") === (kind === "physical_tower"),
-        "设备定位必须与操作类型一致",
+        (object.attribution_unit === "physical_tower") === (kind === "physical_tower"),
+        "设备定位必须与作业对象归属单元一致",
       );
       requireValue(
-        kind === "span" ? op.allow_span : op.allow_tower,
-        "操作类型不允许此作业位置",
+        kind !== "span" || object.object_position === "corridor",
+        "只有通道作业对象可以选择档距作业点位",
       );
       const key =
         kind === "span"
@@ -324,7 +323,8 @@ export function createDemands(
       operation_snapshot: op.name,
       work_object_id: object.id,
       work_object_snapshot: object.name,
-      work_target_type: op.work_target_type,
+      object_position: object.object_position,
+      attribution_unit: object.attribution_unit,
       unit_id: unit.id,
       unit_version: unit.version,
       unit_snapshot: unit.name,

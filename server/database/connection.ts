@@ -1,6 +1,9 @@
 import { DatabaseSync, backup } from "node:sqlite";
 import { mkdirSync, readFileSync, existsSync, cpSync } from "node:fs";
 import { resolve, join, sep } from "node:path";
+import {
+  naturalTowerSortKey, naturalRelatedTowerSortKey,
+} from "../shared/natural-tower-sort.js";
 
 const canonicalSql = readFileSync(new URL("./schema/schema113.sql", import.meta.url), "utf8");
 let expectedStructure: string | undefined;
@@ -45,6 +48,10 @@ export function openDatabase(
   mkdirSync(directory, { recursive: true });
   const connection = new DatabaseSync(join(directory, "schema113.sqlite"));
   try {
+    // Runtime-only sorting function, not a persisted schema/trigger or stored field.
+    connection.function("equipment_natural_key", { deterministic: true }, naturalTowerSortKey);
+    connection.function("equipment_related_natural_key", { deterministic: true },
+      naturalRelatedTowerSortKey);
     connection.exec("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=10000; PRAGMA journal_mode=WAL;");
     const version = Number(connection.prepare("PRAGMA user_version").get()?.user_version);
     if (version !== 0 && version !== 113)

@@ -292,7 +292,7 @@
 | `target_object` | TEXT | 否 | — | 生成列 | 本次具体作业对象或位置 | 派生（不另存） |
 | `problem_description` | TEXT | 否 | — | 生成列 | 需处理的隐患或工作问题 | 派生（不另存） |
 | `completion_standard` | TEXT | 否 | — | 生成列 | 需求内容的质量或结果验收判据，不是施工完成记录 | 派生（不另存） |
-| `work_target_type` | TEXT | 否 | — | 生成列 | 作业对象定位方式，线路逻辑对象或物理设备 | 派生（不另存） |
+| `attribution_unit` | TEXT | 否 | — | 生成列 | 归属单元：物理杆塔或逻辑杆塔，决定同塔多回的需求独立身份与去重 | 派生（不另存） |
 | `logical_tower_id` | TEXT | 否 | — | 生成列<escape>|</escape>外键→logical_towers.id（组9） | 逻辑杆塔身份 | 派生（不另存） |
 | `physical_tower_id` | TEXT | 否 | — | 生成列<escape>|</escape>外键→physical_towers.id（组8） | 实际物理杆塔身份 | 派生（不另存） |
 | `observed_physical_tower_id` | TEXT | 否 | — | 生成列<escape>|</escape>外键→physical_towers.id（组7） | 录入时实际观察到的物理杆塔 | 派生（不另存） |
@@ -304,9 +304,9 @@
 | `recorded_by` | TEXT | 是 | — | 外键→users.id（组3） | 登记正式业务事实的用户 | 保留：历史/审核事实 |
 | `recorded_at` | TEXT | 是 | — | 见原生CHECK | 历史业务事件录入数据库的UTC时间点 | 保留：历史/审核事实 |
 
-## `demands` — 稳定原始需求身份和首版来源；完整初始多位置作业清单随发布形成不可变需求版本
+## `demands` — 稳定需求身份与首版来源；冻结采用时的对象位置和归属单元，多位置清单发布后产生不可变需求版本
 
-业务领域：来源、需求和物资。字段数：34；外键分量：17。
+业务领域：来源、需求和物资。字段数：35；外键分量：17。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -319,7 +319,8 @@
 | `line_name_snapshot` | TEXT | 是 | — | 见原生CHECK | 需求首次登记时看到的线路名称 | 保留：不可追溯重算的历史快照 |
 | `tower_no_snapshot` | TEXT | 是 | — | 见原生CHECK | 需求首次登记时的杆塔编号 | 保留：不可追溯重算的历史快照 |
 | `physical_code_snapshot` | TEXT | 否 | — | 见原生CHECK | 需求首次登记时的物理杆塔编码 | 保留：不可追溯重算的历史快照 |
-| `work_target_type` | TEXT | 是 | — | 见原生CHECK | 作业对象定位方式，线路逻辑对象或物理设备 | 保留：独立属性或真实关联 |
+| `object_position` | TEXT | 是 | — | 见原生CHECK | 对象位置：本体（杆塔本体作业）或通道（杆塔之间的线路通道作业） | 保留：独立属性或真实关联 |
+| `attribution_unit` | TEXT | 是 | — | 见原生CHECK | 归属单元：物理杆塔或逻辑杆塔，决定同塔多回的需求独立身份与去重 | 保留：独立属性或真实关联 |
 | `operation_id` | TEXT | 是 | — | 外键→operation_versions.operation_id（组1）<escape>|</escape>外键→operations.id（组9） | 正式操作类型身份 | 保留：独立属性或真实关联 |
 | `operation_version` | INTEGER | 是 | — | 外键→operation_versions.version（组1） | 操作类型正式版本号 | 保留：独立属性或真实关联 |
 | `operation_snapshot` | TEXT | 是 | — | 见原生CHECK | 历史需求关联的操作类型文字 | 保留：不可追溯重算的历史快照 |
@@ -603,32 +604,29 @@
 | `created_by` | TEXT | 否 | — | 外键→users.id（组0） | 登记业务对象的用户 | 保留：独立属性或真实关联 |
 | `created_at` | TEXT | 是 | — | 见原生CHECK | 对象首次登记UTC时间 | 保留：登记/发生时间 |
 
-## `operation_versions` — 标准作业定义：独立作业对象、计量单位、允许位置及统一附加属性定义与计价开关，不存具体物资或价格
+## `operation_versions` — 操作类型完整正式版本：关联唯一作业对象不可变正式版本，固定计量单位及其版本、统一附加属性和验收规则；不重复保存对象位置或归属单元
 
-业务领域：操作类型、字典和标准价格。字段数：21；外键分量：6。
+业务领域：操作类型、字典和标准价格。字段数：18；外键分量：8。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `operation_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→operations.id（组4） | 正式操作类型身份 | 保留：历史/审核事实 |
+| `operation_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→operations.id（组5） | 正式操作类型身份 | 保留：历史/审核事实 |
 | `version` | INTEGER | 是 | — | 组合唯一 | 正式定义或设备当前连续版本 | 保留：历史/审核事实 |
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `sort_order` | INTEGER | 是 | 100 | 见原生CHECK | 数据字典或操作定义展示顺序 | 保留：历史/审核事实 |
-| `work_target_type` | TEXT | 是 | — | 见原生CHECK | 作业对象定位方式，线路逻辑对象或物理设备 | 保留：历史/审核事实 |
-| `work_object_id` | TEXT | 是 | — | 外键→work_objects.id（组3） | 操作类型对应的作业对象身份 | 保留：历史/审核事实 |
-| `default_unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组0）<escape>|</escape>外键→dictionary_items.id（组2） | 操作类型默认计量单位字典身份 | 保留：历史/审核事实 |
-| `default_unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组0） | 默认单位名称所在的正式字典版本 | 保留：历史/审核事实 |
+| `work_object_id` | TEXT | 是 | — | 外键→work_object_versions.work_object_id（组0）<escape>|</escape>外键→work_objects.id（组4） | 操作类型对应的作业对象身份 | 保留：历史/审核事实 |
+| `work_object_version_no` | INTEGER | 是 | — | 外键→work_object_versions.version_no（组0） | 操作类型引用的作业对象不可变正式版本号，继承对象位置与归属单元 | 保留：历史/审核事实 |
+| `default_unit_id` | TEXT | 是 | — | 外键→dictionary_item_versions.item_id（组1）<escape>|</escape>外键→dictionary_items.id（组3） | 操作类型默认计量单位字典身份 | 保留：历史/审核事实 |
+| `default_unit_version` | INTEGER | 是 | — | 外键→dictionary_item_versions.version（组1） | 默认单位名称所在的正式字典版本 | 保留：历史/审核事实 |
 | `default_quantity_scaled` | INTEGER | 否 | — | 见原生CHECK | 新增需求时建议的数量缩放整数 | 保留：历史/审核事实 |
 | `completion_standard` | TEXT | 否 | — | 见原生CHECK | 需求内容的质量或结果验收判据，不是施工完成记录 | 保留：历史/审核事实 |
 | `attributes_schema_json` | TEXT | 是 | '[]' | 见原生CHECK | 操作正式版本统一属性定义，需求和价格条件采用同一属性身份 | 保留：历史/审核事实 |
-| `allow_tower` | INTEGER | 是 | — | 见原生CHECK | 操作类型是否允许选择杆塔 | 保留：历史/审核事实 |
-| `allow_span` | INTEGER | 是 | — | 见原生CHECK | 操作类型是否允许选择档距 | 保留：历史/审核事实 |
-| `default_location_kind` | TEXT | 是 | — | 见原生CHECK | 操作类型默认选用位置种类 | 保留：历史/审核事实 |
 | `default_target_object` | TEXT | 是 | '' | 见原生CHECK | 操作类型默认作业对象位置说明 | 保留：历史/审核事实 |
 | `entry_hint` | TEXT | 是 | '' | 见原生CHECK | 操作类型的录入指引文字 | 保留：历史/审核事实 |
 | `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
-| `changed_by` | TEXT | 是 | — | 外键→users.id（组1） | 执行正式变更的用户 | 保留：历史/审核事实 |
+| `changed_by` | TEXT | 是 | — | 外键→users.id（组2） | 执行正式变更的用户 | 保留：历史/审核事实 |
 | `changed_at` | TEXT | 是 | — | 见原生CHECK | 业务定义变更登记UTC时间 | 保留：历史/审核事实 |
 
 ## `operations` — 操作类型身份
@@ -1259,9 +1257,9 @@
 | `sort_order` | INTEGER | 是 | 100 | 见原生CHECK | 数据字典或操作定义展示顺序 | 保留：独立属性或真实关联 |
 | `updated_at` | TEXT | 否 | — | 见原生CHECK | 允许更新的草稿或主数据最后修改UTC时间 | 保留：独立属性或真实关联 |
 
-## `work_object_versions` — 作业对象定义版本
+## `work_object_versions` — 作业对象不可变正式版本：对象位置（本体、通道）与归属单元（物理杆塔、逻辑杆塔）两个独立维度，唯一分类来源
 
-业务领域：操作类型、字典和标准价格。字段数：10；外键分量：2。
+业务领域：操作类型、字典和标准价格。字段数：11；外键分量：2。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1269,7 +1267,8 @@
 | `work_object_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→work_objects.id（组1） | 操作类型对应的作业对象身份 | 保留：历史/审核事实 |
 | `version_no` | INTEGER | 是 | — | 组合唯一 | 历史记录版本序号 | 保留：历史/审核事实 |
 | `name` | TEXT | 是 | — | 见原生CHECK | 业务名称 | 保留：历史/审核事实 |
-| `work_target_type` | TEXT | 是 | — | 见原生CHECK | 作业对象定位方式，线路逻辑对象或物理设备 | 保留：历史/审核事实 |
+| `object_position` | TEXT | 是 | — | 见原生CHECK | 对象位置：本体（杆塔本体作业）或通道（杆塔之间的线路通道作业） | 保留：历史/审核事实 |
+| `attribution_unit` | TEXT | 是 | — | 见原生CHECK | 归属单元：物理杆塔或逻辑杆塔，决定同塔多回的需求独立身份与去重 | 保留：历史/审核事实 |
 | `status` | TEXT | 是 | — | 见原生CHECK | 当前状态或历史版本审核状态 | 保留：历史/审核事实 |
 | `sort_order` | INTEGER | 是 | 100 | 见原生CHECK | 数据字典或操作定义展示顺序 | 保留：历史/审核事实 |
 | `reason` | TEXT | 是 | '' | 见原生CHECK | 业务操作和项目需求显式解绑的可选说明；管理员无需必填，仍保留操作人、操作时间、状态和正式历史 | 保留：历史/审核事实 |
@@ -1288,6 +1287,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：78；字段总数（含生成列）：733；需要人工补写独立描述的字段名：0。
+基础数据表数：78；字段总数（含生成列）：732；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。
