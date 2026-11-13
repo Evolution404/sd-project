@@ -7,6 +7,10 @@ import { dispatchRoute } from "./routes.js";
 import { webDirectory } from "../paths.js";
 import { errorResponse } from "./error-response.js";
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createAccessLogs, safeAccount, safePath, type AccessLogOptions } from "../access-logs/service.js";
 import { readFile, stat } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { authorize } from "../auth/service.js";
@@ -23,8 +27,9 @@ const mime: Record<string, string> = {
 };
 export function httpServer(
   system: System,
-  { staticDirectory = webDirectory } = {},
+  { staticDirectory = webDirectory, accessLog = {} }: { staticDirectory?: string; accessLog?: AccessLogOptions } = {},
 ) {
+  const logs = createAccessLogs(system.database.directory, accessLog);
   const exchange = createExchange(system),
     evidence = createEvidence(system),
     attempts = new Map<string, { count: number; until: number }>();
@@ -53,18 +58,36 @@ export function httpServer(
     });
     response.end(buffer);
   }
-  return createServer(async (req, res) => {
+  const server = createServer(async (req, res) => {
+    const started = performance.now(), requestId = randomUUID();
+    const clientIp = (req.socket.remoteAddress || "").replace(/^::ffff:/, "");
+    let username = "", logOutcome = "", errorType = "", errorSummary = "", recorded = false;
+    const path = safePath(req.url || "/");
+    res.setHeader("X-Request-ID", requestId);
+    function record(aborted = false) {
+      if (recorded) return;
+      recorded = true;
+      logs.record({ request_id: requestId, ip: clientIp,
+        username, method: (req.method || "GET").replace(/[^A-Z]/g, "").slice(0, 20), path,
+        status: aborted ? 499 : res.statusCode, duration_ms: Math.round((performance.now() - started) * 1000) / 1000,
+        outcome: aborted ? "连接中断" : logOutcome || (res.statusCode < 400 ? "访问成功" : "访问失败"),
+        error_type: errorType, error_summary: errorSummary });
+    }
+    res.once("finish", () => record());
+    res.once("close", () => record(!res.writableFinished));
     let authenticatedActorId: string | null = null;
     let authenticatedViewer = false;
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("X-Frame-Options", "DENY");
     res.setHeader("Referrer-Policy", "same-origin");
     try {
+      logOutcome = "IP白名单拒绝";
       requireValue(
         system.auth.permittedIp(req.socket.remoteAddress),
         "此客户端IP尚未授权",
         403,
       );
+      logOutcome = "";
       const url = new URL(req.url || "/", "http://localhost"),
         parts = url.pathname.split("/").filter(Boolean).map(decodeURIComponent),
         method = req.method || "GET";
@@ -76,6 +99,10 @@ export function httpServer(
         );
       }
       if (parts[0] !== "api") {
+        if (token(req)) {
+          try { username = safeAccount(system.auth.actor(token(req)).username); }
+          catch { /* Public application assets remain available before login. */ }
+        }
         requireValue(["GET", "HEAD"].includes(method), "请求方法无效", 405);
         const root = resolve(staticDirectory),
           requested = resolve(root, "." + url.pathname);
@@ -101,6 +128,7 @@ export function httpServer(
         return;
       }
       if (parts[1] === "login" && method === "POST") {
+        logOutcome = "登录失败";
         const address = req.socket.remoteAddress || "",
           last = attempts.get(address) || { count: 0, until: 0 };
         if (last.until < Date.now()) {
@@ -112,7 +140,10 @@ export function httpServer(
         attempts.set(address, last);
         const input = await body(req);
         requireValue(isObject(input), "请求正文必须为JSON对象", 400);
+        username = safeAccount(input.username);
         const result = system.auth.login(input.username, input.password);
+        username = safeAccount(result.user.username);
+        logOutcome = "登录成功";
         attempts.delete(address);
         json(res, 200, result.user, {
           "Set-Cookie": `sd113=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`,
@@ -120,6 +151,7 @@ export function httpServer(
         return;
       }
       const actor = system.auth.actor(token(req));
+      username = safeAccount(actor.username);
       authenticatedActorId=actor.id;
       authenticatedViewer=actor.role==="viewer";
       if (parts[1] === "training" && parts[2] === "checkpoints" && method === "GET") {
@@ -132,6 +164,7 @@ export function httpServer(
       }
       if (parts[1] === "logout" && method === "POST") {
         system.auth.logout(token(req));
+        logOutcome = "退出登录";
         json(
           res,
           200,
@@ -141,6 +174,23 @@ export function httpServer(
               "sd113=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0",
           },
         );
+        return;
+      }
+      if (parts[1] === "access-logs") {
+        authorize(actor, "admin");
+        requireValue(method === "GET", "请求方法无效", 405);
+        if (parts.length === 2) json(res, 200, await logs.query(url.searchParams));
+        else {
+          requireValue(parts.length === 3 && parts[2] === "export", "接口不存在", 404);
+          logs.validate(url.searchParams);
+          res.writeHead(200, { "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Cache-Control": "no-store",
+            "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent("访问日志.jsonl")}` });
+          async function* lines() {
+            for await (const row of logs.records(url.searchParams)) yield JSON.stringify(row) + "\n";
+          }
+          await pipeline(Readable.from(lines()), res);
+        }
         return;
       }
       const input = ["GET", "HEAD"].includes(method) ? {} : await body(req);
@@ -174,13 +224,23 @@ export function httpServer(
       }
     } catch (error) {
       const failure = errorResponse(error);
+      if (failure.status === 429) logOutcome = "登录限流";
+      else if (!logOutcome && failure.status === 401) logOutcome = "未登录访问";
+      else if (!logOutcome && failure.status === 403) logOutcome = "权限不足";
+      else if (!logOutcome) logOutcome = "访问失败";
+      errorType = failure.status === 500 ? "InternalError" : failure.body.code;
+      errorSummary = ({ 400: "请求格式错误", 401: "认证失败", 403: "访问被拒绝", 404: "资源不存在",
+        409: "业务版本或状态冲突", 429: "请求频率受限", 500: "服务内部错误" } as Record<number, string>)[failure.status] || "请求未通过业务校验";
       // Evidence is recorded only after a real authenticated viewer's forbidden
       // business write (not a forged client claim, login/IP denial or tour click).
       if (failure.status===403 && authenticatedActorId && authenticatedViewer &&
           !["GET","HEAD"].includes(req.method||"GET"))
         system.training.record(authenticatedActorId,"forbidden");
-      if (failure.status === 500) console.error(error);
-      json(res, failure.status, failure.body);
+      if (failure.status === 500) console.error("HTTP_INTERNAL_ERROR", requestId);
+      if (res.headersSent) res.destroy();
+      else json(res, failure.status, failure.body);
     }
   });
+  server.once("close", () => logs.close());
+  return server;
 }

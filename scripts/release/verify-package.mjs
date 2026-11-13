@@ -11,11 +11,12 @@ import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
+import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
 const root = resolve(import.meta.dirname, "../.."),
   zip = join(root, "dist/sd-project-win10-x64.zip"),
   temporary = mkdtempSync(join(tmpdir(), "sd113-package-")),
   stage = join(temporary, "release"),
-  data = join(temporary, "data");
+  data = join(stage, "data");
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 const receipt = JSON.parse(
@@ -134,6 +135,7 @@ const env = {
   DATA_DIR: data,
   HOST: "127.0.0.1",
   PORT: String(port),
+  ACCESS_LOG_MAX_FILE_BYTES: "2048",
   SD_ADMIN_USER: "package-admin",
   SD_ADMIN_PASSWORD: "Package-verified-password",
 };
@@ -189,6 +191,7 @@ try {
     }),
   });
   assert.equal(login.status, 200);
+  const loginRequestId = login.headers.get("x-request-id");
   const cookie = login.headers.get("set-cookie").split(";")[0];
   assert.equal(
     (await fetch(base + "/api/dashboard", { headers: { Cookie: cookie } }))
@@ -243,6 +246,15 @@ try {
     filename: "验收依据.txt",
     base64: Buffer.from("release-evidence").toString("base64"),
   });
+  const logHeaders = { Cookie: cookie };
+  await verifyPackageAccessLogs(base, logHeaders, data, loginRequestId);
+  const accounts = await (await fetch(base + "/api/users", { headers: logHeaders })).json();
+  assert.equal(accounts.items.some(row => row.username === "demo"), false, "formal package must not seed demo");
+  await stop();
+  server = launch(data);
+  await ready();
+  const persistedLogs = await verifyPackageAccessLogs(base, logHeaders, data, loginRequestId);
+  assert.ok(persistedLogs.files >= 2, "extracted package must rotate access logs by file size");
   const backup = spawnSync(processExec, [join(stage, "scripts/backup.mjs")], {
     env,
     encoding: "utf8",
@@ -278,6 +290,7 @@ try {
     rebuild_preserved_zip: true,
     actual_zip_extracted: true,
     backup_restore_restart: true,
+    access_logs_rotation_restart: true,
   };
   writeFileSync(
     join(root, "dist/RELEASE-MANIFEST.json"),

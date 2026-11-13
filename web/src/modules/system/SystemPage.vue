@@ -4,6 +4,7 @@ import { useListRoute } from "../../shared/composables/use-list-route";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import { useAccess } from "../../shared/composables/use-access";
 const route = useRoute(), router = useRouter();
+import AccessLogs from "./AccessLogs.vue";
 import RowActions from "../../shared/ui/RowActions.vue";
 import { ref, onMounted, computed, watch } from "vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -107,6 +108,7 @@ function tableFilter(value: Record<string, string>) {
 }
 let loadSequence = 0;
 async function load() {
+  if (tab.value === "access-logs") return;
   const sequence = ++loadSequence;
   listLoading.value = true;
   try {
@@ -192,16 +194,16 @@ onMounted(() => {
     <div>
       <div class="section-caption">系统管理</div>
       <h1>系统管理</h1>
-      <p>账号角色、内网访问与操作审计。</p>
+      <p>账号角色、内网访问、操作审计与访问日志。</p>
     </div>
     <div class="page-heading-actions">
-      <ElButton :data-guide-action="tab === 'users' ? 'system.user' : 'system.ip'" v-if="tab !== 'audit'" type="primary" :disabled="!can('admin')" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
+      <ElButton :data-guide-action="tab === 'users' ? 'system.user' : 'system.ip'" v-if="['users','ips'].includes(tab)" type="primary" :disabled="!can('admin')" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
     </div>
   </div>
   <ElTabs v-model="tab"
     ><ElTabPane label="用户与角色" name="users" /><ElTabPane
       label="IP白名单"
-      name="ips" /><ElTabPane label="操作审计" name="audit"
+      name="ips" /><ElTabPane label="操作审计" name="audit" /><ElTabPane label="访问日志" name="access-logs"
   /></ElTabs>
   <div v-if="tab === 'ips'" class="panel access-policy-settings">
     <div class="access-policy-row">
@@ -220,7 +222,8 @@ onMounted(() => {
       />
     </div>
   </div>
-  <div class="panel" :data-guide-action="tab === 'audit' ? 'system.audit' : undefined">
+  <AccessLogs v-if="tab === 'access-logs'" />
+  <div v-else class="panel" :data-guide-action="tab === 'audit' ? 'system.audit' : undefined">
     <BusinessTable :loading="listLoading" :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">
@@ -228,7 +231,7 @@ onMounted(() => {
         <span v-if="['role','status','action'].includes(column.key)">{{ statusText[row[column.key]] || row[column.key] || '—' }}</span>
         <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
-      <template v-if="tab !== 'audit'" #actions="{ row }">
+      <template v-if="['users','ips'].includes(tab)" #actions="{ row }">
         <RowActions :actions="[
           { label: '编辑', disabled: !can('admin'), run: () => edit(row) },
           { label: '删除', danger: true, disabled: !can('admin'), run: () => remove(row) },

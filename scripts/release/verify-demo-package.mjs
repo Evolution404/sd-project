@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawnSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import assert from "node:assert/strict";
+import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
 import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -66,7 +67,7 @@ z.extractall(out)
       listener.close(()=>resolve(selected));
     });
   });
-  const env={...process.env, DATA_DIR:join(stage,"data"),HOST:"127.0.0.1",PORT:String(chosenPort)};
+  const env={...process.env, ACCESS_LOG_MAX_FILE_BYTES:"2048", DATA_DIR:join(stage,"data"),HOST:"127.0.0.1",PORT:String(chosenPort)};
   async function stop() {
     if (!server || server.exitCode !== null) return;
     await new Promise(resolve=>{
@@ -105,6 +106,7 @@ z.extractall(out)
     body:JSON.stringify({username:DEMO_ACCOUNT,password:DEMO_PASSWORD+"-wrong"})
   });
   assert.notEqual(invalidPassword.status,200,"incorrect demo password must fail");
+  const loginRequestId=login.headers.get("x-request-id");
   const account=await login.json();
   assert.equal(account.role,"admin");
   const cookie=login.headers.get("set-cookie").split(";")[0];
@@ -125,6 +127,7 @@ z.extractall(out)
   });
   assert.equal(created.status,200,await created.clone().text());
   const unit=(await created.json()).id;
+  await verifyPackageAccessLogs(base,headers,join(stage,"data"),loginRequestId);
   await stop();
   await launch();
   const loginAgain=await fetch(base+"/api/login",{
@@ -136,6 +139,8 @@ z.extractall(out)
   const persisted=await fetch(base+"/api/catalog/units/"+unit,{headers:auth});
   assert.equal(persisted.status,200);
   assert.equal((await persisted.json()).name,"演示包重新启动持久化测试");
+  const logCheck=await verifyPackageAccessLogs(base,auth,join(stage,"data"),loginRequestId);
+  assert.ok(logCheck.files>=2,"demo must rotate log files in extracted data/logs");
   await stop();
   assert.equal(digest(zip),receipt.sha256,"archive must remain immutable after launch and restart");
   console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node24, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
