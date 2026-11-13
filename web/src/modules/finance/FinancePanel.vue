@@ -856,7 +856,11 @@ watch(() => props.project.id, () => {
       </div>
       <template v-if="dialog === 'settlement' && form.change_type !== 'void'"
         ><h3>本次费用明细</h3>
-        <div v-for="(item, index) in form.items" :key="index" class="panel">
+        <div v-for="(item, index) in form.items" :key="index" class="panel finance-editor-line">
+          <div class="toolbar finance-editor-line-heading">
+            <strong>费用明细 {{ Number(index) + 1 }}</strong>
+            <ElButton data-guide-action="finance.cost-item-remove" type="danger" plain size="small" @click="form.items.splice(index, 1)">移除此项</ElButton>
+          </div>
           <div class="form-grid">
             <ElFormItem label="费用科目" required
               > <CostCategorySelect v-model="item.cost_node_id" :project-id="project.id" :nodes="categoryNodes" :historical-label="item.cost_node_name" :historical-version-id="item.cost_node_version_id" /></ElFormItem
@@ -883,11 +887,8 @@ watch(() => props.project.id, () => {
               ><ElInput v-model="item.evidence"
             /></ElFormItem>
           </div>
-          <ElButton data-guide-action="finance.cost-item-remove" type="danger" @click="form.items.splice(index, 1)"
-            >删除本行</ElButton
-          >
         </div>
-        <ElButton data-guide-action="finance.cost-item-add"
+        <ElButton class="finance-editor-add" data-guide-action="finance.cost-item-add"
           @click="
             form.items.push({ quantity_scaled: 0, amount_fen: 0, evidence: '' })
           "
@@ -899,7 +900,11 @@ watch(() => props.project.id, () => {
           type="info"
           :closable="false"
         />
-        <div v-for="(r, index) in form.resolutions" :key="index" class="panel">
+        <div v-for="(r, index) in form.resolutions" :key="index" class="panel finance-editor-line">
+          <div class="toolbar finance-editor-line-heading">
+            <strong>解决需求 {{ Number(index) + 1 }}</strong>
+            <ElButton data-guide-action="finance.resolution-remove" type="danger" plain size="small" @click="form.resolutions.splice(index, 1)">移除此项</ElButton>
+          </div>
           <div class="form-grid">
             <ElFormItem label="项目需求" required
               ><ElSelect v-model="r.project_scope_id"
@@ -919,11 +924,8 @@ watch(() => props.project.id, () => {
               ><ElInput v-model="r.evidence"
             /></ElFormItem>
           </div>
-          <ElButton data-guide-action="finance.resolution-remove" type="danger" @click="form.resolutions.splice(index, 1)"
-            >删除本行</ElButton
-          >
         </div>
-        <ElButton data-guide-action="finance.resolution-add"
+        <ElButton class="finance-editor-add" data-guide-action="finance.resolution-add"
           @click="
             form.resolutions.push({ resolved_quantity_scaled: 0, evidence: '' })
           "
@@ -956,3 +958,16 @@ watch(() => props.project.id, () => {
     <BusinessHistory :value="history" />
   </ElDialog>
 </template>
+<style scoped>
+.finance-editor-line-heading {
+  justify-content: space-between;
+  min-height: 28px;
+  margin-bottom: 16px;
+  padding-bottom: 11px;
+  border-bottom: 1px solid var(--edge);
+}
+.finance-editor-line-heading strong {font-size:13px;font-weight:650;color:var(--ink)}
+.finance-editor-line-heading .el-button {margin-left:auto}
+.finance-editor-line > .form-grid :deep(.el-form-item:last-child) {margin-bottom:4px}
+.finance-editor-add {margin:8px 0 5px}
+</style>

@@ -1172,18 +1172,26 @@ onMounted(async () => {
           <div
             v-for="(item, index) in scope.materials"
             :key="index"
-            class="toolbar"
+            class="approval-material-row"
+            role="group" :aria-label="'批准物资第' + (Number(index) + 1) + '项'"
           >
-            <FieldControl
-              v-model="item.material_id"
-              :field="{ type: 'ref', reference: 'materials' }"
-            /><FieldControl
-              v-model="item.quantity_scaled"
-              :field="{ type: 'quantity', quantityPrecision: materialQuantityPrecision[item.material_id] }"
-              @validity-change="approvalQuantityInvalid('material.' + scope.project_scope_id + '.' + item.material_id, $event)"
-            /><ElButton data-guide-action="projects.material-remove" type="danger" @click="scope.materials.splice(index, 1)"
-              >移除</ElButton
-            >
+            <div class="approval-material-field">
+              <span class="approval-material-label">物资名称</span>
+              <FieldControl
+                v-model="item.material_id"
+                :field="{ type: 'ref', reference: 'materials' }"
+              />
+            </div>
+            <div class="approval-material-field">
+              <span class="approval-material-label">批准数量</span>
+              <FieldControl
+                v-model="item.quantity_scaled"
+                :field="{ type: 'quantity', quantityPrecision: materialQuantityPrecision[item.material_id] }"
+                @validity-change="approvalQuantityInvalid('material.' + scope.project_scope_id + '.' + item.material_id, $event)"
+              />
+            </div>
+            <ElButton data-guide-action="projects.material-remove" type="danger" plain size="small"
+              @click="scope.materials.splice(index, 1)">移除</ElButton>
           </div>
           <ElButton data-guide-action="projects.material-add" @click="scope.materials.push({ quantity_scaled: 10000 })"
             >添加批准物资</ElButton
@@ -1242,5 +1250,30 @@ onMounted(async () => {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-
+.approval-material-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(140px, .6fr) auto;
+  align-items: end;
+  gap: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--edge);
+  border-radius: 11px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.approval-material-field {min-width:0}
+.approval-material-label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.approval-material-field :deep(.el-select),
+.approval-material-field :deep(.el-input) {width:100%}
+.approval-material-row > .el-button {margin-bottom:2px}
+@media(max-width:760px){
+  .approval-material-row {grid-template-columns:1fr}
+  .approval-material-row > .el-button {justify-self:end}
+}
 </style>

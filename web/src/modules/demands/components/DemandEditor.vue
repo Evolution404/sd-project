@@ -641,7 +641,7 @@ async function save(duplicate?: string[]) {
       </ElForm>
     </div>
     <template #footer
-      ><span class="muted">草稿自动保留在当前浏览器会话</span
+      ><span class="muted demand-draft-note">草稿自动保留在当前浏览器会话</span
       ><ElButton @click="close()">取消</ElButton
       ><ElButton data-guide-action="demands.save"
         data-action="save-demand"
@@ -663,33 +663,67 @@ async function save(duplicate?: string[]) {
 </template>
 <style scoped>
 .editor-content {
-  height: min(65vh, 760px);
+  height: min(59vh, 700px);
   overflow: auto;
-  padding: 0 14px 10px 2px;
-  scroll-padding-top: 12px;
+  padding: 2px 10px 16px 2px;
+  scroll-padding-top: 16px;
 }
 .editor-content section {
   margin-bottom: 30px;
+  scroll-margin-top: 16px;
+}
+.editor-content section + section {
+  border-top: 1px solid var(--edge);
+  padding-top: 25px;
+}
+.editor-content section > h2,
+.editor-content section > .toolbar h2 {
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.4;
+  border-left: 3px solid var(--brand-primary);
+  padding-left: 12px;
+  margin: 0 0 17px;
+  color: var(--ink);
+}
+.editor-content section > .toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+  align-items: center;
+}
+.editor-content section > .toolbar h2 {margin-bottom: 0}
+.editor-content section > p.muted {
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 8px 0 18px;
+  padding: 10px 12px;
+  background: var(--surface-subtle);
+  border-radius: 9px;
 }
 .source-row {
   display: grid;
-  grid-template-columns: 1fr 220px auto;
+  grid-template-columns: minmax(0, 1fr) 220px auto;
   gap: 12px;
-  align-items: center;
+  align-items: end;
+  background: var(--surface-subtle);
+  border: 1px solid var(--edge);
+  padding: 14px;
+  border-radius: 12px;
+  margin-bottom: 12px;
 }
-.editor-content h2 {
-  font-size: 17px;
-}
-.editor-content .toolbar {
-  justify-content: space-between;
-  flex-wrap: wrap;
+.source-row :deep(.el-form-item) {margin-bottom:0}
+.source-row .el-button {margin-bottom:2px}
+.demand-draft-note {
+  margin-right: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: left;
 }
 @media (max-width: 760px) {
-  .source-row {
-    grid-template-columns: 1fr;
-  }
-  .editor-content {
-    height: 62vh;
-  }
+  .source-row {grid-template-columns: 1fr}
+  .editor-content {height: 55vh;padding-right: 5px}
+  .demand-draft-note {flex-basis:100%}
 }
 </style>

@@ -229,7 +229,7 @@ async function viewCost(entryId: string) {
   <section class="panel cost-category-workspace">
     <div class="toolbar">
       <h2>费用科目</h2>
-      <ElButton data-guide-action="finance.category-create" :disabled="!can('write')" @click="edit()">新增科目</ElButton
+      <ElButton data-guide-action="finance.category-create" type="primary" :disabled="!can('write')" @click="edit()">新增科目</ElButton
       ><ElCheckbox data-guide-action="finance.category-show-deleted" v-model="includeDeleted">包含已删除科目</ElCheckbox
       ><ElButton text @click="load">刷新科目</ElButton>
     </div>
@@ -278,8 +278,8 @@ async function viewCost(entryId: string) {
             @click="edit(selected)"
             >编辑版本</ElButton
           ><ElButton data-guide-action="finance.category-history" @click="historyOpen = true">版本与删除历史</ElButton
-          ><ElButton data-guide-action="finance.category-delete"
-            type="danger"
+          ><ElButton class="category-delete-action" data-guide-action="finance.category-delete"
+            type="danger" plain
             :disabled="!can('admin') || selected.deleted"
             @click="remove"
             >删除科目</ElButton
@@ -490,6 +490,19 @@ async function viewCost(entryId: string) {
 .tree-facts :deep(.el-descriptions__cell) {
   overflow-wrap: anywhere;
 }
+.tree-facts .toolbar .category-delete-action {
+  margin-left: auto;
+}
+.tree-facts .subheading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-weight: 650;
+  color: var(--ink);
+  margin: 8px 0 10px;
+}
+.tree-path {margin:0 0 18px;font-size:12px;line-height:1.6}
 .mobile-tree-switch, .mobile-back { display: none; }
 @media (max-width: 1000px) {
   .mobile-tree-switch { display: flex; gap: 8px; margin: 12px 0; }

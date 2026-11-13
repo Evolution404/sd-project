@@ -18,6 +18,10 @@
   --menu-foreground: #52627c;
   --menu-hover: #f0f4fa;
   --table-heading: #f4f7fc;
+  --form-control-border: #c6d1e0;
+  --form-control-bg: #fff;
+  --form-focus-ring: rgba(52, 120, 246, .14);
+  --surface-subtle: #f8faff;
   --login-glow: radial-gradient(ellipse at 20% 5%, #e8f1ff, #f4f7fc 55%, #eaf0fa);
   --login-shadow: 0 24px 65px rgba(31, 55, 104, .09);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -61,6 +65,10 @@ html.dark {
   --menu-foreground: #bcc8de;
   --menu-hover: #273650;
   --table-heading: #27364d;
+  --form-control-border: #52647f;
+  --form-control-bg: #202d41;
+  --form-focus-ring: rgba(119, 170, 255, .2);
+  --surface-subtle: #233147;
   --login-glow: radial-gradient(ellipse at 20% 5%, #263959, #111927 65%, #162234);
   --login-shadow: 0 24px 65px rgba(0, 0, 0, .27);
 }
@@ -232,13 +240,15 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  margin-bottom: 18px;
+  margin-bottom: 16px;
+  min-height: 34px;
 }
 .toolbar .el-input {
   max-width: 280px;
 }
 .toolbar .el-button + .el-button {margin-left:0}
 .toolbar h2 {margin:0}
+.page-heading-actions > .el-button {min-height:36px}
 .panel {
   padding: 22px;
   background: var(--surface);
@@ -247,10 +257,32 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   box-shadow: var(--shadow-soft);
   margin: 16px 0;
 }
+/* A card header is one horizontal operation bar, not a heading with its
+   own 18px bottom margin (which previously pulled buttons out of alignment). */
 .panel h2 {
   font-size: 16px;
-  margin: 0 0 18px;
+  font-weight: 650;
+  line-height: 1.4;
+  margin: 0 0 16px;
 }
+.panel > .toolbar:has(> h2) {
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--edge);
+}
+.panel > .toolbar > h2:first-child {
+  margin: 0 auto 0 0;
+  min-width: 0;
+}
+.panel > .toolbar:has(> h2) .el-button {
+  flex-shrink: 0;
+}
+.panel > h3 {
+  color: var(--ink);
+  margin: 22px 0 14px;
+  font-size: 15px;
+}
+.panel > .toolbar:last-child {margin-bottom: 0}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -289,8 +321,8 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   transition: transform .16s ease, border-color .16s ease;
 }
 .el-button.metric-action > span { display: block; width: 100%; }
-.el-button.metric-action:hover { transform: translateY(-2px); border-color: var(--accent); }
-.el-button.metric-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.el-button.metric-action:hover { transform: translateY(-2px); border-color: var(--brand-primary); }
+.el-button.metric-action:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: 2px; }
 .el-table {
   --el-table-header-bg-color: var(--table-heading);
   --el-table-border-color: var(--edge);
@@ -302,7 +334,7 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
 .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 20px;
+  gap: 2px 22px;
 }
 .form-grid .el-select,
 .form-grid .el-date-editor,
@@ -354,19 +386,131 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   width: 100%;
   margin-top: 10px;
 }
+/* All business dialogs use one clear hierarchy: fixed header, scrollable
+   form, visually distinct action footer. Keep nested detail dialogs usable. */
 .el-dialog {
   max-width: calc(100vw - 28px);
-  border-radius: 12px;
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
   margin: min(8vh, 64px) auto;
   max-height: calc(100dvh - min(16vh, 128px));
+  overflow: hidden;
+}
+.el-dialog__header {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--edge);
+  padding: 17px 24px 15px;
+  margin: 0;
+}
+.el-dialog__title,
+.el-dialog__header .guide-dialog-heading strong {
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--ink);
 }
 .el-dialog__body {
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  padding: 20px 24px 22px;
 }
-.el-dialog__header, .el-dialog__footer {flex-shrink:0}
+.el-dialog__footer {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px 24px 17px;
+  border-top: 1px solid var(--edge);
+  background: var(--surface);
+}
+.el-dialog__footer .el-button + .el-button {margin-left: 0}
+.el-dialog__footer .el-button {min-width: 72px}
+.el-dialog__footer .el-button--primary {min-width: 88px}
+.el-dialog .el-form-item__label {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 19px;
+}
+.el-dialog .el-form-item.is-required > .el-form-item__label {
+  font-weight: 650;
+}
+.el-dialog .el-form--label-top .el-form-item .el-form-item__label {
+  margin-bottom: 8px;
+}
+.el-dialog .el-form-item {
+  margin-bottom: 19px;
+}
+.el-dialog .el-form-item__error {
+  line-height: 1.4;
+  padding-top: 5px;
+}
+.el-dialog .form-grid .el-input,
+.el-dialog .form-grid .el-select,
+.el-dialog .form-grid .el-date-editor,
+.el-dialog .form-grid .el-input-number {
+  width: 100%;
+}
+.el-dialog .el-input:not(.is-disabled) .el-input__wrapper,
+.el-dialog .el-select:not(.is-disabled) .el-select__wrapper {
+  background: var(--form-control-bg);
+  min-height: 38px;
+  box-shadow: 0 0 0 1px var(--form-control-border) inset;
+  transition: box-shadow .17s ease, background-color .17s ease;
+}
+.el-dialog .el-textarea__inner {
+  background: var(--form-control-bg);
+  border-radius: 10px;
+  min-height: 70px;
+  box-shadow: 0 0 0 1px var(--form-control-border) inset;
+  transition: box-shadow .17s ease;
+}
+/* Match the non-disabled selector's specificity: otherwise the neutral
+   border silently wins over hover/focus and the input never highlights. */
+.el-dialog .el-input:not(.is-disabled) .el-input__wrapper:hover,
+.el-dialog .el-select:not(.is-disabled) .el-select__wrapper:hover,
+.el-dialog .el-textarea__inner:hover {
+  box-shadow: 0 0 0 1px var(--brand-primary) inset;
+}
+.el-dialog .el-input:not(.is-disabled) .el-input__wrapper.is-focus,
+.el-dialog .el-input:not(.is-disabled) .el-input__wrapper:focus-within,
+.el-dialog .el-select:not(.is-disabled) .el-select__wrapper.is-focused,
+.el-dialog .el-select:not(.is-disabled) .el-select__wrapper:focus-within,
+.el-dialog .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1.5px var(--brand-primary) inset, 0 0 0 3px var(--form-focus-ring);
+}
+.el-dialog .el-form-item.is-error .el-input:not(.is-disabled) .el-input__wrapper,
+.el-dialog .el-form-item.is-error .el-select:not(.is-disabled) .el-select__wrapper,
+.el-dialog .el-form-item.is-error .el-textarea__inner {
+  box-shadow: 0 0 0 1.5px var(--el-color-danger) inset;
+}
+.el-dialog .el-form > h3 {
+  display: flex;
+  align-items: center;
+  border-left: 3px solid var(--brand-primary);
+  margin: 24px 0 14px;
+  padding-left: 12px;
+  line-height: 1.4;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.el-dialog .el-form > .panel,
+.el-dialog .el-form > .form-grid + .panel {
+  background: var(--surface-subtle);
+  box-shadow: none;
+  border-radius: 13px;
+  padding: 18px;
+  margin: 14px 0;
+}
+.el-dialog .el-form > .el-alert {margin: 12px 0 16px}
+.el-dialog .el-form-item__content > .toolbar {
+  margin-top: 8px;
+  margin-bottom: 2px;
+}
 .el-descriptions__content, .el-descriptions__label {overflow-wrap:anywhere}
 .el-upload__input {
   display: none !important;
@@ -408,6 +552,12 @@ html.sidebar-is-resizing * {cursor: col-resize !important;user-select:none !impo
   .page-heading h1 {font-size:23px}
   .form-grid {grid-template-columns:1fr}
   .panel {padding:14px}
+  .el-dialog {border-radius:14px;max-width:calc(100vw - 20px)}
+  .el-dialog__header {padding:15px 16px 13px}
+  .el-dialog__body {padding:16px 16px 18px}
+  .el-dialog__footer {padding:12px 16px 14px}
+  .el-dialog .el-form > .panel {padding:14px}
+  .panel > .toolbar:has(> h2) {align-items:flex-start}
   .metric {padding:17px}
   .el-pagination {justify-content:flex-start;flex-wrap:wrap}
   .toolbar {gap:8px}
