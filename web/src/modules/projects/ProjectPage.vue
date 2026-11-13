@@ -606,9 +606,10 @@ function releaseBlockReason(scope: Row): string {
   }
   const latestApproved = approvals.filter(a => a.status === "approved")
     .sort((a, b) => Number(b.version_no) - Number(a.version_no))[0];
-  if (project.status !== "closed" &&
-      latestApproved?.scopes?.some((item: Row) => item.project_scope_id === scope.id)) {
-    return "最新版正式批准范围仍包含该需求；须先在「批准与变更」中完成正式范围变更移出";
+  if (latestApproved?.scopes?.some((item: Row) => item.project_scope_id === scope.id)) {
+    return project.status === "closed"
+      ? "项目已结项，最新版正式批准范围仍包含该需求，不能解绑"
+      : "最新版正式批准范围仍包含该需求；须先在「批准与变更」中完成正式范围变更移出";
   }
   return "";
 }
@@ -857,7 +858,7 @@ onMounted(async () => {
             scope.binding && releaseBlockReason(scope).includes('正式批准范围'))"
           type="info" :closable="false" show-icon
           title="当前正式批准范围内的需求不可直接解绑"
-          description="请先进入「批准与变更」，完成正式范围变更并移出该需求，再返回这里解绑。" />
+          :description="detail.status === 'closed' ? '项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。' : '请先进入「批准与变更」，完成正式范围变更并移出该需求，再返回这里解绑。'" />
         <BusinessTable client-side table-key="project:scopes" :rows="detail.scopes || []"
           :columns="projectScopeColumns" :actions-width="135">
           <template #cell="{ row, column }">

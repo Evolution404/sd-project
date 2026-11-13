@@ -58,6 +58,17 @@ try {
   assert.ok(await release.isDisabled(),"approved bound demand must have disabled release action");
   assert.match((await release.getAttribute("title"))||"",/正式批准范围/);
   await page.screenshot({path:join(out,"approved-scope-release-disabled.png"),fullPage:true});
+  s.finance.close(user,project.id,{expected_version:project.version});
+  await page.reload();
+  await page.getByRole("tab",{name:"已结项",exact:true}).click();
+  await page.getByRole("row").filter({hasText:"测试子项目"}).getByRole("button",{name:"进入项目"}).click();
+  await detail.getByRole("tab",{name:"需求与范围"}).click();
+  await detail.getByText("项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。").waitFor();
+  await detail.getByRole("button",{name:"更多操作"}).click();
+  await release.waitFor();
+  assert.ok(await release.isDisabled(),"closed project must retain its approved binding");
+  assert.match((await release.getAttribute("title"))||"",/已结项.*正式批准范围/);
+  await page.screenshot({path:join(out,"closed-approved-release-disabled.png"),fullPage:true});
   assert.deepEqual(errors,[]);
   console.log("PROJECT_STATUS_RELEASE_BROWSER_OK four stage tabs, visible status column, approved release disabled and guidance");
 } catch(error) {

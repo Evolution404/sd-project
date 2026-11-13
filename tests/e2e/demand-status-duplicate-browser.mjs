@@ -7,11 +7,15 @@ import {inspect} from "../inspector.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
 
 const cleanup=[];
-const {s,user,save,demandInput}=fixture({after:fn=>cleanup.push(fn)});
+const {s,user,save,demandInput,unit,operation}=fixture({after:fn=>cleanup.push(fn)},{quantity_precision:4});
+s.catalog.save(user,"units",{name:"每基杆塔安装装置套数",quantity_precision:4,expected_version:1},unit.id);
+s.catalog.save(user,"operations",{...operation,adopt_current_unit:true,expected_version:1},operation.id);
+demandInput.work_locations[0].quantity_scaled=12345;
 const primary=s.demands.save(user,demandInput);
 const other=s.demands.save(user,{
   ...demandInput,problem_description:"第二次发现的独立故障",
-  duplicate_decision:"separate", duplicate_matches:[primary.demand_no],
+  duplicate_review_tokens: {[primary.id]:s.demands.review(primary.id).duplicate_review_token},
+    duplicate_decision:"separate", duplicate_matches:[primary.demand_no],
   duplicate_reason:"第二次现场发现，独立处置",
 });
 const tower=save("physical",{asset_no:"RETURN-TEST",tower_material:"angle"});
@@ -60,15 +64,20 @@ try {
   await editor.getByRole("tab",{name:"作业位置与工作量"}).click();
   const inline=editor.locator(".quantity-cell .quantity-inline:visible").first();
   await inline.waitFor();
-  const bounds=await inline.evaluate(element=>{
+  for (const width of [1500,1280,960,760]) {
+    await page.setViewportSize({width,height:1060});
+    const bounds=await inline.evaluate(element=>{
     const input=element.querySelector(".el-input__wrapper")?.getBoundingClientRect();
     const unit=element.querySelector(".quantity-unit")?.getBoundingClientRect();
-    return {input:input && [input.top,input.bottom,input.right],unit:unit && [unit.top,unit.bottom,unit.left]};
+    return {input:input && [input.top,input.bottom,input.right],unit:unit && [unit.top,unit.bottom,unit.left], overflow:element.scrollWidth>element.clientWidth+1};
   });
   assert.ok(bounds.input && bounds.unit);
   assert.ok(Math.abs((bounds.input[0]+bounds.input[1])/2-(bounds.unit[0]+bounds.unit[1])/2)<10,
     "quantity input and its unit must be on the same horizontal line");
-  assert.ok(bounds.unit[2] >= bounds.input[2] - 2, "unit must follow input");
+    assert.ok(bounds.unit[2] >= bounds.input[2] - 2, "unit must follow input");
+    assert.equal(bounds.overflow,false,"long units must fit their quantity cell");
+  }
+  await page.setViewportSize({width:1500,height:1060});
   await editor.getByRole("button",{name:"保存需求版本",exact:true}).click();
   await review.waitFor();
   await review.getByText(other.demand_no,{exact:false}).first().waitFor();
@@ -95,6 +104,13 @@ try {
   await review.getByLabel("独立保留依据（必填）").fill("不同故障原因与现场发现批次，各自独立实施");
   await review.locator(".duplicate-decision .el-checkbox").click();
   assert.equal(await review.getByRole("button",{name:"确认独立并保存"}).isEnabled(),true);
+  s.sources.revise(user,other.sources[0].id,{description:"对比后被其他人员修订的来源"});
+  await review.getByRole("button",{name:"确认独立并保存"}).click();
+  await review.getByText("对比后被其他人员修订的来源",{exact:false}).waitFor();
+  assert.equal(s.demands.get(primary.id).current_version,1,"stale review must not save a version");
+  assert.equal(await editor.getByLabel("问题描述",{exact:true}).inputValue(),"保留现场修改并核对重合需求");
+  await review.getByLabel("独立保留依据（必填）").fill("不同故障原因与现场发现批次，重新核对后各自独立实施");
+  await review.locator(".duplicate-decision .el-checkbox").click();
   await review.getByRole("button",{name:"确认独立并保存"}).click();
   await editor.waitFor({state:"hidden"});
   assert.equal(s.demands.get(primary.id).current_version,2);

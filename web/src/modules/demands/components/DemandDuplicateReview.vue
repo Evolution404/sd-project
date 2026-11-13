@@ -20,10 +20,10 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: [];
   park: [];
-  confirm: [reason: string];
+  confirm: [reason: string, tokens: Record<string, string>];
 }>();
 const activeId = ref("");
-const loaded = ref<Record<string, DemandRecord>>({});
+const loaded = ref<Record<string, DemandRecord & { duplicate_review_token: string }>>({});
 const loading = ref(false);
 const loadError = ref("");
 const reason = ref("");
@@ -61,9 +61,9 @@ async function loadRecords() {
   loadError.value = "";
   const candidates = props.candidates.slice();
   const records = await Promise.allSettled(candidates.map(item =>
-    api<DemandRecord>("/demands/" + encodeURIComponent(item.id) + "?deleted=true")));
+    api<DemandRecord & { duplicate_review_token: string }>("/demands/" + encodeURIComponent(item.id) + "?deleted=true")));
   if (run !== sequence || !props.open) return;
-  const next: Record<string, DemandRecord> = {};
+  const next: Record<string, DemandRecord & { duplicate_review_token: string }> = {};
   const failed: string[] = [];
   records.forEach((result, index) => {
     if (result.status === "fulfilled") next[candidates[index]!.id] = result.value;
@@ -73,7 +73,7 @@ async function loadRecords() {
   loading.value = false;
   if (failed.length) loadError.value = "以下需求读取失败：" + failed.join("、") + "。请重试后再作出独立保留决定。";
 }
-watch(() => [props.open, props.candidates.map(item => item.id).join(",")] as const, ([open]) => {
+watch(() => [props.open, props.candidates] as const, ([open]) => {
   ++sequence;
   if (!open) return;
   activeId.value = props.candidates[0]?.id || "";
@@ -83,7 +83,7 @@ watch(() => [props.open, props.candidates.map(item => item.id).join(",")] as con
   void loadRecords();
 }, { immediate: true });
 function confirm() {
-  if (canConfirm.value) emit("confirm", reason.value.trim());
+  if (canConfirm.value) emit("confirm", reason.value.trim(), Object.fromEntries(props.candidates.map(item => [item.id, loaded.value[item.id]!.duplicate_review_token])));
 }
 </script>
 

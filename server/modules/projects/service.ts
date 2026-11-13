@@ -606,9 +606,10 @@ export function createProjects(
         const latestApproved = project.approvals
           .filter(approval => approval.status === "approved")
           .sort((a, b) => b.version_no - a.version_no)[0];
-        requireValue(project.status === "closed" ||
-          !latestApproved?.scopes.some(item => item.project_scope_id === scopeId),
-          "已正式批准的在办项目须先通过最新版范围变更移出需求，才能解绑", 409);
+        requireValue(!latestApproved?.scopes.some(item => item.project_scope_id === scopeId),
+          project.status === "closed"
+            ? "项目已结项，最新版正式批准范围仍包含该需求，不能解绑"
+            : "已正式批准的在办项目须先通过最新版范围变更移出需求，才能解绑", 409);
         const last = repo.latestDemandLinkEvent(scopeId);
         requireValue(last, "关联历史不存在", 409);
         expectedVersion(last.event_seq, input.expected_event_seq);

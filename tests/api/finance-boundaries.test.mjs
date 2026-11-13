@@ -104,8 +104,8 @@ test("settled amounts, independently reported work, over-completion and reconcil
   const closed = s.projects.get(project.id);
   s.projects.remove(user, project.id, { expected_version: closed.version });
   assert.equal(s.demands.get(scope.demand_id).binding.project_id, project.id);
-  s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 });
-  assert.equal(s.demands.get(scope.demand_id).binding, null);
+  assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }), /已结项.*正式批准范围/);
+  assert.equal(s.demands.get(scope.demand_id).binding.project_id, project.id);
   const history = s.projects.history(project.id);
   assert.equal(history.costs.length, 1);
   assert.equal(history.settlements.length, 2);

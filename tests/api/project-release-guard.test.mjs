@@ -51,3 +51,30 @@ test("approval draft containing a linked demand blocks release before formal app
   );
   assert.ok(s.demands.get(demand.id).binding);
 });
+
+test("closed project retains approved binding through service, HTTP and database enforcement", async t => {
+  const { s, user, project, scope, demand } = approvedFixture(t);
+  s.finance.close(user, project.id, { expected_version: project.version });
+  assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }),
+    error => error.status === 409 && /已结项.*正式批准范围/.test(error.message));
+  const { inspect } = await import("../inspector.mjs");
+  assert.throws(() => inspect(s).insert("project_demand_link_events", {
+    id: "rejected-closed-release", project_scope_id: scope.id, event_seq: 2, action: "released",
+    actor_id: user.id, recorded_at: new Date().toISOString(), reason: "",
+  }), /正式批准范围仍包含需求/);
+  const { httpServer } = await import("../../dist/server/platform/http/server.js");
+  const server = httpServer(s);
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const token = s.auth.login("admin", "Schema113-test-password").token;
+  const response = await fetch(`http://127.0.0.1:${server.address().port}/api/projects/${project.id}/release/${scope.id}`, {
+    method: "POST", headers: { Cookie: "sd113=" + token, "Content-Type": "application/json", "Idempotency-Key": "closed-release-block" },
+    body: JSON.stringify({ expected_event_seq: 1 }),
+  });
+  assert.equal(response.status, 409);
+  const body = await response.text();
+  assert.match(body, /已结项.*正式批准范围/);
+  assert.doesNotMatch(body, /SQLite|constraint|stack/);
+  assert.equal(s.demands.get(demand.id).binding.project_id, project.id);
+  assert.equal(inspect(s).where("project_demand_link_events", { project_scope_id: scope.id }).length, 1);
+});

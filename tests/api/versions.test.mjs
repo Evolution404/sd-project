@@ -43,6 +43,7 @@ test("duplicate creation requires a concrete human decision and records the orig
   const separate = s.demands.save(user, {
     ...demandInput,
     demand_no: "D002",
+    duplicate_review_tokens: {[original.id]:s.demands.review(original.id).duplicate_review_token},
     duplicate_decision: "separate",
     duplicate_matches: [original.demand_no],
     duplicate_reason: "现场问题形成于不同批次，须分别验收",

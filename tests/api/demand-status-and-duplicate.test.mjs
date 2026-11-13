@@ -48,10 +48,12 @@ test("duplicate review supplies matching record IDs and stores mandatory indepen
     return true;
   });
   assert.throws(() => s.demands.save(user,{
-    ...demandInput,duplicate_decision:"separate",duplicate_matches:[original.demand_no],
+    ...demandInput,duplicate_review_tokens: {[original.id]:s.demands.review(original.id).duplicate_review_token},
+    duplicate_decision:"separate",duplicate_matches:[original.demand_no],
   }),/疑似重复/);
   const saved=s.demands.save(user,{
-    ...demandInput,duplicate_decision:"separate",duplicate_matches:[original.demand_no],
+    ...demandInput,duplicate_review_tokens: {[original.id]:s.demands.review(original.id).duplicate_review_token},
+    duplicate_decision:"separate",duplicate_matches:[original.demand_no],
     duplicate_reason:"不同发现批次，分别组织现场处理和验收",
   });
   const reviews=inspect(s).list("demand_duplicate_reviews");
@@ -60,3 +62,35 @@ test("duplicate review supplies matching record IDs and stores mandatory indepen
   assert.equal(reviews[0].matched_demand_id,original.id);
   assert.match(reviews[0].reason,/不同发现批次/);
 });
+
+for (const change of ["version", "source", "lifecycle", "binding"]) {
+  test(`duplicate decision refuses stale ${change} facts atomically and accepts a fresh review`, t => {
+    const { s, user, save, demandInput } = fixture(t);
+    const original = s.demands.save(user, demandInput);
+    const reviewed = s.demands.review(original.id).duplicate_review_token;
+    if (change === "version") s.demands.save(user, { ...demandInput, expected_version: 1,
+      problem_description: "核对期间由另一人员更新的事实" }, original.id);
+    if (change === "source") s.sources.revise(user, original.sources[0].id, { description: "核对期间更正的真实来源" });
+    if (["lifecycle", "binding"].includes(change)) s.demands.transition(user, original.id,
+      { expected_version: 1, expected_event_seq: 1, status: "active" });
+    if (change === "binding") {
+      const framework = save("frameworks", { name: "重复核对框架", fiscal_year: 2026, limit_fen: 1 });
+      const project = s.projects.save(user, { framework_id: framework.id, name: "核对期间承接项目" });
+      s.projects.link(user, project.id, { demand_id: original.id, expected_version: 1 });
+    }
+    const decision = { ...demandInput, problem_description: "独立现场问题", duplicate_decision: "separate",
+      duplicate_matches: [original.demand_no], duplicate_reason: "不同发现事实，分别处置",
+      duplicate_review_tokens: { [original.id]: reviewed } };
+    const before = inspect(s).list("audit_events").length;
+    assert.throws(() => s.demands.save(user, decision), error => error.status === 409 && /最新正式记录/.test(error.message));
+    assert.equal(s.demands.list().length, 1);
+    assert.equal(inspect(s).list("demand_duplicate_reviews").length, 0);
+    assert.equal(inspect(s).list("audit_events").length, before);
+    const current = s.demands.review(original.id).duplicate_review_token;
+    const saved = s.demands.save(user, { ...decision, duplicate_review_tokens: { [original.id]: current } });
+    assert.notEqual(saved.id, original.id);
+    assert.equal(inspect(s).list("demand_duplicate_reviews").length, 1);
+    assert.throws(() => s.demands.save(user, { ...decision, expected_version: 0 }, saved.id), /版本冲突/);
+    assert.throws(() => s.demands.save(user, { ...decision, duplicate_matches: "invalid" }), /需求编号列表/);
+  });
+}

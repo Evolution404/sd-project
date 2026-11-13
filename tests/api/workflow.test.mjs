@@ -122,11 +122,11 @@ test("Schema113 real workflow, partial price, exclusive binding, three settlemen
     s.finance.close(user, p.id, { expected_version: 3 }).status,
     "closed",
   );
-  s.projects.release(user, p.id, scope.id, { expected_event_seq: 1 });
-  s.projects.link(user, other.id, {
+  assert.throws(() => s.projects.release(user, p.id, scope.id, { expected_event_seq: 1 }), /已结项.*正式批准范围/);
+  assert.throws(() => s.projects.link(user, other.id, {
     demand_id: demand.id,
     expected_version: 1,
-  });
-  assert.equal(s.demands.get(demand.id).binding.project_id, other.id);
+  }), /关联|承接/);
+  assert.equal(s.demands.get(demand.id).binding.project_id, p.id);
   assert.equal(inspect(s).integrity().integrity[0].integrity_check, "ok");
 });

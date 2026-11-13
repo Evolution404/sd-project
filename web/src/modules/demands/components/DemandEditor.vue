@@ -213,6 +213,16 @@ watch(
   },
 );
 const sectionIds = ["basic", "locations", "materials", "sources"] as const;
+watch(scroll, (root, _previous, cleanup) => {
+  if (!root) return;
+  const observer = new ResizeObserver(syncSectionFromScroll);
+  observer.observe(root);
+  for (const id of sectionIds) {
+    const target = root.querySelector("#demand-section-" + id);
+    if (target) observer.observe(target);
+  }
+  cleanup(() => observer.disconnect());
+}, { flush: "post" });
 function syncSectionFromScroll() {
   const root = scroll.value;
   if (!root) return;
@@ -253,8 +263,8 @@ function parkDraft() {
   emit("update:open", false);
   ElMessage.success("草稿已暂存在当前浏览器会话；再次打开需求编辑器可恢复，尚未生成正式需求");
 }
-function confirmIndependent(reason: string) {
-  void save(duplicateCandidates.value.map(item => item.demand_no), reason);
+function confirmIndependent(reason: string, tokens: Record<string, string>) {
+  void save(duplicateCandidates.value.map(item => item.demand_no), reason, tokens);
 }
 async function changeOperation(value: unknown, allowSame = false) {
   const id = typeof value === "string" ? value : "";
@@ -376,7 +386,7 @@ function addLocations(rows: LocationDraft[]) {
     }),
   );
 }
-async function save(duplicate?: string[], duplicateReason?: string) {
+async function save(duplicate?: string[], duplicateReason?: string, tokens?: Record<string, string>) {
   if (loading.value) return;
   errors.value = {};
   try {
@@ -426,7 +436,7 @@ async function save(duplicate?: string[], duplicateReason?: string) {
         .filter((row) => row.id || row.description)
         .map(({ row_id, ...row }) => row),
       ...(duplicate
-        ? { duplicate_decision: "separate", duplicate_matches: duplicate, duplicate_reason: duplicateReason }
+        ? { duplicate_decision: "separate", duplicate_matches: duplicate, duplicate_reason: duplicateReason, duplicate_review_tokens: tokens }
         : {}),
     };
     const saved = await api<DemandRecord>(

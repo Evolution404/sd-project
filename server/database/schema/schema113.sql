@@ -2411,7 +2411,7 @@ BEGIN SELECT RAISE(ABORT,'已建立的需求关联及解绑历史不可删除');
 -- No bare status flip, false release, backwards timestamp or cross-project
 -- duplicate acquisition is permitted. Release of an approved active scope
 -- requires a prior formal approved project scope change that excludes it,
--- or explicit release AFTER the original project was formally closed.
+-- including after project closure. Closure cannot release approved demands.
 CREATE TRIGGER project_demand_link_event_guard
  BEFORE INSERT ON project_demand_link_events
 BEGIN
@@ -2459,8 +2459,8 @@ BEGIN
  SELECT CASE WHEN NEW.action='released' AND EXISTS(
   SELECT 1 FROM project_demand_scopes sc JOIN projects p ON p.id=sc.project_id
   JOIN v_approval_scope_current a ON a.project_scope_id=sc.id
-  WHERE sc.id=NEW.project_scope_id AND p.status<>'closed')
- THEN RAISE(ABORT,'已正式批准的在办项目须先通过最新版范围变更移出需求，才能解绑') END;
+  WHERE sc.id=NEW.project_scope_id)
+ THEN RAISE(ABORT,'最新版正式批准范围仍包含需求，不能解绑；在办项目须先完成正式范围变更') END;
 END;
 CREATE TRIGGER project_demand_link_event_immutable_update
  BEFORE UPDATE ON project_demand_link_events

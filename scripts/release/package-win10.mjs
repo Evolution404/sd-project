@@ -117,6 +117,7 @@ for (const [src, dest] of [
     "docs/implementation/P10_业务操作帮助覆盖清单.md",
     "docs/implementation/P10_实施与验收_2026-11-12.md",
     "docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md",
+    "docs/implementation/访问日志与最终交付_2026-11-13.md",
   ].map((path) => [path, path]),
   ["package.json", "package.json"],
 ]) {

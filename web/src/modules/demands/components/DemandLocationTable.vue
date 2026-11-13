@@ -197,7 +197,7 @@ function applyBatch() {
               @validity-change="emit('invalid', editing!.id, $event)"
             />
           </div>
-          <span class="quantity-unit">{{ unit }}</span>
+          <span class="quantity-unit" :title="'计量单位：' + unit">{{ unit }}</span>
         </div>
       </ElFormItem>
       <ElFormItem label="作业方式"
@@ -243,7 +243,7 @@ function applyBatch() {
               @validity-change="batchQuantityInvalid = $event"
             />
           </div>
-          <span class="quantity-unit">{{ unit }}</span>
+          <span class="quantity-unit" :title="'计量单位：' + unit">{{ unit }}</span>
         </div>
       </ElFormItem>
       <ElCheckbox v-model="modeEnabled">作业方式</ElCheckbox
@@ -306,7 +306,10 @@ function applyBatch() {
 .quantity-input :deep(.el-input) { width: 100%; }
 .quantity-unit {
   display: inline-block;
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 600;
   color: var(--ink);

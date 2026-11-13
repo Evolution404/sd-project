@@ -20,7 +20,7 @@ export async function handleDemands(context: RouteContext): Promise<{
                           )
                     : sub === "history"
                         ? system.demands.history(key)
-                        : system.demands.get(key, deleted);
+                        : system.demands.review(key, deleted);
             else if (method === "DELETE")
                 result = mutate("admin", () => system.demands.remove(actor, key, input));
             else if (sub === "status")

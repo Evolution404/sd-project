@@ -1193,7 +1193,7 @@ blocked_reason("approved demand cannot be unlinked before formal project scope c
     "INSERT INTO project_demand_link_events("
     "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
     " VALUES(?,?,?,?,?,?)",
-    "已正式批准的在办项目须先通过最新版范围变更移出需求",
+    "最新版正式批准范围仍包含需求，不能解绑",
     ("illegal_approved_release","snull",2,"released","u",
      "2026-11-07T18:20:00.000Z"))
 add("project_closures",id="close_null",project_id="pnull",
@@ -4386,8 +4386,8 @@ finally:
     db.execute("RELEASE r15_demand_link_exclusivity")
 
 # A project with an approved scope still owns its demand; it must first
-# formally remove that scope from the current approved version, or it may
-# explicitly release after the project has closed. Historic approvals remain.
+# formally remove that scope from the current approved version. Closure
+# retains this protection under the 2026-11-13 user decision.
 db.execute("SAVEPOINT r15_formal_reassignment")
 try:
     blocked_reason("latest approved active scope cannot be unlinked mid-project",
@@ -4395,7 +4395,7 @@ try:
         "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
         " VALUES('r15_not_yet_released','scope2',2,'released','u',"
         "'2026-11-08T04:03:00.000Z')",
-        "已正式批准的在办项目须先通过最新版范围变更移出需求")
+        "最新版正式批准范围仍包含需求，不能解绑")
     # p's latest approval av3 excludes the ORIGINAL scope d, though old
     # approval and cost/settlement histories still refer to it.
     add("project_demand_link_events",id="r15_release_after_change",
@@ -4429,25 +4429,18 @@ try:
             "WHERE aps.demand_id='d' AND av.status='approved'")["n"]>=2
         and row("SELECT project_id FROM v_project_demand_binding_current "
             "WHERE demand_id='d'")["project_id"]=="r15_successor")
-    # A CLOSED old project may explicitly release an approved demand with
-    # remaining work for a successor. Closing is not silent auto-release.
-    ok("closed project retains bound demand until explicit action",
+    ok("closed project retains its approved demand binding",
         row("SELECT project_id FROM v_project_demand_binding_current "
             "WHERE demand_id='dnull'")["project_id"]=="pnull")
-    add("project_demand_link_events",id="r15_closed_release",
-        project_scope_id="snull",event_seq=2,action="released",
-        actor_id="u",recorded_at="2026-11-08T04:07:00.000Z")
-    add("projects",id="r15_closed_successor",code="R15-CLOSED-SUCCESSOR",
-        name="已结项项目未完需求的明确接续",framework_id="f",
-        created_by="u",created_at="2026-11-08T04:07:01.000Z")
-    add("project_demand_scopes",id="r15_closed_successor_scope",
-        project_id="r15_closed_successor",demand_id="dnull",demand_version=1,
-        proposed_quantity_scaled=10000,
-        created_at="2026-11-08T04:07:02.000Z",
-        updated_at="2026-11-08T04:07:02.000Z")
-    ok("post-close explicit release allows another project to reserve remainder",
-        row("SELECT project_id FROM v_project_demand_binding_current "
-            "WHERE demand_id='dnull'")["project_id"]=="r15_closed_successor"
+    blocked_reason("closed project cannot release a demand in its latest approved scope",
+        "INSERT INTO project_demand_link_events("
+        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+        " VALUES('r15_closed_release','snull',2,'released','u',"
+        "'2026-11-08T04:07:00.000Z')",
+        "最新版正式批准范围仍包含需求，不能解绑")
+    ok("closed release denial preserves approval and link history",
+        row("SELECT COUNT(*) n FROM project_demand_link_events "
+            "WHERE project_scope_id='snull'")["n"]==1
         and row("SELECT COUNT(*) n FROM project_approval_scope_versions "
             "WHERE project_scope_id='snull'")["n"]==1)
 finally:

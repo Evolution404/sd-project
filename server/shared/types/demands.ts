@@ -119,6 +119,7 @@ export interface DemandWriteInput {
   expected_on?: string | null;
   duplicate_decision?: "separate";
   duplicate_matches?: string[];
+  duplicate_review_tokens?: Record<string, string>;
   duplicate_reason?: string;
   reason?: string;
 }

@@ -10,7 +10,7 @@ import type {
 import { normalizeAttributeValues, validateAttributeSchema } from "../../shared/operation-attributes.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import { demandDisplayStatus } from "../../shared/demand-display-status.js";
-import { authorize, documentCode, id, now } from "../../platform/auth/service.js";
+import { authorize, documentCode, digest, id, now } from "../../platform/auth/service.js";
 import {
   requireValue,
   text,
@@ -28,6 +28,11 @@ function parseDemandInput(value: unknown): DemandWriteInput {
   requireValue(!Array.isArray(value.sources) || value.sources.every(isObject), "每项来源须为对象");
   requireValue(value.attributes === undefined || isObject(value.attributes),
     "补充现场字段必须是对象");
+  requireValue(value.duplicate_matches === undefined || (Array.isArray(value.duplicate_matches) &&
+    value.duplicate_matches.every(item => typeof item === "string")), "重复核对清单必须为需求编号列表");
+  requireValue(value.duplicate_review_tokens === undefined || (isObject(value.duplicate_review_tokens) &&
+    Object.values(value.duplicate_review_tokens).every(token => typeof token === "string" && /^[a-f0-9]{64}$/.test(token))),
+    "重复核对依据无效，请重新读取正式记录");
   return value as DemandWriteInput;
 }
 function parseLifecycleInput(value: unknown): {
@@ -371,6 +376,10 @@ export function createDemands(
       materials,
     };
   }
+  function review(key: string, includeDeleted = false) {
+    const record = get(key, includeDeleted);
+    return { ...record, duplicate_review_token: digest(JSON.stringify(record)) };
+  }
   function save(actor: Actor, raw: unknown, key?: string, context: {batchId?: string} = {}): DemandRecord {
     const input = parseDemandInput(raw);
     authorize(actor, "write");
@@ -390,8 +399,10 @@ export function createDemands(
             typeof input.duplicate_reason === "string" &&
             input.duplicate_reason.trim().length > 0 &&
             JSON.stringify((input.duplicate_matches || []).slice().sort()) ===
-              JSON.stringify(duplicates.map((row) => row.demand_no).sort())),
-        "发现同操作同位置的疑似重复需求，须人工判定",
+              JSON.stringify(duplicates.map((row) => row.demand_no).sort()) &&
+            isObject(input.duplicate_review_tokens) &&
+            duplicates.every(row => input.duplicate_review_tokens?.[row.id] === review(row.id).duplicate_review_token)),
+        "发现同操作同位置的疑似重复需求，须核对最新正式记录后人工判定",
         409,
         {
           duplicates: duplicates.map((x) => x.demand_no),
@@ -506,6 +517,7 @@ export function createDemands(
           draft_json: JSON.stringify({
             decision: "separate",
             demand_id: keyId,
+            reviewed_records: input.duplicate_review_tokens,
           }),
           created_by: actor.id,
           created_at: timestamp,
@@ -537,6 +549,7 @@ export function createDemands(
   }
   return {
     get,
+    review,
     normalize,
     findDuplicates(operationId: string, locations: DemandLocation[], exceptId?:string) {
       return repo.duplicates(operationId, locations, exceptId);
