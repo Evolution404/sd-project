@@ -1,3 +1,4 @@
+import type { ProjectDisplayStatus } from "../project-display-status.js";
 export type FundingKind = "frameworks" | "agreements";
 export interface FundingRecord {
   id: string;
@@ -23,6 +24,7 @@ export interface FundingProject {
   code: string;
   name: string;
   status: string;
+  display_status: ProjectDisplayStatus;
   framework_id: string;
   agreement_id: string | null;
   approved_budget_fen: number | null;

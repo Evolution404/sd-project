@@ -1,4 +1,5 @@
 import type { FinanceListItem, FinanceListKind } from "../../shared/types/finance.js";
+import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
 
@@ -30,6 +31,7 @@ export interface ProjectListRecord {
   approval_json: string | null;
   scopes_json: string;
   funding_json: string | null;
+  display_status: string;
   deleted: number;
 }
 
@@ -62,7 +64,8 @@ const demandSource: ListSource = {
   search: ["demand_no", "full_definition_json", "status"],
 };
 const projectSource: ListSource = {
-  sql: `SELECT p.*, m.name, m.version_no AS profile_version, m.category_id,
+  sql: `SELECT p.*, ${PROJECT_DISPLAY_STATUS_SQL} AS display_status,
+    m.name, m.version_no AS profile_version, m.category_id,
     m.managing_unit_id, m.owner_id, m.manager_id, m.planned_start_on, m.planned_end_on,
     m.preliminary_estimate_fen, category.name AS category_name, organization.name AS managing_unit_name,
     owner.username AS owner_username, manager.username AS manager_username,
@@ -83,7 +86,7 @@ const projectSource: ListSource = {
     LEFT JOIN dictionary_item_versions category ON category.item_id=m.category_id AND category.version=m.category_version
     LEFT JOIN organizational_unit_versions organization ON organization.id=m.managing_unit_version_id
     LEFT JOIN users owner ON owner.id=m.owner_id LEFT JOIN users manager ON manager.id=m.manager_id`,
-  columns: ["id", "code", "name", "status", "framework_id", "category_name", "managing_unit_name",
+  columns: ["id", "code", "name", "status", "display_status", "framework_id", "category_name", "managing_unit_name",
     "planned_start_on", "planned_end_on", "preliminary_estimate_fen", "created_at", "deleted"],
   search: ["code", "name", "status", "category_name", "managing_unit_name"],
 };

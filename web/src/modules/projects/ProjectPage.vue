@@ -177,20 +177,16 @@ function resetListPage() {
   page.value = 1;
   void load();
 }
-const projectStatuses = [
-  { key: "reserve", label: "储备" },
-  { key: "stocked", label: "已入库" },
-  { key: "approved", label: "已批准" },
-  { key: "closed", label: "已结项" },
-] as const;
-// Same exact status filter powers both the visible project column and tabs.
+const projectStatuses = ["储备", "已入库", "立项中", "已批准", "变更中", "已结项"] as const;
+// One visible status and one authoritative derived filter source.
+// The formal four-stage lifecycle remains unchanged for business rules.
 const listStatus = computed({
-  get: () => projectStatuses.some(item => item.key === columnFilters.value.status)
-    ? columnFilters.value.status : "",
+  get: () => projectStatuses.find(value => value === columnFilters.value.display_status) || "",
   set: value => {
     const next = { ...columnFilters.value };
-    if (value) next.status = value;
-    else delete next.status;
+    if (value) next.display_status = value;
+    else delete next.display_status;
+    delete next.status;
     columnFilters.value = next;
     page.value = 1;
     void load();
@@ -199,7 +195,7 @@ const listStatus = computed({
 const projectColumns: TableColumn[] = [
   { key: "code", label: "项目编号", minWidth: 150 },
   { key: "name", label: "项目名称", minWidth: 220 },
-  { key: "status", label: "项目状态", minWidth: 155, hideable: false },
+  { key: "display_status", label: "项目状态", minWidth: 155, hideable: false },
   { key: "approval", filterable: false, label: "批准预算", sortable: false },
   { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
 ];
@@ -778,8 +774,8 @@ onMounted(async () => {
     </div>
     <ElTabs v-model="listStatus" aria-label="按项目状态筛选">
       <ElTabPane name="" label="全部项目" />
-      <ElTabPane v-for="item in projectStatuses" :key="item.key"
-        :name="item.key" :label="item.label" />
+      <ElTabPane v-for="state in projectStatuses" :key="state"
+        :name="state" :label="state" />
     </ElTabs>
     <div class="panel">
       <div class="toolbar">
@@ -796,8 +792,8 @@ onMounted(async () => {
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
-          <ElTag v-if="column.key === 'status'" effect="plain"
-            :type="row.status === 'approved' ? 'success' : row.status === 'closed' ? 'info' : undefined">{{ statusText[row.status] }}</ElTag>
+          <ElTag v-if="column.key === 'display_status'" effect="plain"
+            :type="row.display_status === '已批准' ? 'success' : row.display_status === '已结项' ? 'info' : ['立项中','变更中'].includes(row.display_status) ? 'warning' : undefined">{{ row.display_status }}</ElTag>
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x: Row) => x.binding).length || 0 }}</span>
           <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
@@ -818,12 +814,12 @@ onMounted(async () => {
     @close="detailDialog.close" @retry="detailDialog.reload">
     <template v-if="detail"><div class="detail-header">
       <h1>{{ detail.name }}</h1>
-      <ElTag>{{ statusText[detail.status] }}</ElTag
+      <ElTag :type="detail.display_status === '已批准' ? 'success' : ['变更中','立项中'].includes(detail.display_status) ? 'warning' : undefined">{{ detail.display_status }}</ElTag
       ><ElTooltip :content="detail.code" placement="top">
          <span class="muted project-code">{{ detail.code }}</span>
        </ElTooltip>
     </div>
-    <ProjectWorkflowHeader :status="detail.status" :deleted="!!detail.deleted"
+    <ProjectWorkflowHeader :display-status="detail.display_status" :deleted="!!detail.deleted"
       :loading="overviewLoading" :actions="projectActions" :can-write="can('write')"
       :can-admin="can('admin')" :can-delete="detail.status === 'closed' || (['reserve', 'stocked'].includes(detail.status) && !(detail.scopes || []).some((scope: Row) => scope.binding))" @action="runWorkflowAction"
       @manage="command => {

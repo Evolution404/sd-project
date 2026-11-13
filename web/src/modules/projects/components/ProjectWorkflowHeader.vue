@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { statusText } from "../../../shared/api/client";
 import type { ProjectAction } from "../../../../../server/modules/projects/actions";
 
 function workflowGuideId(key: ProjectAction["key"]): string | undefined {
@@ -14,7 +13,7 @@ function workflowGuideId(key: ProjectAction["key"]): string | undefined {
   }
 }
 const props = defineProps<{
-  status: string;
+  displayStatus: string;
   deleted: boolean;
   loading: boolean;
   actions: ProjectAction[];
@@ -32,7 +31,7 @@ const emit = defineEmits<{
   <div class="panel project-current-step" v-loading="loading">
     <div class="project-action-bar">
       <div class="project-stage-copy">
-        <h2>当前阶段 · {{ statusText[status] || status }}</h2>
+        <h2>当前项目状态 · {{ displayStatus }}</h2>
         <p class="muted">优先办理下一步；年度框架与执行协议在项目档案中维护。</p>
       </div>
       <div class="project-action-controls">

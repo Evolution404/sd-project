@@ -3,6 +3,7 @@ import { searchPage, type ListSource } from "../queries/business-lists.js";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
 
 import type { FundingKind, FundingRecord, FundingProject, FundingVersion } from "../../shared/types/funding.js";
+import { PROJECT_DISPLAY_STATUS_SQL } from "../queries/project-status-sql.js";
 export type { FundingKind, FundingRecord, FundingProject, FundingVersion } from "../../shared/types/funding.js";
 const sources: Record<FundingKind, ListSource> = {
   frameworks: {
@@ -77,7 +78,8 @@ export function fundingRepository(store: Store) {
     /** One indexed set query for the current funding and approved/actual facts. */
     linkedProjects(kind: FundingKind, key: string): FundingProject[] {
       const scope = kind === "frameworks" ? "p.framework_id" : "fund.agreement_id";
-      return store.query(`SELECT p.id,p.code,m.name,p.status,p.framework_id,
+      return store.query(`SELECT p.id,p.code,m.name,p.status,
+        ${PROJECT_DISPLAY_STATUS_SQL} AS display_status,p.framework_id,
         fund.agreement_id,approval.approved_budget_fen,
         COALESCE(cost.amount_fen,0) AS actual_cost_fen,
         COALESCE(settled.amount_fen,0) AS settlement_fen

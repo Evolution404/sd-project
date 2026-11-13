@@ -68,7 +68,7 @@ const linkedProjectColumns = computed<TableColumn[]>(() => [
   ...(!isAgreement.value
     ? [{ key: "agreement_id", label: "归属方式", minWidth: 172, sortable: false, filterable: false }]
     : []),
-  { key: "status", label: "项目阶段", minWidth: 120 },
+  { key: "display_status", label: "项目状态", minWidth: 135 },
   { key: "approved_budget_fen", label: "批准预算", minWidth: 155 },
   { key: "actual_cost_fen", label: "真实费用", minWidth: 155 },
   { key: "settlement_fen", label: "已批准结算", minWidth: 155 },
@@ -95,7 +95,7 @@ function relatedAgreementCell(row: FundingRecord, column: TableColumn): string {
 function relatedProjectCell(row: FundingProject, column: TableColumn): string {
   if (column.key === "approved_budget_fen" || column.key === "actual_cost_fen" || column.key === "settlement_fen")
     return amountText(row[column.key]);
-  if (column.key === "status") return statusText[row.status] || row.status;
+  if (column.key === "display_status") return row.display_status;
   if (column.key === "agreement_id")
     return row.agreement_id ? "通过执行协议" : "直接归属年度框架";
   return String(row[column.key as keyof FundingProject] ?? "—");

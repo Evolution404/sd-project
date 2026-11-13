@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { money, statusText } from "../../../shared/api/client";
+import { money } from "../../../shared/api/client";
 import type { ProjectSection } from "../../../shared/navigation/business-context";
 
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./types";
@@ -47,7 +47,6 @@ const hasProfile = computed(() => Boolean(props.project.category_name ||
           @click="emit('fund', 'agreements', agreement.id)">通过执行协议 · {{ agreement.name }}</ElButton>
         <span v-else>直接归属年度框架（无需执行协议）</span>
       </ElDescriptionsItem>
-      <ElDescriptionsItem label="当前阶段">{{ statusText[project.status] || project.status }}</ElDescriptionsItem>
       <ElDescriptionsItem label="计划结束日期">{{ project.planned_end_on || '未指定' }}</ElDescriptionsItem>
     </ElDescriptions>
     <div class="toolbar" style="margin-top:14px">

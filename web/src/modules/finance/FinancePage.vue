@@ -18,6 +18,7 @@ interface ProjectListItem {
   name: string;
   code: string;
   status: string;
+  display_status: string;
   profile_version: number;
   approval: { approved_budget_fen: number } | null;
   deleted: boolean;
@@ -90,7 +91,8 @@ const columns = computed<TableColumn[]>(() => [
 ]);
 let sequence = 0;
 function projectKey(key: string): string {
-  return key === "project_name" ? "name" : key === "label" ? "code" : key;
+  return key === "project_name" ? "name" : key === "label" ? "code"
+    : key === "status" ? "display_status" : key;
 }
 async function load() {
   const current = ++sequence;
@@ -106,7 +108,7 @@ async function load() {
       if (current !== sequence) return;
       rows.value = result.items.map(item => ({ id: item.id, project_id: item.id, project_name: item.name,
         project_code: item.code, label: item.code, amount_fen: item.approval?.approved_budget_fen ?? null,
-        status: item.status, version_no: item.profile_version, occurred_on: null, deleted: item.deleted }));
+        status: item.display_status, version_no: item.profile_version, occurred_on: null, deleted: item.deleted }));
       total.value = result.total;
     } else {
       const result = await api<Page<FinanceListItem>>("/finance/" + kind.value + "?" + parameters);
@@ -230,7 +232,7 @@ onMounted(() => { void load(); });
     </template>
   </BusinessDetailDialog>
   <BusinessDetailDialog :open="isOpen" title="费用与结算" :loading="detailLoading" :error="detailError" @close="detailDialog.close" @retry="detailDialog.reload">
-    <template v-if="project"><div class="detail-header"><h1>{{ project.name }}</h1><ElTag>{{ statusText[project.status] }}</ElTag></div>
+    <template v-if="project"><div class="detail-header"><h1>{{ project.name }}</h1><ElTag>{{ project.display_status }}</ElTag></div>
       <ElTabs model-value="finance"><ElTabPane name="finance" label="费用与结算"><FinancePanel :project="project" @changed="refreshProject" /></ElTabPane></ElTabs>
     </template>
   </BusinessDetailDialog>

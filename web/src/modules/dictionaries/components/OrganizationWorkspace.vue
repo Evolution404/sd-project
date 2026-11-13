@@ -224,6 +224,7 @@ interface LinkedProject {
   name: string;
   code: string;
   status: string;
+  display_status: string;
   managing_unit_name: string | null;
   profile_version: number;
   approval: { approved_budget_fen: number } | null;
@@ -450,8 +451,8 @@ const projectDialog = useEntityDialog(
       <ElDescriptionsItem label="子项目">{{
         linkedProject.name
       }}</ElDescriptionsItem>
-      <ElDescriptionsItem label="阶段">{{
-        statusText[linkedProject.status]
+      <ElDescriptionsItem label="项目状态">{{
+        linkedProject.display_status
       }}</ElDescriptionsItem>
       <ElDescriptionsItem label="采用单位名称">{{
         linkedProject.managing_unit_name || "未指定"

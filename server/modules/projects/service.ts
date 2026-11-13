@@ -6,6 +6,7 @@ import {
   integer,
 } from "../../shared/errors/business-error.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
+import { projectDisplayStatus } from "../../shared/project-display-status.js";
 import type { Actor, ListQuery } from "../../shared/types/contracts.js";
 import type { CatalogService } from "../catalog/service.js";
 import type { DemandService } from "../../shared/types/demands.js";
@@ -37,9 +38,11 @@ export function createProjects(
         repo.latestApprovedProject(key) || null;
     requireValue(profile, "项目档案版本不存在", 404);
     const scopes = repo.projectScopes(key);
+    const approvalRows = repo.projectApprovalHistory(key, currentOnly);
     return {
       ...profile,
       ...root,
+      display_status: projectDisplayStatus(root.status, approvalRows),
       deleted: repo.projectDeleted(key),
       category_name: profile.category_id
         ? repo.categoryVersionName(profile.category_id, profile.category_version ?? 0)
@@ -59,11 +62,10 @@ export function createProjects(
       approval,
       scopes,
       approvals: (() => {
-        const approvals = repo.projectApprovalHistory(key, currentOnly);
         const summaries = currentOnly
-          ? pricing.summariesForApprovals(approvals.map(ap => ap.id))
-          : pricing.projectSummaries(key, approvals.map(ap => ap.id));
-        return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
+          ? pricing.summariesForApprovals(approvalRows.map(ap => ap.id))
+          : pricing.projectSummaries(key, approvalRows.map(ap => ap.id));
+        return approvalRows.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
       })(),
       cost_nodes: repo.projectCostNodes(key),
       changes: repo.projectChanges(key),
