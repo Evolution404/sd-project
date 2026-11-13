@@ -78,7 +78,10 @@ assert.equal(manifest.git_commit, receipt.git_commit);
 assert.equal(manifest.ps1_utf8_bom, true,
   "formal release must include its PowerShell 5.1 BOM entrypoint");
 assert.equal(manifest.data_location, "./data");
-assert.equal(manifest.worktree_dirty, false);
+assert.equal(typeof manifest.worktree_dirty, "boolean");
+assert.match(manifest.build_input_sha256,/^[0-9a-f]{64}$/);
+assert.equal(manifest.worktree_dirty,receipt.worktree_dirty);
+assert.equal(manifest.build_input_sha256,receipt.build_input_sha256);
 const shipped = spawnSync(
   "git",
   [

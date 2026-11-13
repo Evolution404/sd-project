@@ -34,13 +34,16 @@ const revision = spawnSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
 });
-const dirty = spawnSync("git", ["status", "--porcelain"], {
+const dirty = spawnSync("git", ["status", "--porcelain", "--untracked-files=all"], {
   cwd: root,
   encoding: "utf8",
 });
-if (revision.status !== 0 || dirty.status !== 0 || dirty.stdout.trim())
-  throw Error("Windows正式版与演示版打包均要求工作区干净，请先提交全部受控源码和文档");
+if (revision.status !== 0 || dirty.status !== 0)
+  throw Error("无法读取Git基线提交及工作区状态，不能生成可追溯发布清单");
 const gitCommit = revision.stdout.trim();
+// Uncommitted source is supported. git_commit is a BASELINE, not a claim
+// that the package bytes are identical to the committed revision.
+const worktreeDirty = Boolean(dirty.stdout.trim());
 const stage = join(root, ".build", demoMode ? "windows-demo-staging" : "windows-staging");
 const cache = join(root, ".build", "windows-cache");
 mkdirSync(cache, { recursive: true });
@@ -59,6 +62,37 @@ async function download(url, path) {
 }
 const digestFile = (p) =>
   createHash("sha256").update(readFileSync(p)).digest("hex");
+function sourceSnapshot() {
+  // Include both tracked and untracked build inputs, not merely Git status.
+  // A dirty worktree is fine; concurrent edits during packaging are not.
+  const inputs = [
+    "server", "web", "scripts", "docs/architecture",
+    "docs/implementation", "docs/decisions",
+    "package.json", "package-lock.json", "README.md",
+  ];
+  const files = [];
+  function visit(path) {
+    if (!existsSync(path)) return;
+    const stat = statSync(path);
+    if (stat.isDirectory()) {
+      for (const entry of readdirSync(path).sort())
+        if (entry !== "node_modules" && entry !== ".DS_Store")
+          visit(join(path, entry));
+    } else if (stat.isFile()) {
+      files.push(path);
+    }
+  }
+  for (const path of inputs) visit(join(root, path));
+  const hash = createHash("sha256");
+  for (const path of files.sort()) {
+    hash.update(path.slice(root.length + 1).replaceAll("\\", "/"));
+    hash.update("\0");
+    hash.update(digestFile(path));
+    hash.update("\n");
+  }
+  return hash.digest("hex");
+}
+const buildInputSha256 = sourceSnapshot();
 const shas = join(cache, `${version}-SHASUMS256.txt`);
 await download(nodeBase + "/SHASUMS256.txt", shas);
 const sums = readFileSync(shas, "utf8")
@@ -231,7 +265,8 @@ const sourceHashes = Object.fromEntries([...sourceFiles].sort()
 const manifest = {
   product: "sd-project",
   package_mode: mode,
-  worktree_dirty: Boolean(dirty.stdout.trim()),
+  worktree_dirty: worktreeDirty,
+  build_input_sha256: buildInputSha256,
   entrypoint: "dist/server/main.js",
   server_source_sha256: sourceHashes,
   server_artifact_sha256: artifactHashes(join(stage, "dist/server")),
@@ -294,24 +329,23 @@ const check = spawnSync("python3", ["-c", verify, pendingZip], {
 });
 if (check.status !== 0) throw Error("ZIP verify failed: " + check.stderr);
 console.log(check.stdout.trim());
-const finalStatus = spawnSync("git", ["status", "--porcelain"], {
-  cwd: root,
-  encoding: "utf8",
-});
 const finalRevision = spawnSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
 });
 if (
-  finalStatus.status !== 0 ||
-  finalStatus.stdout.trim() ||
+  finalRevision.status !== 0 ||
   finalRevision.stdout.trim() !== gitCommit ||
-  (demoMode && Object.entries(sourceHashes).some(([path, hash]) => digestFile(join(root, path)) !== hash))
+  sourceSnapshot() !== buildInputSha256 ||
+  Object.entries(sourceHashes).some(([path, hash]) =>
+    !existsSync(join(root, path)) || digestFile(join(root, path)) !== hash)
 )
-  throw Error("打包期间源码发生变化，保留原发布包，请提交后重新打包");
+  throw Error("打包期间受控源码或基线发生变化，保留原发布包；请停止并发编辑后重新打包");
 renameSync(pendingZip, zipPath);
 const release = {
   git_commit: gitCommit,
+  worktree_dirty: worktreeDirty,
+  build_input_sha256: buildInputSha256,
   generated_at: manifest.build_timestamp,
   path: demoMode ? "dist/sd-project-win10-x64-demo.zip" : "dist/sd-project-win10-x64.zip",
   package_mode: mode,

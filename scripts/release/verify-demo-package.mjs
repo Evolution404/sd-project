@@ -29,7 +29,10 @@ z.extractall(out)
   assert.equal(unzip.status,0,unzip.stderr);
   const manifest = JSON.parse(readFileSync(join(stage,"BUILD-MANIFEST.json"),"utf8"));
   assert.equal(manifest.package_mode,"demo");
-  assert.equal(manifest.worktree_dirty,false);
+  assert.equal(typeof manifest.worktree_dirty,"boolean");
+  assert.match(manifest.build_input_sha256,/^[0-9a-f]{64}$/);
+  assert.equal(manifest.worktree_dirty,receipt.worktree_dirty);
+  assert.equal(manifest.build_input_sha256,receipt.build_input_sha256);
   const head=spawnSync("git",["rev-parse","HEAD"],{cwd:root,encoding:"utf8"});
   assert.equal(head.status,0);
   assert.equal(manifest.git_commit,head.stdout.trim());

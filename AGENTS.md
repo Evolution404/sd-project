@@ -56,7 +56,7 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 
 执行 `npm run check`、`npm run check:schema`、`npm run test:browser`、`npm run test:performance`、`npm run package:win`、`npm run test:package`。Schema变更还要单独跑三项Python结构验收。
 
-前端仅清理dist/web，编译服务端仅清理dist/server。Windows10 x64包固定dist/sd-project-win10-x64.zip，包含Node24运行时、编译服务端、前端和生产依赖。data固定解压根目录，不进ZIP。干净工作区打包，包内外Manifest提交一致。Mac宿主验证与Windows实机验收分别记录。
+前端仅清理dist/web，编译服务端仅清理dist/server。Windows10 x64包固定dist/sd-project-win10-x64.zip，包含Node24运行时、编译服务端、前端和生产依赖。data固定解压根目录，不进ZIP。正式版和Demo允许在存在未提交改动时打包，不强制先Git提交。包内外Manifest须记录Git基线提交、实际工作区dirty标记、全部构建输入SHA256及发布ZIP SHA256；构建期间受控源码不得变化，不能把dirty包宣称为对应提交的纯净产物。Mac宿主验证与Windows实机验收分别记录。
 
 并行开发前检查Git、worktree、进程和活跃任务。禁止覆盖其他开发者未提交修改。本重构独立分支codex/full-rewrite-20261110，恢复标签codex/pre-full-rewrite-20261110。未另授权不推送远程。
 
