@@ -12,8 +12,8 @@ import {
   renameSync,
 } from "node:fs";
 import { join, dirname, resolve } from "node:path";
-import { createHash, randomBytes } from "node:crypto";
-import { ensureDemoDatabase, DEMO_ACCOUNT } from "../demo/seed-demo.mjs";
+import { createHash } from "node:crypto";
+import { ensureDemoDatabase, DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
@@ -156,16 +156,14 @@ const npm = spawnSync(
 );
 if (npm.status !== 0) throw Error("Production dependency installation failed");
 if (demoMode) {
-  const generatedPassword = process.env.SD_DEMO_PACKAGE_PASSWORD ||
-    randomBytes(24).toString("base64url");
-  if (generatedPassword.length < 16 || generatedPassword.length > 256)
-    throw Error("演示包密码必须不少于16位且不超过256位");
+  // The LAN demonstration package always has the same documented credentials.
+  // It never creates or modifies an account in the production package.
   const data = join(stage, "data");
-  const demo = ensureDemoDatabase(data, { password: generatedPassword });
+  const demo = ensureDemoDatabase(data, { password: DEMO_PASSWORD });
   if (!demo.created) throw Error("演示包必须使用新生成的隔离数据");
   const system = createSystem(data);
   try {
-    const { user } = system.auth.login(DEMO_ACCOUNT, generatedPassword);
+    const { user } = system.auth.login(DEMO_ACCOUNT, DEMO_PASSWORD);
     if (user.role !== "admin") throw Error("演示管理员初始化失败");
     const policy = system.management.accessPolicy(user);
     system.management.setAccessPolicy(user, {
@@ -179,9 +177,9 @@ if (demoMode) {
   const note = [
     "项目全流程管理 - Windows 10 x64 内网演示环境",
     "",
-    "本文件包含演示管理员密码，请勿通过公开渠道传播此压缩包。",
+    "演示账号采用固定凭据，只限可信内网演示，请勿公开传播此压缩包。",
     "管理员账号：" + DEMO_ACCOUNT,
-    "管理员密码：" + generatedPassword,
+    "管理员密码：" + DEMO_PASSWORD,
     "",
     "使用方法：",
     "1. 将压缩包完整解压到本地文件夹，不要直接在压缩包中运行。",

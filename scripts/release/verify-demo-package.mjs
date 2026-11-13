@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { spawnSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import assert from "node:assert/strict";
+import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const zip = join(root, "dist/sd-project-win10-x64-demo.zip");
@@ -56,7 +57,8 @@ z.extractall(out)
   const credentials=readFileSync(join(stage,"演示账号与部署说明.txt"),"utf8");
   const username=credentials.match(/^管理员账号：(.+)$/m)?.[1]?.trim();
   const password=credentials.match(/^管理员密码：(.+)$/m)?.[1]?.trim();
-  assert.ok(username && password?.length >= 16 && !password.includes("\n"));
+  assert.equal(username, DEMO_ACCOUNT, "LAN demo username must be fixed");
+  assert.equal(password, DEMO_PASSWORD, "LAN demo password must be fixed");
   const chosenPort=await new Promise(resolve=>{
     const listener=createServer();
     listener.listen(0,"127.0.0.1",()=>{
@@ -98,6 +100,11 @@ z.extractall(out)
     body:JSON.stringify({username,password})
   });
   assert.equal(login.status,200,await login.clone().text());
+  const invalidPassword=await fetch(base+"/api/login",{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:DEMO_ACCOUNT,password:DEMO_PASSWORD+"-wrong"})
+  });
+  assert.notEqual(invalidPassword.status,200,"incorrect demo password must fail");
   const account=await login.json();
   assert.equal(account.role,"admin");
   const cookie=login.headers.get("set-cookie").split(";")[0];
@@ -131,7 +138,7 @@ z.extractall(out)
   assert.equal((await persisted.json()).name,"演示包重新启动持久化测试");
   await stop();
   assert.equal(digest(zip),receipt.sha256,"archive must remain immutable after launch and restart");
-  console.log("DEMO_PACKAGE_VERIFIED zip SHA, Windows x64 Node24, no dev deps, initial account, auth, 3 demands, 2 projects, IP policy, restart persistence");
+  console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node24, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
 } finally {
   if(server && server.exitCode===null)server.kill("SIGTERM");
   rmSync(temp,{recursive:true,force:true});
