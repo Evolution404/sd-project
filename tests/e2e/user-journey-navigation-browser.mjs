@@ -37,9 +37,9 @@ try {
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await detail.getByText(waiting.demand_no).waitFor();
-  assert.ok(await detail.getByRole("button", { name: "确认需求有效", exact: true }).isVisible());
+  assert.ok(await detail.getByRole("button", { name: "确认并待承接", exact: true }).isVisible());
   await page.screenshot({ path: join(output, "demand-pending.png") });
-  await detail.getByRole("button", { name: "确认需求有效" }).click();
+  await detail.getByRole("button", { name: "确认并待承接" }).click();
   await page.locator(".el-message-box:visible .el-button--primary").click();
   await detail.getByRole("button", { name: "关联子项目", exact: true }).waitFor();
   await detail.getByRole("button", { name: "关联子项目", exact: true }).click();

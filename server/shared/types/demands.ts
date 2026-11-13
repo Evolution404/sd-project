@@ -160,7 +160,10 @@ export interface DemandRecord extends Omit<NormalizedDemand, "materials">, Deman
   sources: SourceRow[];
   binding: { project_id: string; project_scope_id: string; demand_id: string } | null;
 }
+export type DemandDisplayStatus = "待确认" | "已退回" | "待承接" | "已承接" | "已取消";
 export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand, "materials"> {
+  /** Derived at query time, never stored separately from lifecycle and project binding. */
+  display_status: DemandDisplayStatus;
   line_summary?: string;
   project_name?: string | null;
   last_handled_at?: string;

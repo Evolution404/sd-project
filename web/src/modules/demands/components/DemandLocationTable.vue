@@ -32,7 +32,7 @@ const batchQuantity = ref(10000),
 const columns = [
   { key: "line_name", label: "线路", minWidth: 130 },
   { key: "label", label: "作业位置", minWidth: 170 },
-  { key: "quantity_scaled", label: "需求数量", minWidth: 170 },
+  { key: "quantity_scaled", label: "需求数量", minWidth: 190 },
   { key: "work_mode", label: "作业方式", minWidth: 105 },
   { key: "attributes", label: "附加属性", minWidth: 190 },
   { key: "complete", label: "信息状态", minWidth: 110 },
@@ -140,13 +140,19 @@ function applyBatch() {
             : '需求数量（最多' + precision + '位小数）'
         "
         class="quantity-cell"
-        ><FieldControl
-          :model-value="row.quantity_scaled"
-          :field="{ type: 'quantity', quantityPrecision: precision }"
-          @update:model-value="updateQuantity(row, $event)"
-          @validity-change="emit('invalid', row.id, $event)"
-        /><span>{{ unit }}</span></ElFormItem
-      >
+        >
+          <div class="quantity-inline">
+            <div class="quantity-input">
+              <FieldControl
+                :model-value="row.quantity_scaled"
+                :field="{ type: 'quantity', quantityPrecision: precision }"
+                @update:model-value="updateQuantity(row, $event)"
+                @validity-change="emit('invalid', row.id, $event)"
+              />
+            </div>
+            <span class="quantity-unit" :title="'计量单位：' + unit">{{ unit }}</span>
+          </div>
+        </ElFormItem>
       <span v-else-if="column.key === 'attributes'">{{ summary(row) }}</span>
       <span v-else-if="column.key === 'complete'">{{
         missing(row).length ? "缺少" + missing(row).join("、") : "已填写"
@@ -181,13 +187,19 @@ function applyBatch() {
   >
     <ElForm v-if="editing" label-position="top" novalidate
       ><p>{{ editing.line_name }} {{ editing.label }}</p>
-      <ElFormItem label="需求数量"
-        ><FieldControl
-          :model-value="editing.quantity_scaled"
-          :field="{ type: 'quantity', quantityPrecision: precision }"
-          @update:model-value="updateQuantity(editing!, $event)"
-          @validity-change="emit('invalid', editing!.id, $event)"
-      /></ElFormItem>
+      <ElFormItem label="需求数量">
+        <div class="quantity-inline">
+          <div class="quantity-input">
+            <FieldControl
+              :model-value="editing.quantity_scaled"
+              :field="{ type: 'quantity', quantityPrecision: precision }"
+              @update:model-value="updateQuantity(editing!, $event)"
+              @validity-change="emit('invalid', editing!.id, $event)"
+            />
+          </div>
+          <span class="quantity-unit">{{ unit }}</span>
+        </div>
+      </ElFormItem>
       <ElFormItem label="作业方式"
         ><ElSelect v-model="editing.work_mode"
           ><ElOption label="未明确" value="unspecified" /><ElOption
@@ -221,15 +233,19 @@ function applyBatch() {
     <p>应用到选中的{{ selected.length }}处位置。勾选需要更新的字段。</p>
     <ElForm label-position="top" novalidate>
       <ElCheckbox v-model="quantityEnabled">需求数量</ElCheckbox
-      ><ElFormItem v-if="quantityEnabled"
-        ><FieldControl
-          :model-value="batchQuantity"
-          :field="{ type: 'quantity', quantityPrecision: precision }"
-          @update:model-value="
-            batchQuantity = typeof $event === 'number' ? $event : 0
-          "
-          @validity-change="batchQuantityInvalid = $event"
-      /></ElFormItem>
+      ><ElFormItem v-if="quantityEnabled">
+        <div class="quantity-inline">
+          <div class="quantity-input">
+            <FieldControl
+              :model-value="batchQuantity"
+              :field="{ type: 'quantity', quantityPrecision: precision }"
+              @update:model-value="batchQuantity = typeof $event === 'number' ? $event : 0"
+              @validity-change="batchQuantityInvalid = $event"
+            />
+          </div>
+          <span class="quantity-unit">{{ unit }}</span>
+        </div>
+      </ElFormItem>
       <ElCheckbox v-model="modeEnabled">作业方式</ElCheckbox
       ><ElSelect v-if="modeEnabled" v-model="batchMode"
         ><ElOption label="未明确" value="unspecified" /><ElOption
@@ -271,7 +287,30 @@ function applyBatch() {
   overflow: hidden;
 }
 .quantity-cell :deep(.el-form-item__content) {
-  gap: 5px;
+  min-width: 0;
+  width: 100%;
+}
+.quantity-inline {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+}
+.quantity-input {
+  flex: 0 1 148px;
+  min-width: 84px;
+  max-width: 148px;
+}
+.quantity-input :deep(.el-input) { width: 100%; }
+.quantity-unit {
+  display: inline-block;
+  flex: none;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.4;
 }
 .toolbar {
   flex-wrap: wrap;

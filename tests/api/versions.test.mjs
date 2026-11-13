@@ -45,6 +45,7 @@ test("duplicate creation requires a concrete human decision and records the orig
     demand_no: "D002",
     duplicate_decision: "separate",
     duplicate_matches: [original.demand_no],
+    duplicate_reason: "现场问题形成于不同批次，须分别验收",
   });
   assert.notEqual(separate.demand_no, original.demand_no);
   assert.equal(inspect(s).list("demand_duplicate_reviews").length, 1);

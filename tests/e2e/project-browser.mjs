@@ -63,7 +63,7 @@ try {
   assert.ok(await page.getByRole("tab", { name: "项目概览", exact: true }).isVisible(),
     "creating a project opens its actual business workspace, not a list row");
   await page.getByRole("button", { name: "关联专业需求", exact: true }).click();
-  await select("专业需求", "已确认 · " + demand.demand_no + " · 防鸟设施缺失");
+  await select("专业需求", "待承接 · " + demand.demand_no + " · 防鸟设施缺失");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })

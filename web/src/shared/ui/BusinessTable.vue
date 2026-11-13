@@ -4,6 +4,7 @@ import { Setting, Filter, Rank } from "@element-plus/icons-vue";
 import Sortable from "sortablejs";
 import type { TableInstance } from "element-plus";
 import type { Row } from "../api/client";
+import { formatVisibleDateTime } from "../utils/datetime";
 export type TableColumn = {
   key: string; label: string; minWidth?: number;
   sortable?: boolean; filterable?: boolean; hideable?: boolean;
@@ -273,7 +274,7 @@ watch(() => props.tableKey, async () => {
             </ElPopover>
           </template>
         </template>
-        <template #default="{ row }"><slot name="cell" :row="row as TRow" :column="col" :value="valueAt(row, col.key)">{{ row[col.key] ?? "—" }}</slot></template>
+        <template #default="{ row }"><slot name="cell" :row="row as TRow" :column="col" :value="formatVisibleDateTime(valueAt(row, col.key), col.key)">{{ formatVisibleDateTime(valueAt(row, col.key), col.key) ?? "—" }}</slot></template>
       </ElTableColumn>
       <ElTableColumn v-if="$slots.actions" label="操作" fixed="right" :min-width="80"
         :width="pref.widths.__actions || actionsWidth" resizable>

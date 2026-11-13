@@ -28,11 +28,12 @@ function optionalNumber(value: unknown, label: string): number | null | undefine
 }
 
 export function parseProjectManagement(input: Record<string, unknown>): ProjectManagementInput {
-  for (const key of ["name","framework_id","owner_id","manager_id",
+  for (const key of ["name","framework_id","agreement_id","owner_id","manager_id",
     "category_id","managing_unit_id","planned_start_on","planned_end_on",
     "preliminary_estimate_basis","reason"] as const)
     optionalText(input[key], key);
   optionalNumber(input.expected_version,"项目档案版本");
+  optionalNumber(input.expected_funding_version,"执行协议关联版本");
   optionalNumber(input.preliminary_estimate_fen,"项目预估金额");
   return input as ProjectManagementInput;
 }

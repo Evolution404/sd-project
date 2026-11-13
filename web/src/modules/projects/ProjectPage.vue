@@ -25,6 +25,7 @@ import ProjectOverview from "./components/ProjectOverview.vue";
 import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
 import { api, type Row, money, quantity, statusText } from "../../shared/api/client";
+import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { DemandListItem } from "../../../../server/shared/types/demands";
 import type { Page } from "../../../../server/shared/types/contracts";
 const formRef = ref(),
@@ -176,10 +177,29 @@ function resetListPage() {
   page.value = 1;
   void load();
 }
+const projectStatuses = [
+  { key: "reserve", label: "储备" },
+  { key: "stocked", label: "已入库" },
+  { key: "approved", label: "已批准" },
+  { key: "closed", label: "已结项" },
+] as const;
+// Same exact status filter powers both the visible project column and tabs.
+const listStatus = computed({
+  get: () => projectStatuses.some(item => item.key === columnFilters.value.status)
+    ? columnFilters.value.status : "",
+  set: value => {
+    const next = { ...columnFilters.value };
+    if (value) next.status = value;
+    else delete next.status;
+    columnFilters.value = next;
+    page.value = 1;
+    void load();
+  },
+});
 const projectColumns: TableColumn[] = [
   { key: "code", label: "项目编号", minWidth: 150 },
   { key: "name", label: "项目名称", minWidth: 220 },
-  { key: "status", label: "阶段" },
+  { key: "status", label: "项目状态", minWidth: 155, hideable: false },
   { key: "approval", filterable: false, label: "批准预算", sortable: false },
   { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
 ];
@@ -229,9 +249,14 @@ function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done
 function editProject(row?: Row) {
   editing.value = row || null;
   form.value = row
-    ? { ...row, expected_version: row.profile_version }
-    : { code: "", name: "", framework_id: "" };
+    ? { ...row, expected_version: row.profile_version,
+        agreement_id: row.funding?.agreement_id || null,
+        expected_funding_version: row.funding?.version_no || 0 }
+    : { code: "", name: "", framework_id: "", agreement_id: null,
+        expected_funding_version: 0 };
   dialog.value = "project";
+  void loadProjectAgreements(String(form.value.framework_id || ""),
+    String(form.value.agreement_id || "") || null);
   draftGuard.capture();
 }
 let demandSearchSequence = 0;
@@ -315,24 +340,38 @@ function pendingApprovalChanges() {
 }
 const selectedFundingAgreement = computed<Row | null>(() =>
   agreementChoices.value.find(item => item.id === form.value.agreement_id) || null);
-const fundingUnchanged = computed(() =>
-  (form.value.agreement_id || null) ===
-  (detail.value?.funding?.agreement_id || null));
-async function loadFundingAgreements() {
-  if (!detail.value) return;
-  const projectId = detail.value.id;
-  agreementLoading.value = true;
+let agreementRequestSeq = 0;
+async function loadProjectAgreements(frameworkId: string, selectedId: string | null = null) {
+  const sequence = ++agreementRequestSeq;
+  agreementChoices.value = [];
   agreementError.value = "";
+  agreementLoading.value = Boolean(frameworkId);
+  if (!frameworkId) return;
   try {
-    const response = await api<{ options: Row[] }>("/projects/" + projectId + "/agreements");
-    if (detail.value?.id === projectId) agreementChoices.value = response.options;
+    const params = new URLSearchParams({ framework_id: frameworkId });
+    if (selectedId) params.set("selected_id", selectedId);
+    const response = await api<{ options: Row[] }>("/projects/eligible-agreements?" + params);
+    if (sequence === agreementRequestSeq && dialog.value === "project" &&
+        form.value.framework_id === frameworkId)
+      agreementChoices.value = response.options;
   } catch (error) {
-    agreementError.value = (error as Error).message;
-    agreementChoices.value = [];
+    if (sequence === agreementRequestSeq) {
+      agreementError.value = (error as Error).message;
+      ElMessage.error("读取所选框架执行协议失败：" + agreementError.value);
+    }
   } finally {
-    agreementLoading.value = false;
+    if (sequence === agreementRequestSeq) agreementLoading.value = false;
   }
 }
+function changeProjectFramework(frameworkId: string | null) {
+  form.value.framework_id = frameworkId || "";
+  form.value.agreement_id = null;
+  void loadProjectAgreements(form.value.framework_id);
+}
+const projectAgreementInvalid = computed(() =>
+  Boolean(form.value.agreement_id && !selectedFundingAgreement.value?.eligible &&
+    (form.value.agreement_id !== (editing.value?.funding?.agreement_id || null) ||
+      form.value.framework_id !== editing.value?.framework_id)));
 async function openDialog(type: string) {  if (type === "approval" && !detail.value?.scopes.some((scope: Row) =>
       scope.binding && scope.demand_status === "active")) {
     ElMessage.warning("当前没有已确认有效的专业需求。请先在专业需求中确认，再编制立项范围。");
@@ -343,14 +382,6 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
   dialog.value = type;
   form.value = {};
   if (type === "link") await searchDemands();
-  if (type === "funding") {
-    form.value = {
-      agreement_id: detail.value?.funding?.agreement_id || null,
-      expected_version: detail.value?.funding?.version_no || 0,
-    };
-    agreementChoices.value = [];
-    await loadFundingAgreements();
-  }
   if (type === "approval") {
     approvalRows.value = [];
     approvalQuantityError.value = {};
@@ -439,6 +470,14 @@ async function save() {
   busy.value = true;
   try {
     if (!(await formRef.value?.validate().catch(() => false))) return;
+    // Direct framework ownership is a complete business route. Loading the
+    // optional agreement catalog must never block saving a direct project.
+    if (dialog.value === "project" && form.value.agreement_id &&
+        (agreementLoading.value || !!agreementError.value || projectAgreementInvalid.value)) {
+      ElMessage.warning(agreementError.value ||
+        "请等待执行协议加载完成，或选择当前年度框架内有效的执行协议");
+      return;
+    }
     let newlyCreatedProject: Row | null = null;
     if (dialog.value === "project") {
       if (!editing.value && handoffDemand.value && route.query.action === "create") {
@@ -460,21 +499,6 @@ async function save() {
         ...form.value,
         expected_version: demand?.current_version,
       });
-    }
-    if (dialog.value === "funding") {
-      if (agreementLoading.value || agreementError.value) {
-        ElMessage.warning("执行协议尚未加载完成，请重试后保存");
-        return;
-      }
-      if (fundingUnchanged.value) {
-        ElMessage.info("资金归属没有变化，无需保存");
-        return;
-      }
-      if (form.value.agreement_id && !selectedFundingAgreement.value?.eligible) {
-        ElMessage.warning("请选择本年度框架下的有效执行协议");
-        return;
-      }
-      await api(`/projects/${detail.value!.id}/funding`, "POST", form.value);
     }
     if (dialog.value === "approval") {
       const differences = pendingApprovalChanges();
@@ -569,7 +593,28 @@ async function action(name: string, approval?: Row, reviewed = false) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
+function releaseBlockReason(scope: Row): string {
+  const project = detail.value;
+  if (!project || project.deleted) return "项目已删除，不能操作";
+  if (!scope.binding) return "需求当前没有承接关系";
+  if (!can("write")) return "当前账号没有变更关联权限";
+  const approvals = (project.approvals || []) as Row[];
+  if (approvals.some(approval =>
+    approval.status === "draft" && (approval.scopes || []).some(
+      (item: Row) => item.project_scope_id === scope.id))) {
+    return "有立项或变更草稿包含该需求；须先在草稿中移出并保存";
+  }
+  const latestApproved = approvals.filter(a => a.status === "approved")
+    .sort((a, b) => Number(b.version_no) - Number(a.version_no))[0];
+  if (project.status !== "closed" &&
+      latestApproved?.scopes?.some((item: Row) => item.project_scope_id === scope.id)) {
+    return "最新版正式批准范围仍包含该需求；须先在「批准与变更」中完成正式范围变更移出";
+  }
+  return "";
+}
 async function release(scope: Row) {
+  const blocked = releaseBlockReason(scope);
+  if (blocked) { ElMessage.warning(blocked); return; }
   try {
     await ElMessageBox.confirm(
       "明确解绑后，该需求可由其他项目承接。当前批准范围仍含此需求时，先正式变更移出或结项。",
@@ -718,7 +763,7 @@ onMounted(async () => {
         </div>
         <h1>子项目管理</h1>
         <p>
-          以完整需求范围立项，保留批准预算与资金归属历史。
+          按年度框架储备项目，执行协议可选；保留正式批准与结算历史。
         </p>
       </div>
       <div class="page-heading-actions">
@@ -730,6 +775,11 @@ onMounted(async () => {
         >
       </div>
     </div>
+    <ElTabs v-model="listStatus" aria-label="按项目状态筛选">
+      <ElTabPane name="" label="全部项目" />
+      <ElTabPane v-for="item in projectStatuses" :key="item.key"
+        :name="item.key" :label="item.label" />
+    </ElTabs>
     <div class="panel">
       <div class="toolbar">
         <ElInput
@@ -745,10 +795,11 @@ onMounted(async () => {
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
-          <ElTag v-if="column.key === 'status'" effect="plain">{{ statusText[row.status] }}</ElTag>
+          <ElTag v-if="column.key === 'status'" effect="plain"
+            :type="row.status === 'approved' ? 'success' : row.status === 'closed' ? 'info' : undefined">{{ statusText[row.status] }}</ElTag>
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x: Row) => x.binding).length || 0 }}</span>
-          <span v-else>{{ row[column.key] ?? '—' }}</span>
+          <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
         </template>
         <template #actions="{ row }">
           <ElButton size="small" @click="open(row)">进入项目</ElButton>
@@ -775,7 +826,6 @@ onMounted(async () => {
       :loading="overviewLoading" :actions="projectActions" :can-write="can('write')"
       :can-admin="can('admin')" :can-delete="detail.status === 'closed' || (['reserve', 'stocked'].includes(detail.status) && !(detail.scopes || []).some((scope: Row) => scope.binding))" @action="runWorkflowAction"
       @manage="command => {
-        if (command === 'funding') openDialog('funding');
         if (command === 'edit') editProject(detail || undefined);
         if (command === 'history') { tab = 'history'; showHistory(); }
         if (command === 'delete') removeProject();
@@ -803,6 +853,11 @@ onMounted(async () => {
             >关联需求</ElButton
           >
         </div>
+        <ElAlert v-if="(detail.scopes || []).some((scope: Row) =>
+            scope.binding && releaseBlockReason(scope).includes('正式批准范围'))"
+          type="info" :closable="false" show-icon
+          title="当前正式批准范围内的需求不可直接解绑"
+          description="请先进入「批准与变更」，完成正式范围变更并移出该需求，再返回这里解绑。" />
         <BusinessTable client-side table-key="project:scopes" :rows="detail.scopes || []"
           :columns="projectScopeColumns" :actions-width="135">
           <template #cell="{ row, column }">
@@ -813,12 +868,12 @@ onMounted(async () => {
               <ElButton link type="primary" @click="router.push(demandContext(row.demand_id))">{{ row.demand_no }}</ElButton>
               <ElTag v-if="row.demand_id === focusedDemandId" size="small" type="info">当前定位</ElTag>
             </template>
-            <span v-else>{{ row[column.key] ?? '—' }}</span>
+            <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
           </template>
           <template #actions="{ row }">
             <RowActions :actions="[
               { label: '查看需求', run: () => router.push(demandContext(row.demand_id)) },
-              { label: '显式解绑', danger: true, disabled: !can('write') || detail.deleted || !row.binding, run: () => release(row) },
+              { label: '显式解绑', danger: true, disabled: !!releaseBlockReason(row), reason: releaseBlockReason(row), run: () => release(row) },
             ]" />
           </template>
         </BusinessTable>
@@ -881,7 +936,7 @@ onMounted(async () => {
           <template #cell="{ row, column }">
             <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
             <span v-else-if="column.key === 'locations'">{{ row.locations?.length || 0 }}</span>
-            <span v-else>{{ row[column.key] ?? '—' }}</span>
+            <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
             <ElButton data-guide-action="projects.quote" :disabled="!can('write')" size="small" @click="priceScope(row)">按承接范围核价</ElButton>
@@ -892,7 +947,7 @@ onMounted(async () => {
           :columns="projectChargeColumns" :actions-width="190">
           <template #cell="{ row, column }">
             <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
-            <span v-else>{{ row[column.key] ?? '—' }}</span>
+            <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
             <RowActions :actions="[
@@ -935,7 +990,6 @@ onMounted(async () => {
       {
         project: editing ? '修订项目档案' : '新增子项目',
         link: '关联专业需求',
-        funding: '变更资金归属',
         approval: '编制完整批准范围',
         charge: '批次 / 项目独立参考费用',
       }[dialog]
@@ -963,8 +1017,31 @@ onMounted(async () => {
             ><FieldControl
               v-model="form.framework_id"
               :field="{ type: 'ref', reference: 'frameworks' }"
-              :disabled="!!editing" /></ElFormItem
-          ><ElFormItem label="项目类别"
+              :disabled="!!editing && editing.status !== 'reserve'"
+              @update:model-value="changeProjectFramework" /></ElFormItem
+          ><ElFormItem label="执行协议（选填）">
+            <ElSelect v-model="form.agreement_id" clearable filterable
+              placeholder="直接归属年度框架（无需执行协议）"
+              :disabled="!form.framework_id || agreementLoading || editing?.status === 'closed'"
+              :loading="agreementLoading">
+              <ElOption v-for="item in agreementChoices" :key="item.id"
+                :value="item.id" :label="item.name + ' · ' + item.code"
+                :disabled="!item.eligible" />
+            </ElSelect>
+            <p class="muted" style="font-size:12px;margin:6px 0 0">
+              不选择执行协议，即直接归属所选年度框架；这是完整的项目归属方式，无需以后补选。
+            </p>
+          </ElFormItem>
+          <ElAlert v-if="agreementError" class="full-width" type="error" :closable="false"
+            :title="'执行协议读取失败：' + agreementError">
+            <ElButton size="small" @click="loadProjectAgreements(String(form.framework_id || ''), String(form.agreement_id || '') || null)">重试</ElButton>
+          </ElAlert>
+          <ElAlert v-else-if="form.framework_id && !agreementLoading && !agreementChoices.some((item: Row) => item.eligible)"
+            class="full-width" type="info" :closable="false"
+            title="该框架下没有有效执行协议。子项目可以直接归属年度框架，无需创建或补选协议。" />
+          <ElAlert v-else-if="projectAgreementInvalid" class="full-width" type="warning" :closable="false"
+            title="所选执行协议已失效，请选择有效协议或清空关联。" />
+          <ElFormItem label="项目类别"
             ><FieldControl
               v-model="form.category_id"
               :field="{ type: 'ref', reference: 'categories' }" /></ElFormItem
@@ -1028,7 +1105,7 @@ onMounted(async () => {
                 :key="d.id"
                 :value="d.id"
                 :label="
-                  (d.status === 'active' ? '已确认 · ' : '待确认（仅储备） · ') +
+                  (d.status === 'active' ? '待承接 · ' : '待确认（仅储备） · ') +
                   d.demand_no + ' · ' + d.problem_description
                 " /></ElSelect>
                 <div class="toolbar">
@@ -1044,61 +1121,6 @@ onMounted(async () => {
                   title="当前需求尚未确认有效，可以先关联项目储备，但不能正式批准立项。" />
                 </ElFormItem
         ></template>
-        <template v-if="dialog === 'funding'">
-          <ElAlert class="full-width" type="info" :closable="false"
-            title="仅显示当前子项目所属年度框架的有效执行协议；可以暂不指定，变更将保留资金归属历史。" />
-          <ElFormItem label="执行协议" class="full-width">
-            <ElSelect v-model="form.agreement_id" filterable clearable
-              placeholder="选择执行协议（清空为暂不指定）"
-              :disabled="agreementLoading || !!agreementError"
-              :loading="agreementLoading">
-              <ElOption v-for="item in agreementChoices" :key="item.id"
-                :value="item.id"
-                style="height: auto; min-height: 68px; padding-block: 5px"
-                :disabled="!item.eligible"
-                :label="item.name">
-                <div class="funding-option">
-                  <span class="funding-option-title">{{ item.name }}
-                    <ElTag v-if="!item.eligible" size="small" type="warning">已失效</ElTag>
-                  </span>
-                  <small>协议编号：{{ item.code }}</small>
-                  <small>额度 ¥{{ money(item.limit_fen) }} ·
-                    关联预算 ¥{{ money(item.linked_approved_budget_fen) }} ·
-                    差额 ¥{{ money(item.budget_difference_fen) }}</small>
-                </div>
-              </ElOption>
-            </ElSelect>
-          </ElFormItem>
-          <ElAlert v-if="agreementError" class="full-width" type="error"
-            :closable="false" :title="'加载执行协议失败：' + agreementError">
-            <ElButton size="small" @click="loadFundingAgreements">重试加载</ElButton>
-          </ElAlert>
-          <ElAlert v-else-if="!agreementLoading && !agreementChoices.some((x: Row) => x.eligible)"
-            class="full-width" type="warning" :closable="false"
-            title="该年度框架暂无有效执行协议。可先到“执行协议与资金”新增，或暂不指定。" />
-          <ElAlert v-if="selectedFundingAgreement && !selectedFundingAgreement.eligible"
-            class="full-width" type="warning" :closable="false"
-            title="当前关联的执行协议已失效，只保留历史显示。请选择新的有效协议或清空关联。" />
-          <ElDescriptions v-if="selectedFundingAgreement" class="full-width"
-            :column="descriptionColumns" border>
-            <ElDescriptionsItem label="协议额度">
-              ¥{{ money(selectedFundingAgreement.limit_fen) }}
-            </ElDescriptionsItem>
-            <ElDescriptionsItem label="关联项目批准预算合计">
-              ¥{{ money(selectedFundingAgreement.linked_approved_budget_fen) }}
-            </ElDescriptionsItem>
-            <ElDescriptionsItem label="预算差额（参考）">
-              ¥{{ money(selectedFundingAgreement.budget_difference_fen) }}
-            </ElDescriptionsItem>
-            <ElDescriptionsItem label="当前关联项目数">
-              {{ selectedFundingAgreement.linked_projects_count }}
-            </ElDescriptionsItem>
-          </ElDescriptions>
-          <ElText class="full-width" type="info" size="small">
-            上述“关联项目批准预算”仅为当前协议下子项目最新批准预算的汇总，
-            不代表执行协议已实际预支或分配的资金；差额不是强制使用上限。
-          </ElText>
-        </template>
         <template v-if="dialog === 'approval'"
           ><ElFormItem
             label="批准预算（元）"
@@ -1163,7 +1185,7 @@ onMounted(async () => {
                 v-model="row.approved_quantity_scaled"
                 :field="{ type: 'quantity', quantityPrecision: scope.quantity_precision }"
                 @validity-change="approvalQuantityInvalid('location.' + scope.project_scope_id + '.' + row.location_item_no, $event)" />
-              <span v-else>{{ row[column.key] ?? '—' }}</span>
+              <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
             </template>
           </BusinessTable>
           <ElAlert v-if="scope.precision_error" type="error" :closable="false"
@@ -1201,9 +1223,8 @@ onMounted(async () => {
     ><template #footer
       ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton data-guide-action="projects.save"
-        :disabled="!can('write') || (dialog === 'funding' &&
-          (agreementLoading || !!agreementError || fundingUnchanged ||
-           (!!form.agreement_id && !selectedFundingAgreement?.eligible)))"
+        :disabled="!can('write') || (dialog === 'project' &&
+          !!form.agreement_id && (agreementLoading || !!agreementError || projectAgreementInvalid))"
         type="primary"
         :loading="busy"
         @click="save"

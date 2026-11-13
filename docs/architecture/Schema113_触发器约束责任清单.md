@@ -213,6 +213,7 @@
 | `projects` | `project_closed_no_reopen_without_decision` | BEFORE/UPDATE | 正式批准/结项一致性 |
 | `projects` | `project_home_insert` | BEFORE/INSERT | 跨表关联和身份完整性 |
 | `projects` | `project_home_update` | BEFORE/UPDATE | 历史快照原子同步 |
+| `projects` | `project_reserve_framework_guard` | BEFORE/UPDATE | 仅储备阶段可变更年度框架，变更前解除原框架协议关联 |
 | `projects` | `project_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `projects` | `project_status_projection_guard` | BEFORE/UPDATE | 历史快照原子同步 |
 | `reference_price_catalog` | `reference_price_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |

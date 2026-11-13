@@ -26,7 +26,12 @@ export async function handleProjects(context: RouteContext): Promise<{
                 break;
             }
             if (read)
-                result = !key
+                result = key === "eligible-agreements"
+                    ? system.projects.availableAgreements(
+                        url.searchParams.get("framework_id") || "",
+                        url.searchParams.get("selected_id"),
+                      )
+                    : !key
                     ? system.projects.search(parseListQuery(url.searchParams))
                     : sub === "actions"
                         ? projectActionHints(actor, system.projects.workspace(key, deleted))

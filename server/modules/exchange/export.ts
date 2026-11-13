@@ -8,6 +8,7 @@ import {isObject} from "../../shared/types/contracts.js";
 import {authorize} from "../../platform/auth/service.js";
 import {requireValue} from "../../shared/errors/business-error.js";
 import {decimalText} from "../../shared/decimal.js";
+import {demandDisplayStatus} from "../../shared/demand-display-status.js";
 import {makeWorkbook,makeBusinessReport,MAX_DOCUMENTS,attributeColumn} from "./workbook.js";
 import {createReferences} from "./references.js";
 
@@ -43,13 +44,12 @@ function effectiveVersion(system:System,key:string):{items:unknown[];resolutions
   return system.finance.effectiveSettlementExport(key);
 }
 function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
-  const statuses:Record<string,string>={pending:"待确认",active:"有效",returned:"退回",cancelled:"已取消"};
   return makeBusinessReport("demands",
     records.map(record=>({
       需求编号:record.demand_no,操作类型:record.operation_snapshot,
       作业对象:record.work_object_snapshot,问题描述:record.problem_description,
       验收标准:record.completion_standard,工作量:decimalText(record.quantity_scaled,4),
-      计量单位:record.unit_snapshot,需求状态:statuses[record.status]||record.status,
+      计量单位:record.unit_snapshot,需求状态:demandDisplayStatus(record.status,Boolean(record.binding)),
       位置数量:record.work_locations.length,正式版本:record.current_version,
       来源依据:record.sources.map(source=>source.description).join("；"),
     })),

@@ -15,6 +15,8 @@ export interface ProjectProfileVersion {
   project_id: string;
   version_no: number;
   name: string;
+  /** Formal snapshot for reserve-stage framework changes. */
+  framework_id: string | null;
   category_id: string | null;
   category_version: number | null;
   owner_id: string | null;
@@ -53,6 +55,9 @@ export interface ProjectApprovalVersion {
 export interface ProjectManagementInput {
   name?: string;
   framework_id?: string;
+  /** Optional agreement: null deliberately leaves the project unassigned. */
+  agreement_id?: string | null;
+  expected_funding_version?: number;
   expected_version?: number;
   category_id?: string | null;
   managing_unit_id?: string | null;

@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import type { OperationDetail } from "../../../../server/shared/types/work-standards";
 import type { OperationAttribute } from "../../../../server/shared/types/operation-attributes";
 import { api } from "../../shared/api/client";
+import { formatBeijingDateTime } from "../../shared/utils/datetime";
 import BusinessTable from "../../shared/ui/BusinessTable.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 const props = defineProps<{ id: string }>();
@@ -62,11 +63,11 @@ const differences = computed(() => {
         v-for="row in detail.versions"
         :key="row.id"
         :value="row.version"
-        :label="'正式定义第' + row.version + '版 · ' + row.changed_at"
+        :label="'正式定义第' + row.version + '版 · ' + formatBeijingDateTime(row.changed_at)"
     /></ElSelect>
     <p v-if="selected" class="muted">
       {{ selected.name }} · {{ selected.reason || "未填写修改原因" }} ·
-      {{ selected.changed_at }}
+      {{ formatBeijingDateTime(selected.changed_at) }}
     </p>
     <h3>属性定义差异</h3>
     <BusinessHistory :value="differences" />

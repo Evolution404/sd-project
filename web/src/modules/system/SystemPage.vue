@@ -7,6 +7,7 @@ const route = useRoute(), router = useRouter();
 import RowActions from "../../shared/ui/RowActions.vue";
 import { ref, onMounted, computed, watch } from "vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
+import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, statusText, type Row } from "../../shared/api/client";
 const can = useAccess();
@@ -225,7 +226,7 @@ onMounted(() => {
       @sort-change="tableSort" @filter-change="tableFilter">
       <template #cell="{ row, column }">
         <span v-if="['role','status','action'].includes(column.key)">{{ statusText[row[column.key]] || row[column.key] || '—' }}</span>
-        <span v-else>{{ row[column.key] ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
       <template v-if="tab !== 'audit'" #actions="{ row }">
         <RowActions :actions="[

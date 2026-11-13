@@ -9,6 +9,7 @@ import type {
 } from "../../shared/types/demands.js";
 import { normalizeAttributeValues, validateAttributeSchema } from "../../shared/operation-attributes.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
+import { demandDisplayStatus } from "../../shared/demand-display-status.js";
 import { authorize, documentCode, id, now } from "../../platform/auth/service.js";
 import {
   requireValue,
@@ -386,11 +387,16 @@ export function createDemands(
       requireValue(
         !duplicates.length ||
           (input.duplicate_decision === "separate" &&
+            typeof input.duplicate_reason === "string" &&
+            input.duplicate_reason.trim().length > 0 &&
             JSON.stringify((input.duplicate_matches || []).slice().sort()) ===
               JSON.stringify(duplicates.map((row) => row.demand_no).sort())),
         "发现同操作同位置的疑似重复需求，须人工判定",
         409,
-        { duplicates: duplicates.map((x) => x.demand_no) },
+        {
+          duplicates: duplicates.map((x) => x.demand_no),
+          duplicate_ids: duplicates.map((x) => x.id),
+        },
       );
       let keyId = key || id(),
         timestamp = now();
@@ -512,7 +518,7 @@ export function createDemands(
             matched_demand_id: duplicate.id,
             new_demand_id: keyId,
             decision: "separate",
-            reason: input.duplicate_reason || "",
+            reason: input.duplicate_reason!.trim(),
             actor_id: actor.id,
             created_at: timestamp,
           });
@@ -550,6 +556,7 @@ export function createDemands(
         ...JSON.parse(row.full_definition_json),
         ...row,
         binding: null,
+        display_status: demandDisplayStatus(row.status === "active" ? "active" : "pending", false),
         deleted: false
       })) };
     },
@@ -560,6 +567,7 @@ export function createDemands(
           ...JSON.parse(row.full_definition_json),
           ...row,
           binding: binding_json ? JSON.parse(binding_json) : null,
+          display_status: demandDisplayStatus(row.status, Boolean(binding_json)),
           deleted: Boolean(row.deleted),
         }));
     },

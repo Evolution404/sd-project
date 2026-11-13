@@ -146,7 +146,7 @@ try {
   assert.equal(s.demands.list().length, 1);
   const demand = s.demands.list()[0];
   assert.equal(demand.quantity_scaled, 20000);
-  await detail.getByRole("button", { name: "确认需求有效", exact: true }).click();
+  await detail.getByRole("button", { name: "确认并待承接", exact: true }).click();
   await page.locator(".el-message-box:visible .el-button--primary").click();
   // Wait for the server transition and UI reload, not just the confirm click.
   await detail.getByRole("button", { name: "关联子项目", exact: true }).waitFor();

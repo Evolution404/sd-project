@@ -11,6 +11,7 @@ const can = useAccess();
 import { ref, watch, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
+import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
@@ -608,7 +609,7 @@ watch(() => props.project.id, () => {
       <template #cell="{ row, column }">
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
         <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已作废' : statusText[row.status] || row.status }}</ElTag>
-        <span v-else>{{ row[column.key] ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
@@ -653,7 +654,7 @@ watch(() => props.project.id, () => {
           <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
         </span>
         <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item: Row) => sum + item.amount_fen, 0)) }}</span>
-        <span v-else>{{ row[column.key] ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
@@ -693,7 +694,7 @@ watch(() => props.project.id, () => {
       <template #cell="{ row, column }">
         <span v-if="column.key === 'reconciled_cost_fen' || column.key === 'reconciled_settlement_fen'">¥{{ money(row[column.key]) }}</span>
         <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已撤销' : '有效' }}</ElTag>
-        <span v-else>{{ row[column.key] ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
@@ -712,7 +713,7 @@ watch(() => props.project.id, () => {
       :columns="financeColumns.demands">
       <template #cell="{ row, column }">
         <span v-if="column.key.endsWith('_quantity_scaled')">{{ quantity(row[column.key]) }}</span>
-        <span v-else>{{ row[column.key] ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
     </BusinessTable>
   </div>

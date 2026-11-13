@@ -8,6 +8,7 @@ import { useListRoute } from "../../shared/composables/use-list-route";
 const route = useRoute(), router = useRouter();
 import RowActions from "../../shared/ui/RowActions.vue";
 import { factText } from "../../shared/utils/display";
+import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
@@ -104,6 +105,8 @@ const tableColumns = computed<TableColumn[]>(() => {
 function tableCell(row: Row, column: TableColumn) {
   const key = column.key, value = row[key];
   if (value === null || value === undefined || value === "") return "—";
+  const displayed = formatVisibleDateTime(value, key);
+  if (displayed !== value) return displayed;
   if (typeof value === "boolean") return value ? "是" : "否";
   const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: Row) => f.key === key);
   if (f?.type === "boolean") return value ? "是" : "否";

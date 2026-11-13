@@ -42,10 +42,10 @@ const hasProfile = computed(() => Boolean(props.project.category_name ||
           {{ framework?.name || '查看年度框架' }}
         </ElButton>
       </ElDescriptionsItem>
-      <ElDescriptionsItem label="当前执行协议">
+      <ElDescriptionsItem label="归属方式">
         <ElButton v-if="agreement" link type="primary"
-          @click="emit('fund', 'agreements', agreement.id)">{{ agreement.name }}</ElButton>
-        <span v-else>暂未关联</span>
+          @click="emit('fund', 'agreements', agreement.id)">通过执行协议 · {{ agreement.name }}</ElButton>
+        <span v-else>直接归属年度框架（无需执行协议）</span>
       </ElDescriptionsItem>
       <ElDescriptionsItem label="当前阶段">{{ statusText[project.status] || project.status }}</ElDescriptionsItem>
       <ElDescriptionsItem label="计划结束日期">{{ project.planned_end_on || '未指定' }}</ElDescriptionsItem>

@@ -31,6 +31,7 @@ const initialOpeneds = openGroups.value.map(group => "group-" + group);
 function remember() {
   localStorage.setItem(storageKey, JSON.stringify(openGroups.value));
 }
+function selectMenu(key: string) { emit("select", key); }
 function opened(index: string) {
   if (!menuInitialized) return;
   const key = index.replace(/^group-/, "");
@@ -72,7 +73,7 @@ watch(() => props.collapsed, collapsed => {
   <nav class="navigation-menu-scroll" aria-label="业务模块">
     <ElMenu ref="menuRef" class="business-navigation-menu" :default-active="active"
       :default-openeds="initialOpeneds" :collapse="collapsed" :collapse-transition="false"
-      @open="opened" @close="closed" @select="key => emit('select', key)">
+      @open="opened" @close="closed" @select="selectMenu">
       <template v-for="group in groups" :key="group.key">
         <ElMenuItem v-if="group.key === 'home'" index="dashboard" class="nav-home-item">
           <ElIcon><component :is="group.items[0].icon" /></ElIcon>

@@ -47,14 +47,18 @@ const demandSource: ListSource = {
       COALESCE((SELECT event.recorded_at FROM project_demand_link_events event
         JOIN project_demand_scopes scope ON scope.id=event.project_scope_id
         WHERE scope.demand_id=v.id ORDER BY event.recorded_at DESC LIMIT 1),d.created_at)) AS last_handled_at,
-    CASE WHEN v.status='active' AND EXISTS(SELECT 1 FROM v_project_demand_binding_current binding WHERE binding.demand_id=v.id) THEN 'bound'
-      WHEN v.status='active' THEN 'unbound' WHEN v.status='returned' THEN 'pending' ELSE v.status END AS handling_view,
+    CASE WHEN v.status='pending' THEN '待确认'
+      WHEN v.status='returned' THEN '已退回'
+      WHEN v.status='cancelled' THEN '已取消'
+      WHEN v.status='active' AND EXISTS(SELECT 1 FROM v_project_demand_binding_current binding WHERE binding.demand_id=v.id) THEN '已承接'
+      WHEN v.status='active' THEN '待承接'
+      ELSE '待确认' END AS display_status,
     (SELECT json_object('project_id', b.project_id, 'project_scope_id', b.project_scope_id,
       'demand_id', b.demand_id) FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) AS binding_json
     FROM v_demand_current v JOIN demands d ON d.id=v.id`,
   columns: ["id", "demand_no", "current_version", "quantity_scaled", "operation_id", "operation_version",
     "work_object_id", "unit_id", "unit_version", "target_object", "problem_description", "completion_standard",
-    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "location_count", "project_name", "last_handled_at", "handling_view", "definition_changed_at", "created_at", "deleted"],
+    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "location_count", "project_name", "last_handled_at", "display_status", "definition_changed_at", "created_at", "deleted"],
   search: ["demand_no", "full_definition_json", "status"],
 };
 const projectSource: ListSource = {
@@ -132,7 +136,11 @@ export function searchPage<T>(store: QueryStore, entity: string, source: ListSou
   }
   for (const [key, value] of Object.entries(query.filters)) {
     if (!source.columns.includes(key)) continue;
-    predicates.push(`instr(lower(COALESCE(CAST("${key}" AS TEXT),'')),lower(?))>0`);
+    // Status filters are exact enum decisions. Substring matching would
+    // include "inactive" when the UI asks for "active".
+    predicates.push(key === "status" || key === "display_status"
+      ? `lower(COALESCE(CAST("${key}" AS TEXT),''))=lower(?)`
+      : `instr(lower(COALESCE(CAST("${key}" AS TEXT),'')),lower(?))>0`);
     parameters.push(value);
   }
   const where = predicates.length ? " WHERE " + predicates.join(" AND ") : "";

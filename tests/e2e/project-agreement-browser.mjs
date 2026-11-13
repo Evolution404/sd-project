@@ -49,13 +49,15 @@ try {
   await page.goto(base + "/#/projects?project=" + project.id);
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.waitFor();
-  await detail.getByRole("button", { name: "资金归属" }).click();
-  await editor.getByText("仅显示当前子项目所属年度框架", { exact: false }).waitFor();
-  assert.equal(await editor.getByRole("button", { name: "保存", exact: true }).isDisabled(), true,
-    "same existing funding must not create another version");
-  assert.ok(await editor.getByText("关联项目批准预算合计").count() > 0);
-  assert.ok(await editor.getByText("¥500.00", { exact: true }).count() > 0);
-  await editor.getByLabel("执行协议", { exact: true }).click();
+  async function openProfileEditor() {
+    await detail.getByRole("button", { name: "更多管理操作" }).click();
+    await page.getByRole("menuitem", { name: "修订档案" }).click();
+    await editor.getByLabel("执行协议（选填）", { exact: true }).waitFor();
+  }
+  assert.equal(await detail.getByRole("button", { name: "资金归属" }).count(), 0,
+    "standalone funding attribution action must be removed");
+  await openProfileEditor();
+  await editor.getByLabel("执行协议（选填）", { exact: true }).click();
   const originalOption = page.getByRole("option", { name: new RegExp(original.name) });
   await originalOption.waitFor();
   const alternative = page.getByRole("option", { name: new RegExp(other.name) });
@@ -63,7 +65,6 @@ try {
   assert.equal(await page.getByRole("option", { name: /不可跨框架关联的协议/ }).count(), 0);
   assert.equal(await page.getByRole("option", { name: /已停用测试协议/ }).count(), 0);
   await alternative.click();
-  await editor.getByText("预算差额（参考）").waitFor();
   await editor.getByRole("button", { name: "保存", exact: true }).click();
   await editor.waitFor({ state: "hidden" });
   const revised = s.projects.get(project.id);
@@ -71,13 +72,13 @@ try {
   assert.equal(revised.funding.version_no, project.funding.version_no + 1);
   assert.equal(inspect(s).where("project_funding_versions", { project_id: project.id }).length, 2);
 
-  await detail.getByRole("button", { name: "资金归属" }).click();
-  await editor.getByLabel("执行协议", { exact: true }).click();
+  await openProfileEditor();
+  await editor.getByLabel("执行协议（选填）", { exact: true }).click();
   await page.getByRole("option", { name: new RegExp(other.name) }).waitFor();
   await page.keyboard.press("Escape");
   await page.screenshot({ path: join(out, "same-framework-budget-1000.png"), fullPage: true });
   assert.deepEqual(errors, []);
-  console.log("AGREEMENT_FUNDING_BROWSER_OK: only same-framework active agreements, budget preview and historical revisions");
+  console.log("PROJECT_PROFILE_AGREEMENT_BROWSER_OK: no standalone attribution action, same-framework active agreements, immutable funding revisions");
 } catch (error) {
   await page.screenshot({ path: join(out, "failure.png"), fullPage: true });
   throw error;

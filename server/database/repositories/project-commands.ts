@@ -57,6 +57,10 @@ export function projectCommandRepository(store: Store) {
     appendProfile(row: ProjectProfileVersion): void {
       store.insert("project_management_versions",row);
     },
+    /** Only reserve-stage writes; SQL guard enforces the same rule. */
+    updateReserveFramework(projectId: string, frameworkId: string): void {
+      store.update("projects", "id", projectId, { framework_id: frameworkId });
+    },
     appendStage(row: ProjectStageEventWrite): void {
       store.insert("project_stage_events",row);
     },

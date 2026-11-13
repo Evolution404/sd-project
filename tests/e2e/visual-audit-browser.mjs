@@ -53,6 +53,19 @@ async function settleLayout() {
 async function auditLayout(name, width) {
   await page.setViewportSize({ width, height: 800 });
   await settleLayout();
+  // This test covers 12 business entries, detail views and dialogs in both
+  // themes. Any user-visible raw UTC/ISO or locale timestamp is a regression.
+  const displayedText = await page.locator('body').innerText();
+  const badTimePatterns = [
+    /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/g,
+    /\b\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2}/g,
+    /\b\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2}\.\d+/g,
+    /\b\d{4}-\d{2}-\d{2}\s+\d{1,2}:\d{2}:\d{2}(?:\s*(?:Z|UTC|GMT|[+-]\d{2}:\d{2}))/g,
+    /\b\d{4}-\d{2}-\d{2}\s+\d:\d{2}:\d{2}/g,
+    /\b\d{1,2}\/\d{1,2}\/\d{4},?\s+\d{1,2}:\d{2}/g,
+  ];
+  const badTimes = badTimePatterns.flatMap(pattern => [...displayedText.matchAll(pattern)].map(hit => hit[0]));
+  assert.deepEqual(badTimes, [], `${name} ${width} unformatted timestamp visible in UI`);
   const root = await page.locator('.business-detail-dialog:visible').count() ? page.locator('.business-detail-dialog:visible') : page.locator('main');
   const violations = await root.evaluate(main => {
     const issues = [], bounds = main.getBoundingClientRect();

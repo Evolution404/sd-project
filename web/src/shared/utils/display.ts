@@ -1,4 +1,5 @@
 import { money, quantity, statusText } from "../api/client";
+import { formatVisibleDateTime } from "./datetime";
 export const fieldNames: Record<string, string> = {
   work_locations: "作业位置及各位置工作量",
   materials: "预计物资",
@@ -220,8 +221,10 @@ export function factText(
       return value;
     }
   }
-  if (typeof value !== "object")
-    return statusText[String(value)] || String(value);
+  if (typeof value !== "object") {
+    const displayed = formatVisibleDateTime(value, field);
+    return statusText[String(displayed)] || String(displayed);
+  }
   if (depth > 5) return "见相关正式明细";
   if (Array.isArray(value))
     return value.length

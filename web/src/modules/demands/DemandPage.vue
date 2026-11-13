@@ -7,7 +7,7 @@ import { useListRoute } from "../../shared/composables/use-list-route";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
-import { ref, onMounted, watch } from "vue";
+import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { createProjectForDemand, projectContext, setupContext } from "../../shared/navigation/business-context";
 import { takeDemandDraft } from "../../shared/forms/demand-draft-handoff";
@@ -18,6 +18,8 @@ import EvidencePanel from "../files/EvidencePanel.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import { api, quantity, statusText } from "../../shared/api/client";
 import DemandEditor from "./components/DemandEditor.vue";
+import { demandDisplayStatus } from "../../../../server/shared/demand-display-status";
+import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { DemandRecord, DemandListItem, SourceRow, DemandStatus } from "../../../../server/shared/types/demands";
 import type { OperationAttribute } from "../../../../server/shared/types/operation-attributes";
 import type { Actor, Page } from "../../../../server/shared/types/contracts";
@@ -139,12 +141,23 @@ const rows = ref<DemandListItem[]>([]),
   showDeleted = ref(false);
 const restoredDraft = ref<Record<string, unknown> | null>(null);
 const detailAttributes = ref<OperationAttribute[]>([]);
-const processing = ref("");
-watch(processing, value => {
-  if (value) columnFilters.value = {...columnFilters.value,handling_view:value};
-  else { const {handling_view,...rest}=columnFilters.value;void handling_view;columnFilters.value=rest; }
-  page.value=1;void load();
+const demandStatuses = ["待确认", "已退回", "待承接", "已承接", "已取消"] as const;
+// The tabs and the visible '需求状态' column share one filter source.
+// There is no longer a hidden handling_view column.
+const processing = computed({
+  get: () => demandStatuses.find(value => value === columnFilters.value.display_status) || "",
+  set: value => {
+    const next = {...columnFilters.value};
+    if (value) next.display_status = value;
+    else delete next.display_status;
+    columnFilters.value = next;
+    page.value = 1;
+    void load();
+  },
 });
+function displayStatus(row: Pick<DemandRecord, "status" | "binding">) {
+  return demandDisplayStatus(row.status, Boolean(row.binding));
+}
 let attributeSequence = 0;
 watch(() => detail.value?.operation_id + "/" + detail.value?.operation_version, async () => {
   const sequence = ++attributeSequence;
@@ -160,7 +173,9 @@ watch(() => detail.value?.operation_id + "/" + detail.value?.operation_version, 
     if (sequence === attributeSequence) ElMessage.error("需求采用的操作属性读取失败：" + (error as Error).message);
   }
 });
-function valueAt(row:object,key:string):unknown {return (row as Record<string,unknown>)[key];}
+function valueAt(row:object,key:string):unknown {
+  return formatVisibleDateTime((row as Record<string,unknown>)[key], key);
+}
 function attributeSummary(values: Record<string, unknown>) {
   return Object.entries(values || {}).map(([key,value]) => {
     const field=detailAttributes.value.find(item=>item.key===key);
@@ -207,7 +222,7 @@ const demandColumns: TableColumn[] = [
   { key: "unit_snapshot", label: "计量单位" },
   { key: "line_summary", label: "涉及线路", minWidth: 180 },
   { key: "location_count", label: "位置数量" },
-  { key: "status", label: "状态" },
+  { key: "display_status", label: "需求状态", minWidth: 150 },
   { key: "project_name", label: "承接项目", minWidth: 170 },
   { key: "last_handled_at", label: "最近办理时间", minWidth: 200 },
 ];
@@ -261,7 +276,7 @@ async function transition(row: DemandListItem | DemandRecord, status: DemandStat
   }
   try {
     await ElMessageBox.confirm(
-      status === "active" ? "确认将本需求转为有效，供子项目承接？" :
+      status === "active" ? "确认本需求成立并进入待承接状态？随后可关联子项目。" :
         status === "returned" ? "确认退回未关联项目的需求？退回后需再次审核确认，才能重新办理承接。" :
         "确认取消该需求？取消后不能重新激活；若已关联子项目，请先显式解绑。",
       statusText[status],
@@ -337,7 +352,10 @@ onMounted(async () => {
         >
       </div>
     </div>
-    <ElTabs v-model="processing"><ElTabPane label="全部需求" name="" /><ElTabPane label="待确认" name="pending" /><ElTabPane label="已确认待承接" name="unbound" /><ElTabPane label="已承接" name="bound" /><ElTabPane label="已取消" name="cancelled" /></ElTabs>
+    <ElTabs v-model="processing" aria-label="按需求状态筛选">
+      <ElTabPane label="全部需求" name="" />
+      <ElTabPane v-for="state in demandStatuses" :key="state" :label="state" :name="state" />
+    </ElTabs>
     <div class="panel">
       <div class="toolbar">
         <ElInput
@@ -356,7 +374,10 @@ onMounted(async () => {
           <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
           <span v-else-if="column.key === 'work_locations'">{{ row.work_locations?.length || 0 }} 处</span>
           <span v-else-if="column.key === 'binding'">{{ row.binding ? '已关联子项目' : '未关联' }}</span>
-          <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? "已删除" : statusText[row.status] }}</ElTag>
+          <template v-else-if="column.key === 'display_status'">
+            <ElTag effect="plain" :type="row.display_status === '已承接' ? 'success' : row.display_status === '已取消' ? 'info' : row.display_status === '已退回' ? 'warning' : undefined">{{ row.display_status }}</ElTag>
+            <ElTag v-if="row.deleted" type="danger" effect="plain">已删除</ElTag>
+          </template>
           <span v-else>{{ valueAt(row,column.key) ?? '—' }}</span>
         </template>
         <template #actions="{ row }">
@@ -378,15 +399,16 @@ onMounted(async () => {
         <h1>{{ detail.operation_snapshot }} · {{ detail.problem_description }}</h1>
         <div class="muted demand-technical-reference">需求编号：{{ detail.demand_no }} · 正式定义第{{ detail.current_version }}版</div>
       </div>
-      <ElTag :type="detail.status === 'active' ? 'success' : 'info'">{{ statusText[detail.status] }}</ElTag>
+      <ElTag :type="displayStatus(detail) === '已承接' ? 'success' : displayStatus(detail) === '已退回' ? 'warning' : 'info'">{{ displayStatus(detail) }}</ElTag>
     </div>
     <div class="panel demand-next-action">
       <div class="toolbar">
         <div>
           <h2>当前办理状态</h2>
           <p class="muted">
-            {{ detail.status === 'pending' || detail.status === 'returned' ? '需求待确认有效后可以承接立项。' :
-              detail.status === 'active' && !detail.binding ? '需求已确认有效，下一步可纳入子项目。' :
+            {{ detail.status === 'pending' ? '需求尚未确认；确认后进入待承接。' :
+              detail.status === 'returned' ? '需求已退回，须核对或修订后重新确认。' :
+              detail.status === 'active' && !detail.binding ? '需求处于待承接状态，下一步可纳入子项目。' :
               detail.status === 'active' && detail.binding ? '需求已由子项目承接，可继续办理入库和批准。' :
               '需求已取消，正式定义及历史仍可追溯。' }}
           </p>
@@ -395,7 +417,7 @@ onMounted(async () => {
           type="primary" :disabled="!can('demand.activate') || detail.deleted"
           :title="can('demand.activate') ? undefined : '需要需求确认权限，请交由审核人员办理'"
           data-guide-action="demands.confirm" @click="transition(detail,'active')">
-          确认需求有效
+          确认并待承接
         </ElButton>
         <ElButton v-else-if="detail.status === 'active' && !detail.binding"
           type="primary" :disabled="!can('write') || detail.deleted"

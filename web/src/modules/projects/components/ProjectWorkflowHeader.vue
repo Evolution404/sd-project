@@ -24,7 +24,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{
   action: [action: ProjectAction];
-  manage: [action: "funding" | "edit" | "history" | "delete"];
+  manage: [action: "edit" | "history" | "delete"];
 }>();
 </script>
 
@@ -33,7 +33,7 @@ const emit = defineEmits<{
     <div class="project-action-bar">
       <div class="project-stage-copy">
         <h2>当前阶段 · {{ statusText[status] || status }}</h2>
-        <p class="muted">优先办理下一步；档案、资金和历史操作集中在右侧。</p>
+        <p class="muted">优先办理下一步；年度框架与执行协议在项目档案中维护。</p>
       </div>
       <div class="project-action-controls">
         <div class="project-next-actions" aria-label="项目办理操作">
@@ -55,9 +55,7 @@ const emit = defineEmits<{
             </template>
           </ElDropdown>
         </div>
-        <div class="project-management-actions" aria-label="项目档案和资金操作">
-          <ElButton data-guide-action="projects.funding" v-if="status !== 'closed'" :disabled="!canWrite || deleted"
-            @click="emit('manage', 'funding')">资金归属</ElButton>
+        <div class="project-management-actions" aria-label="项目档案和历史操作">
           <ElDropdown @command="command => emit('manage', command as 'edit' | 'history' | 'delete')">
             <ElButton>更多管理操作</ElButton>
             <template #dropdown>

@@ -70,7 +70,7 @@ try {
   const editorDetail=editor.locator(".business-detail-dialog:visible");
   await editorDetail.getByText(pending.problem_description).first().waitFor();
   assert.equal(await editorDetail.getByRole("button",{name:"修订需求"}).isEnabled(),true);
-  assert.equal(await editorDetail.getByRole("button",{name:"确认需求有效"}).isDisabled(),true);
+  assert.equal(await editorDetail.getByRole("button",{name:"确认并待承接"}).isDisabled(),true);
   await editorDetail.getByText("当前账号没有需求确认权限",{exact:false}).waitFor();
   assert.equal((await rejectedMutation(editor,"/demands/"+pending.id+"/status",mutation)).status,403);
   const pricingDefinitionFailures=[];
@@ -93,12 +93,12 @@ try {
   const verifyDetail=verifier.locator(".business-detail-dialog:visible");
   await verifyDetail.getByText("编辑人员核实现场事实并修订需求").first().waitFor();
   assert.equal(await verifyDetail.getByRole("button",{name:"修订需求"}).isDisabled(),true);
-  assert.equal(await verifyDetail.getByRole("button",{name:"确认需求有效"}).isEnabled(),true);
+  assert.equal(await verifyDetail.getByRole("button",{name:"确认并待承接"}).isEnabled(),true);
   await verifyDetail.getByText("当前账号没有需求修订权限",{exact:false}).waitFor();
   assert.equal((await rejectedMutation(verifier,"/demands/"+pending.id,{
     problem_description:"尝试越权编辑",
   })).status,403);
-  await verifyDetail.getByRole("button",{name:"确认需求有效"}).click();
+  await verifyDetail.getByRole("button",{name:"确认并待承接"}).click();
   await verifier.locator(".el-message-box:visible .el-button--primary").click();
   await verifyDetail.getByRole("button",{name:"关联子项目"}).waitFor();
   assert.equal(s.demands.get(pending.id).status,"active");

@@ -21,7 +21,7 @@ const isAgreement = computed(() => props.kind === "agreements");
 const title = computed(() => isAgreement.value ? "执行协议" : "年度框架");
 const introduction = computed(() => isAgreement.value
   ? "管理执行协议额度、生效期间及关联子项目；预算占用差额仅供参考。"
-  : "统筹年度框架额度、关联执行协议和子项目预算，核对真实发生费用。");
+  : "统筹年度框架下直接归属及经执行协议关联的子项目，统一核对预算和真实费用。");
 type FundingDraft = {
   name: string; fiscal_year: number; framework_id: string | null;
   limit_fen: number; status: "active" | "inactive";
@@ -63,13 +63,16 @@ const linkedAgreementColumns: TableColumn[] = [
   { key: "limit_fen", label: "协议额度", minWidth: 155 },
   { key: "status", label: "状态", minWidth: 110 },
 ];
-const linkedProjectColumns: TableColumn[] = [
+const linkedProjectColumns = computed<TableColumn[]>(() => [
   { key: "name", label: "子项目名称", minWidth: 220 },
+  ...(!isAgreement.value
+    ? [{ key: "agreement_id", label: "归属方式", minWidth: 172, sortable: false, filterable: false }]
+    : []),
   { key: "status", label: "项目阶段", minWidth: 120 },
   { key: "approved_budget_fen", label: "批准预算", minWidth: 155 },
   { key: "actual_cost_fen", label: "真实费用", minWidth: 155 },
   { key: "settlement_fen", label: "已批准结算", minWidth: 155 },
-];
+]);
 const columns = computed<TableColumn[]>(() => isAgreement.value ? [
   { key: "name", label: "协议名称", minWidth: 190 },
   { key: "framework_id_label", label: "所属年度框架", minWidth: 200 },
@@ -93,6 +96,8 @@ function relatedProjectCell(row: FundingProject, column: TableColumn): string {
   if (column.key === "approved_budget_fen" || column.key === "actual_cost_fen" || column.key === "settlement_fen")
     return amountText(row[column.key]);
   if (column.key === "status") return statusText[row.status] || row.status;
+  if (column.key === "agreement_id")
+    return row.agreement_id ? "通过执行协议" : "直接归属年度框架";
   return String(row[column.key as keyof FundingProject] ?? "—");
 }
 const amountText = (value: number | null | undefined) =>

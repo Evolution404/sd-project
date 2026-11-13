@@ -11,6 +11,7 @@ import { api, money, statusText } from "../../../shared/api/client";
 import { useAccess } from "../../../shared/composables/use-access";
 import { useDialogDraftGuard } from "../../../shared/forms/use-dialog-draft";
 import { treePath, descendantIds } from "../../../shared/utils/tree";
+import { formatBeijingDateTime } from "../../../shared/utils/datetime";
 import BusinessTree from "../../../shared/ui/BusinessTree.vue";
 import BusinessTreeSelect from "../../../shared/ui/BusinessTreeSelect.vue";
 import BusinessTable from "../../../shared/ui/BusinessTable.vue";
@@ -316,7 +317,7 @@ const projectDialog = useEntityDialog(
           </ElDescriptionsItem><ElDescriptionsItem label="正式版本"
             >第{{ selected.version_no }}版</ElDescriptionsItem
           ><ElDescriptionsItem label="版本变更时间">{{
-            selected.recorded_at ? new Date(selected.recorded_at).toLocaleString("zh-CN", { hour12: false }) : "—"
+            selected.recorded_at ? formatBeijingDateTime(selected.recorded_at) : "—"
           }}</ElDescriptionsItem></ElDescriptions
         >
         <h3>当前关联子项目</h3>

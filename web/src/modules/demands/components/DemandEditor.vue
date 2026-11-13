@@ -29,6 +29,7 @@ import FieldControl from "../../../shared/ui/FieldControl.vue";
 import DemandLocationPicker from "./DemandLocationPicker.vue";
 import DemandLocationTable from "./DemandLocationTable.vue";
 import DemandMaterialTable from "./DemandMaterialTable.vue";
+import DemandDuplicateReview, { type DuplicateCandidate } from "./DemandDuplicateReview.vue";
 const props = defineProps<{
   open: boolean;
   editing: DemandRecord | null;
@@ -63,7 +64,9 @@ const draft = ref<DemandDraft>(empty()),
   errors = ref<Record<string, unknown>>({}),
   invalid = ref<Record<string, boolean>>({}),
   picker = ref(false),
-  setupMissing = ref(false);
+  setupMissing = ref(false),
+  duplicateReviewOpen = ref(false),
+  duplicateCandidates = ref<DuplicateCandidate[]>([]);
 const schema = computed<OperationAttribute[]>(() =>
   JSON.parse(operation.value?.attributes_schema_json || "[]"),
 );
@@ -103,6 +106,8 @@ watch(
   async (open) => {
     if (!open) return;
     initialized = false;
+    duplicateReviewOpen.value = false;
+    duplicateCandidates.value = [];
     errors.value = {};
     invalid.value = {};
     section.value = "basic";
@@ -198,6 +203,8 @@ watch(
         } else await adopt(current);
       }
       await nextTick();
+      if (scroll.value) scroll.value.scrollTop = 0;
+      syncSectionFromScroll();
       guard.capture();
       initialized = true;
     } catch (failure) {
@@ -205,19 +212,49 @@ watch(
     }
   },
 );
+const sectionIds = ["basic", "locations", "materials", "sources"] as const;
+function syncSectionFromScroll() {
+  const root = scroll.value;
+  if (!root) return;
+  // Use the actual scroll container, not the outer Element Plus dialog.
+  const threshold = root.getBoundingClientRect().top + 48;
+  let active: string = "basic";
+  for (const id of sectionIds) {
+    const target = root.querySelector<HTMLElement>("#demand-section-" + id);
+    if (target && target.getBoundingClientRect().top <= threshold) active = id;
+  }
+  if (root.scrollTop > 0 && root.scrollHeight - root.clientHeight - root.scrollTop <= 4)
+    active = "sources";
+  if (section.value !== active) section.value = active;
+}
 function navigate(value: string) {
   section.value = value;
-  scroll.value
-    ?.querySelector("#demand-section-" + value)
-    ?.scrollIntoView({ block: "start", behavior: "smooth" });
+  const root = scroll.value;
+  const target = root?.querySelector<HTMLElement>("#demand-section-" + value);
+  if (!root || !target) return;
+  const offset = target.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop - 16;
+  root.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
 }
 function close(done?: () => void) {
   void guard.confirmClose(() => {
     initialized = false;
+    duplicateReviewOpen.value = false;
     sessionStorage.removeItem(draftKey.value);
     emit("update:open", false);
     done?.();
   });
+}
+// Explicit parking is different from cancel/discard: the draft remains
+// recoverable on this browser tab, and no formal demand is created.
+function parkDraft() {
+  sessionStorage.setItem(draftKey.value, JSON.stringify(draft.value));
+  initialized = false;
+  duplicateReviewOpen.value = false;
+  emit("update:open", false);
+  ElMessage.success("草稿已暂存在当前浏览器会话；再次打开需求编辑器可恢复，尚未生成正式需求");
+}
+function confirmIndependent(reason: string) {
+  void save(duplicateCandidates.value.map(item => item.demand_no), reason);
 }
 async function changeOperation(value: unknown, allowSame = false) {
   const id = typeof value === "string" ? value : "";
@@ -339,7 +376,7 @@ function addLocations(rows: LocationDraft[]) {
     }),
   );
 }
-async function save(duplicate?: string[]) {
+async function save(duplicate?: string[], duplicateReason?: string) {
   if (loading.value) return;
   errors.value = {};
   try {
@@ -389,7 +426,7 @@ async function save(duplicate?: string[]) {
         .filter((row) => row.id || row.description)
         .map(({ row_id, ...row }) => row),
       ...(duplicate
-        ? { duplicate_decision: "separate", duplicate_matches: duplicate }
+        ? { duplicate_decision: "separate", duplicate_matches: duplicate, duplicate_reason: duplicateReason }
         : {}),
     };
     const saved = await api<DemandRecord>(
@@ -399,6 +436,7 @@ async function save(duplicate?: string[]) {
     );
     sessionStorage.removeItem(draftKey.value);
     initialized = false;
+    duplicateReviewOpen.value = false;
     emit("update:open", false);
     emit("saved", saved.id);
   } catch (failure) {
@@ -415,19 +453,18 @@ async function save(duplicate?: string[]) {
         ];
       }),
     );
-    if (Array.isArray(errors.value.duplicates)) {
-      try {
-        await ElMessageBox.confirm(
-          "与" +
-            errors.value.duplicates.join("、") +
-            "疑似重复，确认现场事实属于独立需求并分别保留？",
-          "疑似重复需求复核",
-          { confirmButtonText: "确认为独立需求", cancelButtonText: "返回核对" },
-        );
-        loading.value = false;
-        await save(errors.value.duplicates as string[]);
-      } catch {}
+    const numbers = errors.value.duplicates;
+    const ids = errors.value.duplicate_ids;
+    if (Array.isArray(numbers) && Array.isArray(ids) &&
+      numbers.length > 0 && numbers.length === ids.length &&
+      numbers.every(value => typeof value === "string") &&
+      ids.every(value => typeof value === "string")) {
+      duplicateCandidates.value = numbers.map((demand_no, index) => ({
+        demand_no: String(demand_no), id: String(ids[index]),
+      }));
+      duplicateReviewOpen.value = true;
     } else {
+      duplicateReviewOpen.value = false;
       const first = Object.keys(errors.value)[0] || "";
       navigate(
         first.startsWith("work_locations")
@@ -463,7 +500,7 @@ async function save(duplicate?: string[]) {
         label="预计物资"
         name="materials" /><ElTabPane label="来源及其他信息" name="sources"
     /></ElTabs>
-    <div ref="scroll" class="editor-content">
+    <div ref="scroll" class="editor-content" @scroll.passive="syncSectionFromScroll">
       <ElForm ref="formRef" :model="draft" label-position="top" novalidate>
         <ElAlert
           v-if="loadError"
@@ -588,7 +625,7 @@ async function save(duplicate?: string[]) {
           <h2>预计物资</h2>
           <DemandMaterialTable
             :rows="draft.materials"
-            @add="draft.materials.push($event)"
+            @add="draft.materials.push(...$event)"
             @remove="
               draft.materials = draft.materials.filter(
                 (row) => !$event.includes(row.id),
@@ -642,6 +679,7 @@ async function save(duplicate?: string[]) {
     </div>
     <template #footer
       ><span class="muted demand-draft-note">草稿自动保留在当前浏览器会话</span
+      ><ElButton @click="parkDraft">暂存草稿并关闭</ElButton
       ><ElButton @click="close()">取消</ElButton
       ><ElButton data-guide-action="demands.save"
         data-action="save-demand"
@@ -653,6 +691,17 @@ async function save(duplicate?: string[]) {
       ></template
     >
   </ElDialog>
+  <DemandDuplicateReview
+    :open="duplicateReviewOpen"
+    :candidates="duplicateCandidates"
+    :draft="draft"
+    :operation-name="operation?.name || ''"
+    :unit="operation?.default_unit_id_label || ''"
+    :submitting="loading"
+    @close="duplicateReviewOpen = false"
+    @park="parkDraft"
+    @confirm="confirmIndependent"
+  />
   <DemandLocationPicker
     v-if="operation"
     v-model:open="picker"

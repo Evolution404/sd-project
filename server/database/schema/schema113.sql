@@ -616,8 +616,9 @@ CREATE TABLE projects (
 ) STRICT;
 
 
--- Agreement association is optional, but every change is a typed immutable
--- version; projects store their permanent framework identity only.
+-- Agreement association is optional; every change is an immutable version.
+-- Project framework may be corrected only while reserve; profile snapshots
+-- record the framework choice and stocking freezes further changes.
 -- Organization unit has stable code; later name, hierarchy or activation
 -- changes are complete typed immutable versions, never silent root UPDATEs.
 CREATE TABLE organizational_units (
@@ -655,6 +656,7 @@ CREATE TABLE project_management_versions (
  version_no INTEGER NOT NULL CHECK(version_no>0),
  -- Complete immutable project profile: no second mutable name/category root.
  name TEXT NOT NULL CHECK(length(trim(name))>0),
+ framework_id TEXT REFERENCES frameworks(id) ON DELETE RESTRICT,
  category_id TEXT REFERENCES dictionary_items(id) ON DELETE RESTRICT,
  category_version INTEGER,
  owner_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
@@ -1465,17 +1467,30 @@ BEGIN SELECT RAISE(ABORT,'费用核对历史不可覆盖'); END;
 -- must not double-count the same funds.
 -- The annual framework and the agreement are budget *baselines*, not hard caps.
 -- Projects may exceed them as real conditions change; the overage is reported.
--- The framework is the project's permanent ownership; optional agreement
--- changes are recorded in project_funding_versions rather than updating
--- a mutable duplicate field on projects.
+-- The root owns the current framework, amendable only while reserve.
+-- Profile versions snapshot the choice; agreement changes append
+-- project_funding_versions, not a duplicate mutable agreement field.
 CREATE TRIGGER project_home_insert BEFORE INSERT ON projects
 BEGIN
  SELECT CASE WHEN NEW.status IN ('approved','closed')
  THEN RAISE(ABORT,'正式立项需要已有的项目批准版本，先创建储备项目') END;
 END;
 CREATE TRIGGER project_home_update
- BEFORE UPDATE OF id,code,framework_id,created_by,created_at ON projects
-BEGIN SELECT RAISE(ABORT,'子项目根身份、编码和框架归属不允许直接改写；名称与类别须创建正式档案版本'); END;
+ BEFORE UPDATE OF id,code,created_by,created_at ON projects
+BEGIN SELECT RAISE(ABORT,'项目身份与创建信息不可改写；名称与类别须创建正式档案版本'); END;
+CREATE TRIGGER project_reserve_framework_guard
+ BEFORE UPDATE OF framework_id ON projects
+ WHEN NEW.framework_id IS NOT OLD.framework_id
+BEGIN
+ SELECT CASE WHEN OLD.status<>'reserve' OR NEW.status<>'reserve'
+ THEN RAISE(ABORT,'子项目入库后不可修改年度框架') END;
+ SELECT CASE WHEN EXISTS (
+  SELECT 1 FROM v_project_funding_current f
+  JOIN agreements a ON a.id=f.agreement_id
+  WHERE f.project_id=OLD.id AND f.agreement_id IS NOT NULL
+    AND a.framework_id<>NEW.framework_id
+ ) THEN RAISE(ABORT,'变更年度框架前须先解除原执行协议关联') END;
+END;
 CREATE TRIGGER project_root_immutable_delete BEFORE DELETE ON projects
 BEGIN SELECT RAISE(ABORT,'已建档子项目不能删除；使用业务阶段和正式历史保留审计'); END;
 CREATE TRIGGER project_approved_status_guard
@@ -3479,6 +3494,7 @@ BEGIN
  SELECT 1 FROM project_management_versions old
  WHERE old.project_id=NEW.project_id AND old.version_no=NEW.version_no-1
  AND old.name=NEW.name
+ AND old.framework_id IS NEW.framework_id
  AND old.category_id IS NEW.category_id
  AND old.category_version IS NEW.category_version
  AND old.owner_id IS NEW.owner_id

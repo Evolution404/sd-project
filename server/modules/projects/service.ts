@@ -76,6 +76,30 @@ export function createProjects(
       "项目归口单位历史采用版本不存在",409);
     return {...record,id:orgId,unit_version_id:versionId};
   }
+  function requireAgreementEligible(agreementId: string, frameworkId: string) {
+    const agreement = funding.get("agreements", agreementId);
+    requireValue(agreement.framework_id === frameworkId,
+      "执行协议必须属于本项目所选年度框架", 422);
+    requireValue(agreement.status === "active" && !agreement.deleted,
+      "执行协议已停用或删除，请选择有效协议", 422);
+    const date = today();
+    requireValue(
+      (!agreement.effective_from || agreement.effective_from <= date) &&
+      (!agreement.effective_to || agreement.effective_to >= date),
+      "执行协议尚未生效或已过期，请选择当前有效协议", 422);
+    return agreement;
+  }
+  function appendFundingSelection(
+    projectId: string, versionNo: number, agreementId: string | null,
+    actor: Actor, reason: string,
+  ) {
+    repo.appendFunding({
+      id: id(), project_id: projectId, version_no: versionNo,
+      agreement_id: agreementId, actor_id: actor.id, recorded_at: now(),
+      reason,
+    });
+  }
+
   function save(actor: Actor, input: ProjectManagementInput, key?: string) {
     authorize(actor, "write");
     return repo.transaction(() => {
@@ -84,17 +108,52 @@ export function createProjects(
         expectedVersion(previous.profile_version, input.expected_version);
       const projectId = key || id(),
         timestamp = now();
+      const frameworkId = input.framework_id || previous?.framework_id;
+      requireValue(typeof frameworkId === "string" && frameworkId.length > 0,
+        "请选择年度框架");
+      const frameworkChanged = Boolean(previous && frameworkId !== previous.framework_id);
+      if (!previous || frameworkChanged) {
+        requireValue(!previous || previous.status === "reserve",
+          "子项目入库后不可变更年度框架", 409);
+        const framework = funding.get("frameworks", frameworkId);
+        requireValue(framework.status === "active" && !framework.deleted,
+          "请选择有效年度框架", 422);
+      }
+      const previousAgreementId = previous?.funding?.agreement_id || null;
+      // A reserve project's new framework is a valid direct owner without
+      // any execution agreement. Do not inherit an old framework's agreement.
+      const chosenAgreementId = input.agreement_id === undefined
+        ? (frameworkChanged ? null : previousAgreementId)
+        : input.agreement_id || null;
+      if (input.expected_funding_version !== undefined && previous)
+        expectedVersion(previous.funding?.version_no || 0, input.expected_funding_version);
+      if (chosenAgreementId && (!previous || frameworkChanged ||
+        chosenAgreementId !== previousAgreementId))
+        requireAgreementEligible(chosenAgreementId, frameworkId);
+      if (previous && previous.status === "closed" &&
+          chosenAgreementId !== previousAgreementId)
+        requireValue(false, "已结项项目不可变更执行协议", 409);
       if (!previous) {
-        requireValue(typeof input.framework_id === "string" && input.framework_id.length > 0, "请选择年度框架");
-        const framework = funding.get("frameworks", input.framework_id);
-        requireValue(framework.status === "active", "框架已停用");
         repo.createProject({
           id: projectId,
           code: documentCode("XM", projectId),
-          framework_id: framework.id,
+          framework_id: frameworkId,
           created_by: actor.id,
           created_at: timestamp,
         });
+      } else if (frameworkChanged) {
+        // Detach the old framework's agreement first so the strict SQL guard
+        // never sees an invalid cross-framework current association.
+        if (previousAgreementId)
+          appendFundingSelection(projectId, (previous.funding?.version_no || 0) + 1,
+            null, actor, "储备阶段变更年度框架，解除原框架执行协议");
+        repo.updateReserveFramework(projectId, frameworkId);
+      }
+      if (chosenAgreementId !== (frameworkChanged ? null : previousAgreementId)) {
+        const currentVersion = (previous?.funding?.version_no || 0) +
+          (frameworkChanged && previousAgreementId ? 1 : 0);
+        appendFundingSelection(projectId, currentVersion + 1,
+          chosenAgreementId, actor, input.reason || "项目档案中选择执行协议");
       }
       for (const key of ["owner_id", "manager_id"] as const)
         if (input[key] && input[key] !== previous?.[key]) {
@@ -114,11 +173,9 @@ export function createProjects(
             ? adoptedOrganization(previous.managing_unit_id, previous.managing_unit_version_id)
             : catalog.get("organizations", input.managing_unit_id)
           : null;
-      repo.appendProfile({
-        id: id(),
-        project_id: projectId,
-        version_no: (previous?.profile_version || 0) + 1,
+      const profileFields = {
         name: text(input.name, "项目名称"),
+        framework_id: frameworkId,
         category_id: category?.id || null,
         category_version: category?.version || null,
         owner_id: input.owner_id || null,
@@ -129,10 +186,19 @@ export function createProjects(
         planned_end_on: input.planned_end_on || null,
         preliminary_estimate_fen: input.preliminary_estimate_fen ?? null,
         preliminary_estimate_basis: input.preliminary_estimate_basis || null,
-        actor_id: actor.id,
-        recorded_at: timestamp,
-        reason: input.reason || "",
-      });
+      };
+      const profileChanged = !previous ||
+        Object.entries(profileFields).some(([field, value]) =>
+          (previous as Record<string, unknown>)[field] !== value);
+      requireValue(profileChanged || chosenAgreementId !== previousAgreementId,
+        "项目档案和执行协议均未变化，无需重复保存", 409);
+      if (profileChanged)
+        repo.appendProfile({
+          id: id(), project_id: projectId,
+          version_no: (previous?.profile_version || 0) + 1,
+          ...profileFields,
+          actor_id: actor.id, recorded_at: timestamp, reason: input.reason || "",
+        });
       catalog.audit(
         actor,
         "projects",
@@ -362,9 +428,9 @@ export function createProjects(
   // Agreement balances are a budget *comparison*, not a funds-allocation
   // ledger. Only the latest funding link and latest formally approved project
   // budget contribute to the reference figures.
-  function agreementOptions(key: string) {
-    const project = get(key);
-    const selectedId = project.funding?.agreement_id || null;
+  function eligibleAgreementOptions(frameworkId: string, selectedId: string | null = null) {
+    const framework = funding.get("frameworks", frameworkId);
+    requireValue(!framework.deleted, "年度框架已删除，不可选用", 422);
     const currentDate = today();
     const linked = new Map(repo.agreementUsageTotals().map(row => {
       requireValue(Number.isSafeInteger(row.approved_budget_fen),
@@ -373,7 +439,7 @@ export function createProjects(
         {projects:row.projects,approved_budget_fen:row.approved_budget_fen}] as const;
     }));
     const agreements = funding.list("agreements", true)
-      .filter(agreement => agreement.framework_id === project.framework_id)
+      .filter(agreement => agreement.framework_id === frameworkId)
       .map(agreement => {
         const eligible = !agreement.deleted && agreement.status === "active" &&
           (!agreement.effective_from || agreement.effective_from <= currentDate) &&
@@ -394,14 +460,17 @@ export function createProjects(
             used.approved_budget_fen,
         };
       });
+    return agreements.filter(row => row.eligible || row.id === selectedId)
+      .sort((a, b) => a.code.localeCompare(b.code, "zh-CN"));
+  }
+  function agreementOptions(key: string) {
+    const project = get(key);
+    const selectedId = project.funding?.agreement_id || null;
     return {
       framework_id: project.framework_id,
       current_agreement_id: selectedId,
       project_approved_budget_fen: project.approval?.approved_budget_fen ?? null,
-      // Keep an ineligible historical selection visible, but not selectable
-      // for a new funding assignment.
-      options: agreements.filter(row => row.eligible || row.id === selectedId)
-        .sort((a, b) => a.code.localeCompare(b.code, "zh-CN")),
+      options: eligibleAgreementOptions(project.framework_id, selectedId),
     };
   }
   return {
@@ -409,6 +478,10 @@ export function createProjects(
     save,
     approvalDraft,
     agreementOptions,
+    availableAgreements(frameworkId: string, selectedId: string | null = null) {
+      return { framework_id: frameworkId,
+        options: eligibleAgreementOptions(frameworkId, selectedId) };
+    },
     search(query: ListQuery) {
       const result = repo.searchProjects(query);
       return { ...result, items: result.items.map(({ approval_json, scopes_json, funding_json, ...row }) => ({
@@ -522,6 +595,20 @@ export function createProjects(
         if (project.deleted) authorize(actor, "admin");
         const scope = project.scopes.find((x) => x.id === scopeId);
         requireValue(scope, "关联不存在", 404);
+        requireValue(scope.binding, "需求当前未关联，不能重复解绑", 409);
+        // Mirror the database triggers at the service boundary so users
+        // receive a business conflict rather than an ERR_SQLITE_ERROR stack.
+        const draftContainsScope = project.approvals.some(approval =>
+          approval.status === "draft" &&
+          approval.scopes.some(item => item.project_scope_id === scopeId));
+        requireValue(!draftContainsScope,
+          "仍有立项或变更草稿引用需求，须先移出草稿再解绑", 409);
+        const latestApproved = project.approvals
+          .filter(approval => approval.status === "approved")
+          .sort((a, b) => b.version_no - a.version_no)[0];
+        requireValue(project.status === "closed" ||
+          !latestApproved?.scopes.some(item => item.project_scope_id === scopeId),
+          "已正式批准的在办项目须先通过最新版范围变更移出需求，才能解绑", 409);
         const last = repo.latestDemandLinkEvent(scopeId);
         requireValue(last, "关联历史不存在", 409);
         expectedVersion(last.event_seq, input.expected_event_seq);
