@@ -63,12 +63,14 @@ try {
   assert.ok(await page.getByRole("tab", { name: "项目概览", exact: true }).isVisible(),
     "creating a project opens its actual business workspace, not a list row");
   await page.getByRole("button", { name: "关联专业需求", exact: true }).click();
-  await select("专业需求", "待承接 · " + demand.demand_no + " · 防鸟设施缺失");
-  await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
-    .getByRole("button", { name: "保存", exact: true })
-    .click();
-  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+  const picker=page.getByRole("dialog", {name:"关联专业需求"});
+  await picker.getByLabel("选择需求：" + demand.demand_no).check();
+  await picker.getByRole("button", {name:"查看需求详情：" + demand.demand_no}).click();
+  const preview=page.getByRole("dialog", {name:"专业需求详情"});
+  await preview.getByText("防鸟设施缺失").first().waitFor();
+  await preview.getByRole("button", {name:"返回需求选择"}).click();
+  await picker.getByRole("button", {name:"关联已选需求（1）"}).click();
+  await picker.waitFor({state:"hidden"});
   await page.getByRole("button", { name: "确认入库", exact: true }).click();
   await confirm();
   await page.getByRole("tab", { name: "批准与变更", exact: true }).click();

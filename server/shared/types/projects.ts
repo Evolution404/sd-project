@@ -107,6 +107,9 @@ export interface ProjectLinkInput {
   expected_version: number;
   reason?: string;
 }
+export interface ProjectLinkBatchInput {
+  links: ProjectLinkInput[];
+}
 export interface ProjectReleaseInput {
   expected_event_seq: number;
   reason?: string;

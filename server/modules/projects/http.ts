@@ -1,6 +1,6 @@
 import { isObject } from "../../shared/types/contracts.js";
 import { projectActionHints } from "./actions.js";
-import { parseProjectFromDemand, parseProjectVersion, parseProjectLink, parseProjectRelease,
+import { parseProjectFromDemand, parseProjectVersion, parseProjectLink, parseProjectLinkBatch, parseProjectRelease,
   parseProjectFunding, parseProjectApproval, parseProjectManagement } from "./requests.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type { RouteContext } from "../../platform/http/context.js";
@@ -60,6 +60,8 @@ export async function handleProjects(context: RouteContext): Promise<{
                 result = mutate("admin", () => system.projects.remove(actor, key, parseProjectVersion(input)));
             else if (sub === "stock")
                 result = mutate("project.stock", () => system.projects.stock(actor, key, parseProjectVersion(input)));
+            else if (sub === "link-batch")
+                result = mutate("write", () => system.projects.linkMany(actor, key, parseProjectLinkBatch(input)));
             else if (sub === "link")
                 result = mutate("write", () => system.projects.link(actor, key, parseProjectLink(input)));
             else if (sub === "release")

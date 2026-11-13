@@ -15,7 +15,7 @@ import type { FundingService } from "../funding/service.js";
 import type { ProjectPersistenceRepository } from "../../database/repositories/project-persistence.js";
 import type { QuantityUnitRepository } from "../../database/repositories/quantity-units.js";
 import type { ProjectManagementInput, ProjectFromDemandInput,
-  ProjectApprovalInput, ProjectLinkInput, ProjectReleaseInput,
+  ProjectApprovalInput, ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
   ProjectVersionAction, ProjectFundingInput } from "../../shared/types/projects.js";
 
 export function createProjects(
@@ -70,6 +70,40 @@ export function createProjects(
       cost_nodes: repo.projectCostNodes(key),
       changes: repo.projectChanges(key),
     };
+  }
+  function preflightLink(project: ReturnType<typeof get>, input: ProjectLinkInput) {
+    requireValue(!Object.hasOwn(input, "quantity_scaled"),
+      "子项目只允许整体承接需求，不能另填承接数量；请先修订或拆分需求", 422);
+    requireValue(project.status !== "closed" && !project.deleted,
+      "已结项或已删除项目不能关联需求", 409);
+    const demand=demands.get(input.demand_id);
+    expectedVersion(demand.current_version,input.expected_version);
+    requireValue(demand.status === "active" || demand.status === "pending",
+      "仅待承接或待确认的有效需求可以关联项目",422);
+    requireValue(!demand.binding,"需求已关联其他子项目，请刷新待承接清单",409);
+    return {demand,existing:project.scopes.find(scope=>scope.demand_id===demand.id)};
+  }
+  function writeLink(actor:Actor,key:string,input:ProjectLinkInput,
+    prepared:ReturnType<typeof preflightLink>) {
+    const {demand,existing}=prepared;
+    const timestamp=now();
+    if(existing) {
+      const last=repo.latestDemandLinkEvent(existing.id);
+      requireValue(last,"需求关联事件历史不完整，请刷新后重试",409);
+      repo.appendDemandLink({
+        id:id(),project_scope_id:existing.id,
+        event_seq:last.event_seq+1,action:"linked",
+        actor_id:actor.id,recorded_at:timestamp,reason:input.reason||"",
+      });
+    } else {
+      repo.createDemandScope({
+        id:id(),project_id:key,demand_id:demand.id,
+        demand_version:demand.current_version,
+        proposed_quantity_scaled:demand.quantity_scaled,
+        created_by:actor.id,created_at:timestamp,updated_at:timestamp,
+        demand_snapshot_json:JSON.stringify(demand),
+      });
+    }
   }
   function adoptedOrganization(orgId:string|null,versionId:string|null) {
     requireValue(orgId && versionId,"项目归口单位缺少已采用正式版本",409);
@@ -550,40 +584,27 @@ export function createProjects(
       );
     },
     link(actor: Actor, key: string, input: ProjectLinkInput) {
-      authorize(actor, "write");
-      return repo.transaction(() => {
-        const project = get(key);
-        requireValue(project.status !== "closed", "已结项项目不能新增关联");
-        const demand = demands.get(input.demand_id);
-        expectedVersion(demand.current_version, input.expected_version);
-        requireValue(!Object.hasOwn(input, "quantity_scaled"),
-          "子项目只允许整体承接需求，不能另填承接数量；请先修订或拆分需求", 422);
-        const existing = project.scopes.find((x) => x.demand_id === demand.id),
-          timestamp = now();
-        if (existing) {
-          const last = repo.latestDemandLinkEvent(existing.id);
-          requireValue(last, "关联历史不存在", 409);
-          repo.appendDemandLink({
-            id: id(),
-            project_scope_id: existing.id,
-            event_seq: last.event_seq + 1,
-            action: "linked",
-            actor_id: actor.id,
-            recorded_at: timestamp,
-            reason: input.reason || "",
-          });
-        } else
-          repo.createDemandScope({
-            id: id(),
-            project_id: key,
-            demand_id: demand.id,
-            demand_version: demand.current_version,
-            proposed_quantity_scaled: demand.quantity_scaled,
-            created_by: actor.id,
-            created_at: timestamp,
-            updated_at: timestamp,
-            demand_snapshot_json: JSON.stringify(demand),
-          });
+      authorize(actor,"write");
+      return repo.transaction(()=>{
+        const project=get(key);
+        const prepared=preflightLink(project,input);
+        writeLink(actor,key,input,prepared);
+        return get(key);
+      });
+    },
+    linkMany(actor: Actor, key: string, input: ProjectLinkBatchInput) {
+      authorize(actor,"write");
+      requireValue(input.links.length > 0 && input.links.length <= 100,
+        "一次请选择1～100条需求关联",422);
+      requireValue(new Set(input.links.map(row=>row.demand_id)).size === input.links.length,
+        "同一条需求不能重复关联",422);
+      // Validate ALL before first write; SQLite transaction rolls back if
+      // any binding changes between preflight and actual insert.
+      return repo.transaction(()=>{
+        const project=get(key);
+        const prepared=input.links.map(link=>preflightLink(project,link));
+        for(let index=0;index<input.links.length;index++)
+          writeLink(actor,key,input.links[index],prepared[index]);
         return get(key);
       });
     },

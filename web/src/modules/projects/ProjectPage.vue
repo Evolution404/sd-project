@@ -23,11 +23,10 @@ import FinancePanel from "../finance/FinancePanel.vue";
 import ProjectWorkflowHeader from "./components/ProjectWorkflowHeader.vue";
 import ProjectOverview from "./components/ProjectOverview.vue";
 import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
+import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
 import { api, type Row, money, quantity, statusText } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
-import type { DemandListItem } from "../../../../server/shared/types/demands";
-import type { Page } from "../../../../server/shared/types/contracts";
 const formRef = ref(),
   actors = ref<Row[]>([]);
 
@@ -87,12 +86,7 @@ const rows = ref<Row[]>([]),
   form = ref<Row>({}),
   editing = ref<Row | null>(null),
   busy = ref(false),
-  demands = ref<DemandListItem[]>([]),
-  showPendingDemands = ref(false),
-  demandQuery = ref(""),
-  demandPage = ref(1),
-  demandTotal = ref(0),
-  demandLoading = ref(false),
+  linkPickerOpen = ref(false),
   agreementChoices = ref<Row[]>([]),
   agreementLoading = ref(false),
   agreementError = ref(""),
@@ -254,49 +248,6 @@ function editProject(row?: Row) {
     String(form.value.agreement_id || "") || null);
   draftGuard.capture();
 }
-let demandSearchSequence = 0;
-async function searchDemands(q = "", append = false) {
-  if (!append) {
-    demandQuery.value = q;
-    demandPage.value = 1;
-  }
-  const sequence = ++demandSearchSequence;
-  const targetPage = append ? demandPage.value + 1 : 1;
-  demandLoading.value = true;
-  try {
-    const params = new URLSearchParams({
-      page: String(targetPage),
-      page_size: "50",
-      q: demandQuery.value,
-      include_pending: String(showPendingDemands.value),
-    });
-    const pageResult = await api<Page<DemandListItem>>("/demands/candidates?" + params);
-    if (sequence !== demandSearchSequence) return;
-    // Keep the selected business description visible after refining search.
-    const selected = demands.value.find(item => item.id === form.value.demand_id);
-    const entries = append ? [...demands.value, ...pageResult.items] : pageResult.items;
-    const deduped = new Map(entries.map(item => [item.id, item]));
-    if (selected && !deduped.has(selected.id)) deduped.set(selected.id, selected);
-    demands.value = [...deduped.values()];
-    demandTotal.value = pageResult.total;
-    demandPage.value = targetPage;
-  } catch (error) {
-    if (sequence === demandSearchSequence)
-      ElMessage.error((error as Error).message);
-  } finally {
-    if (sequence === demandSearchSequence) demandLoading.value = false;
-  }
-}
-function moreDemandCandidates() {
-  if (!demandLoading.value && demandPage.value * 50 < demandTotal.value)
-    void searchDemands(demandQuery.value, true);
-}
-function changePendingDemandFilter() {
-  if (!showPendingDemands.value &&
-      demands.value.find(item => item.id === form.value.demand_id)?.status === "pending")
-    form.value.demand_id = null;
-  void searchDemands(demandQuery.value);
-}
 const currentApprovedScopes = computed<Row[]>(() =>
   detail.value?.approvals?.find((ap: Row) => ap.id === detail.value?.approval?.id)?.scopes || []);
 function pendingApprovalChanges() {
@@ -372,11 +323,10 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
     ElMessage.warning("当前没有已确认有效的专业需求。请先在专业需求中确认，再编制立项范围。");
     return;
   }
-  if (type === "link") showPendingDemands.value = false;
+  if (type === "link") { linkPickerOpen.value = true; return; }
   editingCharge.value = null;
   dialog.value = type;
   form.value = {};
-  if (type === "link") await searchDemands();
   if (type === "approval") {
     approvalRows.value = [];
     approvalQuantityError.value = {};
@@ -482,13 +432,6 @@ async function save() {
           "POST", form.value,
         );
       }
-    }
-    if (dialog.value === "link") {
-      const demand = demands.value.find((x) => x.id === form.value.demand_id);
-      await api(`/projects/${detail.value!.id}/link`, "POST", {
-        ...form.value,
-        expected_version: demand?.current_version,
-      });
     }
     if (dialog.value === "approval") {
       const differences = pendingApprovalChanges();
@@ -980,7 +923,6 @@ onMounted(async () => {
     :title="
       {
         project: editing ? '修订项目档案' : '新增子项目',
-        link: '关联专业需求',
         approval: '编制完整批准范围',
         charge: '批次 / 项目独立参考费用',
       }[dialog]
@@ -1078,40 +1020,7 @@ onMounted(async () => {
                 :value="actor.id"
                 :label="actor.username" /></ElSelect></ElFormItem
         ></template>
-        <template v-if="dialog === 'link'"
-          ><ElFormItem
-            label="专业需求"
-            prop="demand_id"
-            :rules="[{ required: true, message: '请填写专业需求' }]"
-            required
-            class="full-width"
-            ><ElSelect
-              v-model="form.demand_id"
-              filterable
-              remote
-              :remote-method="searchDemands"
-              :loading="demandLoading"
-              ><ElOption
-                v-for="d in demands"
-                :key="d.id"
-                :value="d.id"
-                :label="
-                  (d.status === 'active' ? '待承接 · ' : '待确认（仅储备） · ') +
-                  d.demand_no + ' · ' + d.problem_description
-                " /></ElSelect>
-                <div class="toolbar">
-                  <ElCheckbox data-guide-action="projects.include-pending" v-model="showPendingDemands" @change="changePendingDemandFilter">包含待确认需求（确认有效后才能立项）</ElCheckbox>
-                  <span class="muted">符合条件 {{ demandTotal }} 条</span>
-                  <ElButton v-if="demandPage * 50 < demandTotal" size="small"
-                    :loading="demandLoading" @click="moreDemandCandidates">
-                    继续加载
-                  </ElButton>
-                </div>
-                <ElAlert v-if="form.demand_id && demands.find((d: Row) => d.id === form.demand_id)?.status !== 'active'"
-                  :closable="false" type="warning"
-                  title="当前需求尚未确认有效，可以先关联项目储备，但不能正式批准立项。" />
-                </ElFormItem
-        ></template>
+
         <template v-if="dialog === 'approval'"
           ><ElFormItem
             label="批准预算（元）"
@@ -1220,6 +1129,10 @@ onMounted(async () => {
       ></template
     ></ElDialog
   >
+  <ProjectDemandPicker v-model:open="linkPickerOpen"
+    :project-id="String(detail?.id || '')"
+    :existing-ids="(detail?.scopes || []).filter((item: Row) => item.binding).map((item: Row) => String(item.demand_id))"
+    @linked="load" />
   <ElDialog append-to-body
     :model-value="!!history"
     title="项目正式历史"

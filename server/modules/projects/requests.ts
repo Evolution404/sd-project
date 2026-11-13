@@ -2,7 +2,7 @@ import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type {
   ProjectManagementInput, ProjectFromDemandInput, ProjectVersionAction,
-  ProjectLinkInput, ProjectReleaseInput, ProjectFundingInput,
+  ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput, ProjectFundingInput,
   ProjectApprovalInput, ProjectApprovalScopeInput,
   ProjectApprovedMaterialInput, ProjectApprovedLocationInput,
 } from "../../shared/types/projects.js";
@@ -59,6 +59,17 @@ export function parseProjectLink(input:Record<string,unknown>):ProjectLinkInput 
     expected_version:numberValue(input.expected_version,"需求版本"),
     reason:optionalText(input.reason,"说明") ?? undefined,
   };
+}
+export function parseProjectLinkBatch(input:Record<string,unknown>):ProjectLinkBatchInput {
+  requireValue(Array.isArray(input.links) && input.links.length > 0 &&
+    input.links.length <= 100, "请勾选1～100条完整需求后统一关联",422);
+  const links=input.links.map((value:unknown,index:number)=>{
+    requireValue(isObject(value),"第"+(index+1)+"条需求关联信息无效",422);
+    return parseProjectLink(value);
+  });
+  requireValue(new Set(links.map(row=>row.demand_id)).size===links.length,
+    "关联清单有重复需求，请取消重复选择",422);
+  return {links};
 }
 export function parseProjectRelease(input:Record<string,unknown>):ProjectReleaseInput {
   return {
