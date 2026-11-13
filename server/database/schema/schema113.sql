@@ -2390,6 +2390,13 @@ BEGIN
   SELECT 1 FROM v_project_demand_binding_current held
   WHERE held.demand_id=NEW.demand_id)
  THEN RAISE(ABORT,'需求已关联其他子项目，须先由原子项目显式解绑') END;
+ -- An association captures an ENTIRE current formal demand at link time;
+ -- it never defines an independently editable quantity or old version.
+ SELECT CASE WHEN NOT EXISTS(
+  SELECT 1 FROM v_demand_current d
+  WHERE d.id=NEW.demand_id AND d.current_version=NEW.demand_version
+   AND d.quantity_scaled=NEW.proposed_quantity_scaled)
+ THEN RAISE(ABORT,'关联项目只能完整承接当前正式需求位置和数量') END;
 END;
 CREATE TRIGGER project_demand_scope_seed_link
  AFTER INSERT ON project_demand_scopes
@@ -4049,6 +4056,21 @@ BEGIN
       SELECT 1 FROM project_approval_work_locations loc
       WHERE loc.approval_scope_version_id=sc.id))
  ) THEN RAISE(ABORT,'正式项目批准需求的逐位置工作量必须完整且与批准数量一致') END;
+ -- A project adopts a full demand: every site and its exact formal quantity.
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM project_approval_scope_versions sc
+  WHERE sc.approval_version_id=NEW.id AND
+   (sc.quantity_scaled<>(SELECT COALESCE(SUM(dloc.quantity_scaled),0)
+     FROM demand_version_work_locations dloc
+     WHERE dloc.demand_id=sc.demand_id AND dloc.demand_version=sc.demand_version)
+    OR EXISTS(
+      SELECT 1 FROM demand_version_work_locations dloc
+      LEFT JOIN project_approval_work_locations chosen
+       ON chosen.approval_scope_version_id=sc.id AND chosen.location_item_no=dloc.item_no
+      WHERE dloc.demand_id=sc.demand_id AND dloc.demand_version=sc.demand_version
+       AND (chosen.location_item_no IS NULL
+        OR chosen.approved_quantity_scaled<>dloc.quantity_scaled)))
+ ) THEN RAISE(ABORT,'子项目必须完整承接全部需求位置及数量，需调整请先修订需求') END;
  SELECT CASE WHEN EXISTS(
   SELECT 1 FROM project_approval_scope_versions sc
   JOIN project_approval_work_locations loc

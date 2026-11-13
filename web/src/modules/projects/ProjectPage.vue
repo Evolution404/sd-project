@@ -156,9 +156,8 @@ const showDeleted = ref(false);
 // Approval decision fields must remain visible: column customization cannot
 // hide a selected scope or its approved quantity during a formal submission.
 const approvalEditorColumns: TableColumn[] = [
-  { key: "selected", label: "纳入批准", minWidth: 125, sortable: false, filterable: false, hideable: false },
-  { key: "label", label: "作业位置", minWidth: 190, sortable: false, filterable: false, hideable: false },
-  { key: "approved_quantity_scaled", label: "批准数量", minWidth: 180, sortable: false, filterable: false, hideable: false },
+  { key: "label", label: "完整需求作业位置", minWidth: 210, sortable: false, filterable: false, hideable: false },
+  { key: "approved_quantity_scaled", label: "需求数量（只读）", minWidth: 180, sortable: false, filterable: false, hideable: false },
 ];
 const projectScopeColumns: TableColumn[] = [
   { key: "demand_no", label: "需求编号", minWidth: 215 },
@@ -317,7 +316,7 @@ function pendingApprovalChanges() {
     const oldLocations = previous.locations.length
       ? previous.locations.map((loc: Row) => [loc.location_item_no, loc.approved_quantity_scaled])
       : [[1, previous.quantity_scaled]];
-    const nextLocations = selected.locations.filter((loc: Row) => loc.selected)
+    const nextLocations = selected.locations
       .map((loc: Row) => [loc.location_item_no, loc.approved_quantity_scaled]);
     if (JSON.stringify(oldLocations.sort((a: Row,b: Row)=>a[0]-b[0])) !==
       JSON.stringify(nextLocations.sort((a: Row,b: Row)=>a[0]-b[0])))
@@ -397,14 +396,9 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
         selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
         previous_demand_version: baseline?.demand_version,
         locations: demand.work_locations.map((loc: Row, index: number) => {
-          const old = baseline?.locations?.find((item: Row) =>
-            item.location_item_no === index + 1);
           return {
-            location_item_no: index + 1,
-            approved_quantity_scaled: old?.approved_quantity_scaled ??
-              (baseline && demand.work_locations.length === 1
-                ? baseline.quantity_scaled : loc.quantity_scaled),
-            selected: !baseline || baseline.locations.length === 0 || !!old,
+            location_item_no: loc.item_no || index + 1,
+            approved_quantity_scaled: loc.quantity_scaled,
             label: loc.location_snapshot_json.location_label ||
               loc.location_snapshot_json.physical_code ||
               loc.location_snapshot_json.tower_no || loc.span_id,
@@ -514,7 +508,7 @@ async function save() {
           .filter((x) => x.selected)
           .map((x) => ({
             ...x,
-            locations: x.locations.filter((loc: Row) => loc.selected),
+            locations: x.locations,
           })),
       });
     }
@@ -1172,16 +1166,13 @@ onMounted(async () => {
           <ElCheckbox v-model="scope.selected" :disabled="scope.demand_status !== 'active'">
             {{ scope.demand_no }}
             {{ scope.demand_status !== 'active' ? ' · 需求待确认，暂不可纳入批准' : '' }}
-          </ElCheckbox
-          ><BusinessTable :table-key="'project:approval-editor:' + scope.project_scope_id"
+          </ElCheckbox>
+          <p class="muted">按需求当前正式版本完整纳入全部位置及数量。要调整工作量，请先修订或拆分专业需求。</p>
+          <BusinessTable :table-key="'project:approval-editor:' + scope.project_scope_id"
             :rows="scope.locations" :columns="approvalEditorColumns"
             sort-mode="off" filter-mode="off" compact>
             <template #cell="{ row, column }">
-              <ElCheckbox v-if="column.key === 'selected'" v-model="row.selected" />
-              <FieldControl v-else-if="column.key === 'approved_quantity_scaled'"
-                v-model="row.approved_quantity_scaled"
-                :field="{ type: 'quantity', quantityPrecision: scope.quantity_precision }"
-                @validity-change="approvalQuantityInvalid('location.' + scope.project_scope_id + '.' + row.location_item_no, $event)" />
+              <span v-if="column.key === 'approved_quantity_scaled'">{{ quantity(row.approved_quantity_scaled) }}</span>
               <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
             </template>
           </BusinessTable>

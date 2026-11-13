@@ -2,7 +2,7 @@ import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-test("Schema113 real workflow, partial price, exclusive binding, three settlements and flexible close", (t) => {
+test("Schema113 full-demand adoption, exclusive binding, three installments and flexible close", (t) => {
   const { s, user, save, demandInput } = fixture(t);
   const demand = s.demands.save(user, demandInput);
   assert.equal(demand.quantity_scaled, 90000);
@@ -55,10 +55,9 @@ test("Schema113 real workflow, partial price, exclusive binding, three settlemen
       {
         project_scope_id: scope.id,
         demand_version: 1,
-        locations: [
-          { location_item_no: 1, approved_quantity_scaled: 30000 },
-          { location_item_no: 2, approved_quantity_scaled: 20000 },
-        ],
+        locations: demand.work_locations.map(loc => ({
+          location_item_no: loc.item_no, approved_quantity_scaled: loc.quantity_scaled,
+        })),
       },
     ],
   });
@@ -70,7 +69,7 @@ test("Schema113 real workflow, partial price, exclusive binding, three settlemen
       approval_scope_version_id: approval.scopes[0].id,
       confirm: true,
     }).total_fen,
-    30000,
+    48000,
   );
   p = s.projects.approve(user, p.id, approval.id, { expected_version: 2 });
   assert.equal(p.status, "approved");

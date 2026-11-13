@@ -38,12 +38,13 @@ test("demo can be explored in the real browser without any manual master-data se
   async function visit(path, text) {
     await page.goto(base + "/#/" + path);
     await page.locator("main h1").waitFor();
-    await page.getByText(text, { exact: false }).first().waitFor();
+    if (text) await page.getByText(text, { exact: false }).first().waitFor();
+    else await page.locator(".el-table__body-wrapper tr").first().waitFor();
   }
   await visit("ledger/lines", "【演示】220kV青峰线");
-  await visit("ledger/towers", "15");
-  await visit("demands", "【演示】220kV青峰线15、16号杆塔缺少防鸟装置");
-  await visit("projects", "【演示】青峰线防鸟装置整治");
+  await visit("ledger/towers", null); // expanded catalog is paginated; no fixed tower row
+  await visit("demands", null); // 24 varied demand samples; row order is not fixed
+  await visit("projects", null); // 16 projects in several workflow states
   await visit("standards/operations", "安装防鸟装置");
   await visit("pricing/prices", "【演示】防鸟安装—常规施工");
   const output = join(process.cwd(), "test-results/schema113");

@@ -7,8 +7,8 @@ import { today } from "../../dist/server/platform/auth/service.js";
 export const DEMO_ACCOUNT = "demo";
 export const DEMO_PASSWORD = "DemoOnly-2026!";
 const MARKER = "DEMO-DATA.json";
-const SEED_VERSION = 3;
-const OLDER_DEMO_VERSIONS = new Set([1, 2]);
+const SEED_VERSION = 4;
+const OLDER_DEMO_VERSIONS = new Set([1, 2, 3]);
 const SCHEMA_SQL = resolve(import.meta.dirname, "../../server/database/schema/schema113.sql");
 function schemaFingerprint() {
   return createHash("sha256").update(readFileSync(SCHEMA_SQL)).digest("hex");
@@ -57,14 +57,21 @@ function populate(system, password) {
     add("organizations", { name: "【演示】输电运检班" });
     add("organizations", { name: "【演示】施工协作单位" });
 
-    const line220 = add("lines", {
-      code: "DEMO-LINE-220", name: "【演示】220kV青峰线",
-      voltage_level_id: voltages["220kV"].id,
-    });
-    const line110 = add("lines", {
-      code: "DEMO-LINE-110", name: "【演示】110kV河湾线",
-      voltage_level_id: voltages["110kV"].id,
-    });
+    const lineDefinitions = [
+      ["220", "220kV青峰线", "220kV", 15],
+      ["110", "110kV河湾线", "110kV", 21],
+      ["35", "35kV云岭线", "35kV", 1],
+      ["500", "500kV远航线", "500kV", 31],
+      ["220B", "220kV长宁线", "220kV", 51],
+      ["110B", "110kV玉兰线", "110kV", 41],
+    ];
+    const demoLines = lineDefinitions.map(([code, name, voltage, start]) => ({
+      code, start, line: add("lines", {
+        code: "DEMO-LINE-" + code, name: "【演示】" + name,
+        voltage_level_id: voltages[voltage].id,
+      }),
+    }));
+    const line220 = demoLines[0].line, line110 = demoLines[1].line;
     function createTowerSeries(line, label, numbers) {
       const result = [];
       for (const n of numbers) {
@@ -80,19 +87,21 @@ function populate(system, password) {
       }
       return result;
     }
-    const towers220 = createTowerSeries(line220, "220", [15, 16, 17, 18]);
-    const towers110 = createTowerSeries(line110, "110", [21, 22, 23, 24]);
+    const towerGroups = demoLines.map(({line, code, start}) =>
+      createTowerSeries(line, code, Array.from({length: 12}, (_, index) => start + index)));
+    const [towers220, towers110] = towerGroups;
     function addSpans(line, towers) {
       return towers.slice(1).map((tower, i) => add("spans", {
         line_id: line.id,
         start_tower_id: towers[i].logical.id,
         end_tower_id: tower.logical.id,
-        transmission_center_length_mm: [168000, 220000, 185000][i],
+        transmission_center_length_mm: [168000, 220000, 185000, 276000, 198000][i % 5],
         status: "active",
       }));
     }
-    const spans220 = addSpans(line220, towers220);
-    addSpans(line110, towers110);
+    const spanGroups = demoLines.map(({line}, index) => addSpans(line, towerGroups[index]));
+    const [spans220] = spanGroups;
+    const allSpans = spanGroups.flat();
 
     const bird = add("objects", {
       name: "防鸟装置", code: "DEMO-WO-BIRD", object_position: "body", attribution_unit: "logical_tower",
@@ -171,6 +180,39 @@ function populate(system, password) {
       insulatorOperation, 12800);
     rule("【演示】导线缺陷处理", "DEMO-PRICE-CONDUCTOR",
       spanOperation, 8900);
+    // Each pricing model has its own concrete work operation and immutable rule.
+    // Amounts are fictional examples, not utility-approved tariffs or quotas.
+    const modelExamples = [
+      {mode:"fixed", title:"导线定期专项巡检", params:{}, unit:18000},
+      {mode:"base_plus_unit", title:"导线修补及进场", params:{}, unit:4500, base:8000},
+      {mode:"quantity_bracket", title:"导线压接处理", params:{}, unit:0,
+        brackets:[{min_quantity_scaled:10000,max_quantity_scaled:20000,base_fee_fen:2000,unit_price_fen:4000},
+          {min_quantity_scaled:30000,max_quantity_scaled:null,base_fee_fen:3500,unit_price_fen:3500}]},
+      {mode:"progressive_bracket", title:"导线分段防腐", params:{tiers:[
+        {up_to_quantity_scaled:20000,unit_price_fen:5000},
+        {up_to_quantity_scaled:50000,unit_price_fen:4000},
+        {up_to_quantity_scaled:null,unit_price_fen:3000}]}, unit:0},
+      {mode:"group", title:"导线防振装置检查", params:{group_size_scaled:30000,group_fee_fen:13000},unit:0},
+      {mode:"rate", title:"导线专项人工费率核算", params:{rate_basis:"labor",rate_basis_points:1500},unit:0},
+      {mode:"composite", title:"导线综合缺陷治理", params:{},unit:0,
+        components:[{coverage_key:"labor",formula_mode:"per_unit",unit_price_fen:4000},
+          {coverage_key:"machinery",formula_mode:"fixed",unit_price_fen:12000}]},
+    ].map((example, index) => {
+      const operation = add("operations", {
+        name:"【演示】" + example.title, code:"DEMO-OP-MODE-" + example.mode.toUpperCase(),
+        work_object_id:conductor.id, default_unit_id:unitSection.id,
+        completion_standard:"【演示】按操作标准完成" + example.title + "并验收",
+      });
+      rule("【演示】" + example.title + "参考价", "DEMO-PRICE-MODE-" + index,
+        operation, example.unit, {
+          pricing_mode:example.mode, base_fee_fen:example.base || 0,
+          calculation_params_json:example.params,
+          quantity_brackets_json:example.brackets || [],
+          fee_components_json:example.components || [],
+        });
+      return {...example, operation};
+    });
+
 
     const currentDate = today();
     const installDemand = system.demands.save(user, {
@@ -225,6 +267,38 @@ function populate(system, password) {
       }],
       sources: [{ description: "【演示】巡检照片及缺陷处理建议" }],
     });
+
+    // Three realistic demand examples per additional model, each on a
+    // different span; the same work operation is not duplicated at a site.
+    const modelDemands = [];
+    for (const [modelIndex, example] of modelExamples.entries()) {
+      for (let repeat = 0; repeat < 3; repeat++) {
+        const workSpan = allSpans[modelIndex * 5 + repeat];
+        const demand = system.demands.save(user, {
+          operation_id: example.operation.id,
+          problem_description: "【演示】" + example.title + " · 现场样例" + (repeat + 1),
+          work_locations: [{
+            location_kind:"span", span_id:workSpan.id,
+            quantity_scaled:(repeat + 1) * 10000,
+            work_mode:"non_outage",
+          }],
+          sources:[{description:"【演示】虚构巡视及施工条件，不代表真实电网设备"}],
+        });
+        system.demands.transition(user,demand.id,{
+          expected_version:1, expected_event_seq:1, status:"active",
+        });
+        const bases = example.mode === "rate"
+          ? {1:{labor:200000 + repeat * 50000,evidence:"【演示】虚构人工费清单"}}
+          : {};
+        const result = system.pricing.quote(user,demand.id,{
+          expected_version:1,pricing_date:currentDate,confirm:true,bases,
+        });
+        if (!result.complete || result.total_fen === null)
+          throw Error("演示计价模型无法完整计价：" + example.mode + " / " +
+            JSON.stringify(result.missing));
+        modelDemands.push({demand,example,bases,modelIndex,repeat});
+      }
+    }
 
     const framework = add("frameworks", {
       code: "DEMO-F-2026", name: "【演示】2026年输电线路检修框架",
@@ -335,6 +409,43 @@ function populate(system, password) {
       agreement_id: agreement2.id, expected_version: 0,
     });
     system.projects.stock(user, pending.id, { expected_version: 1 });
+    // Spread demonstrable lifecycle stages across additional projects.
+    // Approved projects always adopt the entire one-position demand.
+    const demoFramework2 = add("frameworks",{
+      name:"【演示】2026年输电线路专项治理框架",fiscal_year:2026,limit_fen:80000000,
+    });
+    for (const [index, example] of modelDemands.slice(0,14).entries()) {
+      const selectedFramework = index % 2 ? framework : demoFramework2;
+      let demoProject = system.projects.save(user,{
+        name:"【演示】" + example.example.title + "项目" + (example.repeat + 1),
+        framework_id:selectedFramework.id,
+      });
+      demoProject = system.projects.link(user,demoProject.id,{
+        demand_id:example.demand.id,expected_version:1,
+      });
+      if (index % 5 === 4) continue; // legitimate reserved project
+      demoProject = system.projects.stock(user,demoProject.id,{expected_version:1});
+      if (index % 5 === 3) continue; // stocked, not yet submitted
+      demoProject = system.projects.approvalDraft(user,demoProject.id,{
+        expected_version:2,
+        approved_budget_fen:100000 + index * 25000,
+        scopes:[{
+          project_scope_id:demoProject.scopes[0].id,
+          demand_version:1,
+          locations:[{location_item_no:1,
+            approved_quantity_scaled:(example.repeat + 1) * 10000}],
+        }],
+      });
+      const price = system.pricing.quote(user,example.demand.id,{
+        expected_version:1,
+        approval_scope_version_id:demoProject.approvals[0].scopes[0].id,
+        pricing_date:currentDate,confirm:true,bases:example.bases,
+      });
+      if (!price.complete) throw Error("演示项目计价不完整：" + example.example.mode);
+      if (index % 5 === 2) continue; // approval draft for workflow demo
+      demoProject = system.projects.approve(user,demoProject.id,
+        demoProject.approvals[0].id,{expected_version:2});
+    }
     return {
       ...counts(system),
       referenceTotalFen: system.finance.summary(project.id).reference_total_fen,
@@ -421,7 +532,7 @@ export function ensureDemoDatabase(dataDir, options = {}) {
     const system = createSystem(directory);
     try {
       const existing = counts(system);
-      if (existing.operations < 3 || existing.projects < 2)
+      if (existing.operations < 10 || existing.projects < 16 || existing.lines < 6)
         throw Error("演示数据不完整，拒绝静默重新生成，请检查现有演示目录");
       return { created: false, directory, ...existing };
     } finally {

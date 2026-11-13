@@ -21,16 +21,16 @@ test("demo first launch supplies linked business sample records in its own SQLit
   assert.equal(result.created, true);
   assert.equal(result.voltages, 8);
   assert.equal(result.units, 6); // five original units plus square metres, each with explicit precision
-  assert.equal(result.lines, 2);
-  assert.equal(result.physicalTowers, 8);
-  assert.equal(result.logicalTowers, 8);
-  assert.equal(result.spans, 6);
+  assert.equal(result.lines, 6);
+  assert.equal(result.physicalTowers, 72);
+  assert.equal(result.logicalTowers, 72);
+  assert.equal(result.spans, 66);
   assert.equal(result.workObjects, 3);
-  assert.equal(result.operations, 3);
+  assert.equal(result.operations, 10); // eight formula models, ten operation identities
   assert.equal(result.materials, 4);
-  assert.equal(result.priceRules, 4);
-  assert.equal(result.demands, 3);
-  assert.equal(result.projects, 2);
+  assert.equal(result.priceRules, 11);
+  assert.equal(result.demands, 24);
+  assert.equal(result.projects, 16);
   assert.equal(result.referenceTotalFen, 22800);
   assert.equal(result.actualCostFen, 27400);
   assert.equal(result.approvedSettlementFen, 10800);
@@ -50,9 +50,18 @@ test("demo first launch supplies linked business sample records in its own SQLit
     assert.equal(s.finance.summary(done.id).settlement_fen, 10800);
     assert.equal(s.finance.settlements(done.id).length, 2);
     const demands = s.demands.list();
-    assert.equal(demands.filter(d => d.status === "active").length, 2);
-    assert.equal(s.catalog.list("prices").length, 4);
+    assert.equal(demands.filter(d => d.status === "active").length, 23);
+    assert.equal(s.catalog.list("prices").length, 11);
     assert.equal(s.catalog.list("materials").length, 4);
+    const modes = new Set(s.catalog.list("prices").map(row => row.pricing_mode));
+    assert.deepEqual(modes,new Set(["fixed","per_unit","base_plus_unit",
+      "quantity_bracket","progressive_bracket","group","rate","composite"]));
+    const db = s.database.connection;
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM reference_price_evaluations WHERE status='final'").get().n >= 21,true);
+    const statuses = new Set(projects.map(p => p.display_status));
+    assert.ok(statuses.has("储备") && statuses.has("已入库") &&
+      statuses.has("立项中") && statuses.has("已批准"));
+
   } finally { s.close(); }
 });
 
@@ -71,8 +80,8 @@ test("demo initialization is idempotent and retains subsequent user changes", t 
   const reopen = createSystem(dir);
   try {
     assert.ok(reopen.catalog.get("units", created.id));
-    assert.equal(reopen.catalog.list("prices").length, 4);
-    assert.equal(reopen.catalog.list("lines").length, 2);
+    assert.equal(reopen.catalog.list("prices").length, 11);
+    assert.equal(reopen.catalog.list("lines").length, 6);
   } finally { reopen.close(); }
 });
 

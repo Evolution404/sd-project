@@ -34,8 +34,8 @@ test("all business data tables use the single customizable BusinessTable adapter
   assert.match(shared, /c\.hideable === false/);
   const project = readFileSync(join(root, "modules/projects/ProjectPage.vue"), "utf8");
   const block = project.split("const approvalEditorColumns")[1].split("const projectScopeColumns")[0];
-  assert.equal((block.match(/hideable: false/g) || []).length, 3,
-    "all formal approval decision input columns must be permanently visible");
+  assert.equal((block.match(/hideable: false/g) || []).length, 2,
+    "complete-demand approval shows two immutable location facts, not partial-approval inputs");
 });
 
 test("multi-action rows use one primary action and an accessible shared menu", () => {

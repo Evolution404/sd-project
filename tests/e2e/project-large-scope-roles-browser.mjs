@@ -13,7 +13,7 @@ const framework=save('frameworks',{name:'大范围四角色框架',fiscal_year:2
 let project=s.projects.save(user,{name:'大范围四角色项目',framework_id:framework.id});
 project=s.projects.link(user,project.id,{demand_id:demand.id,expected_version:1});
 project=s.projects.stock(user,project.id,{expected_version:1});
-project=s.projects.approvalDraft(user,project.id,{expected_version:2,approved_budget_fen:100000,scopes:[{project_scope_id:project.scopes[0].id,demand_version:1,locations:demand.work_locations.slice(0,15).map(row=>({location_item_no:row.item_no,approved_quantity_scaled:20000}))}]});
+project=s.projects.approvalDraft(user,project.id,{expected_version:2,approved_budget_fen:100000,scopes:[{project_scope_id:project.scopes[0].id,demand_version:1,locations:demand.work_locations.map(row=>({location_item_no:row.item_no,approved_quantity_scaled:row.quantity_scaled}))}]});
 project=s.projects.approve(user,project.id,project.approvals[0].id,{expected_version:2});
 const originalApproval=project.approval.id;
 const passwords={admin:'Schema113-test-password',editor:'Large-Editor-Password',verifier:'Large-Verifier-Password',viewer:'Large-Viewer-Password'};
@@ -39,8 +39,10 @@ try{
   const rows=dialog.locator('.el-table__body-wrapper tr');
   await rows.first().waitFor();
   assert.equal(await rows.count(),20);
-  assert.equal(await rows.locator('.el-checkbox.is-checked').count(),15);
-  await rows.first().locator('input.el-input__inner').fill('1');
+  assert.equal(await rows.locator('.el-checkbox').count(),0,
+    'project cannot select a subset of demand locations');
+  assert.equal(await rows.locator('input.el-input__inner').count(),0,
+    'project cannot change frozen demand quantities');
   await dialog.getByLabel('批准预算（元）',{exact:true}).fill('1100');
   await dialog.getByRole('button',{name:'保存',exact:true}).click();
   const difference=editor.locator('.el-message-box:visible');
@@ -48,8 +50,8 @@ try{
   await difference.getByRole('button',{name:'已核对，编制变更',exact:true}).click();
   await dialog.waitFor({state:'hidden'});
   let after=s.projects.get(project.id),draft=after.approvals.find(row=>row.status==='draft');
-  assert.equal(draft.scopes[0].locations.length,15);
-  assert.equal(draft.scopes[0].quantity_scaled,290000);
+  assert.equal(draft.scopes[0].locations.length,20);
+  assert.equal(draft.scopes[0].quantity_scaled,600000);
   assert.equal(after.approval.id,originalApproval);
   assert.equal(await editor.getByRole('button',{name:'正式批准',exact:true}).isDisabled(),true);
   assert.equal(await editor.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true,
@@ -65,7 +67,7 @@ try{
   assert.equal(after.approval.version_no,2);
   assert.equal(after.approval.approved_by,s.auth.login('verifier',passwords.verifier).user.id);
   assert.equal(after.approval.approved_budget_fen,110000);
-  assert.equal(after.approvals.find(row=>row.id===originalApproval).scopes[0].quantity_scaled,300000);
+  assert.equal(after.approvals.find(row=>row.id===originalApproval).scopes[0].quantity_scaled,600000);
   await verifier.screenshot({path:join(out,'审核正式批准.png'),fullPage:true});
   const viewer=await open('viewer');
   assert.equal(await viewer.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true);
@@ -79,7 +81,7 @@ try{
     'approved project must close before its record can be deleted');
   await admin.keyboard.press('Escape');
   assert.deepEqual(errors,[]);
-  console.log('PROJECT_LARGE_SCOPE_ROLES_OK 20 candidates, inherited15 partial positions, explicit budget+quantity differences, editor drafts, verifier approves, viewer403, admin permissions, original approval retained');
+  console.log('PROJECT_LARGE_SCOPE_ROLES_OK all20 complete immutable demand positions, budget change only, editor drafts, verifier approves, viewer403, original history retained');
 }finally{
   for(const context of contexts.reverse())await context.close();
   await browser.close();await new Promise(resolve=>server.close(resolve));

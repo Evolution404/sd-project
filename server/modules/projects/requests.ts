@@ -52,10 +52,11 @@ export function parseProjectVersion(input:Record<string,unknown>):ProjectVersion
   };
 }
 export function parseProjectLink(input:Record<string,unknown>):ProjectLinkInput {
+  requireValue(!Object.hasOwn(input,"quantity_scaled"),
+    "项目只允许整体承接需求，不接受部分承接数量",422);
   return {
     demand_id:stringValue(input.demand_id,"专业需求"),
     expected_version:numberValue(input.expected_version,"需求版本"),
-    quantity_scaled:optionalNumber(input.quantity_scaled,"承接数量") ?? undefined,
     reason:optionalText(input.reason,"说明") ?? undefined,
   };
 }

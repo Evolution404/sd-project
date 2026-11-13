@@ -29,7 +29,7 @@ function expectPrecisionFailure(action, field) {
   });
 }
 
-test("project linking and partial approval prohibit fractional counts for indivisible units", t => {
+test("project linking rejects partial quantity and approvals require complete formal demand", t => {
   const {s,user,save,demandInput} = fixture(t);
   const demand=s.demands.save(user,demandInput);
   s.demands.transition(user,demand.id,{
@@ -37,10 +37,9 @@ test("project linking and partial approval prohibit fractional counts for indivi
   });
   const framework=save("frameworks",{name:"数量精度框架",fiscal_year:2026,limit_fen:100000});
   let project=s.projects.save(user,{name:"数量精度项目",framework_id:framework.id});
-  expectPrecisionFailure(
-    ()=>s.projects.link(user,project.id,{
+  assert.throws(()=>s.projects.link(user,project.id,{
       demand_id:demand.id,expected_version:1,quantity_scaled:15000,
-    }),"quantity_scaled");
+    }),error=>error.status===422 && /整体承接/.test(error.message));
   project=s.projects.link(user,project.id,{demand_id:demand.id,expected_version:1});
   project=s.projects.stock(user,project.id,{expected_version:1});
   const scope=project.scopes[0];
@@ -57,18 +56,17 @@ test("project linking and partial approval prohibit fractional counts for indivi
     }],
   };
   assert.throws(()=>s.projects.approvalDraft(user,project.id,input),
-    problem=>problem.status===422 && /整数/.test(problem.message));
+    problem=>problem.status===422 && /全部位置/.test(problem.message));
   assert.equal(s.projects.get(project.id).approvals.length,0);
   const valid=s.projects.approvalDraft(user,project.id,{
     ...input,
     scopes:[{...input.scopes[0],
-      locations:[
-        {location_item_no:1,approved_quantity_scaled:10000},
-        {location_item_no:2,approved_quantity_scaled:20000},
-      ]}],
+      locations:demand.work_locations.map(loc=>({
+        location_item_no:loc.item_no,approved_quantity_scaled:loc.quantity_scaled,
+      }))}],
   });
   assert.equal(valid.approvals.length,1);
-  assert.equal(valid.approvals[0].scopes[0].quantity_scaled,30000);
+  assert.equal(valid.approvals[0].scopes[0].quantity_scaled,demand.quantity_scaled);
 });
 
 test("project approved materials use unit precision and persist adopted unit version", t => {
@@ -87,7 +85,9 @@ test("project approved materials use unit precision and persist adopted unit ver
     expected_version:2,approved_budget_fen:50000,
     scopes:[{
       project_scope_id:scope.id,demand_version:1,
-      locations:[{location_item_no:1,approved_quantity_scaled:20000}],
+      locations:demand.work_locations.map(loc=>({
+        location_item_no:loc.item_no,approved_quantity_scaled:loc.quantity_scaled,
+      })),
       materials:[{material_id:material.id,quantity_scaled:15000}],
     }],
   };
@@ -126,15 +126,17 @@ test("decimal units permit 0.25 work and reject unsupported 0.2501 in approval a
   project=s.projects.link(user,project.id,{demand_id:demand.id,expected_version:1});
   project=s.projects.stock(user,project.id,{expected_version:1});
   const scope=project.scopes[0];
+  const originalLocations=demand.work_locations.map(loc=>({
+    location_item_no:loc.item_no,approved_quantity_scaled:loc.quantity_scaled,
+  }));
   const input={
     expected_version:2,approved_budget_fen:50000,
     scopes:[{project_scope_id:scope.id,demand_version:1,
-      locations:[{location_item_no:1,approved_quantity_scaled:2501}]}],
+      locations:[{...originalLocations[0],approved_quantity_scaled:2501},...originalLocations.slice(1)]}],
   };
   assert.throws(()=>s.projects.approvalDraft(user,project.id,input),/2位小数/);
   project=s.projects.approvalDraft(user,project.id,{
-    ...input,scopes:[{...input.scopes[0],
-      locations:[{location_item_no:1,approved_quantity_scaled:2500}]}],
+    ...input,scopes:[{...input.scopes[0],locations:originalLocations}],
   });
   project=s.projects.approve(user,project.id,project.approvals[0].id,{expected_version:2});
   const node=s.finance.node(user,project.id,{name:"面积工程人工"});

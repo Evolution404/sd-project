@@ -33,10 +33,9 @@ test("priced initial approval draft can be withdrawn without erasing the final q
       {
         project_scope_id: project.scopes[0].id,
         demand_version: 1,
-        locations: [
-          { location_item_no: 1, approved_quantity_scaled: 30000 },
-          { location_item_no: 2, approved_quantity_scaled: 20000 },
-        ],
+        locations: demand.work_locations.map(loc => ({
+          location_item_no: loc.item_no, approved_quantity_scaled: loc.quantity_scaled,
+        })),
       },
     ],
   };
@@ -93,10 +92,9 @@ test("formal project change is authored before approval and cannot reuse a stale
         {
           project_scope_id: scope.id,
           demand_version: 1,
-          locations: [
-            { location_item_no: 1, approved_quantity_scaled: 20000 },
-            { location_item_no: 2, approved_quantity_scaled: 10000 },
-          ],
+          locations: demand.work_locations.map(loc => ({
+            location_item_no: loc.item_no, approved_quantity_scaled: loc.quantity_scaled,
+          })),
         },
       ],
     };
@@ -113,7 +111,7 @@ test("formal project change is authored before approval and cannot reuse a stale
       approval_scope_version_id: change.scopes[0].id,
       confirm: true,
     }).total_fen,
-    26000,
+    48000,
   );
   current = s.projects.approve(user, project.id, change.id, {
     expected_version: 3,

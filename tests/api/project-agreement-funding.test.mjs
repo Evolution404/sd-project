@@ -15,9 +15,9 @@ function setup(t) {
   t.after(() => { s.close(); rmSync(root, { recursive: true, force: true }); });
   const { user } = s.auth.login(DEMO_ACCOUNT, DEMO_PASSWORD);
   const projects = s.projects.list();
-  const approved = projects.find(item => item.status === "approved");
-  const reserve = projects.find(item => item.id !== approved.id);
-  const framework = s.catalog.list("frameworks")[0];
+  const approved = projects.find(item => item.name.includes("青峰线防鸟装置整治"));
+  const reserve = projects.find(item => item.name.includes("河湾线绝缘子专项更换"));
+  const framework = s.catalog.get("frameworks",approved.framework_id);
   const agreements = s.catalog.list("agreements");
   const assigned = agreements.find(item => item.id === approved.funding.agreement_id);
   const other = agreements.find(item => item.id !== assigned.id);

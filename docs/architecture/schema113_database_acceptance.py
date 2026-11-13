@@ -385,7 +385,7 @@ db.execute("UPDATE project_change_orders SET status='approved',"
     "decided_by='u',decided_at='2026-11-07T00:00:00.000Z',decision_reason='已核定' WHERE id='chg'")
 approval("av2",2,7000,"chg")
 add("project_approval_scope_versions",id="scopev2",approval_version_id="av2",
-    project_scope_id="scope",demand_id="d",demand_version=1,quantity_scaled=30000,
+    project_scope_id="scope",demand_id="d",demand_version=1,quantity_scaled=10000,
     approved_amount_fen=4000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
 add("project_approval_material_items",id="am2",approval_version_id="av2",
     project_scope_id="scope",project_material_id="mat",item_no=1,
@@ -405,7 +405,7 @@ settled=row("SELECT COALESCE(SUM(net_amount_fen),0) AS n "
     "FROM v_effective_settlement_items WHERE project_scope_id='scope'")["n"]
 ok("approved scope and installment settlement remain separate real facts",
     (approved_scope["quantity_scaled"],approved_scope["approved_amount_fen"],settled)
-    ==(30000,4000,8000))
+    ==(10000,4000,8000))
 approved_material=row("SELECT approved_quantity_scaled FROM v_approved_material_current "
     "WHERE project_material_id='mat'")["approved_quantity_scaled"]
 ok("approved material remains a separate formal versioned project fact",
@@ -494,10 +494,10 @@ ok("historical unit identity independent from newest label",
 demand("d2")
 activate_demand("d2")
 add("project_demand_scopes",id="scope2",project_id="p",demand_id="d2",
-    demand_version=1,proposed_quantity_scaled=5000,proposed_amount_fen=1000,
+    demand_version=1,proposed_quantity_scaled=10000,proposed_amount_fen=1000,
     created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
 add("project_approval_scope_versions",id="scopev3",approval_version_id="av3",
-    project_scope_id="scope2",demand_id="d2",demand_version=1,quantity_scaled=5000,
+    project_scope_id="scope2",demand_id="d2",demand_version=1,quantity_scaled=10000,
     approved_amount_fen=1000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
 approve("av3")
 ok("new approved version entirely replaces old effective scope",
@@ -3863,7 +3863,7 @@ try:
         stage="stocked",project_version=2,actor_id="u",
         created_at="2026-11-08T03:01:00.000Z")
     for suffix,did,qty in (
-        ("a","r14_demand_a",10000),("b","r14_demand_b",30000)):
+        ("a","r14_demand_a",10000),("b","r14_demand_b",10000)):
         add("project_demand_scopes",id="r14_scope_"+suffix,
             project_id="r14_project",demand_id=did,demand_version=1,
             proposed_quantity_scaled=qty,proposed_amount_fen=1500,
@@ -3874,7 +3874,7 @@ try:
         approved_budget_fen=200,snapshot_json="{}",
         created_at="2026-11-08T03:02:00.000Z")
     for suffix,did,qty in (
-        ("a","r14_demand_a",10000),("b","r14_demand_b",30000)):
+        ("a","r14_demand_a",10000),("b","r14_demand_b",10000)):
         add("project_approval_scope_versions",id="r14_aps_"+suffix,
             approval_version_id="r14_approval",project_scope_id="r14_scope_"+suffix,
             demand_id=did,demand_version=1,quantity_scaled=qty,
@@ -4058,7 +4058,7 @@ try:
             "WHERE project_scope_id='r14_scope_b'")["n"]==15000
         and row("SELECT SUM(quantity_scaled) n "
             "FROM v_approval_scope_current "
-            "WHERE project_scope_id='r14_scope_b'")["n"]==30000)
+            "WHERE project_scope_id='r14_scope_b'")["n"]==10000)
     # A privileged human can approve a legitimate change without a comment,
     # while the actor/time and formal decisions remain undeniable records.
     db.execute("SAVEPOINT r14_admin_optional_change_reason")
@@ -4268,9 +4268,17 @@ try:
         " VALUES('r15_double_release','r15_scope_a',3,'released','u',"
         "'2026-11-08T04:00:05.000Z')",
         "需求关联与解绑必须按当前状态交替")
+    blocked_reason("project link cannot reserve only part of a demand",
+        "INSERT INTO project_demand_scopes("
+        "id,project_id,demand_id,demand_version,proposed_quantity_scaled,"
+        "created_by,created_at,updated_at)"
+        " VALUES(?,?,?,?,?,?,?,?)",
+        "关联项目只能完整承接当前正式需求位置和数量",
+        ("r15_partial_link","r15_p_b","r15_d",1,20000,"u",
+         "2026-11-08T04:00:05.500Z","2026-11-08T04:00:05.500Z"))
     add("project_demand_scopes",id="r15_scope_b",
         project_id="r15_p_b",demand_id="r15_d",
-        demand_version=1,proposed_quantity_scaled=20000,
+        demand_version=1,proposed_quantity_scaled=10000,
         created_at="2026-11-08T04:00:06.000Z",
         updated_at="2026-11-08T04:00:06.000Z")
     ok("second project successfully binds after first project's explicit release",
@@ -4404,9 +4412,11 @@ try:
     add("projects",id="r15_successor",code="R15-SUCCESSOR",
         name="项目正式变更后的承接者",framework_id="f",
         created_by="u",created_at="2026-11-08T04:04:00.000Z")
+    latest_d=row("SELECT current_version,quantity_scaled FROM v_demand_current WHERE id='d'")
     add("project_demand_scopes",id="r15_successor_scope",
-        project_id="r15_successor",demand_id="d",demand_version=1,
-        proposed_quantity_scaled=10000,
+        project_id="r15_successor",demand_id="d",
+        demand_version=latest_d["current_version"],
+        proposed_quantity_scaled=latest_d["quantity_scaled"],
         created_at="2026-11-08T04:05:00.000Z",
         updated_at="2026-11-08T04:05:00.000Z")
     add("project_stage_events",id="r15_successor_stock",
@@ -4418,7 +4428,8 @@ try:
     add("project_approval_scope_versions",id="r15_successor_aps",
         approval_version_id="r15_successor_ap",
         project_scope_id="r15_successor_scope",
-        demand_id="d",demand_version=1,quantity_scaled=10000,
+        demand_id="d",demand_version=latest_d["current_version"],
+        quantity_scaled=latest_d["quantity_scaled"],
         snapshot_json="{}",created_at="2026-11-08T04:05:12.000Z")
     db.execute("UPDATE project_approval_versions SET status='approved',"
         "approved_by='u',approved_at='2026-11-08T04:06:00.000Z'"
@@ -4735,14 +4746,14 @@ try:
         "WHERE id='r16_full_quote'",
         "已正式确认的参考价历史不可修改")
 
-    # Formal approval is an independent, partial project commitment;
-    # 5 of the 9 planned units means #15:3 + #16:2, not 5/9 of 480.
-    add("projects",id="r16_p",code="R16-P",name="多基塔部分承接参考价",
+    # Formal approval adopts all three locations with exact demand quantities.
+    # Project-level reference fees are charged independently.
+    add("projects",id="r16_p",code="R16-P",name="多基塔完整承接参考价",
         framework_id="f",created_by="u",created_at="2026-11-08T04:40:00.000Z")
     stage("r16_p","stocked",time="2026-11-08T04:41:00.000Z")
     add("project_demand_scopes",id="r16_scope",
         project_id="r16_p",demand_id="r16_d",demand_version=1,
-        proposed_quantity_scaled=50000,
+        proposed_quantity_scaled=90000,
         created_at="2026-11-08T04:42:00.000Z",
         updated_at="2026-11-08T04:42:00.000Z")
     demand("r16_other_d")
@@ -4757,7 +4768,7 @@ try:
         snapshot_json="{}",created_at="2026-11-08T04:43:00.000Z")
     add("project_approval_scope_versions",id="r16_ap_scope",
         approval_version_id="r16_av",project_scope_id="r16_scope",
-        demand_id="r16_d",demand_version=1,quantity_scaled=50000,
+        demand_id="r16_d",demand_version=1,quantity_scaled=90000,
         approved_amount_fen=100000,snapshot_json="{}",
         created_at="2026-11-08T04:44:00.000Z")
     blocked_reason("multi-location approval cannot pretend unallocated quantity is complete",
@@ -4771,6 +4782,9 @@ try:
     add("project_approval_work_locations",
         approval_scope_version_id="r16_ap_scope",demand_id="r16_d",
         demand_version=1,location_item_no=2,approved_quantity_scaled=20000)
+    add("project_approval_work_locations",
+        approval_scope_version_id="r16_ap_scope",demand_id="r16_d",
+        demand_version=1,location_item_no=3,approved_quantity_scaled=40000)
     add("project_approval_scope_versions",id="r16_ap_other",
         approval_version_id="r16_av",project_scope_id="r16_other_scope",
         demand_id="r16_other_d",demand_version=1,quantity_scaled=10000,
@@ -4779,31 +4793,30 @@ try:
     ok("one-location formal scope seeds a single checked per-location quantity",
         row("SELECT approved_quantity_scaled FROM project_approval_work_locations "
             "WHERE approval_scope_version_id='r16_ap_other'")["approved_quantity_scaled"]==10000)
-    r16_eval("r16_partial_quote",did="r16_d",ver=1,
+    r16_eval("r16_project_quote",did="r16_d",ver=1,
         scope_id="r16_ap_scope")
-    r16_line("r16_p15","r16_partial_quote",1,30000,16000)
+    r16_line("r16_p15","r16_project_quote",1,30000,16000)
     blocked_reason("partial project quote must cover EVERY committed tower",
         "UPDATE reference_price_evaluations SET status='final',"
         "finalized_by='u',finalized_at='2026-11-08T05:00:00.000Z' "
-        "WHERE id='r16_partial_quote'",
+        "WHERE id='r16_project_quote'",
         "项目承接参考价必须覆盖本次批准的全部作业位置")
-    blocked_reason("third tower is not part of project's approved work",
-        "INSERT INTO reference_price_evaluation_lines(id,evaluation_id,"
-        "location_item_no,coverage_key,reference_price_version_id,"
-        "quantity_scaled,amount_fen,calculation_inputs_json,calculation_trace_json)"
-        " VALUES('r16_wrong_tower','r16_partial_quote',3,'main',"
-        "'r16_price_base',40000,18000,'{}','{}')",
-        "参考价逐位置结果必须匹配正式操作版本")
-    r16_line("r16_p16","r16_partial_quote",2,20000,14000)
-    r16_final("r16_partial_quote")
+    r16_line("r16_p16","r16_project_quote",2,20000,14000)
+    blocked_reason("all three committed towers must have priced lines",
+        "UPDATE reference_price_evaluations SET status='final',"
+        "finalized_by='u',finalized_at='2026-11-08T05:00:00.000Z' "
+        "WHERE id='r16_project_quote'",
+        "项目承接参考价必须覆盖本次批准的全部作业位置")
+    r16_line("r16_p17","r16_project_quote",3,40000,18000)
+    r16_final("r16_project_quote")
     add("project_approval_scope_prices",
         approval_scope_version_id="r16_ap_scope",
-        evaluation_id="r16_partial_quote")
-    ok("project's five installed devices are 300 yuan, not 5/9 of demand's 480",
+        evaluation_id="r16_project_quote")
+    ok("complete 3+2+4 site quote is 480 yuan",
         sum(r["amount_fen"] for r in db.execute(
             "SELECT amount_fen FROM reference_price_evaluation_lines "
-            "WHERE evaluation_id='r16_partial_quote'"))==30000)
-    blocked_reason("chosen final quote prevents sneaking a new site into the draft",
+            "WHERE evaluation_id='r16_project_quote'"))==48000)
+    blocked_reason("chosen final quote prevents adding another position",
         "INSERT INTO project_approval_work_locations("
         "approval_scope_version_id,demand_id,demand_version,"
         "location_item_no,approved_quantity_scaled)"
@@ -4858,10 +4871,10 @@ try:
             demand_version=1,location_item_no=2,
             approved_quantity_scaled=10000)
         db.execute("UPDATE project_approval_scope_versions "
-                   "SET quantity_scaled=40000 WHERE id='r16_ap_scope'")
+                   "SET quantity_scaled=80000 WHERE id='r16_ap_scope'")
         add("project_approval_scope_prices",
             approval_scope_version_id="r16_ap_scope",
-            evaluation_id="r16_partial_quote")
+            evaluation_id="r16_project_quote")
         blocked_reason("formal approval rejects a reselected reference quote priced for stale tower quantities",
             "UPDATE project_approval_versions SET status='approved',"
             "approved_by='u',approved_at='2026-11-08T05:02:00.000Z'"
@@ -4880,7 +4893,7 @@ try:
     ok("formal project version pins exactly two independently finalized scopes",
         len(approved_basis)==2
         and {r["evaluation_id"] for r in approved_basis}==
-          {"r16_partial_quote","r16_other_quote"})
+          {"r16_project_quote","r16_other_quote"})
     # Application-side total calculation; SQLite stores only immutable lines
     # and approved project-level fee facts, not a second mutable total.
     project_reference=sum(
@@ -4893,9 +4906,9 @@ try:
     project_fees=sum(z["amount_fen"] for z in db.execute(
         "SELECT amount_fen FROM project_reference_price_charges "
         "WHERE approval_version_id='r16_av'"))
-    ok("approved total reference price 550 yuan = 300+200+50, not project budget",
-        project_reference==50000 and project_fees==5000
-        and project_reference+project_fees==55000
+    ok("approved full-demand reference 730 yuan = 480+200+50, not project budget",
+        project_reference==68000 and project_fees==5000
+        and project_reference+project_fees==73000
         and row("SELECT approved_budget_fen FROM project_approval_versions "
                 "WHERE id='r16_av'")["approved_budget_fen"]==120000)
     blocked_reason("approved reference basis cannot be detached",
@@ -4940,7 +4953,7 @@ try:
             "WHERE evaluation_id='r16_full_quote'")["n"]==3
         and row("SELECT evaluation_id FROM project_approval_scope_prices "
             "WHERE approval_scope_version_id='r16_ap_scope'")["evaluation_id"]==
-            "r16_partial_quote")
+            "r16_project_quote")
 finally:
     db.execute("ROLLBACK TO r16_full_price_architecture")
     db.execute("RELEASE r16_full_price_architecture")

@@ -2,7 +2,7 @@ import {inspect} from "../inspector.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fixture } from "../helpers.mjs";
-test("project reference total is 300 plus 200 plus one 50 project charge, independently from budget", (t) => {
+test("complete demand 480 plus 200 plus one 50 project charge remains independent from budget", (t) => {
   const { s, user, save, demandInput, unit, object, operation } = fixture(t),
     first = s.demands.save(user, demandInput);
   s.demands.transition(user, first.id, {
@@ -76,10 +76,9 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
           (scope) => scope.demand_id === first.id,
         ).id,
         demand_version: 1,
-        locations: [
-          { location_item_no: 1, approved_quantity_scaled: 30000 },
-          { location_item_no: 2, approved_quantity_scaled: 20000 },
-        ],
+        locations: first.work_locations.map(loc=>({
+          location_item_no: loc.item_no,approved_quantity_scaled:loc.quantity_scaled,
+        })),
       },
       {
         project_scope_id: project.scopes.find(
@@ -99,7 +98,7 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
     confirm: true,
   });
   assert.equal(s.pricing.summary(approval.id).total_fen, null);
-  assert.equal(s.pricing.summary(approval.id).subtotal_fen, 30000);
+  assert.equal(s.pricing.summary(approval.id).subtotal_fen, 48000);
   s.pricing.quote(user, second.id, {
     expected_version: 1,
     approval_scope_version_id: approval.scopes.find(
@@ -125,7 +124,7 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
     quantity_scaled: 10000,
     charge_scope_key: "transport",
   });
-  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 73000);
   assert.throws(
     () =>
       s.pricing.addCharge(user, {
@@ -139,17 +138,17 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
   assert.throws(() =>
     s.pricing.reviseCharge(user, charge.id, { quantity_scaled: 0 }),
   );
-  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 73000);
   charge = s.pricing.reviseCharge(user, charge.id, { quantity_scaled: 20000 });
-  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 73000);
   s.pricing.removeCharge(user, charge.id);
-  assert.equal(s.pricing.summary(approval.id).total_fen, 50000);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 68000);
   charge = s.pricing.addCharge(user, {
     approval_version_id: approval.id,
     reference_price_version_id: transport.current_version_id,
     quantity_scaled: 10000,
   });
-  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 73000);
   assert.equal(
     s.projects.approve(user, project.id, approval.id, { expected_version: 2 })
       .approval.approved_budget_fen,
@@ -157,5 +156,5 @@ test("project reference total is 300 plus 200 plus one 50 project charge, indepe
   );
   assert.throws(() => s.pricing.removeCharge(user, charge.id), /项目变更/);
   assert.ok(inspect(s).auditFor("reference_charges", charge.id).length === 0);
-  assert.equal(s.pricing.summary(approval.id).total_fen, 55000);
+  assert.equal(s.pricing.summary(approval.id).total_fen, 73000);
 });

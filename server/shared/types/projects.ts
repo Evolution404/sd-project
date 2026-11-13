@@ -105,7 +105,6 @@ export interface ProjectVersionAction {
 export interface ProjectLinkInput {
   demand_id: string;
   expected_version: number;
-  quantity_scaled?: number;
   reason?: string;
 }
 export interface ProjectReleaseInput {

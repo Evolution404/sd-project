@@ -20,7 +20,7 @@ test("large material approvals validate adopted unit versions in one indexed bat
     expected_version:2,approved_budget_fen:123456,
     scopes:[{
       project_scope_id:scope.id,demand_version:1,
-      locations:[{location_item_no:1,approved_quantity_scaled:10000}],
+      locations:demand.work_locations.map(loc=>({location_item_no:loc.item_no,approved_quantity_scaled:loc.quantity_scaled})),
       materials:materials.map(item=>({material_id:item.id,quantity_scaled:10000})),
     }],
   });

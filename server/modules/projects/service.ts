@@ -339,21 +339,25 @@ export function createProjects(
         expectedVersion(demand.current_version, selected.demand_version);
         const locations = selected.locations;
         requireValue(
-          Array.isArray(locations) && locations.length > 0,
-          "请明确承接位置和数量",
+          Array.isArray(locations) && locations.length === demand.work_locations.length,
+          "子项目必须承接需求全部位置；如需部分实施，请先正式修订或拆分专业需求", 422,
         );
         const unitRule = unitRules.get(demand.id + ":" + demand.current_version);
         requireValue(unitRule, "需求采用的计量单位正式版本不存在", 404);
-        const locationItems = new Set(demand.work_locations.map(location => location.item_no));
-        const usedItems = new Set();
+        const locationItems = new Map(demand.work_locations.map(location =>
+          [location.item_no, location.quantity_scaled]));
+        const usedItems = new Set<number>();
         for (const [index, loc] of locations.entries()) {
           requireValue(locationItems.has(loc.location_item_no) && !usedItems.has(loc.location_item_no),
-            "批准作业位置必须来自需求正式定义且不得重复", 422,
+            "批准作业位置必须完整且来自需求正式版本，不得重复", 422,
             { [`scopes.${selected.project_scope_id}.locations.${index}`]: "请核对真实作业位置" });
           usedItems.add(loc.location_item_no);
           assertQuantityPrecision(integer(loc.approved_quantity_scaled, "批准位置数量", 1),
             unitRule.fields_json, unitRule.name,
             `scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`);
+          requireValue(loc.approved_quantity_scaled === locationItems.get(loc.location_item_no),
+            "子项目不得调整单个需求位置的数量；请先正式修订或拆分需求", 422,
+            { [`scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`]: "必须与当前需求数量完全一致" });
         }
 
         const total = locations.reduce(
@@ -552,6 +556,8 @@ export function createProjects(
         requireValue(project.status !== "closed", "已结项项目不能新增关联");
         const demand = demands.get(input.demand_id);
         expectedVersion(demand.current_version, input.expected_version);
+        requireValue(!Object.hasOwn(input, "quantity_scaled"),
+          "子项目只允许整体承接需求，不能另填承接数量；请先修订或拆分需求", 422);
         const existing = project.scopes.find((x) => x.demand_id === demand.id),
           timestamp = now();
         if (existing) {
@@ -572,16 +578,7 @@ export function createProjects(
             project_id: key,
             demand_id: demand.id,
             demand_version: demand.current_version,
-            proposed_quantity_scaled: (() => {
-              const candidate = input.quantity_scaled === undefined
-                ? demand.quantity_scaled : input.quantity_scaled;
-              const rule = quantityUnits.demandUnits([
-                { demand_id: demand.id, version: demand.current_version },
-              ]).get(demand.id + ":" + demand.current_version);
-              requireValue(rule, "需求采用的单位正式版本不存在", 404);
-              return assertQuantityPrecision(integer(candidate, "承接数量", 1),
-                rule.fields_json, rule.name, "quantity_scaled");
-            })(),
+            proposed_quantity_scaled: demand.quantity_scaled,
             created_by: actor.id,
             created_at: timestamp,
             updated_at: timestamp,

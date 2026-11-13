@@ -74,12 +74,9 @@ try {
   await page.getByRole("tab", { name: "批准与变更", exact: true }).click();
   await page.getByRole("button", { name: "编制立项范围", exact: true }).click();
   await page.getByLabel("批准预算（元）", { exact: true }).fill("1200");
-  await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
-    .getByRole("row")
-    .filter({ hasText: "T17" })
-    .locator(".el-checkbox")
-    .click();
+  const approvalDialog=page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+  assert.equal(await approvalDialog.locator(".el-table__body-wrapper .el-checkbox").count(),0,
+    "full-demand approval must not permit selecting individual locations");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
@@ -88,7 +85,7 @@ try {
   await page
     .getByRole("button", { name: "按承接范围核价", exact: true })
     .click();
-  await page.getByText("完整参考价 ¥300.00", { exact: true }).waitFor();
+  await page.getByText("完整参考价 ¥480.00", { exact: true }).waitFor();
   await page.getByRole("button", { name: "确认正式报价", exact: true }).click();
   await page.getByText("已保存正式参考报价", { exact: true }).waitFor();
   await page.getByRole("button", { name: "关闭报价", exact: true }).click();
