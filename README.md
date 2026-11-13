@@ -2,7 +2,7 @@
 
 采用 Node.js 24、SQLite、Vue 3、TypeScript、Element Plus 和 ExcelJS。服务端正式编译到 `dist/server` 后运行。当前程序使用独立的 Schema 113，覆盖输电台账、专业需求、年度框架、子项目、执行协议、参考计价、真实费用及分次结算。
 
-当前处于2026-11-10全系统架构重构阶段。严格TypeScript已覆盖运行基础设施、认证、HTTP路由和计价领域，其他应用服务仍在迁移。详细阶段状态、功能对照和剩余项见 `docs/implementation/rewrite-20261110/执行记录.md`。
+服务端运行代码统一采用严格TypeScript，数据库访问集中在专用Repository及查询模块。本轮访问日志、业务复查和发布验收见 `docs/implementation/访问日志与最终交付_2026-11-13.md`，历史重构过程见 `docs/implementation/rewrite-20261110/执行记录.md`。
 
 ## 一键演示环境（不影响真实数据库）
 

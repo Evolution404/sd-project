@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
 
 test("settled amounts, independently reported work, over-completion and reconciliation revisions remain distinct", (t) => {
-  const { s, user, project, scope, approval, node } = approvedFixture(t);
+  const { s, user, project, scope, approval, node, framework } = approvedFixture(t);
   const cost = s.finance.cost(user, project.id, {
     cost_node_id: node.id,
     title: "真实超预算费用",
@@ -59,6 +59,22 @@ test("settled amounts, independently reported work, over-completion and reconcil
   const summary = s.finance.summary(project.id);
   assert.equal(summary.actual_cost_fen, 140000);
   assert.equal(summary.settlement_fen, 40000);
+  const agreement = s.catalog.save(user,"agreements",{name:"资金统计协议",framework_id:framework.id,limit_fen:1});
+  const direct = s.funding.details("frameworks",framework.id);
+  assert.equal(direct.summary.project_count,1);
+  assert.equal(direct.summary.approved_budget_fen,120000);
+  assert.equal(direct.summary.actual_cost_fen,140000);
+  assert.equal(direct.summary.settlement_fen,40000);
+  assert.equal(s.funding.details("agreements",agreement.id).summary.project_count,0);
+  s.projects.save(user,{name:project.name,framework_id:framework.id,agreement_id:agreement.id,
+    expected_version:project.profile_version,expected_funding_version:0},project.id);
+  const linked = s.funding.details("agreements",agreement.id);
+  assert.equal(linked.summary.project_count,1);
+  assert.equal(linked.summary.approved_budget_fen,120000);
+  assert.equal(linked.summary.actual_cost_fen,140000);
+  assert.equal(linked.summary.settlement_fen,40000);
+  assert.deepEqual(s.funding.details("frameworks",framework.id).summary,direct.summary,
+    "assigning an agreement must preserve all framework totals without double counting");
   assert.equal(summary.demands[0].resolved_quantity_scaled, 110000);
   assert.equal(summary.demands[0].excess_quantity_scaled, 20000);
   let record = s.finance.reconciliation(user, {

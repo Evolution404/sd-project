@@ -38,8 +38,8 @@ const dirty = spawnSync("git", ["status", "--porcelain"], {
   cwd: root,
   encoding: "utf8",
 });
-if (revision.status !== 0 || dirty.status !== 0 || (!demoMode && dirty.stdout.trim()))
-  throw Error("正式打包要求工作区干净，请先提交全部受控源码和文档");
+if (revision.status !== 0 || dirty.status !== 0 || dirty.stdout.trim())
+  throw Error("Windows正式版与演示版打包均要求工作区干净，请先提交全部受控源码和文档");
 const gitCommit = revision.stdout.trim();
 const stage = join(root, ".build", demoMode ? "windows-demo-staging" : "windows-staging");
 const cache = join(root, ".build", "windows-cache");
@@ -304,8 +304,7 @@ const finalRevision = spawnSync("git", ["rev-parse", "HEAD"], {
 });
 if (
   finalStatus.status !== 0 ||
-  (!demoMode && finalStatus.stdout.trim()) ||
-  (demoMode && finalStatus.stdout.trim() !== dirty.stdout.trim()) ||
+  finalStatus.stdout.trim() ||
   finalRevision.stdout.trim() !== gitCommit ||
   (demoMode && Object.entries(sourceHashes).some(([path, hash]) => digestFile(join(root, path)) !== hash))
 )

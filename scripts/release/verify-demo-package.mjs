@@ -29,6 +29,10 @@ z.extractall(out)
   assert.equal(unzip.status,0,unzip.stderr);
   const manifest = JSON.parse(readFileSync(join(stage,"BUILD-MANIFEST.json"),"utf8"));
   assert.equal(manifest.package_mode,"demo");
+  assert.equal(manifest.worktree_dirty,false);
+  const head=spawnSync("git",["rev-parse","HEAD"],{cwd:root,encoding:"utf8"});
+  assert.equal(head.status,0);
+  assert.equal(manifest.git_commit,head.stdout.trim());
   for(const file of ["scripts/training/instance.mjs","启动训练环境.cmd",
       "训练实例列表.cmd","docs/implementation/P10_业务操作帮助覆盖清单.md"])
     assert.ok(existsSync(join(stage,file)),"演示包缺少训练功能："+file);
