@@ -63,6 +63,8 @@ interface ApprovedScopeRow {
   quantity_scaled: number;
   approved_amount_fen: number | null;
   demand_no: string;
+  unit_id: string;
+  unit_version: number;
 }
 export interface ApprovedScope extends ApprovedScopeRow {
   materials: ApprovedMaterialSnapshot[];
@@ -253,9 +255,11 @@ export function projectReadRepository(store: Store) {
         WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no`, projectId) as
         ProjectApprovalVersion[];
       if (!approvals.length) return [];
-      const scopes = store.query(`SELECT sc.*, d.demand_no FROM project_approval_scope_versions sc
+      const scopes = store.query(`SELECT sc.*, d.demand_no, dv.unit_id, dv.unit_version
+        FROM project_approval_scope_versions sc
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
         JOIN demands d ON d.id=sc.demand_id
+        JOIN demand_versions dv ON dv.demand_id=sc.demand_id AND dv.version=sc.demand_version
         WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no,sc.rowid`, projectId) as ApprovedScopeRow[];
       const materials = store.query(`SELECT item.*, pm.material_id FROM project_approval_material_items item
         JOIN project_approval_versions ap ON ap.id=item.approval_version_id

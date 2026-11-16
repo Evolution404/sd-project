@@ -74,6 +74,12 @@ export function financeCommandRepository(store:Store) {
     settlementDraft(id:string):SettlementDraftRow|undefined {
       return store.find<SettlementDraftRow>("settlement_drafts","settlement_id",id);
     },
+    withdrawnDraftEditVersion(id:string):number {
+      return store.get<{version:number}>(`SELECT COALESCE(MAX(
+        json_extract(before_json,'$.edit_version')),0) AS version
+        FROM audit_events WHERE entity='settlement_drafts' AND entity_id=?
+        AND action='withdraw'`, id)?.version || 0;
+    },
     settlementResults(versionId:string):SettlementResultWrite[] {
       return store.where<SettlementResultWrite>("settlement_scope_results",{settlement_version_id:versionId});
     },

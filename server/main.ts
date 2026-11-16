@@ -15,7 +15,7 @@ server.on("error", error => {
   process.exitCode = 1;
 });
 for (const signal of ["SIGTERM", "SIGINT"] as const) {
-  process.on(signal, () => server.close(() => {
+  process.on(signal, () => server.shutdown(() => {
     system.close();
     process.exit(0);
   }));

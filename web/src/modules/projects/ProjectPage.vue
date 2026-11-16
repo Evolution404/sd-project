@@ -132,6 +132,8 @@ const rows = ref<ProjectListItem[]>([]),
   approvalRows = ref<ApprovalEditorRow[]>([]),
   priceScopeContext = ref<ApprovedScope | null>(null),
   quoteOpen = ref(false);
+const approvalLoading = ref(false), approvalLoadError = ref("");
+let approvalRequest = 0;
 const approvalQuantityError = ref<Record<string, boolean>>({});
 function approvalQuantityInvalid(path: string, invalid: boolean) {
   approvalQuantityError.value = { ...approvalQuantityError.value, [path]: invalid };
@@ -271,8 +273,14 @@ const draftGuard = useDialogDraftGuard(() => ({
   // Approved locations are edited in their own table, not in the header form.
   approvalRows: dialog.value === "approval" ? approvalRows.value : [],
 }));
-function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
-function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
+function closeEditor() {
+  if (dialog.value === "approval" && approvalLoading.value) { dialog.value = ""; return; }
+  void draftGuard.confirmClose(() => { dialog.value = ""; });
+}
+function beforeEditorClose(done: () => void) {
+  if (dialog.value === "approval" && approvalLoading.value) { done(); return; }
+  void draftGuard.confirmClose(done);
+}
 function editProject(row?: ProjectDetail) {
   editing.value = row || null;
   form.value = row
@@ -370,7 +378,8 @@ async function addApprovalCandidates(records: DemandRecord[]) {
     });
   }
 }
-async function openDialog(type: string) {  if (type === "approval" && !detail.value?.scopes.some((scope) =>
+async function openDialog(type: string) {
+  if (type === "approval" && !detail.value?.scopes.some((scope) =>
       scope.binding && scope.demand_status === "active")) {
     ElMessage.warning("当前没有已确认有效的专业需求。请先在专业需求中确认，再编制立项范围。");
     return;
@@ -384,68 +393,78 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
     const reason = approvalDraftReason(detail.value!);
     if (reason) { ElMessage.warning(reason); return; }
   }
+  const project = detail.value;
+  if (!project) return;
+  const request = ++approvalRequest;
   editingCharge.value = null;
+  form.value = type === "approval" ? {
+    approved_budget_fen: project.approval?.approved_budget_fen || 0,
+    basis: "", expected_version: project.version,
+    expected_approval_version_id: project.approval?.id || null,
+  } : {};
   dialog.value = type;
-  form.value = {};
   if (type === "approval") {
-    approvalRows.value = [];
-    approvalQuantityError.value = {};
-    const candidates = await api<ApprovalCandidate[]>(`/projects/${detail.value!.id}/approval-candidates`);
-    for (const demand of candidates) {
-      const scope = detail.value!.scopes.find((item) => item.id === demand.project_scope_id);
-      if (!scope) continue;
-      const baseline = currentApprovedScopes.value.find((item) =>
-        item.project_scope_id === scope.id);
-      approvalRows.value.push({
-        project_scope_id: scope.id,
-        demand_version: demand.current_version,
-        demand_no: demand.demand_no,        demand_status: demand.status,
-        unit_id: demand.unit_id,
-        unit_version: demand.unit_version,
-        quantity_precision: undefined,
-        selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
-        previous_demand_version: baseline?.demand_version,
-        locations: demand.work_locations.map((loc, index) => {
-          return {
-            location_item_no: loc.item_no || index + 1,
-            approved_quantity_scaled: loc.quantity_scaled,
-            label: loc.location_snapshot_json.location_label ||
-              loc.location_snapshot_json.physical_code ||
-              loc.location_snapshot_json.tower_no || loc.span_id,
-          };
-        }),
-        materials: baseline?.materials?.map((item) => ({
-          material_id: item.material_id,
-          quantity_scaled: item.approved_quantity_scaled,
-        })) || [],
-      });
-    }
-    const currentApproval = approvalRows.value;
-    const unitRequests = new Map<string, Promise<number>>();
-    await Promise.all(currentApproval.map(async (scope) => {
-      const key = String(scope.unit_id || "") + "@" + String(scope.unit_version || "");
-      if (!unitRequests.has(key))
-        unitRequests.set(key, readAdoptedQuantityPrecision(
-          String(scope.unit_id || ""), Number(scope.unit_version)));
-      try {
-        const precision = await unitRequests.get(key)!;
-        if (approvalRows.value === currentApproval) scope.quantity_precision = precision;
-      } catch (failure) {
-        if (approvalRows.value === currentApproval)
-          scope.precision_error = (failure as Error).message;
+    approvalLoading.value = true;
+    approvalLoadError.value = "";
+    try {
+      approvalRows.value = [];
+      approvalQuantityError.value = {};
+      const candidates = await api<ApprovalCandidate[]>(`/projects/${project.id}/approval-candidates`);
+      if (request !== approvalRequest || dialog.value !== "approval" || detail.value?.id !== project.id) return;
+      for (const demand of candidates) {
+        const scope = detail.value!.scopes.find((item) => item.id === demand.project_scope_id);
+        if (!scope) continue;
+        const baseline = currentApprovedScopes.value.find((item) =>
+          item.project_scope_id === scope.id);
+        approvalRows.value.push({
+          project_scope_id: scope.id,
+          demand_version: demand.current_version,
+          demand_no: demand.demand_no,        demand_status: demand.status,
+          unit_id: demand.unit_id,
+          unit_version: demand.unit_version,
+          quantity_precision: undefined,
+          selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
+          previous_demand_version: baseline?.demand_version,
+          locations: demand.work_locations.map((loc, index) => {
+            return {
+              location_item_no: loc.item_no || index + 1,
+              approved_quantity_scaled: loc.quantity_scaled,
+              label: loc.location_snapshot_json.location_label ||
+                loc.location_snapshot_json.physical_code ||
+                loc.location_snapshot_json.tower_no || loc.span_id,
+            };
+          }),
+          materials: baseline?.materials?.map((item) => ({
+            material_id: item.material_id,
+            quantity_scaled: item.approved_quantity_scaled,
+          })) || [],
+        });
       }
-    }));
-    form.value = {
-      approved_budget_fen: detail.value?.approval?.approved_budget_fen || 0,
-      basis: "",
-      expected_version: detail.value?.version,
-      expected_approval_version_id: detail.value?.approval?.id || null,
-    };
+      const currentApproval = approvalRows.value;
+      const unitRequests = new Map<string, Promise<number>>();
+      await Promise.all(currentApproval.map(async (scope) => {
+        const key = String(scope.unit_id || "") + "@" + String(scope.unit_version || "");
+        if (!unitRequests.has(key))
+          unitRequests.set(key, readAdoptedQuantityPrecision(
+            String(scope.unit_id || ""), Number(scope.unit_version)));
+        try {
+          const precision = await unitRequests.get(key)!;
+          if (approvalRows.value === currentApproval) scope.quantity_precision = precision;
+        } catch (failure) {
+          if (approvalRows.value === currentApproval)
+            scope.precision_error = (failure as Error).message;
+        }
+      }));
+    } catch (error) {
+      if (request === approvalRequest) approvalLoadError.value = (error as Error).message;
+    } finally {
+      if (request === approvalRequest) approvalLoading.value = false;
+    }
   }
-  draftGuard.capture();
+  if (request === approvalRequest && dialog.value === type && detail.value?.id === project.id) draftGuard.capture();
 }
 async function save() {
-  if (busy.value) return;
+  if (busy.value || dialog.value === "approval" && (approvalLoading.value || approvalLoadError.value)) return;
   if (dialog.value === "charge" &&
       (chargeQuantityPrecision.value === undefined || chargeQuantityInvalid.value)) {
     ElMessage.error(chargePrecisionError.value ||
@@ -1017,7 +1036,12 @@ onMounted(async () => {
     :close-on-click-modal="false"
     :before-close="beforeEditorClose"
     @close="dialog = ''"
-    ><ElForm ref="formRef" :model="form" label-position="top" novalidate>
+    ><ElAlert v-if="dialog === 'approval' && approvalLoadError" type="error" :closable="false" :title="'批准范围读取失败：' + approvalLoadError">
+      <ElButton @click="openDialog('approval')">重新读取</ElButton>
+      </ElAlert>
+      <ElForm ref="formRef" :model="form" label-position="top" novalidate
+        v-loading="dialog === 'approval' && approvalLoading"
+        :disabled="dialog === 'approval' && (approvalLoading || !!approvalLoadError)">
       <ElAlert v-if="dialog === 'project' && handoffDemand" type="info" :closable="false"
         :title="'本次创建成功后将同时承接需求 ' + handoffDemand.demand_no + ' · ' + handoffDemand.problem_description" />
       <div class="form-grid">
@@ -1208,7 +1232,7 @@ onMounted(async () => {
     ><template #footer
       ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton data-guide-action="projects.save"
-        :disabled="!can('write') || (dialog === 'project' &&
+        :disabled="!can('write') || (dialog === 'approval' && (approvalLoading || !!approvalLoadError)) || (dialog === 'project' &&
           !!form.agreement_id && (agreementLoading || !!agreementError || projectAgreementInvalid))"
         type="primary"
         :loading="busy"

@@ -7,6 +7,7 @@ import { dispatchRoute } from "./routes.js";
 import { webDirectory } from "../paths.js";
 import { errorResponse } from "./error-response.js";
 import { createServer } from "node:http";
+import type { Socket } from "node:net";
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -241,6 +242,18 @@ export function httpServer(
       else json(res, failure.status, failure.body);
     }
   });
+  const pendingConnections = new Set<Socket>();
+  server.on("connection", socket => {
+    pendingConnections.add(socket);
+    socket.once("data", () => pendingConnections.delete(socket));
+    socket.once("close", () => pendingConnections.delete(socket));
+  });
   server.once("close", () => logs.close());
-  return server;
+  return Object.assign(server, {
+    shutdown(callback: (error?: Error) => void) {
+      server.close(callback);
+      for (const socket of pendingConnections)
+        if (socket.bytesRead === 0) socket.destroy();
+    },
+  });
 }

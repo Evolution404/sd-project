@@ -122,9 +122,11 @@ async function calculate(confirm = false) {
       },
     );
     quote.value = result;
-    evaluatedInput.value = JSON.stringify(snapshot);
-    for (const missing of result.missing || [])
+    for (const missing of result.missing || []) {
       bases.value[missing.location_item_no] ||= {};
+      snapshot.bases[missing.location_item_no] ||= {};
+    }
+    evaluatedInput.value = JSON.stringify(snapshot);
     if (confirm) {
       ElMessage.success("已保存正式参考报价");
       emit("confirmed");

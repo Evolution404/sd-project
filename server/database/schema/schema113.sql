@@ -1596,6 +1596,9 @@ BEGIN
  LEFT JOIN v_settlement_review_status review
   ON review.settlement_version_id=latest.id
  WHERE settle.project_id=NEW.id
+ AND NOT (latest.id IS NULL AND EXISTS(
+  SELECT 1 FROM audit_events a WHERE a.entity='settlements'
+  AND a.entity_id=settle.id AND a.action='delete'))
  AND (latest.id IS NULL OR review.last_action IS NULL
       OR review.last_action IN ('submit','return')))
  THEN RAISE(ABORT,'仍有未核定结算单，不能关闭项目') END;

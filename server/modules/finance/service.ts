@@ -305,7 +305,8 @@ export function createFinance(
       const row = {
         based_on_version_id: previous?.version?.id || null,
         draft_json: JSON.stringify(normalized),
-        edit_version: (previous?.draft?.edit_version || 0) + 1,
+        edit_version: Math.max(previous?.draft?.edit_version || 0,
+          previous ? repo.withdrawnDraftEditVersion(settlementId) : 0) + 1,
         updated_by: actor.id,
         updated_at: timestamp,
       };
@@ -567,11 +568,20 @@ export function createFinance(
         requireValue(!blocked, blocked, 409);
         requireValue(!repo.settlementDeleted(key),
           "结算单已删除，不可撤销草稿", 409);
+        requireValue(current.draft, "当前没有可撤回的结算草稿，请刷新后重试", 409);
+        expectedVersion(current.version?.version_no || 0, input.expected_version);
         expectedVersion(
-          current.draft?.edit_version || 0,
+          current.draft.edit_version,
           input.expected_edit_version,
         );
+        catalog.audit(actor, "settlement_drafts", key, "withdraw", current.draft, {
+          retained_version_id: current.version?.id || null,
+        });
         repo.deleteSettlementDraft(key);
+        if (!current.version)
+          catalog.audit(actor, "settlements", key, "delete", current, {
+            logical: true, reason: "首次结算草稿已撤回",
+          });
         return settlement(key);
       });
     },

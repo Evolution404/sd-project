@@ -10,7 +10,7 @@ import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 const writeBlock = computed(() => closedWriteReason(props.project));
-import { ref, watch, computed } from "vue";
+import { ref, watch, computed, toRaw } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
@@ -51,40 +51,6 @@ const invalidQuantity = ref<Record<string, boolean>>({});
 function markQuantityInvalid(path: string, invalid: boolean) {
   invalidQuantity.value = { ...invalidQuantity.value, [path]: invalid };
 }
-let scopePrecisionRequest = 0;
-watch(() => [
-  props.project.id,
-  (props.project.scopes || []).map((scope) => scope.id + ':' + (scope.demand_version || '')).join('|'),
-  props.project.approval?.id || '',
-] as const, async ([projectId]) => {
-  const sequence = ++scopePrecisionRequest;
-  scopePrecision.value = {};
-  scopePrecisionError.value = "";
-  try {
-    const candidates = await api<Array<{
-      project_scope_id: string;
-      unit_id: string;
-      unit_version: number;
-    }>>("/projects/" + projectId + "/approval-candidates");
-    const units = new Map<string, Promise<number>>();
-    await Promise.all(candidates.map(async item => {
-      const key = item.unit_id + "@" + item.unit_version;
-      if (!units.has(key)) units.set(key,
-        readAdoptedQuantityPrecision(item.unit_id, item.unit_version));
-      const precision = await units.get(key)!;
-      if (sequence === scopePrecisionRequest) {
-        scopePrecision.value = {
-          ...scopePrecision.value, [item.project_scope_id]: precision,
-        };
-      }
-    }));
-  } catch (failure) {
-    if (sequence === scopePrecisionRequest)
-      scopePrecisionError.value = "正式单位精度读取失败：" + (failure as Error).message;
-  }
-}, { immediate: true });
-
-
 const focusedFact = ref<EditingFact | EditingFact[] | null>(null);
 const focusedLoading = ref(false);
 const focusedError = ref("");
@@ -139,6 +105,51 @@ const costs = ref<CostFact[]>([]),
   selected = ref<BillFact[]>([]),
   history = ref<unknown>(null),
   reconciliations = ref<ReconciliationFact[]>([]);
+const approvalChoices = ref<ProjectDetail["approvals"]>([]);
+const approvalsLoading = ref(false);
+const approvalsError = ref("");
+const settlementScopes = computed(() => approvalChoices.value
+  .find(ap => ap.id === form.value.approval_version_id)?.scopes || []);
+let approvalSequence = 0;
+async function loadApprovalChoices() {
+  const projectId = props.project.id;
+  const sequence = ++approvalSequence;
+  approvalsLoading.value = true;
+  approvalsError.value = "";
+  approvalChoices.value = [];
+  try {
+    const approvals = await api<ProjectDetail["approvals"]>(`/projects/${projectId}/approval-history`);
+    if (sequence === approvalSequence)
+      approvalChoices.value = approvals.filter(ap => ap.status === "approved");
+  } catch (failure) {
+    if (sequence === approvalSequence) approvalsError.value = (failure as Error).message;
+  } finally {
+    if (sequence === approvalSequence) approvalsLoading.value = false;
+  }
+}
+watch(() => [props.project.id, props.project.approval?.id], () => {
+  void loadApprovalChoices();
+}, { immediate: true });
+let scopePrecisionRequest = 0;
+watch(settlementScopes, async scopes => {
+  const sequence = ++scopePrecisionRequest;
+  scopePrecision.value = {};
+  scopePrecisionError.value = "";
+  try {
+    const units = new Map<string, Promise<number>>();
+    const entries = await Promise.all(scopes.map(async scope => {
+      const key = scope.unit_id + "@" + scope.unit_version;
+      if (!units.has(key)) units.set(key,
+        readAdoptedQuantityPrecision(scope.unit_id, scope.unit_version));
+      return [scope.project_scope_id, await units.get(key)!] as const;
+    }));
+    if (sequence === scopePrecisionRequest) scopePrecision.value = Object.fromEntries(entries);
+  } catch (failure) {
+    if (sequence === scopePrecisionRequest)
+      scopePrecisionError.value = "正式单位精度读取失败：" + (failure as Error).message;
+  }
+}, { immediate: true });
+
 const financeColumns: Record<string, TableColumn[]> = {
   costs: [
     // Keep operational state and amount visible beside the fixed action
@@ -300,12 +311,15 @@ function edit(type: string, row?: EditingFact) {
     form.value = row
       ? {
           ...(row.draft?.document || row.version || {}),
+          change_type: row.draft?.document.change_type === "void"
+            ? "void"
+            : row.version ? "revision" : "initial",
           number: row.number,
           expected_version: row.version?.version_no || 0,
           expected_edit_version: row.draft?.edit_version || 0,
-          items: structuredClone(row.draft?.document.items || row.items || []),
+          items: structuredClone(toRaw(row.draft?.document.items || row.items || [])),
           resolutions: structuredClone(
-            row.draft?.document.resolutions || row.resolutions || [],
+            toRaw(row.draft?.document.resolutions || row.resolutions || []),
           ),
         }
       : {
@@ -345,6 +359,10 @@ function edit(type: string, row?: EditingFact) {
 async function save() {
   if (busy.value) return;
   if (dialog.value === "settlement") {
+    if (approvalsLoading.value || approvalsError.value) {
+      ElMessage.error(approvalsError.value || "正式批准历史正在读取，请稍后保存");
+      return;
+    }
     const documents = (form.value.items || []) ;
     const resolutions = (form.value.resolutions || []) ;
     if (documents.some(item => item.project_scope_id &&
@@ -473,6 +491,23 @@ async function removeBill(row: BillFact) {
     emit("changed");
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message);
+  }
+}
+async function withdrawBillDraft(row: BillFact) {
+  try {
+    await ElMessageBox.confirm(
+      row.version ? "撤回当前未提交草稿，保留原正式结算版本及审核历史。"
+        : "撤回首次结算草稿并从正常列表移除，撤回内容保留审计。",
+      "撤回结算草稿", { type: "warning" },
+    );
+    await api(`/settlements/${row.id}/draft`, "DELETE", {
+      expected_version: row.version?.version_no || 0,
+      expected_edit_version: row.draft?.edit_version || 0,
+    });
+    await load();
+    emit("changed");
+  } catch (error) {
+    if (error instanceof Error) ElMessage.error(error.message);
   }
 }
 async function removeCost(row: CostFact) {
@@ -688,6 +723,7 @@ watch(() => props.project.id, () => {
           ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => action(row, 'submit') }] : []),
           ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', primary: true, disabled: !!writeBlock || !can('write'), run: () => resubmitBill(row) }] : []),
           { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
+          ...(row.draft ? [{ label: '撤回草稿', disabled: !!writeBlock || !can('write'), run: () => withdrawBillDraft(row) }] : []),
           ...(row.version ? [{ label: '附件', run: () => evidence = { ownerKind: 'settlement_version_id', ownerId: row.version!.id } }] : []),
           { label: '历史', guideActionId: 'finance.history', run: () => showHistory(row) },
           { label: '删除', danger: true, disabled: !!writeBlock || !can('admin'), run: () => removeBill(row) },
@@ -794,7 +830,10 @@ watch(() => props.project.id, () => {
             ><ElInput v-model="form.evidence" type="textarea" /></ElFormItem
         ></template>
         <template v-if="dialog === 'settlement'"
-          ><ElFormItem label="结算日期"
+          ><ElAlert v-if="approvalsError" :title="'批准历史读取失败：' + approvalsError" type="error" :closable="false">
+            <ElButton :loading="approvalsLoading" @click="loadApprovalChoices">重新读取批准历史</ElButton>
+          </ElAlert>
+          <ElFormItem label="结算日期"
             ><ElDatePicker
               v-model="form.settlement_on"
               value-format="YYYY-MM-DD" /></ElFormItem
@@ -803,11 +842,9 @@ watch(() => props.project.id, () => {
             prop="approval_version_id"
             :rules="[{ required: true, message: '请填写采用批准版本' }]"
             required
-            ><ElSelect v-model="form.approval_version_id"
+            ><ElSelect v-model="form.approval_version_id" :loading="approvalsLoading" :disabled="approvalsLoading || !!approvalsError"
               ><ElOption
-                v-for="ap in project.approvals.filter(
-                  (x) => x.status === 'approved',
-                )"
+                v-for="ap in approvalChoices"
                 :key="ap.id"
                 :value="ap.id"
                 :label="'批准第' + ap.version_no" /></ElSelect></ElFormItem
@@ -891,9 +928,9 @@ watch(() => props.project.id, () => {
             ><ElFormItem label="关联需求（共同费用可不选）"
               ><ElSelect v-model="item.project_scope_id" clearable
                 ><ElOption
-                  v-for="scope in project.scopes"
-                  :key="scope.id"
-                  :value="scope.id"
+                  v-for="scope in settlementScopes"
+                  :key="scope.project_scope_id"
+                  :value="scope.project_scope_id"
                   :label="
                     scope.demand_no || scope.demand_id
                   " /></ElSelect></ElFormItem
@@ -933,9 +970,9 @@ watch(() => props.project.id, () => {
             <ElFormItem label="项目需求" required
               ><ElSelect v-model="r.project_scope_id"
                 ><ElOption
-                  v-for="scope in project.scopes"
-                  :key="scope.id"
-                  :value="scope.id"
+                  v-for="scope in settlementScopes"
+                  :key="scope.project_scope_id"
+                  :value="scope.project_scope_id"
                   :label="
                     scope.demand_no || scope.demand_id
                   " /></ElSelect></ElFormItem
