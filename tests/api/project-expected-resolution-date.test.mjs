@@ -79,7 +79,7 @@ test("selected demand date change after draft requires a new snapshot, including
     e=>e.status===409 && /重新编制草稿/.test(e.message));
   assert.throws(()=>inspect(s).update("project_approval_versions","id",oldDraft.id,{
     status:"approved",approved_by:user.id,approved_at:new Date().toISOString(),
-  }),/预计解决时间已过期/);
+  }),/需求正式版本已变化/);
   assert.equal(inspect(s).find("project_approval_versions","id",oldDraft.id).status,"draft");
   project=s.projects.discardApproval(user,project.id,oldDraft.id);
   project=s.projects.approvalDraft(user,project.id,{...input,scopes:[{
@@ -167,7 +167,7 @@ test("approved project cannot acquire an undated demand through the old single-l
   const missing=addDemand(s,user,save,operation);
   assert.throws(()=>s.projects.link(user,project.id,{
     demand_id:missing.id,expected_version:1,
-  }),/预计解决时间/);
+  }),/正式变更/);
   assert.equal(s.demands.get(missing.id).binding,null);
   assert.equal(s.projects.get(project.id).scopes.filter(x=>x.binding).length,1);
 });

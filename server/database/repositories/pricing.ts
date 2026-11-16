@@ -11,6 +11,19 @@ import type {
 } from "../../shared/types/pricing.js";
 import type { OperationPricingIdentity } from "../../modules/pricing/model.js";
 
+// Pending candidates participate in completeness without reserving demand ownership.
+const approvalQuotesSql = `
+  SELECT scope.approval_version_id,scope.id AS scope_id,scope.demand_id,price.evaluation_id,
+    (SELECT json_group_array(line.amount_fen) FROM reference_price_evaluation_lines line
+      WHERE line.evaluation_id=price.evaluation_id) AS amounts_json
+  FROM project_approval_scope_versions scope
+  LEFT JOIN project_approval_scope_prices price ON price.approval_scope_version_id=scope.id
+  UNION ALL
+  SELECT approval.id,'candidate:' || json_extract(candidate.value,'$.demand_id'),
+    json_extract(candidate.value,'$.demand_id'),NULL,'[]'
+  FROM project_approval_versions approval,json_each(approval.snapshot_json,'$.candidate_scopes') candidate
+  WHERE approval.status='draft'`;
+
 export function pricingRepository(store: ReturnType<typeof createStore>) {
   return {
     currentDemand(key: string): PricingDemand | undefined {
@@ -93,10 +106,7 @@ export function pricingRepository(store: ReturnType<typeof createStore>) {
     },
     scopeQuotes(approvalId: string) {
       return store.query(
-        `SELECT s.id AS scope_id,s.demand_id,p.evaluation_id,
-        (SELECT json_group_array(l.amount_fen) FROM reference_price_evaluation_lines l WHERE l.evaluation_id=p.evaluation_id) AS amounts_json
-        FROM project_approval_scope_versions s LEFT JOIN project_approval_scope_prices p ON p.approval_scope_version_id=s.id
-        WHERE s.approval_version_id=?`,
+        `SELECT * FROM (${approvalQuotesSql}) WHERE approval_version_id=?`,
         approvalId,
       ) as {
         scope_id: string;
@@ -108,12 +118,8 @@ export function pricingRepository(store: ReturnType<typeof createStore>) {
     scopeQuotesForApprovals(approvalIds: string[]) {
       if (!approvalIds.length) return [] as ReturnType<PricingRepository["projectScopeQuotes"]>;
       return store.query(
-        `SELECT s.approval_version_id,s.id AS scope_id,s.demand_id,p.evaluation_id,
-        (SELECT json_group_array(l.amount_fen) FROM reference_price_evaluation_lines l
-         WHERE l.evaluation_id=p.evaluation_id) AS amounts_json
-        FROM project_approval_scope_versions s
-        LEFT JOIN project_approval_scope_prices p ON p.approval_scope_version_id=s.id
-        WHERE s.approval_version_id IN (SELECT value FROM json_each(?))`,
+        `SELECT * FROM (${approvalQuotesSql})
+          WHERE approval_version_id IN (SELECT value FROM json_each(?))`,
         JSON.stringify(approvalIds),
       ) as ReturnType<PricingRepository["projectScopeQuotes"]>;
     },
@@ -129,13 +135,9 @@ export function pricingRepository(store: ReturnType<typeof createStore>) {
     },
     projectScopeQuotes(projectId: string) {
       return store.query(
-        `SELECT s.approval_version_id,s.id AS scope_id,s.demand_id,p.evaluation_id,
-        (SELECT json_group_array(l.amount_fen) FROM reference_price_evaluation_lines l
-         WHERE l.evaluation_id=p.evaluation_id) AS amounts_json
-        FROM project_approval_scope_versions s
-        JOIN project_approval_versions ap ON ap.id=s.approval_version_id
-        LEFT JOIN project_approval_scope_prices p ON p.approval_scope_version_id=s.id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn'`, projectId,
+        `SELECT quote.* FROM (${approvalQuotesSql}) quote
+          JOIN project_approval_versions approval ON approval.id=quote.approval_version_id
+          WHERE approval.project_id=? AND approval.status<>'withdrawn'`, projectId,
       ) as { approval_version_id: string; scope_id: string; demand_id: string;
         evaluation_id: string | null; amounts_json: string }[];
     },

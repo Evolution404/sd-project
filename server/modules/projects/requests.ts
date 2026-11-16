@@ -102,8 +102,10 @@ function parseScope(input:unknown,index:number):ProjectApprovalScopeInput {
   requireValue(Array.isArray(input.locations),"批准作业位置必须为列表");
   requireValue(input.materials === undefined || Array.isArray(input.materials),
     "批准物资必须为列表");
+  requireValue(Boolean(input.project_scope_id) !== Boolean(input.demand_id), "请选择已有项目范围或新增候选需求");
   return {
-    project_scope_id:stringValue(input.project_scope_id,"批准范围"),
+    project_scope_id:input.project_scope_id === undefined ? undefined : stringValue(input.project_scope_id,"批准范围"),
+    demand_id:input.demand_id === undefined ? undefined : stringValue(input.demand_id,"候选需求"),
     demand_version:numberValue(input.demand_version,"需求正式版本"),
     approved_amount_fen:optionalNumber(input.approved_amount_fen,"批准金额"),
     locations:input.locations.map((loc,i)=>parseLocation(loc,i)),

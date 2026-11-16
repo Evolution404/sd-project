@@ -1,3 +1,4 @@
+import type { SettlementItemFact } from "../../shared/types/finance-workflows.js";
 import type { createStore } from "./store.js";
 import type {
   CostCategoryNode,
@@ -133,8 +134,8 @@ export function hierarchyRepository(store: ReturnType<typeof createStore>) {
         ) as TreeAudit[],
       };
     },
-    settlementItems(versionId: string) {
-      return store.query(
+    settlementItems(versionId: string): SettlementItemFact[] {
+      return store.query<SettlementItemFact>(
         "SELECT i.*,v.*,adopted.name AS cost_node_name FROM settlement_items i JOIN settlement_item_versions v ON v.settlement_item_id=i.id JOIN project_cost_node_versions adopted ON adopted.id=v.cost_node_version_id WHERE v.settlement_version_id=? ORDER BY i.id",
         versionId,
       );

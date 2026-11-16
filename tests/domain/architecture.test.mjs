@@ -19,6 +19,9 @@ test("architecture gate rejects cycles, shared-to-business imports and type supp
   source("web/src/modules/projects/Bad.ts", 'export const bad = true;');
   source("server/modules/c/service.ts", 'repository.insert("arbitrary_table", {});');
   source("web/src/modules/equipment/Bad.vue", '<script setup lang="ts">const row: any = {};</script>');
+  source("web/src/modules/projects/Bad.vue", '<script setup lang="ts">const project: any = {};</script>');
+  source("web/src/modules/finance/Bad.vue", '<script setup lang="ts">const settlement: any = {};</script>');
+  source("web/src/shared/api/client.ts", 'export type Row = Record<string, any>;');
   const issues = inspectArchitecture(root);
   assert.ok(issues.some(issue => issue.includes("dependency cycle")));
   assert.ok(issues.some(issue => issue.includes("explicit any")));
@@ -26,4 +29,6 @@ test("architecture gate rejects cycles, shared-to-business imports and type supp
   assert.ok(issues.some(issue => issue.includes("reverses shared UI dependency")));
   assert.ok(issues.some(issue => issue.includes("c/service.ts bypasses a typed business repository")));
   assert.ok(issues.some(issue => issue.includes("equipment/Bad.vue contains explicit any")));
+  for (const file of ["projects/Bad.vue", "finance/Bad.vue", "shared/api/client.ts"])
+    assert.ok(issues.some(issue => issue.includes(file + " contains explicit any")));
 });

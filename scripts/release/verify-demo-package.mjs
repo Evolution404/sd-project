@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
+import { requireNode24, sourceSnapshot } from "./source-snapshot.mjs";
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -8,6 +9,7 @@ import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
 import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 
+requireNode24();
 const root = resolve(import.meta.dirname, "../..");
 const zip = join(root, "dist/sd-project-win10-x64-demo.zip");
 const receipt = JSON.parse(readFileSync(join(root, "dist/DEMO-RELEASE-MANIFEST.json"), "utf8"));
@@ -41,11 +43,15 @@ z.extractall(out)
     assert.ok(existsSync(join(stage,file)),"演示包缺少训练功能："+file);
 
   assert.equal(manifest.schema_version,113);
+  for (const config of ["vite.config.ts", "tsconfig.json", "tsconfig.server.json"])
+    assert.match(manifest.build_input_files_sha256[config], /^[a-f0-9]{64}$/);
   assert.equal(manifest.sample_data_included,true);
   assert.equal(manifest.ps1_utf8_bom,false,
     "demo does not ship the formal first-run PowerShell script");
   assert.equal(manifest.data_location,"./data");
   assert.equal(manifest.git_commit,receipt.git_commit);
+  assert.equal(sourceSnapshot(root).sha256, manifest.build_input_sha256, "发布包构建输入与当前源码不一致");
+  assert.deepEqual(sourceSnapshot(root).files, manifest.build_input_files_sha256);
   assert.equal(existsSync(join(stage,"scripts/first-run.ps1")),false);
   assert.equal(manifest.demo_ip_restriction_enabled,false);
   assert.equal(digest(join(stage,"runtime/node.exe")),manifest.runtime_node_exe_sha256);
@@ -150,6 +156,12 @@ z.extractall(out)
   assert.ok(logCheck.files>=2,"demo must rotate log files in extracted data/logs");
   await stop();
   assert.equal(digest(zip),receipt.sha256,"archive must remain immutable after launch and restart");
+  receipt.host_verification = {
+    verified_at: new Date().toISOString(), os: process.platform, node: process.version,
+    actual_zip_extracted: true, fixed_demo_credentials: true,
+    restart_persistence: true, access_logs_rotation_restart: true,
+  };
+  writeFileSync(join(root,"dist/DEMO-RELEASE-MANIFEST.json"), JSON.stringify(receipt,null,2) + "\n");
   console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node24, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
 } finally {
   if(server && server.exitCode===null)server.kill("SIGTERM");

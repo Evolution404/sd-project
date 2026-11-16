@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { appendFileSync, mkdirSync, readdirSync, statSync, unlinkSync, openSync, readSync, closeSync } from "node:fs";
 import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
 import { join } from "node:path";
@@ -78,6 +78,16 @@ export function createAccessLogs(dataDirectory: string, options: AccessLogOption
         const latest = files().filter(name => name.startsWith(prefix)).at(-1);
         currentFile = latest || prefix + "000001.jsonl";
         currentSize = latest ? statSync(join(directory, latest)).size : 0;
+        if (latest && currentSize > 0) {
+          const descriptor = openSync(join(directory, latest), "r");
+          const lastByte = Buffer.alloc(1);
+          try { readSync(descriptor, lastByte, 0, 1, currentSize - 1); }
+          finally { closeSync(descriptor); }
+          if (lastByte[0] !== 10 && currentSize < maxFileBytes) {
+            appendFileSync(join(directory, latest), "\n", "utf8");
+            currentSize++;
+          }
+        }
       }
       if (currentSize + bytes > maxFileBytes) {
         const sequence = Number(currentFile.slice(18, 24)) + 1;
@@ -100,7 +110,13 @@ export function createAccessLogs(dataDirectory: string, options: AccessLogOption
     const entries = Object.entries(columnFilters);
     requireValue(entries.every(([key, value]) => keys.includes(key as keyof AccessRecord) && typeof value === "string" && value.length <= 400), "日志列筛选无效");
     requireValue(Object.values(filters).every(value => value.length <= 400), "日志查询条件过长");
-    for (const key of ["from", "to"]) requireValue(!filters[key] || /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(filters[key]), "请输入北京时间范围");
+    for (const key of ["from", "to"]) {
+      const value = filters[key];
+      if (!value) continue;
+      const parsed = new Date(value.replace(" ", "T") + "+08:00");
+      requireValue(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value) &&
+        Number.isFinite(parsed.getTime()) && beijingTime(parsed) === value, "请输入有效的北京时间范围");
+    }
     requireValue(!filters.from || !filters.to || filters.from <= filters.to, "开始时间不能晚于结束时间");
     requireValue(!filters.status || /^[1-5]\d{2}$/.test(filters.status), "响应状态码无效");
     return (row: AccessRecord) => (!filters.from || row.time >= filters.from) && (!filters.to || row.time <= filters.to)
@@ -119,7 +135,7 @@ export function createAccessLogs(dataDirectory: string, options: AccessLogOption
         for await (const line of lines) {
           let row: AccessRecord;
           try { row = JSON.parse(line) as AccessRecord; } catch { fault(); continue; }
-          if (keys.every(key => typeof row[key] === (["status", "duration_ms"].includes(key) ? "number" : "string")) && matches(row)) {
+          if (row && keys.every(key => typeof row[key] === (["status", "duration_ms"].includes(key) ? "number" : "string")) && matches(row)) {
             // Project the documented fields when reading and exporting as well.
             yield Object.fromEntries(keys.map(key => [key, row[key]])) as unknown as AccessRecord;
           }

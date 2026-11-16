@@ -216,10 +216,11 @@ def blocked_reason(label, sql, expected_message, args=()):
         db.execute('ROLLBACK TO invalid_reason')
         db.execute('RELEASE invalid_reason')
 
-def approval(id, no, budget, change_id=None, status="draft"):
+def approval(id, no, budget, change_id=None, status="draft", candidates=()):
     assert status=="draft"
     add("project_approval_versions", id=id, project_id="p",
-        version_no=no,change_order_id=change_id,snapshot_json="{}",
+        version_no=no,change_order_id=change_id,
+        snapshot_json=json.dumps({"candidate_scopes":[{"demand_id":did} for did in candidates]}),
         approved_budget_fen=budget,created_at="2026-11-07T00:00:00.000Z")
 
 def approve(id):
@@ -332,13 +333,13 @@ stage("p","stocked")
 add("project_funding_versions",id="fund1",project_id="p",
     version_no=1,agreement_id=None,reason="无协议立项",
     actor_id="u",recorded_at="2026-11-07T00:00:00.000Z")
+add("project_demand_scopes",id="scope",project_id="p",demand_id="d",
+    demand_version=1,proposed_quantity_scaled=10000,proposed_amount_fen=5000,
+    created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
 approval("av1",1,5000)
 blocked("incomplete approval cannot finalize",
     "UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T00:00:00.000Z' WHERE id='av1'")
-add("project_demand_scopes",id="scope",project_id="p",demand_id="d",
-    demand_version=1,proposed_quantity_scaled=10000,proposed_amount_fen=5000,
-    created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
 add("project_approval_scope_versions",id="scopev1",approval_version_id="av1",
     project_scope_id="scope",demand_id="d",demand_version=1,quantity_scaled=10000,
     approved_amount_fen=5000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
@@ -430,7 +431,7 @@ add("project_change_orders",id="chg2",project_id="p",code="CHG2",
     created_by="u",created_at="2026-11-07T00:00:00.000Z")
 db.execute("UPDATE project_change_orders SET status='approved',"
     "decided_by='u',decided_at='2026-11-07T00:00:00.000Z',decision_reason='同意' WHERE id='chg2'")
-approval("av3",3,20000,"chg2")
+approval("av3",3,20000,"chg2",candidates=("d2",))
 blocked("incomplete later approval cannot hide current scope",
     "UPDATE project_approval_versions SET status='approved',"
     "approved_by='u',approved_at='2026-11-07T00:00:00.000Z' WHERE id='av3'")
@@ -531,6 +532,10 @@ add("project_demand_scopes",id="other_scope",project_id="p_other",
     demand_id="d_other",demand_version=1,proposed_quantity_scaled=10000,
     proposed_amount_fen=500,created_at="2026-11-07T00:00:00.000Z",
     updated_at="2026-11-07T00:00:00.000Z")
+blocked("un-stocked project cannot compile initial approval draft",
+    "INSERT INTO project_approval_versions(id,project_id,version_no,approved_budget_fen,snapshot_json,created_at) "
+    "VALUES('other_av','p_other',1,500,'{}','2026-11-07T00:00:00.000Z')")
+stage("p_other","stocked")
 add("project_approval_versions",id="other_av",project_id="p_other",
     version_no=1,approved_budget_fen=500,snapshot_json="{}",
     created_at="2026-11-07T00:00:00.000Z")
@@ -539,9 +544,6 @@ add("project_approval_scope_versions",id="other_ap_scope",
     demand_id="d_other",demand_version=1,quantity_scaled=10000,
     approved_amount_fen=500,snapshot_json="{}",
     created_at="2026-11-07T00:00:00.000Z")
-blocked("un-stocked other project cannot approve its independently linked demand",
-    "UPDATE project_approval_versions SET status='approved',"
-    "approved_by='u',approved_at='2026-11-07T00:00:00.000Z' WHERE id='other_av'")
 # Material root is a stable identity; all descriptive material definitions
 # are immutable full versions, not independent current-state duplicates.
 ok("material master has a dedicated immutable full-version table",
@@ -609,11 +611,11 @@ activate_demand("d3")
 add("projects",id="p3",code="P3",name="另一子项目",framework_id="f",
     created_by="u",created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
 stage("p3","stocked")
-add("project_approval_versions",id="avp3",project_id="p3",version_no=1,
-    approved_budget_fen=2000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
 add("project_demand_scopes",id="s3",project_id="p3",demand_id="d3",
     demand_version=1,proposed_quantity_scaled=10000,proposed_amount_fen=2000,
     created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
+add("project_approval_versions",id="avp3",project_id="p3",version_no=1,
+    approved_budget_fen=2000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
 add("project_approval_scope_versions",id="sv3",approval_version_id="avp3",
     project_scope_id="s3",demand_id="d3",demand_version=1,quantity_scaled=10000,
     approved_amount_fen=2000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
@@ -941,21 +943,9 @@ blocked("closed project cannot silently create a new settlement identity",
 ok("closure persists authenticated immutable closing timestamp",
     row("SELECT closed_at FROM project_closures WHERE project_id='pclose'")
         ["closed_at"]=="2026-11-07T12:00:00.000Z")
-add("cost_entries",id="cost_after_close",project_id="pclose",
-    created_by="u",created_at="2026-11-08T10:00:00.000Z")
-add("cost_versions",id="cv_after_close",entry_id="cost_after_close",
-    version_no=1,status="active",title="事后发现的真实费用",
-    occurred_on="2026-11-07",amount_fen=200,
-    evidence="事后凭据",reason="关闭后补报",
-    confirmed_by="u",confirmed_at="2026-11-08T10:00:00.000Z",
-    request_key="cv_after_close")
-ok("late actual cost retains its occurrence date and later confirmation timestamp",
-    row("SELECT occurred_on,confirmed_at FROM cost_versions "
-        "WHERE id='cv_after_close'")["confirmed_at"]
-      >row("SELECT closed_at FROM project_closures WHERE project_id='pclose'")
-        ["closed_at"]
-    and row("SELECT occurred_on FROM cost_versions "
-        "WHERE id='cv_after_close'")["occurred_on"]=="2026-11-07")
+blocked("closed project rejects late ordinary actual cost identity",
+    "INSERT INTO cost_entries(id,project_id,cost_node_id,created_by,created_at) "
+    "VALUES('cost_after_close','pclose','fixture_fee_pclose','u','2026-11-08T10:00:00.000Z')")
 # Atomic business writes: a multi-row operation with a bad child must leave
 # no partial row after transaction rollback.
 db.execute("SAVEPOINT atomic_biz")
@@ -1158,10 +1148,8 @@ blocked("stage cannot close without the required formal project closure facts",
     "INSERT INTO project_stage_events(id,project_id,stage,project_version,"
     "reason,actor_id,created_at) VALUES('bad_view_close','p','closed',4,"
     "'无权审批','view_governance','2026-11-07T17:00:00.000Z')")
-blocked("second project cannot silently approve a demand already formally claimed",
-    "UPDATE project_approval_versions SET status='approved',"
-    "approved_by='view_governance',"
-    "approved_at='2026-11-07T17:00:00.000Z' WHERE id='other_av'")
+blocked("second project draft cannot substitute an independently claimed demand",
+    "UPDATE project_approval_scope_versions SET demand_id='d' WHERE id='other_ap_scope'")
 
 # A latest formal approved amount NULL means *unknown*, not previous
 # (unapproved) project-scope estimate. This formerly leaked 5000 fen.
@@ -1350,14 +1338,14 @@ blocked("reserve project cannot skip required stocking stage",
     "reason,actor_id,created_at) VALUES('skip_stock','p_pending','approved',2,"
     "'直接立项','u','2026-11-07T21:00:00.000Z')")
 stage("p_pending","stocked",time="2026-11-07T21:00:00.000Z")
-add("project_approval_versions",id="a_pending",project_id="p_pending",
-    version_no=1,snapshot_json="{}",approved_budget_fen=900,
-    created_at="2026-11-07T21:01:00.000Z")
 add("project_demand_scopes",id="s_pending",project_id="p_pending",
     demand_id="pending_gov",demand_version=1,
     proposed_quantity_scaled=10000,proposed_amount_fen=900,
     created_at="2026-11-07T21:01:00.000Z",
     updated_at="2026-11-07T21:01:00.000Z")
+add("project_approval_versions",id="a_pending",project_id="p_pending",
+    version_no=1,snapshot_json="{}",approved_budget_fen=900,
+    created_at="2026-11-07T21:01:00.000Z")
 add("project_approval_scope_versions",id="as_pending",
     approval_version_id="a_pending",project_scope_id="s_pending",
     demand_id="pending_gov",demand_version=1,quantity_scaled=10000,
@@ -3277,6 +3265,7 @@ try:
     add('projects',id='temporal_root_p',code='AUDIT-TEMP-P',
         name='结项前临时储备项目',framework_id='f',created_by='u',
         created_at='2026-11-07T20:00:00.000Z')
+    stage('temporal_root_p','stocked',time='2026-11-07T20:00:00.000Z')
     blocked_reason('project approval identity cannot predate its project root',
         'INSERT INTO project_approval_versions('
         'id,project_id,version_no,snapshot_json,approved_budget_fen,created_at)'
@@ -4363,6 +4352,7 @@ try:
         demand_version=1,proposed_quantity_scaled=10000,
         created_at="2026-11-08T04:03:00.000Z",
         updated_at="2026-11-08T04:03:00.000Z")
+    stage("r15_p_c","stocked",time="2026-11-08T04:03:00.000Z")
     add("project_approval_versions",id="r15_draft_ap",
         project_id="r15_p_c",version_no=1,snapshot_json="{}",
         approved_budget_fen=1000,

@@ -34,7 +34,7 @@ export async function handleProjects(context: RouteContext): Promise<{
                     : !key
                     ? system.projects.search(parseListQuery(url.searchParams))
                     : sub === "actions"
-                        ? projectActionHints(actor, system.projects.workspace(key, deleted))
+                        ? projectActionHints(actor, system.projects.workspace(key, deleted), system.finance.closeBlockReason(key))
                     : sub === "history"
                         ? system.projects.history(key)
                         : sub === "approval-candidates"

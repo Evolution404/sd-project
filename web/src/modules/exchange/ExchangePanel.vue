@@ -15,6 +15,7 @@ const props = defineProps<{
   selectedIds?: string[];
   query?: string;
   projectId?: string;
+  readonly?: boolean;
 }>();
 interface ExchangePreviewResponse {
   token: string;
@@ -294,12 +295,12 @@ async function commit() {
           label="混合新增与更新"
           value="mixed" /></ElSelect
       ><ElUpload
-        :disabled="!can('write') || busy"
+        :disabled="readonly || !can('write') || busy"
         accept=".xlsx"
         :auto-upload="false"
         :show-file-list="false"
         :on-change="upload"
-        ><ElButton :data-guide-action="preview?.issues.length ? 'excel.retry' : 'excel.preview'" :disabled="!can('write')" type="primary" :loading="busy"
+        ><ElButton :data-guide-action="preview?.issues.length ? 'excel.retry' : 'excel.preview'" :disabled="readonly || !can('write')" type="primary" :loading="busy"
           >上传并预检</ElButton
         ></ElUpload
       >
@@ -399,7 +400,7 @@ async function commit() {
       ><ElButton data-guide-action="excel.commit"
         type="primary"
         :disabled="
-          !can('write') ||
+          readonly || !can('write') ||
           !preview ||
           !!result ||
           (atomic && preview.issues.length > 0)

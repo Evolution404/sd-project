@@ -8,13 +8,13 @@
 | --- | ---: |
 | 不可变历史或身份 | 131 |
 | 历史快照原子同步 | 19 |
-| 正式历史版本约束 | 30 |
-| 正式批准/结项一致性 | 8 |
+| 正式历史版本约束 | 31 |
+| 正式批准/结项一致性 | 16 |
 | 物资业务身份及关联 | 9 |
 | 状态事件合法性 | 3 |
 | 设备历史一致性 | 12 |
 | 费用身份及核对约束 | 2 |
-| 跨表关联和身份完整性 | 37 |
+| 跨表关联和身份完整性 | 38 |
 
 ## 完整触发器清单
 
@@ -272,6 +272,14 @@
 | `work_objects` | `work_object_root_immutable_delete` | BEFORE/DELETE | 不可变历史或身份 |
 | `work_objects` | `work_object_root_immutable_update` | BEFORE/UPDATE | 不可变历史或身份 |
 
-| `project_approval_versions` | `project_approval_withdraw_guard` | 正式历史版本约束 | 草稿删除先写不可变撤回决定，保留已确认核价及全部范围历史；禁止伪造批准或覆盖原文 |
+| `project_approval_versions` | `project_approval_withdraw_guard` | BEFORE/UPDATE | 正式历史版本约束 |
 
-| `demand_versions` | `demand_attribute_identity_guard` | INSERT | 需求级属性身份必须来自所采用操作正式版本，位置属性独立层级 |
+| `demand_versions` | `demand_attribute_identity_guard` | BEFORE/INSERT | 跨表关联和身份完整性 |
+| `project_cost_nodes` | `closed_project_project_cost_nodes_insert` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `project_cost_node_versions` | `closed_project_project_cost_node_versions_insert` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `cost_entries` | `closed_project_cost_entries_insert` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `cost_versions` | `closed_project_cost_versions_insert` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `cost_reconciliation_versions` | `closed_project_cost_reconciliation_versions_insert` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `settlement_drafts` | `closed_project_settlement_drafts_insert` | BEFORE/INSERT | 正式批准/结项一致性 |
+| `settlement_drafts` | `closed_project_settlement_drafts_update` | BEFORE/UPDATE | 正式批准/结项一致性 |
+| `settlement_review_events` | `closed_project_settlement_review_events_insert` | BEFORE/INSERT | 正式批准/结项一致性 |

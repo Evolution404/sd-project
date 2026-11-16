@@ -1,3 +1,5 @@
+import type { ProjectApprovalScopeInput, ProjectApprovalCandidateProposal, ProjectScopeListItem } from "../../shared/types/projects.js";
+import { ordinaryLinkReason, approvalDraftReason } from "../../shared/project-lifecycle.js";
 import { authorize, documentCode, id, now, today } from "../../platform/auth/service.js";
 import {
   requireValue,
@@ -15,7 +17,7 @@ import type { FundingService } from "../funding/service.js";
 import type { ProjectPersistenceRepository } from "../../database/repositories/project-persistence.js";
 import type { QuantityUnitRepository } from "../../database/repositories/quantity-units.js";
 import type { ProjectManagementInput, ProjectFromDemandInput,
-  ProjectApprovalInput, ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
+  ProjectApprovalVersion, ProjectFundingVersion, ProjectApprovalInput, ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
   ProjectVersionAction, ProjectFundingInput } from "../../shared/types/projects.js";
 
 export function createProjects(
@@ -65,7 +67,11 @@ export function createProjects(
         const summaries = currentOnly
           ? pricing.summariesForApprovals(approvalRows.map(ap => ap.id))
           : pricing.projectSummaries(key, approvalRows.map(ap => ap.id));
-        return approvalRows.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
+        return approvalRows.map(ap => {
+          const reference = summaries.get(ap.id);
+          requireValue(reference, "批准范围参考计价汇总不存在", 409);
+          return { ...ap, reference };
+        });
       })(),
       cost_nodes: repo.projectCostNodes(key),
       changes: repo.projectChanges(key),
@@ -74,8 +80,8 @@ export function createProjects(
   function preflightLink(project: ReturnType<typeof get>, input: ProjectLinkInput) {
     requireValue(!Object.hasOwn(input, "quantity_scaled"),
       "子项目只允许整体承接需求，不能另填承接数量；请先修订或拆分需求", 422);
-    requireValue(project.status !== "closed" && !project.deleted,
-      "已结项或已删除项目不能关联需求", 409);
+    const blocked = ordinaryLinkReason(project);
+    requireValue(!blocked, blocked, 409);
     const demand=demands.get(input.demand_id);
     expectedVersion(demand.current_version,input.expected_version);
     requireValue(demand.status === "active" || demand.status === "pending",
@@ -95,14 +101,17 @@ export function createProjects(
         event_seq:last.event_seq+1,action:"linked",
         actor_id:actor.id,recorded_at:timestamp,reason:input.reason||"",
       });
+      return existing.id;
     } else {
+      const scopeId = id();
       repo.createDemandScope({
-        id:id(),project_id:key,demand_id:demand.id,
+        id:scopeId,project_id:key,demand_id:demand.id,
         demand_version:demand.current_version,
         proposed_quantity_scaled:demand.quantity_scaled,
         created_by:actor.id,created_at:timestamp,updated_at:timestamp,
         demand_snapshot_json:JSON.stringify(demand),
       });
+      return scopeId;
     }
   }
   function adoptedOrganization(orgId:string|null,versionId:string|null) {
@@ -202,7 +211,9 @@ export function createProjects(
           );
         }
       const category = input.category_id
-          ? catalog.get("categories", input.category_id)
+          ? previous?.category_id === input.category_id
+            ? {id:previous.category_id, version:previous.category_version}
+            : catalog.get("categories", input.category_id)
           : null,
         organization = input.managing_unit_id
           ? previous?.managing_unit_id === input.managing_unit_id
@@ -296,26 +307,159 @@ export function createProjects(
         reasons.push(original.demand_no + " 已批准物资及数量发生变化");
     }
     const previousIds = new Set(previous.scopes.map(x => x.project_scope_id));
-    if ((input.scopes || []).some(x => !previousIds.has(x.project_scope_id)))
+    if ((input.scopes || []).some(x => (!x.project_scope_id || !previousIds.has(x.project_scope_id))))
       reasons.push("新增批准需求范围");
     return reasons;
+  }
+  function persistApprovalScopes(project: ReturnType<typeof get>, approvalId: string,
+    selections: ProjectApprovalScopeInput[], timestamp: string, write = true): ProjectApprovalCandidateProposal[] {
+    const candidates: ProjectApprovalCandidateProposal[] = [];
+    const ruleRefs = selections.map(selected => {
+      const scope = project.scopes.find(x => x.id === selected.project_scope_id);
+      requireValue(scope?.binding || (!selected.project_scope_id && selected.demand_id && project.status === "approved"), "需求未由本项目关联");
+      return { demand_id: scope?.demand_id || selected.demand_id!, version: selected.demand_version };
+    });
+    const unitRules = quantityUnits.demandUnits(ruleRefs);
+    const materialRules = quantityUnits.materialUnits(selections.flatMap(
+      selected => (selected.materials || []).map(material => material.material_id)));
+    const materialLinks = repo.projectScopeMaterialLinks(selections.map(selected => selected.project_scope_id).filter((id): id is string => Boolean(id)));
+
+    for (const selected of selections) {
+      const scope = project.scopes.find(
+        (x) => x.id === selected.project_scope_id,
+      );
+      requireValue(scope?.binding || (!selected.project_scope_id && selected.demand_id && project.status === "approved"), "需求未由本项目关联");
+      const demand = demands.get(scope?.demand_id || selected.demand_id!);
+      requireValue(demand.status === "active", "批准范围须采用已确认的有效需求", 409);
+      if (!scope) requireValue(!demand.binding, "候选需求已由其他项目关联，请重新核对变更", 409);
+      expectedVersion(demand.current_version, selected.demand_version);
+      const locations = selected.locations;
+      requireValue(
+        Array.isArray(locations) && locations.length === demand.work_locations.length,
+        "子项目必须承接需求全部位置；如需部分实施，请先正式修订或拆分专业需求", 422,
+      );
+      const unitRule = unitRules.get(demand.id + ":" + demand.current_version);
+      requireValue(unitRule, "需求采用的计量单位正式版本不存在", 404);
+      const locationItems = new Map(demand.work_locations.map(location =>
+        [location.item_no, location.quantity_scaled]));
+      const usedItems = new Set<number>();
+      for (const [index, loc] of locations.entries()) {
+        requireValue(locationItems.has(loc.location_item_no) && !usedItems.has(loc.location_item_no),
+          "批准作业位置必须完整且来自需求正式版本，不得重复", 422,
+          { [`scopes.${selected.project_scope_id}.locations.${index}`]: "请核对真实作业位置" });
+        usedItems.add(loc.location_item_no);
+        assertQuantityPrecision(integer(loc.approved_quantity_scaled, "批准位置数量", 1),
+          unitRule.fields_json, unitRule.name,
+          `scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`);
+        requireValue(loc.approved_quantity_scaled === locationItems.get(loc.location_item_no),
+          "子项目不得调整单个需求位置的数量；请先正式修订或拆分需求", 422,
+          { [`scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`]: "必须与当前需求数量完全一致" });
+      }
+
+      const total = locations.reduce(
+        (sum, loc) =>
+          sum + integer(loc.approved_quantity_scaled, "批准位置数量", 1),
+        0,
+      );
+      const versions: Record<string, string> = {};
+      for (const material of selected.materials || []) {
+        const rule = materialRules.get(material.material_id);
+        requireValue(rule, "批准物资采用的计量单位不存在", 404);
+        assertQuantityPrecision(integer(material.quantity_scaled, "批准物资数量", 1), rule.fields_json, rule.name, "materials.quantity_scaled");
+        requireValue(!selected.expected_material_versions ||
+          selected.expected_material_versions[material.material_id] === rule.material_version_id,
+          "候选需求的批准物资定义已变化，请重新编制变更草稿", 409);
+        versions[material.material_id] = rule.material_version_id;
+      }
+      if (!scope) candidates.push({ ...selected, demand_id: demand.id,
+        expected_material_versions: versions, snapshot: demand });
+      if (!write || !scope) continue;
+      const scopeId = id();
+      repo.appendApprovalScope({
+        id: scopeId,
+        approval_version_id: approvalId,
+        project_scope_id: scope.id,
+        demand_id: demand.id,
+        demand_version: demand.current_version,
+        quantity_scaled: total,
+        approved_amount_fen: selected.approved_amount_fen ?? null,
+        snapshot_json: JSON.stringify(demand),
+        created_at: timestamp,
+      });
+      if (demand.work_locations.length > 1)
+        for (const loc of locations)
+          repo.appendApprovalPosition({
+            approval_scope_version_id: scopeId,
+            demand_id: demand.id,
+            demand_version: demand.current_version,
+            location_item_no: loc.location_item_no,
+            approved_quantity_scaled: loc.approved_quantity_scaled,
+          });
+      else
+        requireValue(
+          locations.length === 1 && locations[0].location_item_no === 1,
+          "批准位置无效",
+        );
+      // Material approval is explicit. No proportional derivation from demand quantities.
+      for (const [index, item] of (selected.materials || []).entries()) {
+        const format = materialRules.get(item.material_id);
+        requireValue(format, "批准物资采用的计量单位不存在", 404);
+        assertQuantityPrecision(integer(item.quantity_scaled, "批准物资数量", 1),
+          format.fields_json, format.name,
+          `scopes.${selected.project_scope_id}.materials.${index}.quantity_scaled`);
+        const materialLinkKey = scope.id + ':' + format.material_id;
+        let identity = materialLinks.get(materialLinkKey);
+        if (!identity) {
+          identity = {
+            id: id(),
+            project_scope_id: scope.id,
+            material_id: format.material_id,
+            created_at: timestamp,
+          };
+          repo.createProjectMaterial(identity);
+          materialLinks.set(materialLinkKey, identity);
+        }
+        repo.appendApprovedMaterial({
+          id: id(),
+          approval_version_id: approvalId,
+          project_scope_id: scope.id,
+          project_material_id: identity.id,
+          material_version_id: format.material_version_id,
+          item_no: index + 1,
+          material_code_snapshot: format.material_code,
+          material_name: format.material_name,
+          material_model: format.material_model,
+          specification: format.material_specification,
+          approved_quantity_scaled: item.quantity_scaled,
+          unit_id: format.unit_id,
+          unit_version: format.unit_version,
+          unit_snapshot: format.name,
+        });
+      }
+    }
+    return candidates;
   }
   function approvalDraft(actor: Actor, key: string, input: ProjectApprovalInput) {
     authorize(actor, "write");
     return repo.transaction(() => {
       const project = get(key);
       expectedVersion(project.version, input.expected_version);
-      requireValue(
-        !project.approvals.some((ap) => ap.status === "draft"),
-        "已有批准草稿，请先处理",
-      );
+      const blocked = approvalDraftReason(project);
+      requireValue(!blocked, blocked, 409);
       requireValue(
         (input.expected_approval_version_id ?? null) ===
           (project.approval?.id ?? null),
         "项目批准基线已变化，请刷新后重新编制",
         409,
       );
+      requireValue(Array.isArray(input.scopes) && input.scopes.length > 0, "请明确批准需求范围");
+      const demandIdentities = input.scopes.map(selected => selected.demand_id ||
+        project.scopes.find(scope => scope.id === selected.project_scope_id)?.demand_id);
+      requireValue(demandIdentities.every(Boolean) && new Set(demandIdentities).size === demandIdentities.length,
+        "同一需求不能重复纳入批准范围", 422);
+      const candidates = persistApprovalScopes(project, "", input.scopes, now(), false);
       const changes = approvalChangeSummary(project, input);
+      if (candidates.length) changes.push("新增候选需求，正式批准时统一建立关联");
       requireValue(!changes.length || input.confirm_changes === true,
         "正式变更涉及批准范围、数量、物资或预算调整，请核对差异并明确确认", 409,
         { changes });
@@ -346,122 +490,12 @@ export function createProjects(
         snapshot_json: JSON.stringify({
           project_profile_version: project.profile_version,
           basis: input.basis || "",
+          candidate_scopes: candidates,
         }),
         approved_budget_fen: integer(input.approved_budget_fen, "批准预算"),
         created_at: timestamp,
       });
-      requireValue(
-        Array.isArray(input.scopes) && input.scopes.length > 0,
-        "请明确批准需求范围",
-      );
-      const ruleRefs = input.scopes.map(selected => {
-        const scope = project.scopes.find(x => x.id === selected.project_scope_id);
-        requireValue(scope?.binding, "需求未由本项目关联");
-        return { demand_id: scope.demand_id, version: selected.demand_version };
-      });
-      const unitRules = quantityUnits.demandUnits(ruleRefs);
-      const materialRules = quantityUnits.materialUnits(input.scopes.flatMap(
-        selected => (selected.materials || []).map(material => material.material_id)));
-      const materialLinks = repo.projectScopeMaterialLinks(input.scopes.map(selected => selected.project_scope_id));
-
-      for (const selected of input.scopes) {
-        const scope = project.scopes.find(
-          (x) => x.id === selected.project_scope_id,
-        );
-        requireValue(scope?.binding, "需求未由本项目关联");
-        const demand = demands.get(scope.demand_id);
-        expectedVersion(demand.current_version, selected.demand_version);
-        const locations = selected.locations;
-        requireValue(
-          Array.isArray(locations) && locations.length === demand.work_locations.length,
-          "子项目必须承接需求全部位置；如需部分实施，请先正式修订或拆分专业需求", 422,
-        );
-        const unitRule = unitRules.get(demand.id + ":" + demand.current_version);
-        requireValue(unitRule, "需求采用的计量单位正式版本不存在", 404);
-        const locationItems = new Map(demand.work_locations.map(location =>
-          [location.item_no, location.quantity_scaled]));
-        const usedItems = new Set<number>();
-        for (const [index, loc] of locations.entries()) {
-          requireValue(locationItems.has(loc.location_item_no) && !usedItems.has(loc.location_item_no),
-            "批准作业位置必须完整且来自需求正式版本，不得重复", 422,
-            { [`scopes.${selected.project_scope_id}.locations.${index}`]: "请核对真实作业位置" });
-          usedItems.add(loc.location_item_no);
-          assertQuantityPrecision(integer(loc.approved_quantity_scaled, "批准位置数量", 1),
-            unitRule.fields_json, unitRule.name,
-            `scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`);
-          requireValue(loc.approved_quantity_scaled === locationItems.get(loc.location_item_no),
-            "子项目不得调整单个需求位置的数量；请先正式修订或拆分需求", 422,
-            { [`scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`]: "必须与当前需求数量完全一致" });
-        }
-
-        const total = locations.reduce(
-          (sum, loc) =>
-            sum + integer(loc.approved_quantity_scaled, "批准位置数量", 1),
-          0,
-        );
-        const scopeId = id();
-        repo.appendApprovalScope({
-          id: scopeId,
-          approval_version_id: approvalId,
-          project_scope_id: scope.id,
-          demand_id: demand.id,
-          demand_version: demand.current_version,
-          quantity_scaled: total,
-          approved_amount_fen: selected.approved_amount_fen ?? null,
-          snapshot_json: JSON.stringify(demand),
-          created_at: timestamp,
-        });
-        if (demand.work_locations.length > 1)
-          for (const loc of locations)
-            repo.appendApprovalPosition({
-              approval_scope_version_id: scopeId,
-              demand_id: demand.id,
-              demand_version: demand.current_version,
-              location_item_no: loc.location_item_no,
-              approved_quantity_scaled: loc.approved_quantity_scaled,
-            });
-        else
-          requireValue(
-            locations.length === 1 && locations[0].location_item_no === 1,
-            "批准位置无效",
-          );
-        // Material approval is explicit. No proportional derivation from demand quantities.
-        for (const [index, item] of (selected.materials || []).entries()) {
-          const format = materialRules.get(item.material_id);
-          requireValue(format, "批准物资采用的计量单位不存在", 404);
-          assertQuantityPrecision(integer(item.quantity_scaled, "批准物资数量", 1),
-            format.fields_json, format.name,
-            `scopes.${selected.project_scope_id}.materials.${index}.quantity_scaled`);
-          const materialLinkKey = scope.id + ':' + format.material_id;
-          let identity = materialLinks.get(materialLinkKey);
-          if (!identity) {
-            identity = {
-              id: id(),
-              project_scope_id: scope.id,
-              material_id: format.material_id,
-              created_at: timestamp,
-            };
-            repo.createProjectMaterial(identity);
-            materialLinks.set(materialLinkKey, identity);
-          }
-          repo.appendApprovedMaterial({
-            id: id(),
-            approval_version_id: approvalId,
-            project_scope_id: scope.id,
-            project_material_id: identity.id,
-            material_version_id: format.material_version_id,
-            item_no: index + 1,
-            material_code_snapshot: format.material_code,
-            material_name: format.material_name,
-            material_model: format.material_model,
-            specification: format.material_specification,
-            approved_quantity_scaled: item.quantity_scaled,
-            unit_id: format.unit_id,
-            unit_version: format.unit_version,
-            unit_snapshot: format.name,
-          });
-        }
-      }
+      persistApprovalScopes(project, approvalId, input.scopes, timestamp);
       return get(key);
     });
   }
@@ -525,8 +559,8 @@ export function createProjects(
     search(query: ListQuery) {
       const result = repo.searchProjects(query);
       return { ...result, items: result.items.map(({ approval_json, scopes_json, funding_json, ...row }) => ({
-        ...row, approval: approval_json ? JSON.parse(approval_json) : null,
-        scopes: JSON.parse(scopes_json || "[]"), funding: funding_json ? JSON.parse(funding_json) : null,
+        ...row, approval: approval_json ? JSON.parse(approval_json) as Pick<ProjectApprovalVersion, "id" | "version_no" | "approved_budget_fen"> : null,
+        scopes: JSON.parse(scopes_json || "[]") as ProjectScopeListItem[], funding: funding_json ? JSON.parse(funding_json) as Pick<ProjectFundingVersion, "id" | "version_no" | "agreement_id"> : null,
         deleted: Boolean(row.deleted),
       })) };
     },
@@ -544,7 +578,11 @@ export function createProjects(
       get(key, true, true);
       const approvals = repo.projectApprovalHistory(key);
       const summaries = pricing.projectSummaries(key, approvals.map(ap => ap.id));
-      return approvals.map(ap => ({ ...ap, reference: summaries.get(ap.id) }));
+      return approvals.map(ap => {
+        const reference = summaries.get(ap.id);
+        requireValue(reference, "批准范围参考计价汇总不存在", 409);
+        return { ...ap, reference };
+      });
     },
     summaryBasis(key: string) {
       const basis = repo.projectSummaryBasis(key);
@@ -649,37 +687,13 @@ export function createProjects(
       authorize(actor, "write");
       return repo.transaction(() => {
         const project = get(key);
-        expectedVersion(
-          project.funding?.version_no || 0,
-          input.expected_version,
-        );
-        requireValue(project.status !== "closed",
-          "项目已结项，不能变更资金归属", 409);
-        const agreementId = input.agreement_id || null;
-        requireValue(agreementId !== (project.funding?.agreement_id || null),
-          "资金归属未变化，无需重复保存", 409);
-        if (agreementId) {
-          const agreement = funding.get("agreements", agreementId);
-          requireValue(agreement.framework_id === project.framework_id,
-            "所选执行协议必须属于子项目所在年度框架", 422);
-          requireValue(agreement.status === "active",
-            "执行协议已停用或删除，请选择有效协议", 422);
-          const date = today();
-          requireValue(
-            (!agreement.effective_from || agreement.effective_from <= date) &&
-            (!agreement.effective_to || agreement.effective_to >= date),
-            "执行协议尚未生效或已过期，请选择当前有效协议", 422);
-        }
-        repo.appendFunding({
-          id: id(),
-          project_id: key,
-          version_no: (project.funding?.version_no || 0) + 1,
-          agreement_id: agreementId,
-          actor_id: actor.id,
-          recorded_at: now(),
-          reason: input.reason || "",
-        });
-        return get(key);
+        return save(actor, {
+          ...project,
+          expected_version: project.profile_version,
+          expected_funding_version: input.expected_version,
+          agreement_id: input.agreement_id || null,
+          reason: input.reason,
+        }, key);
       });
     },
     approve(actor: Actor, key: string, approvalId: string, input: ProjectVersionAction) {
@@ -692,18 +706,22 @@ export function createProjects(
           actor,
           approval.version_no === 1 ? "project.approve" : "change.approve",
         );
+        const candidates = approval.pending_scopes;
+        for (const candidate of candidates) {
+          const demand = demands.get(candidate.demand_id);
+          expectedVersion(demand.current_version, candidate.demand_version);
+          requireValue(!demand.binding && demand.status === "active", "候选需求已由其他项目关联或状态变化，请重新编制变更", 409);
+          requireValue(demand.expected_on, "新增候选需求须填写预计解决时间", 422);
+        }
         const missingDates = repo.missingExpectedResolutionDates(key);
         requireValue(!missingDates.length,
           "正式批准前必须填写本项目所有当前关联需求的预计解决时间：" +
             missingDates.map(row=>row.demand_no).join("、"),
           422,{expected_on:missingDates.map(row=>row.demand_no)});
-        const outdatedDates = repo.outdatedApprovalExpectedDates(approvalId);
-        requireValue(!outdatedDates.length,
-          "需求的预计解决时间在编制批准草稿后发生变化，请删除并重新编制草稿：" +
-            outdatedDates.map(row=>row.demand_no).join("、"),
-          409,{expected_on:outdatedDates.map(row=>row.demand_no)});
-
-
+        const staleDemands = repo.staleApprovalDemands(approvalId);
+        requireValue(!staleDemands.length,
+          "需求正式版本已变化，请重新编制草稿并核对最新位置、数量和预计解决时间：" + staleDemands.map(scope => scope.demand_no).join("、"),
+          409, { expected_on: staleDemands.map(scope => scope.demand_no) });
         if (approval.change_order_id)
           repo.decideChange(approval.change_order_id, {
             status: "approved",
@@ -711,6 +729,16 @@ export function createProjects(
             decided_at: now(),
             decision_reason: input.reason || "",
           });
+        if (candidates.length) {
+          const selected: ProjectApprovalScopeInput[] = [];
+          for (const candidate of candidates) {
+            const demand = demands.get(candidate.demand_id);
+            const scopeId = writeLink(actor, key, { demand_id: demand.id, expected_version: demand.current_version },
+              { demand, existing: project.scopes.find(scope => scope.demand_id === demand.id) });
+            selected.push({ ...candidate, demand_id: undefined, project_scope_id: scopeId });
+          }
+          persistApprovalScopes(get(key), approvalId, selected, now());
+        }
         repo.decideApproval(approvalId, {
           status: "approved",
           approved_by: actor.id,
@@ -718,6 +746,18 @@ export function createProjects(
         });
         if (approval.version_no === 1)
           stage(actor, key, "approved", "project.approve", project.version);
+        if (project.approval) {
+          const previous = project.approvals.find(row => row.id === project.approval!.id);
+          const retained = new Set(get(key).approvals.find(row => row.id === approvalId)!.scopes.map(row => row.project_scope_id));
+          for (const scope of previous?.scopes || []) {
+            if (retained.has(scope.project_scope_id)) continue;
+            const last = repo.latestDemandLinkEvent(scope.project_scope_id);
+            requireValue(last, "移出需求的关联历史不存在", 409);
+            repo.appendDemandLink({ id: id(), project_scope_id: scope.project_scope_id,
+              event_seq: last.event_seq + 1, action: "released", actor_id: actor.id,
+              recorded_at: now(), reason: input.reason || "正式范围变更批准后移出需求" });
+          }
+        }
         return get(key);
       });
     },

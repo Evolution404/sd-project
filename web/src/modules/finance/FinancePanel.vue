@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { closedWriteReason } from "../../../../server/shared/project-lifecycle";
 import CostCategoryWorkspace from "./components/CostCategoryWorkspace.vue";
 import CostCategorySelect from "./components/CostCategorySelect.vue";
 import type { CostCategoryNode } from "../../../../server/shared/types/trees";
@@ -8,6 +9,7 @@ import RowActions from "../../shared/ui/RowActions.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
+const writeBlock = computed(() => closedWriteReason(props.project));
 import { ref, watch, computed } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
@@ -16,18 +18,32 @@ import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precisio
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
-const evidence = ref<Row | null>(null);
+import type { System } from "../../../../server/bootstrap";
+import type { ActualCostVersion, SettlementWorkflow, ReconciliationVersion, SettlementItemInput,
+  SettlementResolutionInput, ActualCostInput, SettlementDraftInput, ReconciliationInput } from "../../../../server/shared/types/finance-workflows";
+import type { CategoryCost } from "../../../../server/shared/types/trees";
+import type { FinanceSummary } from "../../../../server/modules/finance/summary";
+type ProjectDetail = ReturnType<System["projects"]["get"]>;
+type CostFact = ActualCostVersion & CategoryCost;
+type BillFact = SettlementWorkflow & {deleted?: boolean};
+type ReconciliationFact = ReconciliationVersion & {deleted?:boolean};
+type EditingFact = Partial<CostFact & BillFact & ReconciliationFact>;
+interface FinanceForm extends Partial<ActualCostInput>, Omit<SettlementDraftInput, "items" | "resolutions">, ReconciliationInput {
+  items: Array<Partial<SettlementItemInput> & {cost_node_name?:string; cost_node_version_id?:string}>;
+  resolutions: Array<Partial<SettlementResolutionInput>>;
+}
+const emptyForm = (): FinanceForm => ({items:[], resolutions:[]});
+const evidence = ref<{ownerKind:"cost_version_id" | "settlement_version_id"; ownerId:string} | null>(null);
 import {
   api,
   today,
-  type Row,
   money,
   quantity,
   statusText,
 } from "../../shared/api/client";
 type FocusKind = "cost" | "settlement" | "reconciliation";
 type FocusedRecord = { kind: FocusKind; id: string };
-const props = defineProps<{ project: Row; focus?: FocusedRecord | null }>();
+const props = defineProps<{ project: ProjectDetail; focus?: FocusedRecord | null }>();
 const formRef = ref();
 const scopePrecision = ref<Record<string, number>>({});
 const scopePrecisionError = ref("");
@@ -38,7 +54,7 @@ function markQuantityInvalid(path: string, invalid: boolean) {
 let scopePrecisionRequest = 0;
 watch(() => [
   props.project.id,
-  (props.project.scopes || []).map((scope: Row) => scope.id + ':' + (scope.demand_version || '')).join('|'),
+  (props.project.scopes || []).map((scope) => scope.id + ':' + (scope.demand_version || '')).join('|'),
   props.project.approval?.id || '',
 ] as const, async ([projectId]) => {
   const sequence = ++scopePrecisionRequest;
@@ -69,12 +85,12 @@ watch(() => [
 }, { immediate: true });
 
 
-const focusedFact = ref<Row | Row[] | null>(null);
+const focusedFact = ref<EditingFact | EditingFact[] | null>(null);
 const focusedLoading = ref(false);
 const focusedError = ref("");
 const focusedHistoryOpen = ref(false);
 let focusSequence = 0;
-const focusedCurrent = computed<Row | null>(() => Array.isArray(focusedFact.value)
+const focusedCurrent = computed<EditingFact | null>(() => Array.isArray(focusedFact.value)
   ? [...focusedFact.value].sort((a, b) => (b.version_no || 0) - (a.version_no || 0))[0] || null
   : focusedFact.value);
 const focusedTitle = computed(() => {
@@ -94,7 +110,7 @@ async function loadFocusedRecord() {
       ? `/projects/${props.project.id}/costs/${focus.id}`
       : focus.kind === "settlement" ? "/projects/" + props.project.id + "/settlements/" + focus.id
       : "/projects/" + props.project.id + "/reconciliations/" + focus.id;
-    const result = await api<Row | Row[]>(uri);
+    const result = await api<EditingFact | EditingFact[]>(uri);
     if (sequence === focusSequence) {
       // Nested endpoints enforce ownership before returning any history.
       // The request sequence additionally protects against stale UI results.
@@ -111,18 +127,18 @@ watch(() => [props.project.id, props.focus?.kind, props.focus?.id], () => {
 }, { immediate: true });
 const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
 const emit = defineEmits(["changed"]);
-const costs = ref<Row[]>([]),
+const costs = ref<CostFact[]>([]),
   listLoading = ref(false),
   listError = ref(""),
-  bills = ref<Row[]>([]),
-  summary = ref<Row>({}),
+  bills = ref<BillFact[]>([]),
+  summary = ref<Partial<FinanceSummary>>({}),
   dialog = ref(""),
-  form = ref<Row>({}),
-  editing = ref<Row | null>(null),
+  form = ref<FinanceForm>(emptyForm()),
+  editing = ref<EditingFact | null>(null),
   busy = ref(false),
-  selected = ref<Row[]>([]),
-  history = ref<Row | null>(null),
-  reconciliations = ref<Row[]>([]);
+  selected = ref<BillFact[]>([]),
+  history = ref<unknown>(null),
+  reconciliations = ref<ReconciliationFact[]>([]);
 const financeColumns: Record<string, TableColumn[]> = {
   costs: [
     // Keep operational state and amount visible beside the fixed action
@@ -172,8 +188,8 @@ function financeTableFilter(table: "costs" | "bills" | "reconciliations", value:
 // Reconciliation choices must not inherit the unrelated 30-row list pages.
 // Search the project's full eligible records on demand; current selected
 // immutable IDs remain available when the search keyword changes.
-const reconcileCostChoices = ref<Row[]>([]);
-const reconcileBillChoices = ref<Row[]>([]);
+const reconcileCostChoices = ref<CostFact[]>([]);
+const reconcileBillChoices = ref<BillFact[]>([]);
 const reconcileCostsLoading = ref(false);
 const reconcileBillsLoading = ref(false);
 let reconcileCostSequence = 0;
@@ -185,19 +201,19 @@ async function loadReconciliationChoices(kind: "costs" | "bills", term = "") {
   const projectId = props.project.id;
   const resource = kind === "costs" ? "costs" : "settlements";
   try {
-    const page = await api<{items: Row[]}>(`/projects/${projectId}/${resource}?page=1&page_size=200&q=${encodeURIComponent(term.trim())}`);
+    const page = await api<{items: Array<CostFact | BillFact>}>(`/projects/${projectId}/${resource}?page=1&page_size=200&q=${encodeURIComponent(term.trim())}`);
     if (projectId !== props.project.id || sequence !== (kind === "costs" ? reconcileCostSequence : reconcileBillSequence)) return;
     if (kind === "costs") {
       const currentId = form.value.cost_version_id;
       const selected = reconcileCostChoices.value.find(row => row.id === currentId);
-      const candidates = page.items.filter(row => row.status === "active" && !row.deleted);
+      const candidates = (page.items as CostFact[]).filter(row => row.status === "active" && !row.deleted);
       reconcileCostChoices.value = selected && !candidates.some(row => row.id === currentId)
         ? [selected, ...candidates] : candidates;
     } else {
       const currentId = form.value.settlement_item_version_id;
       const selected = reconcileBillChoices.value.find(row =>
-        (row.items || []).some((item: Row) => item.id === currentId));
-      const candidates = page.items.filter(row => row.review?.action === "approve" && !row.deleted);
+        (row.items || []).some((item) => item.id === currentId));
+      const candidates = (page.items as BillFact[]).filter(row => row.review?.action === "approve" && !row.deleted);
       reconcileBillChoices.value = selected && !candidates.some(row => row.id === selected.id)
         ? [selected, ...candidates] : candidates;
     }
@@ -222,10 +238,10 @@ async function load() {
   listError.value = "";
   try {
     const [costResult, billResult, summaryResult, reconResult, treeResult] = await Promise.all([
-      api<{ items: Row[]; total: number }>(`/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`),
-      api<{ items: Row[]; total: number }>(`/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30&sort=${encodeURIComponent(financeSort.value.bills || "created_at")}&direction=${financeDirection.value.bills}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.bills))}`),
-      api<Row>(`/projects/${props.project.id}/summary`),
-      api<{ items: Row[]; total: number }>(`/reconciliations?page=${reconPage.value}&page_size=30&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}&sort=${encodeURIComponent(financeSort.value.reconciliations || "created_at")}&direction=${financeDirection.value.reconciliations}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.reconciliations))}`),
+      api<{ items: CostFact[]; total: number }>(`/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`),
+      api<{ items: BillFact[]; total: number }>(`/projects/${props.project.id}/settlements?page=${billPage.value}&page_size=30&sort=${encodeURIComponent(financeSort.value.bills || "created_at")}&direction=${financeDirection.value.bills}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.bills))}`),
+      api<FinanceSummary>(`/projects/${props.project.id}/summary`),
+      api<{ items: ReconciliationFact[]; total: number }>(`/reconciliations?page=${reconPage.value}&page_size=30&project_id=${props.project.id}&deleted=${showDeletedReconciliations.value}&sort=${encodeURIComponent(financeSort.value.reconciliations || "created_at")}&direction=${financeDirection.value.reconciliations}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.reconciliations))}`),
       api<CostCategoryNode[]>(`/projects/${props.project.id}/cost-tree`),
     ]);
     if (sequence !== loadSequence) return;
@@ -252,7 +268,7 @@ async function load() {
 const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
-function edit(type: string, row?: Row) {
+function edit(type: string, row?: EditingFact) {
   if (type === "settlement" && row?.review?.action === "submit") {
     ElMessage.warning("该结算正在审核，审核结束前不能修改；如需调整，请先由审核人员退回");
     return;
@@ -263,14 +279,17 @@ function edit(type: string, row?: Row) {
   if (type === "cost")
     form.value = row
       ? {
+          ...emptyForm(),
           ...row,
+          is_final: undefined,
           request_key: undefined,
           cost_node_id: row.cost_node_id || props.project.cost_nodes.find(
-            (n: Row) => n.current_version_id === row.cost_node_version_id,
+            (n) => n.current_version_id === row.cost_node_version_id,
           )?.id,
           expected_version: row.version_no,
         }
       : {
+          ...emptyForm(),
           title: "",
           occurred_on: today(),
           amount_fen: 0,
@@ -284,9 +303,9 @@ function edit(type: string, row?: Row) {
           number: row.number,
           expected_version: row.version?.version_no || 0,
           expected_edit_version: row.draft?.edit_version || 0,
-          items: structuredClone(row.draft?.document.items || row.items),
+          items: structuredClone(row.draft?.document.items || row.items || []),
           resolutions: structuredClone(
-            row.draft?.document.resolutions || row.resolutions,
+            row.draft?.document.resolutions || row.resolutions || [],
           ),
         }
       : {
@@ -301,12 +320,14 @@ function edit(type: string, row?: Row) {
   if (type === "reconcile")
     form.value = row
       ? {
+          ...emptyForm(),
           ...row,
           request_key: undefined,
           expected_version: row.version_no,
           is_final: !!row.is_final,
         }
       : {
+          ...emptyForm(),
           expected_version: 0,
           reconciled_cost_fen: 0,
           reconciled_settlement_fen: 0,
@@ -324,8 +345,8 @@ function edit(type: string, row?: Row) {
 async function save() {
   if (busy.value) return;
   if (dialog.value === "settlement") {
-    const documents = (form.value.items || []) as Row[];
-    const resolutions = (form.value.resolutions || []) as Row[];
+    const documents = (form.value.items || []) ;
+    const resolutions = (form.value.resolutions || []) ;
     if (documents.some(item => item.project_scope_id &&
         scopePrecision.value[item.project_scope_id] === undefined) ||
         resolutions.some(item => !item.project_scope_id ||
@@ -364,7 +385,7 @@ async function save() {
     busy.value = false;
   }
 }
-async function action(row: Row, name: string) {
+async function action(row: BillFact, name: string) {
   try {
     let reason: string | undefined;
     if (name === "return") {
@@ -405,7 +426,7 @@ async function action(row: Row, name: string) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-async function resubmitBill(row: Row) {
+async function resubmitBill(row: BillFact) {
   try {
     await ElMessageBox.confirm(
       "原结算版本与金额、明细、解决量均不变，仅重新提交审核。若需要修改内容，请改用“修订结算”编制新版本。",
@@ -422,7 +443,7 @@ async function resubmitBill(row: Row) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-async function voidCost(row: Row) {
+async function voidCost(row: CostFact) {
   try {
     await ElMessageBox.confirm("作废后该费用不再计入有效费用，但继续显示在正常列表中；原始版本及历史核对永久保留。", "作废费用", { type: "warning" });
     await api(`/projects/${props.project.id}/costs/${row.entry_id}`, "POST", {
@@ -437,7 +458,7 @@ async function voidCost(row: Row) {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-async function removeBill(row: Row) {
+async function removeBill(row: BillFact) {
   try {
     await ElMessageBox.confirm(
       "删除将正式注销当前有效结算，取消其当前结算金额及解决量，原始版本继续保留。",
@@ -454,7 +475,7 @@ async function removeBill(row: Row) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-async function removeCost(row: Row) {
+async function removeCost(row: CostFact) {
   try {
     await ElMessageBox.confirm(
       "此操作仅限管理员：费用将先作废，再从正常列表隐藏；原始版本和历史核对保留，可通过“包含已删除费用”查看。",
@@ -471,7 +492,7 @@ async function removeCost(row: Row) {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-async function removeReconciliation(row: Row) {
+async function removeReconciliation(row: ReconciliationFact) {
   try {
     await ElMessageBox.confirm(
       "撤销当前核对份额并从正常列表删除，原始核对及双金额历史保留。",
@@ -485,10 +506,10 @@ async function removeReconciliation(row: Row) {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-async function reconciliationHistory(row: Row) {
+async function reconciliationHistory(row: ReconciliationFact) {
   history.value = await api("/reconciliations/" + row.record_id);
 }
-async function showHistory(row: Row) {
+async function showHistory(row: BillFact) {
   history.value = await api("/settlements/" + row.id + "/history");
 }
 useListRoute({
@@ -517,6 +538,7 @@ watch(() => props.project.id, () => {
 }, { immediate: true });
 </script>
 <template>
+  <ElAlert v-if="writeBlock" :title="writeBlock" type="info" :closable="false" />
   <template v-if="evidence"
     ><ElButton @click="evidence = null">关闭附件区</ElButton
     ><EvidencePanel
@@ -584,7 +606,7 @@ watch(() => props.project.id, () => {
     </div>
     <p class="muted">参考价格、批准预算、真实费用和分期结算是不同业务事实，不要求相等。缺少任何需求报价时不显示完整参考总价。</p>
   </div>
-  <CostCategoryWorkspace :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
+  <CostCategoryWorkspace :readonly="!!writeBlock" :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
   <ElAlert v-if="scopePrecisionError" type="error" :closable="false"
     :title="scopePrecisionError" class="panel" />
   <div class="panel">
@@ -594,12 +616,12 @@ watch(() => props.project.id, () => {
         >包含已删除费用</ElCheckbox
       >
       <ElButton data-guide-action="finance.cost"
-        :disabled="!can('cost.confirm')"
+        :disabled="!!writeBlock || !can('cost.confirm')"
         type="primary"
         @click="edit('cost')"
         >核定费用</ElButton
       >
-      <span v-if="!can('cost.confirm')" class="muted" role="note">
+      <span v-if="!!writeBlock || !can('cost.confirm')" class="muted" role="note">
         费用核定须由具备审核权限的人员办理
       </span>
     </div>
@@ -609,14 +631,14 @@ watch(() => props.project.id, () => {
       <template #cell="{ row, column }">
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
         <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已作废' : statusText[row.status] || row.status }}</ElTag>
-        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
           { label: '附件', run: () => evidence = { ownerKind: 'cost_version_id', ownerId: row.id } },
-          { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('cost', row) },
-          { label: '作废费用', guideActionId: 'finance.void', danger: true, disabled: !can('cost.confirm') || row.deleted || row.status === 'voided', run: () => voidCost(row) },
-          { label: '管理员删除', danger: true, disabled: !can('admin') || row.deleted, run: () => removeCost(row) },
+          { label: '更正', disabled: !!writeBlock || !can('cost.confirm') || row.deleted, run: () => edit('cost', row) },
+          { label: '作废费用', guideActionId: 'finance.void', danger: true, disabled: !!writeBlock || !can('cost.confirm') || row.deleted || row.status === 'voided', run: () => voidCost(row) },
+          { label: '管理员删除', danger: true, disabled: !!writeBlock || !can('admin') || row.deleted, run: () => removeCost(row) },
         ]" />
       </template>
     </BusinessTable>
@@ -628,16 +650,17 @@ watch(() => props.project.id, () => {
       <h2>独立结算单</h2>
       <ElButton data-guide-action="finance.settlement-draft"
         type="primary"
-        :disabled="!can('write') || project.status !== 'approved'"
+        :disabled="!!writeBlock || !can('write') || project.status !== 'approved'"
         @click="edit('settlement')"
         >新增结算草稿</ElButton
       ><span v-if="project.status !== 'approved'" class="muted" role="note">
         子项目正式批准后才可编制结算
       </span>
-      <span v-else-if="!can('write')" class="muted" role="note">
+      <span v-else-if="!!writeBlock || !can('write')" class="muted" role="note">
         结算草稿须由具备编辑权限的人员编制
       </span>
       <ExchangePanel
+        :readonly="!!writeBlock"
         kind="settlements"
         :project-id="project.id"
         :selected-ids="selected.map((x) => x.id)"
@@ -650,24 +673,24 @@ watch(() => props.project.id, () => {
       @filter-change="financeTableFilter('bills', $event)">
       <template #cell="{ row, column }">
         <span v-if="column.key === 'review'">
-          第 {{ row.version?.version_no || 0 }} 版 · {{ row.review?.action === 'submit' ? '待审核' : row.review?.action === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.review?.action] || '待编制' }}
+          第 {{ row.version?.version_no || 0 }} 版 · {{ row.review?.action === 'submit' ? '待审核' : row.review?.action === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.review?.action || ""] || '待编制' }}
           <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
         </span>
-        <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item: Row) => sum + item.amount_fen, 0)) }}</span>
-        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+        <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item) => sum + item.amount_fen, 0)) }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
           ...(row.review?.action === 'submit' ? [
-            { label: '批准', guideActionId: 'finance.approve', primary: true, disabled: !can('settlement.approve'), run: () => action(row, 'approve') },
-            { label: '退回', disabled: !can('settlement.approve'), run: () => action(row, 'return') },
+            { label: '批准', guideActionId: 'finance.approve', primary: true, disabled: !!writeBlock || !can('settlement.approve'), run: () => action(row, 'approve') },
+            { label: '退回', disabled: !!writeBlock || !can('settlement.approve'), run: () => action(row, 'return') },
           ] : []),
-          ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !can('write') || row.review?.action === 'submit', run: () => action(row, 'submit') }] : []),
-          ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', primary: true, disabled: !can('write'), run: () => resubmitBill(row) }] : []),
-          { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', disabled: !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
-          ...(row.version ? [{ label: '附件', run: () => evidence = { ownerKind: 'settlement_version_id', ownerId: row.version.id } }] : []),
+          ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => action(row, 'submit') }] : []),
+          ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', primary: true, disabled: !!writeBlock || !can('write'), run: () => resubmitBill(row) }] : []),
+          { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
+          ...(row.version ? [{ label: '附件', run: () => evidence = { ownerKind: 'settlement_version_id', ownerId: row.version!.id } }] : []),
           { label: '历史', guideActionId: 'finance.history', run: () => showHistory(row) },
-          { label: '删除', danger: true, disabled: !can('admin'), run: () => removeBill(row) },
+          { label: '删除', danger: true, disabled: !!writeBlock || !can('admin'), run: () => removeBill(row) },
         ]" />
       </template>
     </BusinessTable>
@@ -679,10 +702,10 @@ watch(() => props.project.id, () => {
       <h2>费用与结算核对</h2>
       <ElCheckbox data-guide-action="finance.reconcile-show-deleted" v-model="showDeletedReconciliations" @change="reconPage = 1; load()"
         >包含已删除核对</ElCheckbox
-      ><ElButton data-guide-action="finance.reconcile" :disabled="!can('cost.confirm')" @click="edit('reconcile')"
+      ><ElButton data-guide-action="finance.reconcile" :disabled="!!writeBlock || !can('cost.confirm')" @click="edit('reconcile')"
         >新增正式核对</ElButton
       >
-      <span v-if="!can('cost.confirm')" class="muted" role="note">
+      <span v-if="!!writeBlock || !can('cost.confirm')" class="muted" role="note">
         正式费用核对须由具备审核权限的人员办理
       </span>
     </div>
@@ -692,15 +715,15 @@ watch(() => props.project.id, () => {
       @sort-change="financeTableSort('reconciliations', $event)"
       @filter-change="financeTableFilter('reconciliations', $event)">
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'reconciled_cost_fen' || column.key === 'reconciled_settlement_fen'">¥{{ money(row[column.key]) }}</span>
+        <span v-if="column.key === 'reconciled_cost_fen' || column.key === 'reconciled_settlement_fen'">¥{{ money(Number(row[column.key as keyof typeof row])) }}</span>
         <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已撤销' : '有效' }}</ElTag>
-        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
-          { label: '更正', disabled: !can('cost.confirm') || row.deleted, run: () => edit('reconcile', row) },
+          { label: '更正', disabled: !!writeBlock || !can('cost.confirm') || row.deleted, run: () => edit('reconcile', row) },
           { label: '历史', guideActionId: 'finance.history', run: () => reconciliationHistory(row) },
-          { label: '删除', danger: true, disabled: !can('cost.confirm') || row.deleted, run: () => removeReconciliation(row) },
+          { label: '删除', danger: true, disabled: !!writeBlock || !can('cost.confirm') || row.deleted, run: () => removeReconciliation(row) },
         ]" />
       </template>
     </BusinessTable>
@@ -712,8 +735,8 @@ watch(() => props.project.id, () => {
     <BusinessTable client-side table-key="finance:demands" :rows="summary.demands || []"
       :columns="financeColumns.demands">
       <template #cell="{ row, column }">
-        <span v-if="column.key.endsWith('_quantity_scaled')">{{ quantity(row[column.key]) }}</span>
-        <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+        <span v-if="column.key.endsWith('_quantity_scaled')">{{ quantity(Number(row[column.key as keyof typeof row])) }}</span>
+        <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
     </BusinessTable>
   </div>
@@ -783,7 +806,7 @@ watch(() => props.project.id, () => {
             ><ElSelect v-model="form.approval_version_id"
               ><ElOption
                 v-for="ap in project.approvals.filter(
-                  (x: Row) => x.status === 'approved',
+                  (x) => x.status === 'approved',
                 )"
                 :key="ap.id"
                 :value="ap.id"
@@ -919,7 +942,7 @@ watch(() => props.project.id, () => {
             ><ElFormItem label="本次新增解决量" required
               ><FieldControl
                 v-model="r.resolved_quantity_scaled"
-                :field="{ type: 'quantity', quantityPrecision: scopePrecision[r.project_scope_id] }"
+                :field="{ type: 'quantity', quantityPrecision: scopePrecision[r.project_scope_id || ''] }"
                 @validity-change="markQuantityInvalid('resolutions.' + index, $event)" /></ElFormItem
             ><ElFormItem label="完成依据"
               ><ElInput v-model="r.evidence"

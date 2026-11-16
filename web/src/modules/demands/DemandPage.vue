@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ordinaryLinkReason } from "../../../../server/shared/project-lifecycle";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
@@ -23,7 +24,7 @@ import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { DemandRecord, DemandListItem, SourceRow, DemandStatus } from "../../../../server/shared/types/demands";
 import type { OperationAttribute } from "../../../../server/shared/types/operation-attributes";
 import type { Actor, Page } from "../../../../server/shared/types/contracts";
-interface ProjectCandidate { id:string; name:string; code:string; status:string; }
+interface ProjectCandidate { id:string; name:string; code:string; status:string; display_status:string; }
 const props = defineProps<{ user: Actor }>();
 const route = useRoute(), router = useRouter();
 const projectPickerOpen = ref(false), projectSearch = ref(""), projectPage = ref(1);
@@ -59,8 +60,8 @@ function openProjectPicker() {
 }
 async function linkSelectedProject() {
   if (!detail.value || detail.value.deleted || !selectedProjectId.value || linking.value || projectLoading.value) return;
-  if (!projectCandidates.value.some(candidate => candidate.id === selectedProjectId.value && candidate.status !== "closed")) {
-    ElMessage.warning("请选择当前列表中未结项的子项目");
+  if (!projectCandidates.value.some(candidate => candidate.id === selectedProjectId.value && !ordinaryLinkReason(candidate))) {
+    ElMessage.warning("请选择当前列表中可普通承接需求的子项目");
     return;
   }
   linking.value = true;
@@ -542,15 +543,17 @@ onMounted(async () => {
       table-key="demand:project-picker" client-side :loading="projectLoading"
       :actions-width="100" max-height="400">
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'status'">{{ statusText[row.status] || row.status }}</span>
+        <span v-if="column.key === 'status'">{{ row.display_status || statusText[row.status] || row.status }}</span>
         <span v-else>{{ valueAt(row,column.key) || '—' }}</span>
       </template>
       <template #actions="{ row }">
-        <ElButton size="small" :type="selectedProjectId === row.id ? 'primary' : undefined"
-          :disabled="projectLoading || row.status === 'closed'"
-           @click="selectedProjectId = row.id">
-          {{ row.status === "closed" ? "不可选" : selectedProjectId === row.id ? "已选中" : "选择" }}
-        </ElButton>
+        <ElTooltip :content="ordinaryLinkReason(row)" :disabled="!ordinaryLinkReason(row)">
+          <span><ElButton size="small" :type="selectedProjectId === row.id ? 'primary' : undefined"
+            :disabled="projectLoading || !!ordinaryLinkReason(row)"
+            @click="selectedProjectId = row.id">
+            {{ ordinaryLinkReason(row) ? "不可选" : selectedProjectId === row.id ? "已选中" : "选择" }}
+          </ElButton></span>
+        </ElTooltip>
       </template>
     </BusinessTable>
     <ElPagination v-model:current-page="projectPage" :page-size="20" :total="projectTotal"

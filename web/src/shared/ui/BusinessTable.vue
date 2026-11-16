@@ -253,7 +253,7 @@ watch(() => props.tableKey, async () => {
       </div>
       <ElButton class="business-column-setting-trigger" size="small" plain @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
-    <ElTable border allow-drag-last-column ref="table" :data="tableRows" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
+    <ElTable border allow-drag-last-column ref="table" :data="tableRows as Row[]" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
       :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
       @selection-change="emit('selection-change', $event)"
       @sort-change="handleSort"

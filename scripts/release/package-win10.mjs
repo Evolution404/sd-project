@@ -1,3 +1,4 @@
+import { sourceSnapshot as captureSourceSnapshot, requireNode24 } from "./source-snapshot.mjs";
 import {
   mkdirSync,
   rmSync,
@@ -18,6 +19,7 @@ import { createSystem } from "../../dist/server/bootstrap.js";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+requireNode24();
 const root = resolve(import.meta.dirname, "..", "..");
 const mode = process.env.SD_PACKAGE_MODE || "production";
 if (!["production", "demo"].includes(mode))
@@ -62,37 +64,12 @@ async function download(url, path) {
 }
 const digestFile = (p) =>
   createHash("sha256").update(readFileSync(p)).digest("hex");
-function sourceSnapshot() {
-  // Include both tracked and untracked build inputs, not merely Git status.
-  // A dirty worktree is fine; concurrent edits during packaging are not.
-  const inputs = [
-    "server", "web", "scripts", "docs/architecture",
-    "docs/implementation", "docs/decisions",
-    "package.json", "package-lock.json", "README.md",
-  ];
-  const files = [];
-  function visit(path) {
-    if (!existsSync(path)) return;
-    const stat = statSync(path);
-    if (stat.isDirectory()) {
-      for (const entry of readdirSync(path).sort())
-        if (entry !== "node_modules" && entry !== ".DS_Store")
-          visit(join(path, entry));
-    } else if (stat.isFile()) {
-      files.push(path);
-    }
-  }
-  for (const path of inputs) visit(join(root, path));
-  const hash = createHash("sha256");
-  for (const path of files.sort()) {
-    hash.update(path.slice(root.length + 1).replaceAll("\\", "/"));
-    hash.update("\0");
-    hash.update(digestFile(path));
-    hash.update("\n");
-  }
-  return hash.digest("hex");
-}
-const buildInputSha256 = sourceSnapshot();
+function sourceSnapshot() { return captureSourceSnapshot(root).sha256; }
+const capturedInputs = captureSourceSnapshot(root);
+const buildInputSha256 = capturedInputs.sha256;
+if (process.env.SD_BUILD_INPUT_SHA256 !== buildInputSha256 ||
+    process.env.SD_BUILD_GIT_COMMIT !== gitCommit)
+  throw Error("构建输入或Git基线已变化，请通过npm run package:win重新构建");
 const shas = join(cache, `${version}-SHASUMS256.txt`);
 await download(nodeBase + "/SHASUMS256.txt", shas);
 const sums = readFileSync(shas, "utf8")
@@ -267,6 +244,7 @@ const manifest = {
   package_mode: mode,
   worktree_dirty: worktreeDirty,
   build_input_sha256: buildInputSha256,
+  build_input_files_sha256: capturedInputs.files,
   entrypoint: "dist/server/main.js",
   server_source_sha256: sourceHashes,
   server_artifact_sha256: artifactHashes(join(stage, "dist/server")),

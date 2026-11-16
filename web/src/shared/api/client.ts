@@ -1,7 +1,7 @@
 import type { FieldErrors } from "../../../../server/shared/types/contracts";
 import { newClientId } from "../utils/id";
 
-export type Row = Record<string, any>;
+export type Row = Record<string, unknown>;
 export class ApiError extends Error {
   fields: FieldErrors;
   code: string;

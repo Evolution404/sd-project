@@ -6,10 +6,11 @@ import { api, quantity } from "../../../shared/api/client";
 import type { Page } from "../../../../../server/shared/types/contracts";
 import type { DemandListItem, DemandRecord } from "../../../../../server/shared/types/demands";
 
-const props=defineProps<{open:boolean;projectId:string;existingIds:string[]}>();
+const props=defineProps<{open:boolean;projectId:string;existingIds:string[];proposal?:boolean}>();
 const emit=defineEmits<{
   "update:open":[open:boolean];
   linked:[count:number];
+  selected:[records:DemandRecord[]];
 }>();
 const query=ref(""),appliedQuery=ref(""),page=ref(1),total=ref(0);
 const candidates=ref<DemandListItem[]>([]);
@@ -145,6 +146,15 @@ async function submit(){
     const links=Object.values(chosen.value).map(row=>({
       demand_id:row.id,expected_version:row.current_version,
     }));
+    if (props.proposal) {
+      const records = await Promise.all(links.map(link => api<DemandRecord>("/demands/" + link.demand_id)));
+      if (records.some((record,index) => record.current_version !== links[index].expected_version || record.binding || record.status !== "active"))
+        throw Error("候选需求版本、状态或归属已变化，请重新查询");
+      emit("selected", records);
+      closePreview();
+      emit("update:open", false);
+      return;
+    }
     await api("/projects/"+encodeURIComponent(props.projectId)+"/link-batch","POST",{links});
     const count=links.length;
     ElMessage.success("已完整关联"+count+"条专业需求");
@@ -159,7 +169,7 @@ async function submit(){
 </script>
 
 <template>
-  <ElDialog :model-value="open" title="关联专业需求" append-to-body
+  <ElDialog :model-value="open" :title="proposal ? '选择变更新增需求' : '关联专业需求'" append-to-body
     width="min(1380px,96vw)" :close-on-click-modal="false"
     :close-on-press-escape="!saving" :show-close="!saving"
     @update:model-value="value=>{if(!value)close();}">
@@ -172,7 +182,7 @@ async function submit(){
       <ElButton :disabled="saving||loading||!selectedOnPage" @click="choosePage(false)">取消本页选择</ElButton>
     </div>
     <div class="demand-picker-options">
-      <ElCheckbox v-model="includePending" :disabled="saving" @change="changePending">
+      <ElCheckbox v-if="!proposal" v-model="includePending" :disabled="saving" @change="changePending">
         包含待确认需求（确认有效后方可立项）
       </ElCheckbox>
       <span class="muted">符合条件 {{total}} 条，可跨页多选</span>
@@ -241,11 +251,11 @@ async function submit(){
       </p>
     </div>
     <template #footer>
-      <span class="muted picker-footer-hint">一次提交，全部成功或全部回滚</span>
+      <span class="muted picker-footer-hint">{{proposal ? '候选需求在正式批准时统一关联' : '一次提交，全部成功或全部回滚'}}</span>
       <ElButton :disabled="saving" @click="close">取消</ElButton>
       <ElButton data-guide-action="projects.save" type="primary"
         :loading="saving" :disabled="saving||loading||!selectedCount"
-        @click="submit">关联已选需求（{{selectedCount}}）</ElButton>
+        @click="submit">{{proposal ? '加入变更草稿' : '关联已选需求'}}（{{selectedCount}}）</ElButton>
     </template>
   </ElDialog>
   <ElDialog :model-value="!!preview||previewLoading||!!previewError"

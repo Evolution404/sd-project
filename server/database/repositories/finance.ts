@@ -17,6 +17,12 @@ export interface FinanceDemandTotal {
 
 export function financeReadRepository(store: Store) {
   return {
+    projectStage(projectId: string): string | undefined {
+      return store.get<{status:string}>("SELECT status FROM projects WHERE id=?", projectId)?.status;
+    },
+    unfinishedSettlementDrafts(projectId: string): Array<{id: string; number: string}> {
+      return store.query("SELECT s.id,s.number FROM settlement_drafts d JOIN settlements s ON s.id=d.settlement_id WHERE s.project_id=? ORDER BY s.id", projectId);
+    },
     projectReconciliations(projectId?: string, includeDeleted = false) {
       const rows = store.query(`SELECT r.*,
         EXISTS(SELECT 1 FROM audit_events a

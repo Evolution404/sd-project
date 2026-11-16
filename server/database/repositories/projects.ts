@@ -1,6 +1,6 @@
 import type { createStore } from "./store.js";
 import type { ProjectIdentity, ProjectProfileVersion, ProjectFundingVersion,
-  ProjectApprovalVersion } from "../../shared/types/projects.js";
+  ProjectApprovalVersion, ProjectApprovalCandidateProposal } from "../../shared/types/projects.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
 
@@ -70,6 +70,7 @@ export interface ApprovedScope extends ApprovedScopeRow {
 }
 export interface ProjectApprovalHistory extends ProjectApprovalVersion {
   scopes: ApprovedScope[];
+  pending_scopes: ProjectApprovalCandidateProposal[];
 }
 export interface ProjectCostNode {
   id: string;
@@ -94,6 +95,7 @@ export interface ApprovalCandidate {
     location_snapshot_json: {
       location_label?: string; physical_code?: string; tower_no?: string
     };
+    item_no: number;
     quantity_scaled: number;
     span_id?: string | null;
     [field: string]: unknown;
@@ -212,15 +214,12 @@ export function projectReadRepository(store: Store) {
         "WHERE b.project_id=? AND d.expected_on IS NULL ORDER BY d.demand_no,d.id",
         projectId);
     },
-    /** Compare the live expected date with the immutable draft's adopted demand snapshot. */
-    outdatedApprovalExpectedDates(approvalId: string): Array<{demand_no:string}> {
+    staleApprovalDemands(approvalId: string): Array<{demand_no:string}> {
       return store.query<{demand_no:string}>(
-        "SELECT d.demand_no FROM project_approval_scope_versions scope " +
-        "JOIN v_demand_current d ON d.id=scope.demand_id " +
-        "WHERE scope.approval_version_id=? " +
-        "AND json_type(scope.snapshot_json,'$.id')='text' " +
-        "AND json_extract(scope.snapshot_json,'$.expected_on') IS NOT d.expected_on " +
-        "ORDER BY d.demand_no,d.id", approvalId);
+        "SELECT demand.demand_no FROM project_approval_scope_versions scope " +
+        "JOIN v_demand_current demand ON demand.id=scope.demand_id " +
+        "WHERE scope.approval_version_id=? AND demand.current_version<>scope.demand_version " +
+        "ORDER BY demand.demand_no,demand.id", approvalId);
     },
     projectScopes(projectId: string): ProjectScopeProjection[] {
       const rows = store.query(`SELECT sc.*, d.demand_no, dc.expected_on,
@@ -294,6 +293,8 @@ export function projectReadRepository(store: Store) {
       return approvals.map(approval => ({
         ...approval,
         scopes: scopeGroups.get(approval.id) || [],
+        pending_scopes: approval.status === "draft"
+          ? (JSON.parse(approval.snapshot_json) as {candidate_scopes?: ProjectApprovalCandidateProposal[]}).candidate_scopes || [] : [],
       }));
     },
     /** Batch approval editor candidates from current formal demand versions. */

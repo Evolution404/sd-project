@@ -82,8 +82,10 @@ export interface ProjectApprovedMaterialInput {
   quantity_scaled: number;
 }
 export interface ProjectApprovalScopeInput {
-  project_scope_id: string;
+  project_scope_id?: string;
+  demand_id?: string;
   demand_version: number;
+  expected_material_versions?: Record<string, string>;
   approved_amount_fen?: number | null;
   locations: ProjectApprovedLocationInput[];
   materials?: ProjectApprovedMaterialInput[];
@@ -135,4 +137,20 @@ export interface ProjectAgreementOption {
   linked_projects_count: number;
   linked_approved_budget_fen: number;
   budget_difference_fen: number;
+}
+
+export interface ProjectApprovalCandidateProposal extends ProjectApprovalScopeInput {
+  demand_id: string;
+  expected_material_versions: Record<string, string>;
+  snapshot: import("./demands.js").DemandRecord;
+}
+
+/** List projection contains the current ownership identity without full event history. */
+export interface ProjectScopeListItem {
+  id: string;
+  project_id: string;
+  demand_id: string;
+  demand_no: string;
+  demand_status: string;
+  binding: {project_scope_id:string; project_id:string; demand_id:string} | null;
 }

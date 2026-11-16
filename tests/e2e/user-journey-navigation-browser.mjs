@@ -6,7 +6,8 @@ import { approvedFixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
-const { s, user, save, project, framework, demandInput } = approvedFixture({ after: action => cleanup.push(action) });
+const { s, user, save, project: approved, framework, demandInput } = approvedFixture({ after: action => cleanup.push(action) });
+const project = s.projects.save(user, {name:"待承接旅程项目",framework_id:framework.id});
 function newDemand(no, assetNo) {
   const tower = save("physical", { asset_no: assetNo, tower_material: "angle" });
   return s.demands.save(user, {
@@ -44,6 +45,8 @@ try {
   await detail.getByRole("button", { name: "关联子项目", exact: true }).waitFor();
   await detail.getByRole("button", { name: "关联子项目", exact: true }).click();
   const picker = page.getByRole("dialog", { name: "选择子项目承接需求" });
+  assert.equal(await picker.getByRole("row").filter({hasText:approved.name})
+    .getByRole("button",{name:"不可选",exact:true}).isDisabled(),true);
   await picker.getByRole("row").filter({ hasText: project.name })
     .getByRole("button", { name: "选择", exact: true }).click();
   // Search must not retain a hidden previously selected project.

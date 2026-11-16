@@ -17,9 +17,16 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import { api, type Row, statusText, money, quantity } from "../../shared/api/client";
+import type { CatalogFormDefinition, CatalogField } from "../../../../server/shared/types/catalog";
+interface CatalogRow extends Row {
+  id:string;
+  deleted?:boolean;
+  status?:string;
+  reference_names?:Record<string,string>;
+}
 const props = defineProps<{ kinds: string[]; title: string }>();
-const definitions = ref<Row>({}),
-  rows = ref<Row[]>([]),
+const definitions = ref<Record<string,CatalogFormDefinition>>({}),
+  rows = ref<CatalogRow[]>([]),
   total = ref(0),
   page = ref(1),
   query = ref(""),
@@ -30,13 +37,13 @@ const definitions = ref<Row>({}),
   dialog = ref(false),
   loading = ref(false),
   saving = ref(false),
-  editing = ref<Row | null>(null),
+  editing = ref<CatalogRow | null>(null),
   form = ref<Row>({}),
-  errors = ref<Row>({}),
+  errors = ref<Record<string,string>>({}),
   formRef = ref(),
-  detail = ref<Row | null>(null),
-  businessLabels = ref<Row>({}),
-  history = ref<Row | null>(null);
+  detail = ref<CatalogRow | null>(null),
+  businessLabels = ref<Record<string,string>>({}),
+  history = ref<unknown>(null);
 const kind = computed({
   get: () => String(route.params.kind || props.kinds[0]),
   set: value => { void router.push({ name: route.name!, params: { kind: value }, query: {} }); },
@@ -50,7 +57,7 @@ async function load() {
     requestedKind = kind.value;
   loading.value = true;
   try {
-    const result = await api<{ items: Row[]; total: number }>(
+    const result = await api<{ items: CatalogRow[]; total: number }>(
       `/catalog/${requestedKind}?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${deleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value || "desc"}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
     );
     if (sequence !== loadSequence || requestedKind !== kind.value) return;
@@ -65,7 +72,7 @@ async function load() {
 const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
-function edit(row?: Row, historical = false) {
+function edit(row?: CatalogRow, historical = false) {
   editing.value = row || null;
   errors.value = {};
   form.value = {
@@ -99,22 +106,22 @@ const tableColumns = computed<TableColumn[]>(() => {
   const c = definitions.value[kind.value];
   if (!c) return [];
   return [...c.rootFields, ...c.fields]
-    .filter((f: Row) => !f.systemManaged && f.type !== "json")
-    .map((f: Row) => ({ key: f.key, label: f.label, minWidth: ["name", "title"].includes(f.key) ? 190 : 130 }));
+    .filter((f: CatalogField) => !f.systemManaged && f.type !== "json")
+    .map((f: CatalogField) => ({ key: f.key, label: f.label, minWidth: ["name", "title"].includes(f.key) ? 190 : 130 }));
 });
-function tableCell(row: Row, column: TableColumn) {
+function tableCell(row: CatalogRow, column: TableColumn) {
   const key = column.key, value = row[key];
   if (value === null || value === undefined || value === "") return "—";
   const displayed = formatVisibleDateTime(value, key);
   if (displayed !== value) return displayed;
   if (typeof value === "boolean") return value ? "是" : "否";
-  const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: Row) => f.key === key);
+  const f = [...(definitions.value[kind.value]?.rootFields || []), ...(definitions.value[kind.value]?.fields || [])].find((f: CatalogField) => f.key === key);
   if (f?.type === "boolean") return value ? "是" : "否";
   if (f?.type === "select")
     return statusText[String(value)] || value;
   if (f?.type === "ref") return value ? row[key + "_label"] || "历史关联记录" : "—";
-  if (f?.type === "money") return "¥" + money(value);
-  if (f?.type === "quantity") return quantity(value);
+  if (f?.type === "money") return "¥" + money(Number(value));
+  if (f?.type === "quantity") return quantity(Number(value));
   return value;
 }
 function tableSort(value: { key: string; order: string }) {
@@ -159,13 +166,13 @@ async function save() {
     dialog.value = false;
     for (const warning of saved.warnings || []) ElMessage.warning({ message: warning, duration: 8000 });
   } catch (e) {
-    errors.value = (e as Row).fields || {};
+    errors.value = (e as {fields?:Record<string,string>}).fields || {};
     ElMessage.error((e as Error).message);
   } finally {
     saving.value = false;
   }
 }
-async function remove(row: Row) {
+async function remove(row: CatalogRow) {
   try {
     await ElMessageBox.confirm(
       "删除后从正常列表与新增选择中移除，正式历史和已有引用保留。",
@@ -184,10 +191,10 @@ async function remove(row: Row) {
 }
 async function hydrateDetail(id: string) {
   const requestedKind = kind.value;
-  const row = await api<Row>(`/catalog/${requestedKind}/${id}?deleted=true`);
+  const row = await api<CatalogRow>(`/catalog/${requestedKind}/${id}?deleted=true`);
   history.value = null;
   const names = Object.fromEntries(fields().filter(field => field.type === "ref" && row[field.key])
-    .map(field => [field.key, row[field.key + "_label"] || "历史关联对象"]));
+    .map(field => [field.key, String(row[field.key + "_label"] || "历史关联对象")]));
   return { ...row, reference_names: names };
 }
 
@@ -197,8 +204,8 @@ async function refreshDetail() {
   const value = await hydrateDetail(id);
   if (detail.value?.id === id) detail.value = value;
 }
-function openDetail(row: Row) { return detailDialog.open(row.id); }
-function display(field: Row, value: unknown) {
+function openDetail(row: CatalogRow) { return detailDialog.open(row.id); }
+function display(field: CatalogField, value: unknown) {
   if (value == null || value === "") return "—";
   if (field.type === "money") return "¥" + money(value as number);
   if (field.type === "quantity") return quantity(value as number);
@@ -209,7 +216,7 @@ function display(field: Row, value: unknown) {
   if (field.type === "select" || field.key === "tower_nature") return statusText[String(value)] || value;
   return value;
 }
-async function viewHistory(row: Row) {
+async function viewHistory(row: CatalogRow) {
   if (detail.value?.id !== row.id) await detailDialog.open(row.id);
   if (detail.value?.id !== row.id) return;
   const value = await api<Row>(`/catalog/${kind.value}/history/${row.id}`);
@@ -225,8 +232,8 @@ const detailDialog = useEntityDialog(detail, hydrateDetail, () => { dialog.value
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   [definitions.value, businessLabels.value] = await Promise.all([
-    api<Row>("/catalogs"),
-    api<Row>("/display-labels"),
+    api<Record<string,CatalogFormDefinition>>("/catalogs"),
+    api<Record<string,string>>("/display-labels"),
   ]);
   await load();
 });
@@ -302,7 +309,7 @@ onMounted(async () => {
         {{ detail.label || detail.name || detail.title }}
       </h1>
       <ElTag>{{
-        detail.deleted ? "已删除" : statusText[detail.status] || detail.status
+        detail.deleted ? "已删除" : statusText[detail.status || ""] || detail.status
       }}</ElTag>
     </div>
     <div class="toolbar">

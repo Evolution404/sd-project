@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { ordinaryLinkReason, approvalDraftReason } from "../../../../server/shared/project-lifecycle";
+import type { DemandRecord } from "../../../../server/shared/types/demands";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
@@ -25,10 +27,45 @@ import ProjectOverview from "./components/ProjectOverview.vue";
 import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
 import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
-import { api, type Row, money, quantity, statusText } from "../../shared/api/client";
+import { api, money, quantity, statusText } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
+import type { System } from "../../../../server/bootstrap";
+import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate } from "../../../../server/database/repositories/projects";
+import type { ProjectManagementInput, ProjectAgreementOption } from "../../../../server/shared/types/projects";
+
+type ProjectDetail = ReturnType<System["projects"]["get"]>;
+type ProjectListItem = ReturnType<System["projects"]["search"]>["items"][number];
+type ApprovalDetail = ProjectDetail["approvals"][number];
+type ReferenceCharge = ApprovalDetail["reference"]["charges"][number];
+interface ApprovalEditorRow {
+  project_scope_id: string;
+  demand_id?: string;
+  demand_version: number;
+  demand_no: string;
+  demand_status: string;
+  previous_demand_version?: number;
+  unit_id: string;
+  unit_version: number;
+  quantity_precision?: number;
+  precision_error?: string;
+  selected: boolean;
+  locations: Array<{location_item_no: number; approved_quantity_scaled: number; label?: string | null}>;
+  materials: Array<{material_id: string; quantity_scaled: number}>;
+}
+interface ProjectForm extends ProjectManagementInput {
+  managing_unit_name?: string | null;
+  managing_unit_version_id?: string | null;
+  code?: string;
+  approved_budget_fen?: number;
+  expected_approval_version_id?: string | null;
+  basis?: string;
+  reference_price_catalog_id?: string;
+  quantity_scaled?: number;
+  charge_scope_key?: string;
+  work_mode?: string;
+}
 const formRef = ref(),
-  actors = ref<Row[]>([]);
+  actors = ref<Array<{id:string; username:string}>>([]);
 
 const route = useRoute(), router = useRouter();
 const projectActions = ref<ProjectAction[]>([]);
@@ -37,7 +74,7 @@ const overviewFramework = ref<ProjectReference | null>(null);
 const overviewAgreement = ref<ProjectReference | null>(null);
 const overviewLoading = ref(false);
 const closeReviewOpen = ref(false);
-const handoffDemand = ref<Row | null>(null);
+const handoffDemand = ref<DemandRecord | null>(null);
 const focusedDemandId = computed(() => route.query.focus === "demand" && typeof route.query.record === "string"
   ? route.query.record : null);
 async function loadHandoffDemand() {
@@ -60,7 +97,7 @@ const overviewProject = computed<ProjectOverviewFacts | null>(() => {
     status: row.status,
     deleted: Boolean(row.deleted),
     framework_id: row.framework_id,
-    scopes: (row.scopes || []).map((scope: Row) => ({ binding: scope.binding })),
+    scopes: (row.scopes || []).map((scope) => ({ binding: scope.binding })),
     approval: row.approval
       ? { version_no: row.approval.version_no, approved_budget_fen: row.approval.approved_budget_fen }
       : null,
@@ -73,7 +110,7 @@ const overviewProject = computed<ProjectOverviewFacts | null>(() => {
     preliminary_estimate_fen: row.preliminary_estimate_fen ?? null,
   };
 });
-const rows = ref<Row[]>([]),
+const rows = ref<ProjectListItem[]>([]),
   listLoading = ref(false),
   total = ref(0),
   page = ref(1),
@@ -81,19 +118,19 @@ const rows = ref<Row[]>([]),
   sortKey = ref(""),
   sortDirection = ref("desc"),
   columnFilters = ref<Record<string, string>>({}),
-  detail = ref<Row | null>(null),
+  detail = ref<ProjectDetail | null>(null),
   dialog = ref(""),
-  form = ref<Row>({}),
-  editing = ref<Row | null>(null),
+  form = ref<ProjectForm>({}),
+  editing = ref<ProjectDetail | null>(null),
   busy = ref(false),
   linkPickerOpen = ref(false),
-  agreementChoices = ref<Row[]>([]),
+  agreementChoices = ref<ProjectAgreementOption[]>([]),
   agreementLoading = ref(false),
   agreementError = ref(""),
-  history = ref<Row | null>(null),
+  history = ref<unknown>(null),
   tab = ref("overview"),
-  approvalRows = ref<Row[]>([]),
-  priceScopeContext = ref<Row | null>(null),
+  approvalRows = ref<ApprovalEditorRow[]>([]),
+  priceScopeContext = ref<ApprovedScope | null>(null),
   quoteOpen = ref(false);
 const approvalQuantityError = ref<Record<string, boolean>>({});
 function approvalQuantityInvalid(path: string, invalid: boolean) {
@@ -102,12 +139,12 @@ function approvalQuantityInvalid(path: string, invalid: boolean) {
 const materialQuantityPrecision = ref<Record<string, number>>({});
 const materialQuantityErrors = ref<Record<string, string>>({});
 let materialPrecisionRequest = 0;
-watch(() => approvalRows.value.flatMap((scope: Row) =>
-  (scope.materials || []).map((item: Row) => String(item.material_id || "")))
+watch(() => approvalRows.value.flatMap((scope) =>
+  (scope.materials || []).map((item) => String(item.material_id || "")))
   .filter(Boolean).sort().join("|"), async () => {
   const sequence = ++materialPrecisionRequest;
-  const ids = [...new Set<string>(approvalRows.value.flatMap((scope: Row) =>
-    (scope.materials || []).map((item: Row): string => String(item.material_id || ""))).filter(Boolean))];
+  const ids = [...new Set<string>(approvalRows.value.flatMap((scope) =>
+    (scope.materials || []).map((item): string => String(item.material_id || ""))).filter(Boolean))];
   materialQuantityPrecision.value = {};
   materialQuantityErrors.value = {};
   await Promise.all(ids.map(async id => {
@@ -122,7 +159,7 @@ watch(() => approvalRows.value.flatMap((scope: Row) =>
     }
   }));
 });
-const editingCharge = ref<Row | null>(null);
+const editingCharge = ref<ReferenceCharge | null>(null);
 const chargeQuantityPrecision = ref<number | undefined>();
 const chargePrecisionError = ref("");
 const chargeQuantityInvalid = ref(false);
@@ -209,7 +246,7 @@ async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
   try {
-    const value = await api<{ items: Row[]; total: number }>(
+    const value = await api<{ items: ProjectListItem[]; total: number }>(
       `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
     );
     if (sequence !== loadSequence) return;
@@ -217,7 +254,7 @@ async function load() {
     total.value = value.total;
     const id = detail.value?.id;
     if (id) {
-      const updated = await api<Row>("/projects/" + id + "?deleted=true");
+      const updated = await api<ProjectDetail>("/projects/" + id + "?deleted=true");
       if (sequence === loadSequence && detail.value?.id === id) detail.value = updated;
     }
   } catch (error) {
@@ -226,7 +263,7 @@ async function load() {
     if (sequence === loadSequence) listLoading.value = false;
   }
 }
-async function open(row: Row) {
+async function open(row: {id:string}) {
   await detailDialog.open(row.id);
 }
 const draftGuard = useDialogDraftGuard(() => ({
@@ -236,7 +273,7 @@ const draftGuard = useDialogDraftGuard(() => ({
 }));
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
-function editProject(row?: Row) {
+function editProject(row?: ProjectDetail) {
   editing.value = row || null;
   form.value = row
     ? { ...row, expected_version: row.profile_version,
@@ -249,15 +286,15 @@ function editProject(row?: Row) {
     String(form.value.agreement_id || "") || null);
   draftGuard.capture();
 }
-const currentApprovedScopes = computed<Row[]>(() =>
-  detail.value?.approvals?.find((ap: Row) => ap.id === detail.value?.approval?.id)?.scopes || []);
+const currentApprovedScopes = computed<ApprovedScope[]>(() =>
+  detail.value?.approvals?.find((ap) => ap.id === detail.value?.approval?.id)?.scopes || []);
 function pendingApprovalChanges() {
   if (!detail.value?.approval) return [];
   const reasons: string[] = [];
   if (form.value.approved_budget_fen !== detail.value.approval.approved_budget_fen)
     reasons.push("批准预算已调整");
   for (const previous of currentApprovedScopes.value) {
-    const selected = approvalRows.value.find((row: Row) =>
+    const selected = approvalRows.value.find((row) =>
       row.project_scope_id === previous.project_scope_id && row.selected);
     if (!selected) {
       reasons.push(previous.demand_no + " 已从批准范围移除");
@@ -266,26 +303,26 @@ function pendingApprovalChanges() {
     if (previous.demand_version !== selected.demand_version)
       reasons.push(previous.demand_no + " 的需求版本已变化，请核对作业设备和数量");
     const oldLocations = previous.locations.length
-      ? previous.locations.map((loc: Row) => [loc.location_item_no, loc.approved_quantity_scaled])
+      ? previous.locations.map((loc) => [loc.location_item_no, loc.approved_quantity_scaled])
       : [[1, previous.quantity_scaled]];
     const nextLocations = selected.locations
-      .map((loc: Row) => [loc.location_item_no, loc.approved_quantity_scaled]);
-    if (JSON.stringify(oldLocations.sort((a: Row,b: Row)=>a[0]-b[0])) !==
-      JSON.stringify(nextLocations.sort((a: Row,b: Row)=>a[0]-b[0])))
+      .map((loc) => [loc.location_item_no, loc.approved_quantity_scaled]);
+    if (JSON.stringify(oldLocations.sort((a,b)=>a[0]-b[0])) !==
+      JSON.stringify(nextLocations.sort((a,b)=>a[0]-b[0])))
       reasons.push(previous.demand_no + " 的作业位置或数量已调整");
-    const oldMaterials = previous.materials.map((item: Row) =>
+    const oldMaterials = previous.materials.map((item) =>
       [item.material_id, item.approved_quantity_scaled]).sort();
-    const newMaterials = selected.materials.map((item: Row) =>
+    const newMaterials = selected.materials.map((item) =>
       [item.material_id, item.quantity_scaled]).sort();
     if (JSON.stringify(oldMaterials) !== JSON.stringify(newMaterials))
       reasons.push(previous.demand_no + " 的批准物资已调整");
   }
-  const priorIds = new Set(currentApprovedScopes.value.map((x: Row) => x.project_scope_id));
-  if (approvalRows.value.some((x: Row) => x.selected && !priorIds.has(x.project_scope_id)))
+  const priorIds = new Set(currentApprovedScopes.value.map((x) => x.project_scope_id));
+  if (approvalRows.value.some((x) => x.selected && !priorIds.has(x.project_scope_id)))
     reasons.push("新增承接需求范围");
   return reasons;
 }
-const selectedFundingAgreement = computed<Row | null>(() =>
+const selectedFundingAgreement = computed<ProjectAgreementOption | null>(() =>
   agreementChoices.value.find(item => item.id === form.value.agreement_id) || null);
 let agreementRequestSeq = 0;
 async function loadProjectAgreements(frameworkId: string, selectedId: string | null = null) {
@@ -297,7 +334,7 @@ async function loadProjectAgreements(frameworkId: string, selectedId: string | n
   try {
     const params = new URLSearchParams({ framework_id: frameworkId });
     if (selectedId) params.set("selected_id", selectedId);
-    const response = await api<{ options: Row[] }>("/projects/eligible-agreements?" + params);
+    const response = await api<{ options: ProjectAgreementOption[] }>("/projects/eligible-agreements?" + params);
     if (sequence === agreementRequestSeq && dialog.value === "project" &&
         form.value.framework_id === frameworkId)
       agreementChoices.value = response.options;
@@ -319,23 +356,45 @@ const projectAgreementInvalid = computed(() =>
   Boolean(form.value.agreement_id && !selectedFundingAgreement.value?.eligible &&
     (form.value.agreement_id !== (editing.value?.funding?.agreement_id || null) ||
       form.value.framework_id !== editing.value?.framework_id)));
-async function openDialog(type: string) {  if (type === "approval" && !detail.value?.scopes.some((scope: Row) =>
+async function addApprovalCandidates(records: DemandRecord[]) {
+  for (const demand of records) {
+    const precision = await readAdoptedQuantityPrecision(demand.unit_id, demand.unit_version);
+    approvalRows.value.push({
+      project_scope_id: "candidate:" + demand.id, demand_id: demand.id,
+      demand_version: demand.current_version, demand_no: demand.demand_no,
+      demand_status: demand.status, unit_id: demand.unit_id, unit_version: demand.unit_version,
+      quantity_precision: precision, selected: true, materials: [],
+      locations: demand.work_locations.map(location => ({ location_item_no: location.item_no,
+        approved_quantity_scaled: location.quantity_scaled,
+        label: location.location_snapshot_json.location_label || location.location_snapshot_json.physical_code || "—" })),
+    });
+  }
+}
+async function openDialog(type: string) {  if (type === "approval" && !detail.value?.scopes.some((scope) =>
       scope.binding && scope.demand_status === "active")) {
     ElMessage.warning("当前没有已确认有效的专业需求。请先在专业需求中确认，再编制立项范围。");
     return;
   }
-  if (type === "link") { linkPickerOpen.value = true; return; }
+  if (type === "link") {
+    const reason = ordinaryLinkReason(detail.value!);
+    if (reason) { ElMessage.warning(reason); return; }
+    linkPickerOpen.value = true; return;
+  }
+  if (type === "approval") {
+    const reason = approvalDraftReason(detail.value!);
+    if (reason) { ElMessage.warning(reason); return; }
+  }
   editingCharge.value = null;
   dialog.value = type;
   form.value = {};
   if (type === "approval") {
     approvalRows.value = [];
     approvalQuantityError.value = {};
-    const candidates = await api<Row[]>(`/projects/${detail.value!.id}/approval-candidates`);
+    const candidates = await api<ApprovalCandidate[]>(`/projects/${detail.value!.id}/approval-candidates`);
     for (const demand of candidates) {
-      const scope = detail.value!.scopes.find((item: Row) => item.id === demand.project_scope_id);
+      const scope = detail.value!.scopes.find((item) => item.id === demand.project_scope_id);
       if (!scope) continue;
-      const baseline = currentApprovedScopes.value.find((item: Row) =>
+      const baseline = currentApprovedScopes.value.find((item) =>
         item.project_scope_id === scope.id);
       approvalRows.value.push({
         project_scope_id: scope.id,
@@ -346,7 +405,7 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
         quantity_precision: undefined,
         selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
         previous_demand_version: baseline?.demand_version,
-        locations: demand.work_locations.map((loc: Row, index: number) => {
+        locations: demand.work_locations.map((loc, index) => {
           return {
             location_item_no: loc.item_no || index + 1,
             approved_quantity_scaled: loc.quantity_scaled,
@@ -355,7 +414,7 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
               loc.location_snapshot_json.tower_no || loc.span_id,
           };
         }),
-        materials: baseline?.materials?.map((item: Row) => ({
+        materials: baseline?.materials?.map((item) => ({
           material_id: item.material_id,
           quantity_scaled: item.approved_quantity_scaled,
         })) || [],
@@ -363,7 +422,7 @@ async function openDialog(type: string) {  if (type === "approval" && !detail.va
     }
     const currentApproval = approvalRows.value;
     const unitRequests = new Map<string, Promise<number>>();
-    await Promise.all(currentApproval.map(async (scope: Row) => {
+    await Promise.all(currentApproval.map(async (scope) => {
       const key = String(scope.unit_id || "") + "@" + String(scope.unit_version || "");
       if (!unitRequests.has(key))
         unitRequests.set(key, readAdoptedQuantityPrecision(
@@ -394,14 +453,14 @@ async function save() {
     return;
   }
   if (dialog.value === "approval") {
-    const selectedScopes = approvalRows.value.filter((scope: Row) => scope.selected);
-    const invalid = selectedScopes.some((scope: Row) =>
+    const selectedScopes = approvalRows.value.filter((scope) => scope.selected);
+    const invalid = selectedScopes.some((scope) =>
       typeof scope.quantity_precision !== "number" ||
-      scope.materials.some((item: Row) =>
+      scope.materials.some((item) =>
         materialQuantityPrecision.value[item.material_id] === undefined) ||
-      scope.locations.some((loc: Row) => approvalQuantityError.value[
+      scope.locations.some((loc) => approvalQuantityError.value[
         "location." + scope.project_scope_id + "." + loc.location_item_no]) ||
-      scope.materials.some((item: Row) => approvalQuantityError.value[
+      scope.materials.some((item) => approvalQuantityError.value[
         "material." + scope.project_scope_id + "." + item.material_id]));
     if (invalid) {
       ElMessage.error("批准范围存在无效数量或未读取的冻结单位精度，请核对每项并重新提交");
@@ -419,7 +478,7 @@ async function save() {
         "请等待执行协议加载完成，或选择当前年度框架内有效的执行协议");
       return;
     }
-    let newlyCreatedProject: Row | null = null;
+    let newlyCreatedProject: ProjectDetail | null = null;
     if (dialog.value === "project") {
       if (!editing.value && handoffDemand.value && route.query.action === "create") {
         newlyCreatedProject = await api("/projects/from-demand", "POST", {
@@ -452,6 +511,7 @@ async function save() {
           .filter((x) => x.selected)
           .map((x) => ({
             ...x,
+            project_scope_id: x.demand_id ? undefined : x.project_scope_id,
             locations: x.locations,
           })),
       });
@@ -463,7 +523,7 @@ async function save() {
         {
           ...form.value,
           approval_version_id: detail.value!.approvals.find(
-            (x: Row) => x.status === "draft",
+            (x) => x.status === "draft",
           )?.id,
         },
       );
@@ -483,14 +543,14 @@ async function save() {
     busy.value = false;
   }
 }
-async function action(name: string, approval?: Row, reviewed = false) {
+async function action(name: string, approval?: ApprovalDetail, reviewed = false) {
   try {
     const projectName = detail.value!.name;
     const description: Record<string, string> = {
       stock: "将子项目正式入库，之后才可编制立项批准范围。",
       close: "正式审核结项；请确认未实施工作、未核对费用和未结算费用已处理或明确接受差异。结项后不再新增需求或调整批准范围。",
       approve: "批准后形成不可变的正式范围与预算历史。需求与位置数：" +
-        (approval?.scopes?.length || 0) +
+        ((approval?.scopes?.length || 0) + (approval?.pending_scopes.length || 0)) +
         "，批准预算：¥" + money(approval?.approved_budget_fen),
       discard: "撤回本次未批准草稿，不修改上一版正式批准的范围、物资与费用历史。",
     };
@@ -527,32 +587,32 @@ async function action(name: string, approval?: Row, reviewed = false) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-function releaseBlockReason(scope: Row): string {
+function releaseBlockReason(scope: ProjectScopeProjection): string {
   const project = detail.value;
   if (!project || project.deleted) return "项目已删除，不能操作";
   if (!scope.binding) return "需求当前没有承接关系";
   if (!can("write")) return "当前账号没有变更关联权限";
-  const approvals = (project.approvals || []) as Row[];
+  const approvals = (project.approvals || []) as ApprovalDetail[];
   if (approvals.some(approval =>
     approval.status === "draft" && (approval.scopes || []).some(
-      (item: Row) => item.project_scope_id === scope.id))) {
+      (item) => item.project_scope_id === scope.id))) {
     return "有立项或变更草稿包含该需求；须先在草稿中移出并保存";
   }
   const latestApproved = approvals.filter(a => a.status === "approved")
     .sort((a, b) => Number(b.version_no) - Number(a.version_no))[0];
-  if (latestApproved?.scopes?.some((item: Row) => item.project_scope_id === scope.id)) {
+  if (latestApproved?.scopes?.some((item) => item.project_scope_id === scope.id)) {
     return project.status === "closed"
       ? "项目已结项，最新版正式批准范围仍包含该需求，不能解绑"
       : "最新版正式批准范围仍包含该需求；须先在「批准与变更」中完成正式范围变更移出";
   }
   return "";
 }
-async function release(scope: Row) {
+async function release(scope: ProjectScopeProjection) {
   const blocked = releaseBlockReason(scope);
   if (blocked) { ElMessage.warning(blocked); return; }
   try {
     await ElMessageBox.confirm(
-      "明确解绑后，该需求可由其他项目承接。当前批准范围仍含此需求时，先正式变更移出或结项。",
+      "明确解绑后，该需求可由其他项目承接。当前批准范围仍含此需求时，先正式变更移出。",
       "显式解绑",
     );
     const history = await api<{ bindings: Array<{ id: string; events: Array<{ event_seq: number }> }> }>("/demands/" + scope.demand_id + "/history"),
@@ -567,11 +627,11 @@ async function release(scope: Row) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-function priceScope(scope: Row) {
+function priceScope(scope: ApprovedScope) {
   priceScopeContext.value = scope;
   quoteOpen.value = true;
 }
-function editCharge(charge: Row) {
+function editCharge(charge: ReferenceCharge) {
   editingCharge.value = charge;
   form.value = {
     ...JSON.parse(charge.pricing_inputs_json),
@@ -580,7 +640,7 @@ function editCharge(charge: Row) {
   dialog.value = "charge";
   draftGuard.capture();
 }
-async function removeCharge(charge: Row) {
+async function removeCharge(charge: ReferenceCharge) {
   try {
     await ElMessageBox.confirm(
       "删除本草稿参考费用，原计算依据保存在审计中。",
@@ -611,8 +671,8 @@ async function removeProject() {
 async function showHistory() {
   const id = detail.value!.id;
   const [records, approvals] = await Promise.all([
-    api<Row>(`/projects/${id}/history`),
-    api<Row[]>(`/projects/${id}/approval-history`),
+    api<Record<string, unknown>>(`/projects/${id}/history`),
+    api<ApprovalDetail[]>(`/projects/${id}/approval-history`),
   ]);
   if (detail.value?.id !== id) return;
   history.value = { ...records, approval_details: approvals };
@@ -649,11 +709,11 @@ function runWorkflowAction(item: ProjectAction) {
     tab.value = "scope"; void openDialog("link");
   } else if (item.key === "approval") {
     tab.value = "approval";
-    if (!detail.value.approvals.some((approval: Row) => approval.status === "draft"))
+    if (!detail.value.approvals.some((approval) => approval.status === "draft"))
       void openDialog("approval");
   } else if (item.key === "approve") {
     tab.value = "approval";
-    const draft = detail.value.approvals.find((approval: Row) => approval.id === item.approval_id);
+    const draft = detail.value.approvals.find((approval) => approval.id === item.approval_id);
     if (draft) void action("approve", draft);
   } else if (item.key === "finance") tab.value = "finance";
   else if (item.key === "close") closeReviewOpen.value = true;
@@ -669,7 +729,7 @@ watch(tab, value => {
   if (value === "history" && detail.value?.id && !history.value) void showHistory();
 });
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters, tab }, load);
-const detailDialog = useEntityDialog(detail, id => api('/projects/' + id + '?deleted=true'), () => { dialog.value = ''; history.value = null; quoteOpen.value = false; });
+const detailDialog = useEntityDialog(detail, id => api<ProjectDetail>('/projects/' + id + '?deleted=true'), () => { dialog.value = ''; history.value = null; quoteOpen.value = false; });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 watch(() => [route.query.action, route.query.demand], async () => {
   if (route.query.action !== "create" || typeof route.query.demand !== "string") return;
@@ -733,8 +793,8 @@ onMounted(async () => {
           <ElTag v-if="column.key === 'display_status'" effect="plain"
             :type="row.display_status === '已批准' ? 'success' : row.display_status === '已结项' ? 'info' : ['立项中','变更中'].includes(row.display_status) ? 'warning' : undefined">{{ row.display_status }}</ElTag>
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
-          <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x: Row) => x.binding).length || 0 }}</span>
-          <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+          <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x) => x.binding).length || 0 }}</span>
+          <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
         </template>
         <template #actions="{ row }">
           <ElButton size="small" @click="open(row)">进入项目</ElButton>
@@ -759,7 +819,7 @@ onMounted(async () => {
     </div>
     <ProjectWorkflowHeader :display-status="detail.display_status" :deleted="!!detail.deleted"
       :loading="overviewLoading" :actions="projectActions" :can-write="can('write')"
-      :can-admin="can('admin')" :can-delete="detail.status === 'closed' || (['reserve', 'stocked'].includes(detail.status) && !(detail.scopes || []).some((scope: Row) => scope.binding))" @action="runWorkflowAction"
+      :can-admin="can('admin')" :can-delete="detail.status === 'closed' || (['reserve', 'stocked'].includes(detail.status) && !(detail.scopes || []).some((scope) => scope.binding))" @action="runWorkflowAction"
       @manage="command => {
         if (command === 'edit') editProject(detail || undefined);
         if (command === 'history') { tab = 'history'; showHistory(); }
@@ -783,12 +843,12 @@ onMounted(async () => {
         <div class="toolbar">
           <h2>当前关联需求</h2>
           <ElButton data-guide-action="projects.link"
-            :disabled="!can('write') || detail.deleted || detail.status === 'closed'"
+            :disabled="!can('write') || !!ordinaryLinkReason(detail)" :title="ordinaryLinkReason(detail)"
             @click="openDialog('link')"
             >关联需求</ElButton
           >
         </div>
-        <ElAlert v-if="(detail.scopes || []).some((scope: Row) =>
+        <ElAlert v-if="(detail.scopes || []).some((scope) =>
             scope.binding && releaseBlockReason(scope).includes('正式批准范围'))"
           type="info" :closable="false" show-icon
           title="当前正式批准范围内的需求不可直接解绑"
@@ -808,7 +868,7 @@ onMounted(async () => {
               <ElButton link type="primary" @click="router.push(demandContext(row.demand_id))">{{ row.demand_no }}</ElButton>
               <ElTag v-if="row.demand_id === focusedDemandId" size="small" type="info">当前定位</ElTag>
             </template>
-            <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+            <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
           </template>
           <template #actions="{ row }">
             <RowActions :actions="[
@@ -820,19 +880,19 @@ onMounted(async () => {
       </div>
     </template>
     <template v-if="tab === 'approval'">
-      <ElAlert v-if="(detail.scopes||[]).some((scope:Row)=>scope.binding&&!scope.expected_on)"
+      <ElAlert v-if="(detail.scopes||[]).some((scope)=>scope.binding&&!scope.expected_on)"
         type="warning" :closable="false" show-icon
         title="正式批准前必须补全全部关联需求的预计解决时间"
-        :description="'尚未填写：'+(detail.scopes||[]).filter((scope:Row)=>scope.binding&&!scope.expected_on)
-          .map((scope:Row)=>scope.demand_no).join('、')+'。请到「需求与范围」打开需求补填；若已编制草稿且该需求列入批准范围，补填后需删除旧草稿并重新编制。'"/>
+        :description="'尚未填写：'+(detail.scopes||[]).filter((scope)=>scope.binding&&!scope.expected_on)
+          .map((scope)=>scope.demand_no).join('、')+'。请到「需求与范围」打开需求补填；若已编制草稿且该需求列入批准范围，补填后需删除旧草稿并重新编制。'"/>
       <div class="toolbar">
         <ElButton :data-guide-action="detail.approval ? 'projects.change' : 'projects.approval-draft'"
           type="primary"
           :disabled="
             !can('write') || detail.deleted || !['stocked', 'approved'].includes(detail.status) ||
-            detail.approvals.some((approval: Row) => approval.status === 'draft')
+            detail.approvals.some((approval) => approval.status === 'draft')
           "
-          :title="detail.approvals.some((approval: Row) => approval.status === 'draft') ? '已有待批准草稿，请先批准或删除草稿' : undefined"
+          :title="detail.approvals.some((approval) => approval.status === 'draft') ? '已有待批准草稿，请先批准或删除草稿' : undefined"
           @click="openDialog('approval')"
           >{{ detail.approval ? "编制正式变更" : "编制立项范围" }}</ElButton
         ><ElButton :disabled="!can('write') || detail.deleted" @click="openDialog('charge')"
@@ -881,18 +941,33 @@ onMounted(async () => {
           <template #cell="{ row, column }">
             <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
             <span v-else-if="column.key === 'locations'">{{ row.locations?.length || 0 }}</span>
-            <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+            <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
             <ElButton data-guide-action="projects.quote" :disabled="!can('write')" size="small" @click="priceScope(row)">按承接范围核价</ElButton>
           </template>
         </BusinessTable>
+        <template v-if="approval.pending_scopes.length">
+          <h3>新增候选需求</h3>
+          <ElAlert title="正式变更批准时建立承接关系，提交前仍须核对需求版本和当前归属" type="info" :closable="false" />
+          <BusinessTable client-side table-key="project:approval-candidates"
+            :rows="approval.pending_scopes.map(candidate => ({
+              demand_no:candidate.snapshot.demand_no, quantity_scaled:candidate.snapshot.quantity_scaled,
+              locations:candidate.locations,
+            }))" :columns="projectApprovalColumns">
+            <template #cell="{row,column}">
+              <span v-if="column.key === 'demand_no'">{{row.demand_no}}</span>
+              <span v-else-if="column.key === 'quantity_scaled'">{{quantity(row.quantity_scaled)}}</span>
+              <span v-else>{{row.locations.length}}</span>
+            </template>
+          </BusinessTable>
+        </template>
         <BusinessTable v-if="approval.reference.charges.length" client-side
           table-key="project:approval-charges" :rows="approval.reference.charges"
           :columns="projectChargeColumns" :actions-width="190">
           <template #cell="{ row, column }">
             <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
-            <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+            <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
             <RowActions :actions="[
@@ -927,7 +1002,7 @@ onMounted(async () => {
   </BusinessDetailDialog>
   <ProjectCloseReviewDialog v-model:open="closeReviewOpen"
     :approved-version="detail?.approval?.version_no" :summary="overviewSummary"
-    :can-close="can('project.close')"
+    :can-close="!!projectActions.find(action => action.key === 'close')?.enabled"
     @confirm="action('close', undefined, true)" />
   <ElDialog append-to-body
     :model-value="!!dialog"
@@ -980,7 +1055,7 @@ onMounted(async () => {
             :title="'执行协议读取失败：' + agreementError">
             <ElButton size="small" @click="loadProjectAgreements(String(form.framework_id || ''), String(form.agreement_id || '') || null)">重试</ElButton>
           </ElAlert>
-          <ElAlert v-else-if="form.framework_id && !agreementLoading && !agreementChoices.some((item: Row) => item.eligible)"
+          <ElAlert v-else-if="form.framework_id && !agreementLoading && !agreementChoices.some((item) => item.eligible)"
             class="full-width" type="info" :closable="false"
             title="该框架下没有有效执行协议。子项目可以直接归属年度框架，无需创建或补选协议。" />
           <ElAlert v-else-if="projectAgreementInvalid" class="full-width" type="warning" :closable="false"
@@ -994,7 +1069,7 @@ onMounted(async () => {
               v-model="form.managing_unit_id"
               :field="{
                 type: 'ref',
-                reference: 'organizations', adoptedLabel: form.managing_unit_name, adoptedVersionId: form.managing_unit_version_id,
+                reference: 'organizations', adoptedLabel: form.managing_unit_name || undefined, adoptedVersionId: form.managing_unit_version_id || undefined,
               }" /></ElFormItem
           ><ElFormItem label="初步估算（元）"
             ><FieldControl
@@ -1077,8 +1152,10 @@ onMounted(async () => {
       <ElAlert v-if="dialog === 'approval' && detail?.approval"
         type="info" :closable="false"
         title="已继承上一版正式批准的物资、位置、数量和预算；新增需求默认不纳入，需要明确选择。" />
-      <template v-if="dialog === 'approval'"
-        ><div
+      <template v-if="dialog === 'approval'">
+        <ElButton v-if="detail?.status === 'approved'" @click="linkPickerOpen = true">新增候选需求</ElButton>
+        <p v-if="detail?.status === 'approved'" class="muted">新增候选在正式批准时建立归属，移出原批准需求在同一事务中解绑。</p>
+        <div
           v-for="scope in approvalRows"
           :key="scope.project_scope_id"
           class="panel"
@@ -1093,7 +1170,7 @@ onMounted(async () => {
             sort-mode="off" filter-mode="off" compact>
             <template #cell="{ row, column }">
               <span v-if="column.key === 'approved_quantity_scaled'">{{ quantity(row.approved_quantity_scaled) }}</span>
-              <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
+              <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
             </template>
           </BusinessTable>
           <ElAlert v-if="scope.precision_error" type="error" :closable="false"
@@ -1123,7 +1200,7 @@ onMounted(async () => {
             <ElButton data-guide-action="projects.material-remove" type="danger" plain size="small"
               @click="scope.materials.splice(index, 1)">移除</ElButton>
           </div>
-          <ElButton data-guide-action="projects.material-add" @click="scope.materials.push({ quantity_scaled: 10000 })"
+          <ElButton data-guide-action="projects.material-add" @click="scope.materials.push({ material_id: '', quantity_scaled: 10000 })"
             >添加批准物资</ElButton
           >
         </div></template
@@ -1141,9 +1218,10 @@ onMounted(async () => {
     ></ElDialog
   >
   <ProjectDemandPicker v-model:open="linkPickerOpen"
-    :project-id="String(detail?.id || '')"
-    :existing-ids="(detail?.scopes || []).filter((item: Row) => item.binding).map((item: Row) => String(item.demand_id))"
-    @linked="load" />
+    :project-id="detail?.id || ''"
+    :proposal="dialog === 'approval'"
+    :existing-ids="[...(detail?.scopes || []).filter((scope) => scope.binding).map((scope) => scope.demand_id), ...approvalRows.flatMap((scope) => scope.demand_id ? [scope.demand_id] : [])]"
+    @selected="addApprovalCandidates" @linked="load" />
   <ElDialog append-to-body
     :model-value="!!history"
     title="项目正式历史"

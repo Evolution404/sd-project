@@ -71,7 +71,7 @@ test("actual HTTP access logs cover authentication, denials, errors, concurrency
   assert.equal(exported.status, 200);
   const exportedRows = (await exported.text()).trim().split("\n").map(line => JSON.parse(line));
   assert.equal(exportedRows.length, 1); assert.equal(exportedRows[0].status, 500);
-  for (const query of ["sort=password", "from=invalid", "status=abc", "page=-1", "filters=%7B%22bad%22%3A%22x%22%7D"])
+  for (const query of ["sort=password", "from=invalid", "from=2026-02-30%2000:00:00", "status=abc", "page=-1", "filters=%7B%22bad%22%3A%22x%22%7D"])
     assert.equal((await fetch(base + "/api/access-logs?" + query, { headers: signed.headers })).status, 422);
   assert.equal((await fetch(base + "/api/logout", { method: "POST", headers: signed.headers })).status, 200);
   assert.ok(records(dir).some(row => row.outcome === "退出登录"));
@@ -140,4 +140,27 @@ test("log IO failure leaves HTTP operational and exposes an administrator diagno
   rmSync(join(dir, "logs")); mkdirSync(join(dir, "logs"));
   assert.equal((await fetch(app.base + "/api/session", { headers: signed.headers })).status, 200);
   assert.ok(records(dir).length > 0);
+});
+
+test("restart after truncated JSONL keeps the first new HTTP record queryable", async t => {
+  const { s, dir } = fixture(t);
+  const time = new Date("2026-11-16T04:00:00Z");
+  const folder = join(dir, "logs");
+  mkdirSync(folder);
+  const file = join(folder, "access-2026-11-16-000001.jsonl");
+  writeFileSync(file, 'null\n{"request_id":"interrupted');
+  const app = await start(s, { accessLog: { clock: () => time } });
+  t.after(app.stop);
+  const first = await fetch(app.base + "/api/session");
+  assert.equal(first.status, 401);
+  const requestId = first.headers.get("x-request-id");
+  const signed = await login(app.base);
+  const query = await fetch(app.base + "/api/access-logs?q=" + requestId, { headers: signed.headers });
+  assert.equal(query.status, 200);
+  const result = await query.json();
+  assert.equal(result.total, 1);
+  assert.equal(result.items[0].request_id, requestId);
+  const lines = readFileSync(file, "utf8").trim().split("\n");
+  assert.equal(lines[1], '{"request_id":"interrupted');
+  assert.equal(JSON.parse(lines[2]).request_id, requestId);
 });

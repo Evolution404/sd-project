@@ -6,7 +6,8 @@ import { approvedFixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup=[];
-const {s,user,save,operation,project,demandInput}=approvedFixture({after:fn=>cleanup.push(fn)});
+const {s,user,save,operation,project:approved,demandInput}=approvedFixture({after:fn=>cleanup.push(fn)});
+const project=s.projects.save(user,{name:"四角色待承接子项目",framework_id:approved.framework_id});
 const physical=save("physical",{asset_no:"ROLE-T99",tower_material:"angle"});
 const pending=s.demands.save(user,{
   ...demandInput,demand_no:"ROLE-PENDING-001",problem_description:"四角色共同办理的待确认需求",

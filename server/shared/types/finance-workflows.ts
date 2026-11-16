@@ -135,8 +135,8 @@ export interface SettlementWorkflow {
   version: SettlementVersion | null;
   draft: (SettlementDraftRow & { document: NormalizedSettlementDraft }) | null;
   review: SettlementReviewEvent | null;
-  items: object[];
-  resolutions: object[];
+  items: SettlementItemFact[];
+  resolutions: SettlementResolutionInput[];
 }
 export interface SettlementSubmitInput {
   expected_version: number;
@@ -180,4 +180,13 @@ export interface ReconciliationVersion {
   actor_id: string;
   created_at: string;
   request_key: string;
+}
+
+export interface SettlementItemFact extends SettlementItemInput {
+  id: string;
+  settlement_item_id: string;
+  cost_node_version_id: string;
+  cost_node_name: string;
+  quantity_scaled: number;
+  evidence: string;
 }

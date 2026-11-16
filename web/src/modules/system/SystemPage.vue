@@ -12,6 +12,16 @@ import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { api, statusText, type Row } from "../../shared/api/client";
 const can = useAccess();
+interface SystemRow extends Row {
+  id:string;
+  username?:string;
+  password?:string;
+  role?:string;
+  status?:string;
+  ip?:string;
+  note?:string;
+  message?:string;
+}
 interface AccessPolicy {
   ip_restriction_enabled: boolean;
   version: number;
@@ -63,7 +73,7 @@ const tab = computed({
   set: value => { void router.push({ name: 'system', params: { tab: value }, query: {} }); },
 });
 const
-  rows = ref<Row[]>([]),
+  rows = ref<SystemRow[]>([]),
   listLoading = ref(false),
   total = ref(0),
   page = ref(1),
@@ -72,8 +82,8 @@ const
   columnFilters = ref<Record<string, string>>({}),
   dialog = ref(false),
   saving = ref(false),
-  form = ref<Row>({}),
-  editing = ref<Row | null>(null);
+  form = ref<Partial<SystemRow>>({}),
+  editing = ref<SystemRow | null>(null);
 const tableColumns = computed<TableColumn[]>(() => {
   if (tab.value === "users") return [
     { key: "username", label: "账号", minWidth: 170 },
@@ -117,7 +127,7 @@ async function load() {
       sort: sortKey.value || "created_at", direction: sortDirection.value,
       filters: JSON.stringify(columnFilters.value),
     });
-    const response = await api<{ items: Row[]; total: number }>("/" + tab.value + "?" + q.toString());
+    const response = await api<{ items: SystemRow[]; total: number }>("/" + tab.value + "?" + q.toString());
     if (sequence !== loadSequence) return;
     rows.value = response.items;
     total.value = response.total;
@@ -128,11 +138,11 @@ async function load() {
   }
 }
 const formRef = ref();
-const formErrors = ref<Row>({});
+const formErrors = ref<Record<string,string>>({});
 const draftGuard = useDialogDraftGuard(() => form.value);
 function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = false; }); }
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
-function edit(row?: Row) {
+function edit(row?: SystemRow) {
   editing.value = row || null;
   form.value = row
     ? { ...row, password: "" }
@@ -165,13 +175,13 @@ async function save() {
     await load();
     dialog.value = false;
   } catch (e) {
-    formErrors.value = (e as Row).fields || {};
+    formErrors.value = (e as {fields?:Record<string,string>}).fields || {};
     ElMessage.error((e as Error).message);
   } finally {
     saving.value = false;
   }
 }
-async function remove(row: Row) {
+async function remove(row: SystemRow) {
   try {
     await ElMessageBox.confirm(
       "删除后正常列表移除，原始身份和历史保留。",
@@ -228,7 +238,7 @@ onMounted(() => {
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">
       <template #cell="{ row, column }">
-        <span v-if="['role','status','action'].includes(column.key)">{{ statusText[row[column.key]] || row[column.key] || '—' }}</span>
+        <span v-if="['role','status','action'].includes(column.key)">{{ statusText[String(row[column.key])] || row[column.key] || '—' }}</span>
         <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
       <template v-if="['users','ips'].includes(tab)" #actions="{ row }">

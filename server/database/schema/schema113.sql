@@ -1532,6 +1532,10 @@ BEGIN SELECT RAISE(ABORT,'项目协议关联历史不可删除'); END;
 CREATE TRIGGER project_approval_version_insert_guard
  BEFORE INSERT ON project_approval_versions
 BEGIN
+ SELECT CASE WHEN (NEW.version_no=1 AND (SELECT status FROM projects WHERE id=NEW.project_id)<>'stocked')
+ OR (NEW.version_no>1 AND (SELECT status FROM projects WHERE id=NEW.project_id)<>'approved')
+ THEN RAISE(ABORT,'立项草稿须先入库，变更草稿须已有正式批准') END;
+
  SELECT CASE WHEN NEW.status<>'draft'
  THEN RAISE(ABORT,'必须先建立草稿及其完整需求范围，再正式批准') END;
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
@@ -1572,6 +1576,9 @@ CREATE TRIGGER project_close_guard
  BEFORE UPDATE OF status ON projects
  WHEN NEW.status='closed' AND OLD.status<>'closed'
 BEGIN
+ SELECT CASE WHEN EXISTS(SELECT 1 FROM settlement_drafts d JOIN settlements s ON s.id=d.settlement_id WHERE s.project_id=NEW.id)
+ THEN RAISE(ABORT,'仍有未提交的结算草稿或修订草稿，不能关闭项目') END;
+
  SELECT CASE WHEN OLD.status<>'approved' OR NOT EXISTS(
  SELECT 1 FROM project_closures c WHERE c.project_id=NEW.id)
  THEN RAISE(ABORT,'正式关闭前必须建立审核与关闭记录') END;
@@ -2382,6 +2389,17 @@ BEGIN SELECT CASE WHEN NOT EXISTS(
 CREATE TRIGGER project_demand_scope_current_owner_insert
  BEFORE INSERT ON project_demand_scopes
 BEGIN
+ SELECT CASE WHEN NOT EXISTS(SELECT 1 FROM projects lifecycle WHERE lifecycle.id=NEW.project_id AND
+ ((lifecycle.status IN ('reserve','stocked') AND NOT EXISTS(
+   SELECT 1 FROM project_approval_versions pending WHERE pending.project_id=lifecycle.id AND pending.status='draft'))
+ OR (lifecycle.status='approved' AND EXISTS(
+   SELECT 1 FROM project_approval_versions pending
+   JOIN project_change_orders change ON change.id=pending.change_order_id
+   JOIN json_each(pending.snapshot_json,'$.candidate_scopes') candidate
+   WHERE pending.project_id=lifecycle.id AND pending.status='draft' AND change.status='approved'
+     AND json_extract(candidate.value,'$.demand_id')=NEW.demand_id))))
+ THEN RAISE(ABORT,'当前阶段不能普通关联需求，已批准项目须通过正式变更') END;
+
  SELECT CASE WHEN EXISTS(
   SELECT 1 FROM v_demand_current d
   WHERE d.id=NEW.demand_id AND d.status='cancelled')
@@ -2422,6 +2440,18 @@ BEGIN SELECT RAISE(ABORT,'已建立的需求关联及解绑历史不可删除');
 CREATE TRIGGER project_demand_link_event_guard
  BEFORE INSERT ON project_demand_link_events
 BEGIN
+ SELECT CASE WHEN NEW.action='linked' AND NOT EXISTS(SELECT 1 FROM project_demand_scopes sc
+ WHERE sc.id=NEW.project_scope_id AND EXISTS(SELECT 1 FROM projects lifecycle WHERE lifecycle.id=sc.project_id AND
+ ((lifecycle.status IN ('reserve','stocked') AND NOT EXISTS(
+   SELECT 1 FROM project_approval_versions pending WHERE pending.project_id=lifecycle.id AND pending.status='draft'))
+ OR (lifecycle.status='approved' AND EXISTS(
+   SELECT 1 FROM project_approval_versions pending
+   JOIN project_change_orders change ON change.id=pending.change_order_id
+   JOIN json_each(pending.snapshot_json,'$.candidate_scopes') candidate
+   WHERE pending.project_id=lifecycle.id AND pending.status='draft' AND change.status='approved'
+     AND json_extract(candidate.value,'$.demand_id')=sc.demand_id)))))
+ THEN RAISE(ABORT,'当前阶段不能普通关联需求，已批准项目须通过正式变更') END;
+
  SELECT CASE WHEN NEW.event_seq<>(
   SELECT COALESCE(MAX(evt.event_seq),0)+1 FROM project_demand_link_events evt
   WHERE evt.project_scope_id=NEW.project_scope_id)
@@ -2602,16 +2632,11 @@ BEGIN
  JOIN v_demand_current d ON d.id=binding.demand_id
  WHERE binding.project_id=NEW.project_id AND d.expected_on IS NULL)
  THEN RAISE(ABORT,'项目正式批准前必须补全所有当前关联需求的预计解决时间') END;
- -- Real application approval drafts freeze the entire demand record (id included).
- -- Reject stale planned dates, including a formerly NULL date filled later.
- -- Synthetic SQL contract tests using empty '{}' snapshots stay eligible.
  SELECT CASE WHEN EXISTS(
  SELECT 1 FROM project_approval_scope_versions scope
  JOIN v_demand_current d ON d.id=scope.demand_id
- WHERE scope.approval_version_id=NEW.id
-   AND json_type(scope.snapshot_json,'$.id')='text'
-   AND json_extract(scope.snapshot_json,'$.expected_on') IS NOT d.expected_on)
- THEN RAISE(ABORT,'批准草稿中的预计解决时间已过期，必须重新编制草稿') END;
+ WHERE scope.approval_version_id=NEW.id AND scope.demand_version<>d.current_version)
+ THEN RAISE(ABORT,'需求正式版本已变化，必须重新编制批准草稿') END;
  SELECT CASE WHEN EXISTS(
  SELECT 1 FROM project_approval_material_items a
  JOIN project_scope_materials pm ON pm.id=a.project_material_id
@@ -4596,3 +4621,35 @@ BEGIN
     AND json_extract(event.after_json,'$.status')='withdrawn')
  THEN RAISE(ABORT,'草稿撤回必须有真实操作人和不可变撤回决定，不能改写正文或批准事实') END;
 END;
+
+CREATE TRIGGER closed_project_project_cost_nodes_insert BEFORE INSERT ON project_cost_nodes
+ WHEN EXISTS(SELECT p.id FROM projects p WHERE p.id=NEW.project_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_project_cost_node_versions_insert BEFORE INSERT ON project_cost_node_versions
+ WHEN EXISTS(SELECT n.id FROM project_cost_nodes n JOIN projects p ON p.id=n.project_id WHERE n.id=NEW.node_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_cost_entries_insert BEFORE INSERT ON cost_entries
+ WHEN EXISTS(SELECT p.id FROM projects p WHERE p.id=NEW.project_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_cost_versions_insert BEFORE INSERT ON cost_versions
+ WHEN EXISTS(SELECT e.id FROM cost_entries e JOIN projects p ON p.id=e.project_id WHERE e.id=NEW.entry_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_cost_reconciliation_versions_insert BEFORE INSERT ON cost_reconciliation_versions
+ WHEN EXISTS(SELECT v.id FROM cost_versions v JOIN cost_entries e ON e.id=v.entry_id JOIN projects p ON p.id=e.project_id WHERE v.id=NEW.cost_version_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_settlement_drafts_insert BEFORE INSERT ON settlement_drafts
+ WHEN EXISTS(SELECT s.id FROM settlements s JOIN projects p ON p.id=s.project_id WHERE s.id=NEW.settlement_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_settlement_drafts_update BEFORE UPDATE ON settlement_drafts
+ WHEN EXISTS(SELECT s.id FROM settlements s JOIN projects p ON p.id=s.project_id WHERE s.id=NEW.settlement_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;
+
+CREATE TRIGGER closed_project_settlement_review_events_insert BEFORE INSERT ON settlement_review_events
+ WHEN EXISTS(SELECT v.id FROM settlement_versions v JOIN settlements s ON s.id=v.settlement_id JOIN projects p ON p.id=s.project_id WHERE v.id=NEW.settlement_version_id AND p.status='closed')
+BEGIN SELECT RAISE(ABORT,'已结项项目的普通财务写入已冻结'); END;

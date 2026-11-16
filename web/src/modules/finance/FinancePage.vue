@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { api, money, statusText, type Row } from "../../shared/api/client";
+import { api, money, statusText } from "../../shared/api/client";
 import type { Page } from "../../../../server/shared/types/contracts";
 import type { FinanceListItem, FinanceRecordDetail } from "../../../../server/shared/types/finance";
 import { useListRoute } from "../../shared/composables/use-list-route";
@@ -74,7 +74,8 @@ function openProjectForRecord(record: FinanceListItem) {
 const rows = ref<FinanceListItem[]>([]), total = ref(0), page = ref(1), query = ref("");
 const sort = ref(""), direction = ref("desc"), filters = ref<Record<string, string>>({});
 const deleted = ref(false), loading = ref(false), error = ref("");
-const project = ref<Row | null>(null);
+type ProjectDetail = ReturnType<import("../../../../server/bootstrap").System["projects"]["get"]>;
+const project = ref<ProjectDetail | null>(null);
 const detailDialog = useEntityDialog(project, id => api("/projects/" + id + "?deleted=true"), () => {});
 const { isOpen, loading: detailLoading, error: detailError } = detailDialog;
 const settlementItemColumns: TableColumn[] = [
@@ -127,7 +128,7 @@ function reset() { page.value = 1; void load(); }
 async function refreshProject() {
   const id = project.value?.id;
   if (id) {
-    const value = await api<Row>("/projects/" + id + "?deleted=true");
+    const value = await api<ProjectDetail>("/projects/" + id + "?deleted=true");
     if (project.value?.id === id) project.value = value;
   }
   void load();

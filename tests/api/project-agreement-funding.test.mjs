@@ -149,3 +149,21 @@ test("agreement budget comparison is not enforced as a hard spending cap", t => 
   assert.equal(figure.budget_difference_fen, -40000);
   assert.equal(s.projects.get(approved.id).funding.agreement_id, assigned.id);
 });
+
+test("funding selection reuses the archive writer and preserves the adopted category version", t => {
+  const { s, user, approved, other } = setup(t);
+  const category = s.catalog.save(user, "categories", { name: "原采用项目类别" });
+  const project = s.projects.save(user, {
+    ...approved, category_id: category.id, expected_version: approved.profile_version,
+  }, approved.id);
+  s.catalog.save(user, "categories", {
+    name: "新版项目类别", expected_version: 1,
+  }, category.id);
+  const changed = s.projects.fund(user, project.id, {
+    agreement_id: other.id, expected_version: project.funding.version_no,
+  });
+  assert.equal(changed.funding.agreement_id, other.id);
+  assert.equal(changed.profile_version, project.profile_version);
+  assert.equal(changed.category_version, 1);
+  assert.equal(changed.category_name, "原采用项目类别");
+});
