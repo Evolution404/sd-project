@@ -592,7 +592,7 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
               ><FieldControl
                 v-model="draft.priority_id"
                 :field="{ type: 'ref', reference: 'priorities' }" /></ElFormItem
-            ><ElFormItem label="期望日期"
+            ><ElFormItem label="预计解决时间"
               ><ElDatePicker
                 v-model="draft.expected_on"
                 value-format="YYYY-MM-DD"

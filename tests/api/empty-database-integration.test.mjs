@@ -128,6 +128,7 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
   assert.ok(price.id);
   let demand = s.demands.save(user, {
     operation_id: operation.id, problem_description: "缺少防鸟设施",
+    expected_on:"2027-01-31",
     work_locations: [{ location_kind: "physical_tower", physical_tower_id: tower.id,
       quantity_scaled: 20000,
       attributes: { [factor.key]: "普通" } }],

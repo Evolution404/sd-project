@@ -23,7 +23,7 @@ const candidateListSource: ListSource = {
     "WHERE v.status IN ('active','pending') " +
     "AND NOT EXISTS (SELECT 1 FROM v_project_demand_binding_current b WHERE b.demand_id=v.id)",
   columns: ["id","demand_no","operation_snapshot","problem_description","line_name_snapshot",
-    "status","current_version","quantity_scaled","created_at","deleted"],
+    "status","current_version","quantity_scaled","expected_on","created_at","deleted"],
   search: ["demand_no","operation_snapshot","problem_description","line_name_snapshot"],
   defaultSort: "created_at"
 };
@@ -69,6 +69,12 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
         key, version) as DemandMaterialRow[];
     },
     sources,
+    boundProjectStage(key:string):"reserve"|"stocked"|"approved"|"closed"|null {
+      const row=store.get<{status:"reserve"|"stocked"|"approved"|"closed"}>(
+        "SELECT p.status FROM v_project_demand_binding_current b JOIN projects p ON p.id=b.project_id WHERE b.demand_id=?",
+        key);
+      return row?.status ?? null;
+    },
     binding(key: string): { project_id: string; project_scope_id: string; demand_id: string } | undefined {
       return store.get("SELECT * FROM v_project_demand_binding_current WHERE demand_id=?", key) as
         { project_id: string; project_scope_id: string; demand_id: string } | undefined;

@@ -45,6 +45,7 @@ export function fixture(t, { quantity_precision = 0 } = {}) {
     demand_no: "D001",
     operation_id: operation.id,
     problem_description: "防鸟设施缺失",
+    expected_on: "2026-12-31",
     completion_standard: "安装牢固",
     work_locations: towers.map((tower, i) => ({
       location_kind: "physical_tower",

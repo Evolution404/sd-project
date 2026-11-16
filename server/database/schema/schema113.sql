@@ -2451,6 +2451,14 @@ BEGIN
   WHERE other.demand_id=self.demand_id
     AND other.project_scope_id<>self.id)
  THEN RAISE(ABORT,'需求仍由另一子项目关联，必须先显式解绑') END;
+ -- Also defend historic re-link and ordinary link APIs while the project
+ -- is approved, even when they have not yet been moved into change control.
+ SELECT CASE WHEN NEW.action='linked' AND EXISTS(
+  SELECT 1 FROM project_demand_scopes sc
+  JOIN projects p ON p.id=sc.project_id
+  JOIN v_demand_current d ON d.id=sc.demand_id
+  WHERE sc.id=NEW.project_scope_id AND p.status='approved' AND d.expected_on IS NULL)
+ THEN RAISE(ABORT,'已批准项目不得关联未填写预计解决时间的需求') END;
  SELECT CASE WHEN NEW.action='linked' AND EXISTS(
   SELECT 1 FROM projects p JOIN project_demand_scopes sc
    ON sc.project_id=p.id
@@ -2587,6 +2595,23 @@ BEGIN
  SELECT CASE WHEN (SELECT status FROM projects p WHERE p.id=NEW.project_id)='closed'
  THEN RAISE(ABORT,'已关闭子项目不得批准旧草稿') END;
 
+ -- EVERY currently linked demand must have a planned resolution date,
+ -- including demands not listed in the new approval's scope rows.
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM v_project_demand_binding_current binding
+ JOIN v_demand_current d ON d.id=binding.demand_id
+ WHERE binding.project_id=NEW.project_id AND d.expected_on IS NULL)
+ THEN RAISE(ABORT,'项目正式批准前必须补全所有当前关联需求的预计解决时间') END;
+ -- Real application approval drafts freeze the entire demand record (id included).
+ -- Reject stale planned dates, including a formerly NULL date filled later.
+ -- Synthetic SQL contract tests using empty '{}' snapshots stay eligible.
+ SELECT CASE WHEN EXISTS(
+ SELECT 1 FROM project_approval_scope_versions scope
+ JOIN v_demand_current d ON d.id=scope.demand_id
+ WHERE scope.approval_version_id=NEW.id
+   AND json_type(scope.snapshot_json,'$.id')='text'
+   AND json_extract(scope.snapshot_json,'$.expected_on') IS NOT d.expected_on)
+ THEN RAISE(ABORT,'批准草稿中的预计解决时间已过期，必须重新编制草稿') END;
  SELECT CASE WHEN EXISTS(
  SELECT 1 FROM project_approval_material_items a
  JOIN project_scope_materials pm ON pm.id=a.project_material_id
@@ -3103,6 +3128,11 @@ BEGIN
  SELECT CASE WHEN NEW.priority_id IS NOT NULL AND NOT EXISTS(
  SELECT 1 FROM dictionary_items d WHERE d.id=NEW.priority_id AND d.type_id='priority')
  THEN RAISE(ABORT,'需求版本优先级不是有效的优先级字典') END;
+ SELECT CASE WHEN NEW.version>1 AND NEW.expected_on IS NULL AND EXISTS(
+  SELECT 1 FROM v_project_demand_binding_current b
+  JOIN projects p ON p.id=b.project_id
+  WHERE b.demand_id=NEW.demand_id AND p.status IN ('approved','closed'))
+ THEN RAISE(ABORT,'已批准或已结项项目关联需求不得清空预计解决时间') END;
  SELECT CASE WHEN NEW.logical_tower_id IS NOT NULL
  AND NEW.observed_physical_tower_id IS NOT NULL
  AND NOT EXISTS(

@@ -155,6 +155,7 @@ const approvalEditorColumns: TableColumn[] = [
 ];
 const projectScopeColumns: TableColumn[] = [
   { key: "demand_no", label: "需求编号", minWidth: 215 },
+  { key: "expected_on", label: "预计解决时间", minWidth: 175 },
   { key: "binding", label: "状态", sortable: false, filterable: false },
 ];
 const projectApprovalColumns: TableColumn[] = [
@@ -798,6 +799,11 @@ onMounted(async () => {
             <ElTag v-if="column.key === 'binding'" :type="row.binding ? 'success' : 'info'" effect="plain">
               {{ row.binding ? '当前关联' : '已解绑' }}
             </ElTag>
+            <template v-else-if="column.key === 'expected_on'">
+              <ElTag :type="row.expected_on ? 'success' : 'warning'" effect="plain">
+                {{ row.expected_on || "未填写" }}
+              </ElTag>
+            </template>
             <template v-else-if="column.key === 'demand_no'">
               <ElButton link type="primary" @click="router.push(demandContext(row.demand_id))">{{ row.demand_no }}</ElButton>
               <ElTag v-if="row.demand_id === focusedDemandId" size="small" type="info">当前定位</ElTag>
@@ -814,6 +820,11 @@ onMounted(async () => {
       </div>
     </template>
     <template v-if="tab === 'approval'">
+      <ElAlert v-if="(detail.scopes||[]).some((scope:Row)=>scope.binding&&!scope.expected_on)"
+        type="warning" :closable="false" show-icon
+        title="正式批准前必须补全全部关联需求的预计解决时间"
+        :description="'尚未填写：'+(detail.scopes||[]).filter((scope:Row)=>scope.binding&&!scope.expected_on)
+          .map((scope:Row)=>scope.demand_no).join('、')+'。请到「需求与范围」打开需求补填；若已编制草稿且该需求列入批准范围，补填后需删除旧草稿并重新编制。'"/>
       <div class="toolbar">
         <ElButton :data-guide-action="detail.approval ? 'projects.change' : 'projects.approval-draft'"
           type="primary"

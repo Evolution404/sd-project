@@ -7,8 +7,8 @@ import { today } from "../../dist/server/platform/auth/service.js";
 export const DEMO_ACCOUNT = "demo";
 export const DEMO_PASSWORD = "DemoOnly-2026!";
 const MARKER = "DEMO-DATA.json";
-const SEED_VERSION = 4;
-const OLDER_DEMO_VERSIONS = new Set([1, 2, 3]);
+const SEED_VERSION = 5;
+const OLDER_DEMO_VERSIONS = new Set([1, 2, 3, 4]);
 const SCHEMA_SQL = resolve(import.meta.dirname, "../../server/database/schema/schema113.sql");
 function schemaFingerprint() {
   return createHash("sha256").update(readFileSync(SCHEMA_SQL)).digest("hex");
@@ -219,6 +219,7 @@ function populate(system, password) {
       demand_no: "DEMO-D-001",
       operation_id: birdOperation.id,
       problem_description: "【演示】220kV青峰线15、16号杆塔缺少防鸟装置",
+      expected_on: currentDate,
       completion_standard: "补装防鸟装置并验收",
       materials: [{ material_id: birdMaterial.id, quantity_scaled: 50000 }],
       work_locations: [
@@ -248,6 +249,7 @@ function populate(system, password) {
       demand_no: "DEMO-D-002",
       operation_id: insulatorOperation.id,
       problem_description: "【演示】110kV河湾线21号杆塔绝缘子串老化",
+      expected_on: currentDate,
       work_locations: [{
         location_kind: "logical_tower",
         logical_tower_id: towers110[0].logical.id,
@@ -277,6 +279,8 @@ function populate(system, password) {
         const demand = system.demands.save(user, {
           operation_id: example.operation.id,
           problem_description: "【演示】" + example.title + " · 现场样例" + (repeat + 1),
+          expected_on: new Date(Date.parse(currentDate+"T00:00:00Z")+
+            (modelIndex+repeat+1)*86400000).toISOString().slice(0,10),
           work_locations: [{
             location_kind:"span", span_id:workSpan.id,
             quantity_scaled:(repeat + 1) * 10000,

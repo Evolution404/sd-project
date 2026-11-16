@@ -388,6 +388,14 @@ export function createDemands(
       if (previous)
         expectedVersion(previous.current_version, input.expected_version);
       const normalized = normalize(input, previous);
+      if(previous) {
+        const projectStage=repo.boundProjectStage(previous.id);
+        requireValue(projectStage!=="closed",
+          "已结项项目关联的需求不得普通修订，请通过正式纠错流程处理",409);
+        requireValue(projectStage!=="approved" || !!normalized.expected_on,
+          "已批准项目关联的需求必须填写预计解决时间，禁止清空",422,
+          {expected_on:"项目已批准，预计解决时间必填"});
+      }
       const duplicates = repo.duplicates(
         normalized.operation_id,
         normalized.work_locations,

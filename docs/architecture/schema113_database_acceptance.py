@@ -243,7 +243,8 @@ def demand(name,batch_id=None):
         operation_snapshot="更换",work_object_id="obj",work_object_snapshot="绝缘子",
         target_object="A相",quantity_scaled=10000,unit_id="unit",
         unit_version=1,unit_snapshot="套",completion_standard="合格",
-        problem_description="隐患",created_by="u",created_at="2026-11-07T00:00:00.000Z")
+        problem_description="隐患",expected_on="2027-06-30",
+        created_by="u",created_at="2026-11-07T00:00:00.000Z")
 
 def activate_demand(name):
     current = row("SELECT event_seq,to_status FROM demand_lifecycle_events "
@@ -4572,6 +4573,7 @@ try:
         target_object="各塔防鸟装置",quantity_scaled=90000,
         unit_id="unit",unit_version=1,unit_snapshot="套",
         completion_standard="安装验收合格",problem_description="鸟害隐患",
+        expected_on="2027-06-30",
         initial_work_locations_json=json.dumps(
             r16_locations(),ensure_ascii=False),
         created_by="u",created_at="2026-11-08T04:30:00.000Z")

@@ -54,6 +54,7 @@ test("P10 L01-L12 real isolated training course checkpoints use the full busines
     price_source:"内部测试",price_date:"2026-11-12",effective_on:"2026-11-12",basis:"训练核价"});
   assert.equal(done("L03"),true);
   const demand=s.demands.save(user,{operation_id:operation.id,problem_description:"两处需要防鸟治理",
+    expected_on:"2027-02-28",
     completion_standard:"装置牢固",work_locations:[
       {location_kind:"physical_tower",physical_tower_id:start.physical_tower_id,quantity_scaled:20000},
       {location_kind:"physical_tower",physical_tower_id:end.physical_tower_id,quantity_scaled:10000},

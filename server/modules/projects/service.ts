@@ -692,6 +692,18 @@ export function createProjects(
           actor,
           approval.version_no === 1 ? "project.approve" : "change.approve",
         );
+        const missingDates = repo.missingExpectedResolutionDates(key);
+        requireValue(!missingDates.length,
+          "正式批准前必须填写本项目所有当前关联需求的预计解决时间：" +
+            missingDates.map(row=>row.demand_no).join("、"),
+          422,{expected_on:missingDates.map(row=>row.demand_no)});
+        const outdatedDates = repo.outdatedApprovalExpectedDates(approvalId);
+        requireValue(!outdatedDates.length,
+          "需求的预计解决时间在编制批准草稿后发生变化，请删除并重新编制草稿：" +
+            outdatedDates.map(row=>row.demand_no).join("、"),
+          409,{expected_on:outdatedDates.map(row=>row.demand_no)});
+
+
         if (approval.change_order_id)
           repo.decideChange(approval.change_order_id, {
             status: "approved",

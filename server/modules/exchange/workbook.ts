@@ -283,7 +283,7 @@ const labels: Record<string,string> = {
   target_object: "处理部位",
   completion_standard: "验收标准",
   priority_id: "优先级标识",
-  expected_on: "期望日期",
+  expected_on: "预计解决时间",
   action: "明细动作",
   location_kind: "位置类型",
   logical_tower_id: "逻辑塔标识",

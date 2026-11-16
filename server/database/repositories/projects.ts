@@ -23,7 +23,8 @@ export interface ProjectScopeProjection {
   created_at: string;
   demand_no: string;
   demand_status: string;
-  binding: CurrentProjectBinding | null;
+  binding: CurrentProjectBinding | null;  expected_on: string | null;
+
 }
 
 export interface ProjectScopeMaterialLink {
@@ -203,8 +204,26 @@ export function projectReadRepository(store: Store) {
         JSON.stringify([...new Set(scopeIds)])) as ProjectScopeMaterialLink[];
       return new Map(links.map(link => [link.project_scope_id + ':' + link.material_id, link]));
     },
+    /** Current ownership, not only the subset selected for formal approval. */
+    missingExpectedResolutionDates(projectId: string): Array<{demand_id:string;demand_no:string}> {
+      return store.query<{demand_id:string;demand_no:string}>(
+        "SELECT d.id AS demand_id,d.demand_no FROM v_project_demand_binding_current b " +
+        "JOIN v_demand_current d ON d.id=b.demand_id " +
+        "WHERE b.project_id=? AND d.expected_on IS NULL ORDER BY d.demand_no,d.id",
+        projectId);
+    },
+    /** Compare the live expected date with the immutable draft's adopted demand snapshot. */
+    outdatedApprovalExpectedDates(approvalId: string): Array<{demand_no:string}> {
+      return store.query<{demand_no:string}>(
+        "SELECT d.demand_no FROM project_approval_scope_versions scope " +
+        "JOIN v_demand_current d ON d.id=scope.demand_id " +
+        "WHERE scope.approval_version_id=? " +
+        "AND json_type(scope.snapshot_json,'$.id')='text' " +
+        "AND json_extract(scope.snapshot_json,'$.expected_on') IS NOT d.expected_on " +
+        "ORDER BY d.demand_no,d.id", approvalId);
+    },
     projectScopes(projectId: string): ProjectScopeProjection[] {
-      const rows = store.query(`SELECT sc.*, d.demand_no,
+      const rows = store.query(`SELECT sc.*, d.demand_no, dc.expected_on,
         COALESCE(dc.status, 'pending') AS demand_status,
         CASE WHEN b.project_scope_id IS NULL THEN NULL ELSE json_object(
           'project_scope_id', b.project_scope_id,

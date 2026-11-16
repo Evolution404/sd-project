@@ -218,6 +218,7 @@ const demandColumns: TableColumn[] = [
   { key: "demand_no", label: "需求编号", minWidth: 150 },
   { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
   { key: "problem_description", label: "问题描述", minWidth: 200 },
+  { key: "expected_on", label: "预计解决时间", minWidth: 155 },
   { key: "quantity_scaled", label: "工作量" },
   { key: "unit_snapshot", label: "计量单位" },
   { key: "line_summary", label: "涉及线路", minWidth: 180 },
@@ -474,7 +475,8 @@ onMounted(async () => {
         }}</ElDescriptionsItem
         ><ElDescriptionsItem label="验收标准">{{
           detail.completion_standard
-        }}</ElDescriptionsItem></ElDescriptions
+        }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="预计解决时间">{{ detail.expected_on || "未填写" }}</ElDescriptionsItem></ElDescriptions
       >
     </div>
     <div class="panel" v-if="Object.keys(detail.attributes || {}).length">

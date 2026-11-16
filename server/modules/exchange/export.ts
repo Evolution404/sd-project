@@ -48,7 +48,7 @@ function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
     records.map(record=>({
       需求编号:record.demand_no,操作类型:record.operation_snapshot,
       作业对象:record.work_object_snapshot,问题描述:record.problem_description,
-      验收标准:record.completion_standard,工作量:decimalText(record.quantity_scaled,4),
+      验收标准:record.completion_standard,预计解决时间:record.expected_on||"",工作量:decimalText(record.quantity_scaled,4),
       计量单位:record.unit_snapshot,需求状态:demandDisplayStatus(record.status,Boolean(record.binding)),
       位置数量:record.work_locations.length,正式版本:record.current_version,
       来源依据:record.sources.map(source=>source.description).join("；"),

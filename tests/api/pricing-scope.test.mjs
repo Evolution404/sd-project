@@ -33,6 +33,7 @@ test("complete demand 480 plus 200 plus one 50 project charge remains independen
     demand_no: "D002",
     operation_id: anotherOp.id,
     problem_description: "检查需求",
+    expected_on:"2027-01-31",
     completion_standard: "检查完毕",
     work_locations: [
       {

@@ -27,6 +27,7 @@ const columns:TableColumn[]=[
   {key:"line_name_snapshot",label:"线路",minWidth:170,sortable:true,filterable:true},
   {key:"problem_description",label:"问题描述",minWidth:250,sortable:true,filterable:true},
   {key:"quantity_scaled",label:"需求总量",minWidth:120,sortable:true,filterable:false},
+  {key:"expected_on",label:"预计解决时间",minWidth:150,sortable:true,filterable:true},
   {key:"location_count",label:"位置数",minWidth:100,sortable:false,filterable:false},
   {key:"status",label:"需求状态",minWidth:125,sortable:true,filterable:false},
 ];
@@ -198,6 +199,10 @@ async function submit(){
           @change="choose(row,Boolean($event))" />
         <span v-else-if="column.key==='quantity_scaled'">{{quantity(row.quantity_scaled)}} {{row.unit_snapshot||''}}</span>
         <span v-else-if="column.key==='location_count'">{{row.work_locations?.length||0}}</span>
+        <ElTag v-else-if="column.key==='expected_on'"
+          :type="row.expected_on?'success':'warning'" effect="plain">
+          {{row.expected_on||'未填写'}}
+        </ElTag>
         <ElTag v-else-if="column.key==='status'" effect="plain"
           :type="row.status==='active'?'success':'warning'">{{row.status==='active'?'待承接':'待确认'}}</ElTag>
         <span v-else-if="column.key==='demand_no'">
@@ -256,6 +261,7 @@ async function submit(){
         </ElDescriptionsItem>
         <ElDescriptionsItem label="操作类型">{{preview.operation_snapshot}}</ElDescriptionsItem>
         <ElDescriptionsItem label="需求版本">V{{preview.current_version}}</ElDescriptionsItem>
+        <ElDescriptionsItem label="预计解决时间">{{preview.expected_on||"未填写"}}</ElDescriptionsItem>
         <ElDescriptionsItem label="工作总量">{{quantity(preview.quantity_scaled)}} {{preview.unit_snapshot}}</ElDescriptionsItem>
         <ElDescriptionsItem label="位置数">{{preview.work_locations.length}}</ElDescriptionsItem>
         <ElDescriptionsItem label="问题描述" :span="2">{{preview.problem_description}}</ElDescriptionsItem>
