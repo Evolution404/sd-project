@@ -2,6 +2,7 @@ import type { Store } from "./store.js";
 import type { Database } from "../connection.js";
 import { businessLists } from "../queries/business-lists.js";
 import { financeReadRepository } from "./finance.js";
+import { financeListRepository } from "./finance-lists.js";
 import { financeCommandRepository } from "./finance-commands.js";
 import { projectReadRepository } from "./projects.js";
 import { projectCommandRepository } from "./project-commands.js";
@@ -10,6 +11,7 @@ import { projectCommandRepository } from "./project-commands.js";
 export function financePersistenceRepository(store: Store, database: Pick<Database, "transaction">) {
   return {
     ...financeReadRepository(store),
+    ...financeListRepository(store),
     ...financeCommandRepository(store),
     projectCostNodes: projectReadRepository(store).projectCostNodes,
     appendStage: projectCommandRepository(store).appendStage,

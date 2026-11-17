@@ -12,6 +12,8 @@ export interface ListSource {
   columns: readonly string[];
   search: readonly string[];
   defaultSort?: string;
+  parameters?: SQLInputValue[];
+  deletionKey?: "id" | "entry_id" | "record_id";
 }
 export interface DemandListRecord {
   id: string;
@@ -130,9 +132,9 @@ const financeSources: Record<FinanceListKind, ListSource> = {
 
 export function searchPage<T>(store: QueryStore, entity: string, source: ListSource, query: ListQuery): Page<T> {
   const statement = `WITH list_rows AS (SELECT source.*, EXISTS(SELECT 1 FROM audit_events a
-    WHERE a.entity=? AND a.entity_id=source.id AND a.action='delete') AS deleted FROM (${source.sql}) source) `;
+    WHERE a.entity=? AND a.entity_id=source.${source.deletionKey || "id"} AND a.action='delete') AS deleted FROM (${source.sql}) source) `;
   const predicates = query.deleted ? [] : ["deleted=0"];
-  const parameters: SQLInputValue[] = [entity];
+  const parameters: SQLInputValue[] = [entity, ...(source.parameters ?? [])];
   if (query.q) {
     predicates.push("(" + source.search.map(key => `instr(lower(COALESCE(CAST("${key}" AS TEXT),'')), lower(?))>0`).join(" OR ") + ")");
     parameters.push(...source.search.map(() => query.q));

@@ -1,0 +1,101 @@
+import type { Store } from "./store.js";
+import { searchPage, type ListSource } from "../queries/business-lists.js";
+import type { ListQuery } from "../../shared/types/contracts.js";
+import type { CategoryCost } from "../../shared/types/trees.js";
+import type {
+  ActualCostVersion, NormalizedSettlementDraft, ReconciliationVersion,
+  SettlementDraftRow, SettlementItemFact, SettlementResolutionInput, SettlementReviewEvent,
+  SettlementRoot, SettlementVersion, SettlementWorkflow,
+} from "../../shared/types/finance-workflows.js";
+
+type CostRow = ActualCostVersion & CategoryCost;
+type SettlementListRoot = SettlementRoot & { deleted: boolean };
+
+/** SQL pagination keeps full workflow facts limited to the selected page. */
+export function financeListRepository(store: Store) {
+  return {
+    searchProjectCosts(projectId: string, query: ListQuery) {
+      const source: ListSource = {
+        sql: `SELECT c.*, entry.cost_node_id, adopted.name AS cost_node_name,
+          c.confirmed_at AS created_at
+          FROM v_cost_current c JOIN cost_entries entry ON entry.id=c.entry_id
+          JOIN project_cost_node_versions adopted ON adopted.id=c.cost_node_version_id
+          WHERE c.project_id=?`,
+        parameters: [projectId], deletionKey: "entry_id",
+        columns: ["id", "title", "status", "amount_fen", "occurred_on", "version_no",
+          "cost_node_name", "created_at"],
+        search: ["title", "evidence", "invoice_number", "cost_node_name"],
+      };
+      const page = searchPage<CostRow>(store, "costs", source, query);
+      return { ...page, items: page.items.map(row => ({ ...row, deleted: Boolean(row.deleted) })) };
+    },
+    searchSettlementWorkflows(projectId: string | undefined, query: ListQuery) {
+      const source: ListSource = {
+        sql: `SELECT s.* FROM settlements s${projectId ? " WHERE s.project_id=?" : ""}`,
+        parameters: projectId ? [projectId] : [],
+        columns: ["id", "number", "created_at"], search: ["number"],
+      };
+      const page = searchPage<SettlementListRoot>(store, "settlements", source, query);
+      if (!page.items.length) return { ...page, items: [] as SettlementWorkflow[] };
+      const ids = JSON.stringify(page.items.map(row => row.id));
+      const versions = store.query<SettlementVersion>(`SELECT v.* FROM settlement_versions v
+        WHERE v.settlement_id IN (SELECT value FROM json_each(?)) AND v.version_no=(
+          SELECT MAX(current.version_no) FROM settlement_versions current
+          WHERE current.settlement_id=v.settlement_id)`, ids);
+      const versionIds = JSON.stringify(versions.map(row => row.id));
+      const drafts = store.query<SettlementDraftRow>(`SELECT * FROM settlement_drafts
+        WHERE settlement_id IN (SELECT value FROM json_each(?))`, ids);
+      const reviews = store.query<SettlementReviewEvent>(`SELECT review.* FROM settlement_review_events review
+        WHERE review.settlement_version_id IN (SELECT value FROM json_each(?))
+        AND review.event_seq=(SELECT MAX(current.event_seq) FROM settlement_review_events current
+          WHERE current.settlement_version_id=review.settlement_version_id)`, versionIds);
+      const items = store.query<SettlementItemFact & { settlement_version_id: string }>(
+        `SELECT item.*, version.*, adopted.name AS cost_node_name
+        FROM settlement_items item JOIN settlement_item_versions version ON version.settlement_item_id=item.id
+        JOIN project_cost_node_versions adopted ON adopted.id=version.cost_node_version_id
+        WHERE version.settlement_version_id IN (SELECT value FROM json_each(?)) ORDER BY item.id`, versionIds);
+      const resolutions = store.query<SettlementResolutionInput & { settlement_version_id: string }>(
+        `SELECT * FROM settlement_scope_results
+        WHERE settlement_version_id IN (SELECT value FROM json_each(?)) ORDER BY rowid`, versionIds);
+      const versionMap = new Map(versions.map(row => [row.settlement_id, row]));
+      const draftMap = new Map(drafts.map(row => [row.settlement_id, {
+        ...row, document: JSON.parse(row.draft_json) as NormalizedSettlementDraft,
+      }]));
+      const reviewMap = new Map(reviews.map(row => [row.settlement_version_id, row]));
+      const itemMap = new Map<string, SettlementItemFact[]>();
+      for (const row of items) {
+        const group = itemMap.get(row.settlement_version_id) || [];
+        group.push(row);
+        itemMap.set(row.settlement_version_id, group);
+      }
+      const resolutionMap = new Map<string, SettlementResolutionInput[]>();
+      for (const row of resolutions) {
+        const group = resolutionMap.get(row.settlement_version_id) || [];
+        group.push(row);
+        resolutionMap.set(row.settlement_version_id, group);
+      }
+      return { ...page, items: page.items.map(row => {
+        const version = versionMap.get(row.id) || null;
+        return {
+          ...row, deleted: Boolean(row.deleted), version, draft: draftMap.get(row.id) || null,
+          review: version ? reviewMap.get(version.id) || null : null,
+          items: version ? itemMap.get(version.id) || [] : [],
+          resolutions: version ? resolutionMap.get(version.id) || [] : [],
+        };
+      }) };
+    },
+    searchReconciliationVersions(projectId: string | undefined, query: ListQuery) {
+      const source: ListSource = {
+        sql: `SELECT reconciliation.* FROM v_cost_reconciliation_current reconciliation
+          JOIN cost_versions cost ON cost.id=reconciliation.cost_version_id
+          JOIN cost_entries entry ON entry.id=cost.entry_id${projectId ? " WHERE entry.project_id=?" : ""}`,
+        parameters: projectId ? [projectId] : [], deletionKey: "record_id",
+        columns: ["id", "record_id", "evidence", "status", "version_no", "reconciled_cost_fen",
+          "reconciled_settlement_fen", "created_at"],
+        search: ["evidence"],
+      };
+      const page = searchPage<ReconciliationVersion & { deleted: boolean }>(store, "reconciliations", source, query);
+      return { ...page, items: page.items.map(row => ({ ...row, deleted: Boolean(row.deleted) })) };
+    },
+  };
+}

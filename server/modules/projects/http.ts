@@ -10,7 +10,7 @@ import { financeDeleteNode, financeVersion, financeCostNode,
 export async function handleProjects(context: RouteContext): Promise<{
     result: unknown;
 } | undefined> {
-    const { resource, system, actor, read, key, sub, subKey, action, method, input, deleted, url, mutate, page } = context;
+    const { resource, system, actor, read, key, sub, subKey, action, method, input, deleted, url, mutate } = context;
     requireValue(isObject(input), "请求正文必须为JSON对象", 400);
     let result: unknown;
     switch (resource) {
@@ -48,13 +48,13 @@ export async function handleProjects(context: RouteContext): Promise<{
                                 : sub === "costs" && subKey
                                     ? system.finance.costHistory(key, subKey)
                                     : sub === "costs"
-                                        ? page(system.finance.costs(key, deleted), url.searchParams)
+                                        ? system.finance.searchProjectCosts(key, parseListQuery(url.searchParams))
                                         : sub === "settlements" && subKey
                                             ? system.finance.settlementForProject(key, subKey)
                                         : sub === "reconciliations" && subKey
                                             ? system.finance.reconciliationHistoryForProject(key, subKey)
                                         : sub === "settlements"
-                                            ? page(system.finance.settlements(key), url.searchParams)
+                                            ? system.finance.searchSettlements(key, parseListQuery(url.searchParams))
                                             : system.projects.workspace(key, deleted);
             else if (method === "DELETE" && !sub)
                 result = mutate("admin", () => system.projects.remove(actor, key, parseProjectVersion(input)));

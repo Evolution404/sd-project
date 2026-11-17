@@ -492,6 +492,9 @@ export function createFinance(
         resolutions:repo.settlementResults(version.id)};
     },
     search: (kind: FinanceListKind, query: ListQuery) => repo.searchFinance(kind, query),
+    searchProjectCosts: (projectId: string, query: ListQuery) => repo.searchProjectCosts(projectId, query),
+    searchSettlements: (projectId: string | undefined, query: ListQuery) => repo.searchSettlementWorkflows(projectId, query),
+    searchReconciliations: (projectId: string | undefined, query: ListQuery) => repo.searchReconciliationVersions(projectId, query),
     summariesForPortfolio,
     node,
     cost,

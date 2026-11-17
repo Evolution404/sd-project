@@ -7,7 +7,7 @@ import { financeKind, financeSubmit, financeDeleteSettlement,
 export async function handleFinance(context: RouteContext): Promise<{
     result: unknown;
 } | undefined> {
-    const { resource, system, actor, read, key, sub, method, input, deleted, url, mutate, page } = context;
+    const { resource, system, actor, read, key, sub, method, input, url, mutate } = context;
     requireValue(isObject(input), "请求正文必须为JSON对象", 400);
     let result: unknown;
     switch (resource) {
@@ -19,7 +19,7 @@ export async function handleFinance(context: RouteContext): Promise<{
         case "settlements":
             if (read)
                 result = !key
-                    ? page(system.finance.allSettlements(deleted), url.searchParams)
+                    ? system.finance.searchSettlements(undefined, parseListQuery(url.searchParams))
                     : sub === "history"
                         ? system.finance.history(key)
                         : system.finance.settlement(key);
@@ -40,7 +40,7 @@ export async function handleFinance(context: RouteContext): Promise<{
             if (read)
                 result = key
                     ? system.finance.reconciliationHistory(key)
-                    : page(system.finance.reconciliations(url.searchParams.get("project_id") || undefined, deleted), url.searchParams);
+                    : system.finance.searchReconciliations(url.searchParams.get("project_id") || undefined, parseListQuery(url.searchParams));
             else if (method === "DELETE")
                 result = mutate("cost.confirm", () => system.finance.removeReconciliation(actor, key, financeDeleteReconciliation(input)));
             else

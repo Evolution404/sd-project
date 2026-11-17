@@ -130,3 +130,7 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 批准范围编辑器先初始化预算，异步候选和单位读取期间禁止编辑与保存，加载结果不能覆盖已输入事实。结算修订完整继承原明细与版本，允许选用本项目历史正式批准，需求和数量精度取所选批准冻结版本。结算草稿撤回同时校验正式版本与编辑版本，保留完整不可变撤回审计，重新编制不得复用已撤回的编辑令牌。首次草稿撤回保留身份并逻辑隐藏，允许正常审核结项。回归入口及来源与模拟口径见 docs/implementation/2026-11-16_标黄双项目全流程实测与修复.md。
 
 缺价试算自动补齐空输入时，同步试算快照以保持新鲜状态，用户实际改动仍触发过期保护。正式服务关闭使用HTTP服务器的shutdown入口，停止接入并释放零字节预连接，已开始的请求继续完成。真实TCP/HTTP反例由tests/api/server-shutdown.test.mjs覆盖。
+
+## 2026-11-17 验收矩阵与项目财务分页
+
+项目内费用、结算及费用核对列表使用finance-lists Repository执行数据库筛选排序分页。结算只批量加载当前页正式版本、草稿、审核、明细及解决量。费用和核对逻辑删除分别按entry_id、record_id稳定身份过滤。tests/api/project-finance-pagination.test.mjs、tests/performance/project-finance-pagination.bench.mjs及project-workspace.bench.mjs、tests/e2e/project-workspace-loading-browser.mjs进入常规门禁。四角色正式变更专项覆盖整条候选新增及移出。现行验收状态见docs/implementation/2026-11-17_验收矩阵核对与项目财务分页收口.md，Windows实机与历史操作次数比较继续按实际取证情况记录。

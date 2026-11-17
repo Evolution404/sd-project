@@ -16,6 +16,10 @@ project=s.projects.stock(user,project.id,{expected_version:1});
 project=s.projects.approvalDraft(user,project.id,{expected_version:2,approved_budget_fen:100000,scopes:[{project_scope_id:project.scopes[0].id,demand_version:1,locations:demand.work_locations.map(row=>({location_item_no:row.item_no,approved_quantity_scaled:row.quantity_scaled}))}]});
 project=s.projects.approve(user,project.id,project.approvals[0].id,{expected_version:2});
 const originalApproval=project.approval.id;
+const extraTowers=Array.from({length:5},(_,index)=>save('physical',{asset_no:'CANDIDATE-'+index}));
+const candidate=s.demands.save(user,{operation_id:operation.id,problem_description:'四角色正式变更新增完整需求',
+  expected_on:'2027-06-30',work_locations:extraTowers.map(tower=>({location_kind:'physical_tower',physical_tower_id:tower.id,quantity_scaled:20000}))});
+s.demands.transition(user,candidate.id,{status:'active',expected_version:1,expected_event_seq:1});
 const passwords={admin:'Schema113-test-password',editor:'Large-Editor-Password',verifier:'Large-Verifier-Password',viewer:'Large-Viewer-Password'};
 for(const role of ['editor','verifier','viewer'])s.auth.saveUser(user,{username:role,password:passwords[role],role,status:'active'});
 const server=httpServer(s);
@@ -43,6 +47,12 @@ try{
     'project cannot select a subset of demand locations');
   assert.equal(await rows.locator('input.el-input__inner').count(),0,
     'project cannot change frozen demand quantities');
+  await dialog.getByRole('button',{name:'新增候选需求',exact:true}).click();
+  const picker=editor.getByRole('dialog',{name:'选择变更新增需求'});
+  await picker.getByLabel('选择需求：'+candidate.demand_no).check();
+  await picker.getByRole('button',{name:'加入变更草稿（1）',exact:true}).click();
+  await picker.waitFor({state:'hidden'});
+  assert.equal(await rows.count(),25,'candidate must include all five formal positions');
   await dialog.getByLabel('批准预算（元）',{exact:true}).fill('1100');
   await dialog.getByRole('button',{name:'保存',exact:true}).click();
   const difference=editor.locator('.el-message-box:visible');
@@ -52,6 +62,9 @@ try{
   let after=s.projects.get(project.id),draft=after.approvals.find(row=>row.status==='draft');
   assert.equal(draft.scopes[0].locations.length,20);
   assert.equal(draft.scopes[0].quantity_scaled,600000);
+  assert.equal(draft.pending_scopes.length,1);
+  assert.equal(draft.pending_scopes[0].snapshot.work_locations.length,5);
+  assert.equal(s.demands.get(candidate.id).binding,null,'draft candidate does not reserve ownership');
   assert.equal(after.approval.id,originalApproval);
   assert.equal(await editor.getByRole('button',{name:'正式批准',exact:true}).isDisabled(),true);
   assert.equal(await editor.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true,
@@ -67,6 +80,8 @@ try{
   assert.equal(after.approval.version_no,2);
   assert.equal(after.approval.approved_by,s.auth.login('verifier',passwords.verifier).user.id);
   assert.equal(after.approval.approved_budget_fen,110000);
+  assert.equal(after.approvals.find(row=>row.id===after.approval.id).scopes.length,2);
+  assert.equal(s.demands.get(candidate.id).binding.project_id,project.id);
   assert.equal(after.approvals.find(row=>row.id===originalApproval).scopes[0].quantity_scaled,600000);
   await verifier.screenshot({path:join(out,'审核正式批准.png'),fullPage:true});
   const viewer=await open('viewer');
@@ -79,9 +94,37 @@ try{
   await admin.getByRole('button',{name:'更多管理操作',exact:true}).click();
   assert.equal(await admin.getByRole('menuitem',{name:'删除项目',exact:true}).isDisabled(),true,
     'approved project must close before its record can be deleted');
-  await admin.keyboard.press('Escape');
+  await admin.locator('.business-detail-dialog:visible .detail-header').click();
+  await admin.getByRole('button',{name:'编制正式变更',exact:true}).click();
+  const adminDialog=admin.getByRole('dialog',{name:'编制完整批准范围'});
+  await adminDialog.locator('label.el-checkbox').filter({hasText:candidate.demand_no}).click();
+  assert.equal(await adminDialog.getByRole('checkbox',{name:candidate.demand_no,exact:true}).isChecked(),false);
+  await adminDialog.getByRole('button',{name:'保存',exact:true}).click();
+  await admin.locator('.el-message-box:visible').getByRole('button',{name:'已核对，编制变更',exact:true}).click();
+  await adminDialog.waitFor({state:'hidden'});
+  assert.equal(s.demands.get(candidate.id).binding.project_id,project.id,'removal remains a proposal until approval');
+  await verifier.reload();
+  await verifier.getByRole('tab',{name:'批准与变更',exact:true}).click();
+  await verifier.getByRole('button',{name:'正式批准',exact:true}).click();
+  const removed=verifier.waitForResponse(response=>response.url().endsWith('/approve')&&response.request().method()==='POST');
+  await verifier.locator('.el-message-box:visible .el-button--primary').click();
+  assert.equal((await removed).status(),200);
+  after=s.projects.get(project.id);
+  assert.equal(after.approval.version_no,3);
+  assert.equal(s.demands.get(candidate.id).binding,null,'formal approval releases the removed complete demand');
+  assert.equal(after.approvals.find(row=>row.version_no===2).scopes.length,2,'old approved scope remains complete');
+  await viewer.reload();
+  await viewer.getByRole('tab',{name:'批准与变更',exact:true}).click();
+  assert.equal(await viewer.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true);
+  const historicalResponse=viewer.waitForResponse(response=>response.url().endsWith('/approval-history'));
+  await viewer.getByRole('tab',{name:'完整历史',exact:true}).click();
+  const historical=await historicalResponse;
+  assert.equal(historical.status(),200);
+  assert.deepEqual((await historical.json()).map(row=>row.scopes.length),[1,2,1]);
+  await viewer.getByRole('heading',{name:'完整正式历史',exact:true}).waitFor();
+  await viewer.screenshot({path:join(out,'只读核对新增移出历史.png'),fullPage:true});
   assert.deepEqual(errors,[]);
-  console.log('PROJECT_LARGE_SCOPE_ROLES_OK all20 complete immutable demand positions, budget change only, editor drafts, verifier approves, viewer403, original history retained');
+  console.log('PROJECT_LARGE_SCOPE_ROLES_OK 20+5 complete immutable positions, editor proposes addition, verifier approves, admin proposes removal, verifier releases, viewer403, three approved histories retained');
 }finally{
   for(const context of contexts.reverse())await context.close();
   await browser.close();await new Promise(resolve=>server.close(resolve));
