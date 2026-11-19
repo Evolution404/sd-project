@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { settlementProgressText } from "../../../shared/utils/settlement-progress";
 import { money } from "../../../shared/api/client";
 
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./types";
@@ -12,6 +13,7 @@ defineProps<{
   canAdmin: boolean;
   deleteReason: string;
   closeReason?: string;
+  settlementBlockers?: Array<{ id: string; number: string; status: string }>;
   descriptionColumns: number;
 }>();
 const emit = defineEmits<{
@@ -19,6 +21,7 @@ const emit = defineEmits<{
   edit: [];
   remove: [];
   close: [];
+  settlement: [id: string];
 }>();
 </script>
 
@@ -34,6 +37,8 @@ const emit = defineEmits<{
       <div><span>批准预算</span><strong>{{ project.approval ? '¥' + money(project.approval.approved_budget_fen) : '未批准' }}</strong></div>
       <div><span>真实费用</span><strong>{{ summary ? '¥' + money(summary.actual_cost_fen) : '查询中' }}</strong></div>
       <div><span>已批准结算</span><strong>{{ summary ? '¥' + money(summary.settlement_fen) : '查询中' }}</strong></div>
+      <div><span>结算进度</span><strong>{{ summary ? settlementProgressText(summary.settlement_progress_percent) : '查询中' }}</strong></div>
+      <div v-if="summary?.excess_settlement_fen"><span>超结算</span><strong>¥{{ money(summary.excess_settlement_fen) }}</strong></div>
       <div><span>待核对费用</span><strong>{{ summary ? '¥' + money(summary.unreconciled_cost_fen) : '查询中' }}</strong></div>
     </div>
     <ElDescriptions :column="descriptionColumns" border class="project-context-descriptions">
@@ -53,6 +58,7 @@ const emit = defineEmits<{
     <div v-if="project.status === 'approved' && closeReason !== undefined" class="toolbar project-section-actions">
       <ElButton data-guide-action="projects.close" :disabled="!!closeReason" @click="emit('close')">结项核对</ElButton>
       <span v-if="closeReason" class="muted">{{ closeReason }}</span>
+      <ElButton v-for="record in settlementBlockers" :key="record.id" link type="primary" @click="emit('settlement', record.id)">{{ record.number }}</ElButton>
     </div>
   </div>
   <div class="panel">

@@ -47,7 +47,7 @@ try {
   await page.locator(".el-radio-button").filter({ hasText: "跨项目查询" }).click();
   await page.getByRole("tab", { name: "真实费用", exact: true }).waitFor();
   const costRow = page.getByRole("row").filter({ hasText: "【演示】防鸟装置安装实际发生费用" });
-  await costRow.getByRole("button", { name: "查看记录" }).click();
+  await costRow.locator(".cell-link:visible").first().click();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.getByRole("heading", { name: "【演示】防鸟装置安装实际发生费用" }).waitFor();
   await detail.getByText("真实费用记录", { exact: true }).waitFor();
@@ -57,13 +57,12 @@ try {
   await detail.waitFor({ state: "hidden" });
   await page.getByRole("tab", { name: "结算单", exact: true }).click();
   await page.getByRole("row").filter({ hasText: "JS-" }).first()
-    .getByRole("button", { name: "查看记录" }).click();
-  await detail.getByRole("heading", { name: "本次结算明细" }).waitFor();
+    .locator(".cell-link:visible").first().click();
+  await detail.getByText("当前正式事实", { exact: true }).waitFor();
+  await detail.getByText("当前生效金额", { exact: true }).waitFor();
   await page.screenshot({ path: join(out, "cross-settlement-detail.png") });
   await detail.getByRole("button", { name: /查看所属项目/ }).click();
   await page.waitForURL(url => url.hash.includes("#/projects") && url.hash.includes("focus=settlement"));
-  await page.getByRole("tab", { name: "费用与结算" }).waitFor();
-  await page.getByRole("tab", { name: "费用与结算" }).click();
   await page.getByRole("heading", { name: "定位独立结算单", exact: true }).waitFor();
   await page.getByText(/JS-2026/, { exact: false }).first().waitFor();
   await page.screenshot({ path: join(out, "settlement-target-inside-project.png") });

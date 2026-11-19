@@ -155,8 +155,8 @@ try {
   assert.equal(
     await reader
       .getByRole("button", { name: "新增需求", exact: true })
-      .isDisabled(),
-    true,
+      .count(),
+    0,
   );
   await reader.screenshot({
     path: join(output, "viewer-permissions-1280.png"),

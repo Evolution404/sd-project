@@ -4,6 +4,11 @@ import type { RouteLocationNormalizedLoaded, RouteLocationRaw, Router } from "vu
 export type ProjectSection = "overview" | "scope" | "approval" | "finance" | "history";
 export type BusinessFocus = "demand" | "funding" | "cost" | "settlement" | "reconciliation";
 
+export function projectFinanceContext(projectId: string, returnTo: string, focus?: { kind: BusinessFocus; id: string }): RouteLocationRaw {
+  return { name: "projects", params: { projectId, work: "finance", recordId: "", recordAction: "" },
+    query: { returnTo, ...(focus ? { focus: focus.kind, record: focus.id } : {}) } };
+}
+
 export function projectContext(
   projectId: string, section: ProjectSection = "overview",
   target?: { focus: BusinessFocus; record: string },

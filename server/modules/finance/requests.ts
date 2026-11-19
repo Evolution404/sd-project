@@ -111,7 +111,8 @@ function settlementResolution(row:unknown,index:number):SettlementResolutionInpu
   };
 }
 export function financeSettlementDraft(input:Record<string,unknown>):SettlementDraftInput {
-  const change=input.change_type;
+  const change=input.change_type, mode=input.mode;
+  requireValue(mode===undefined||mode==="project_total"||mode==="itemized","结算方式无效");
   requireValue(change===undefined||change==="void"||change==="initial"||change==="revision",
     "结算变更类别无效");
   requireValue(input.items===undefined||Array.isArray(input.items),"结算明细必须为数组");
@@ -123,6 +124,7 @@ export function financeSettlementDraft(input:Record<string,unknown>):SettlementD
     project_id:optStr(input.project_id,"项目"),
     expected_version:optNum(input.expected_version,"结算版本"),
     expected_edit_version:optNum(input.expected_edit_version,"结算草稿版本"),
+    mode,amount_fen:optNum(input.amount_fen,"本次结算金额"),
     change_type:change,basis:optStr(input.basis,"结算依据"),
     reason:optStr(input.reason,"变更原因"),
     settlement_on:optNullableStr(input.settlement_on,"结算日期"),

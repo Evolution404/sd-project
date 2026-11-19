@@ -18,6 +18,8 @@ const props = withDefaults(defineProps<{
   rows: TRow[]; columns: TableColumn[]; tableKey: string;
   selectedIds?: readonly string[];
   detailColumn?: string;
+  detailGuideAction?: string;
+  detailFallbackKey?: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
   /** If omitted, only client-side tables and explicitly controlled remote tables show controls. */
@@ -25,6 +27,7 @@ const props = withDefaults(defineProps<{
   filterMode?: "local" | "remote" | "off";
   filterState?: Record<string, string>;
   searchActive?: boolean;
+  fixedFilterKeys?: readonly string[];
   sortState?: { prop: string; order: "ascending" | "descending" | null };
 }>(), { selectable: false, loading: false, actionsWidth: 190 });
 const emit = defineEmits<{
@@ -37,8 +40,12 @@ const emit = defineEmits<{
 defineSlots<{
   cell(props: { row: TRow; column: TableColumn; value: unknown }): unknown;
   header(props: { column: TableColumn }): unknown;
+  toolbar(props: { openSettings: () => void; clearFilters: () => void; activeFilterCount: number; hasActiveFilters: boolean; appliedFilters: Array<{ label: string; value: string }> }): unknown;
   actions(props: { row: TRow }): unknown;
 }>();
+function detailValue(row: object, column: string): unknown {
+  return valueAt(row, column) || (props.detailFallbackKey ? valueAt(row, props.detailFallbackKey) : undefined);
+}
 function valueAt(row: object, key: string): unknown {
   return (row as Record<string, unknown>)[key];
 }
@@ -70,14 +77,17 @@ const filteringEnabled = computed(() => props.filterMode === "off" ? false
   : props.filterMode === "remote" || props.filterMode === "local" ? true
     : props.clientSide || props.filterState !== undefined);
 const filters = ref<Record<string, string>>({});
-const activeFilterCount = computed(() =>
-  Object.values(filters.value).filter(value => String(value ?? "").trim()).length);
+const appliedFilters = computed(() => props.columns.flatMap(column => {
+  const value = filters.value[column.key]?.trim();
+  return value && !props.fixedFilterKeys?.includes(column.key) ? [{ label: column.label, value }] : [];
+}));
+const activeFilterCount = computed(() => appliedFilters.value.length);
 const hasActiveFilters = computed(() => props.searchActive ||
   (filteringEnabled.value && activeFilterCount.value > 0));
 function clearFilters() {
-  filters.value = {};
+  filters.value = Object.fromEntries(Object.entries(filters.value).filter(([key]) => props.fixedFilterKeys?.includes(key)));
   if (props.searchActive) emit("clear-search");
-  else if (!props.clientSide && filteringEnabled.value) emit("filter-change", {});
+  else if (!props.clientSide && filteringEnabled.value) emit("filter-change", { ...filters.value });
 }
 const table = ref<TableInstance>();
 watch([table, () => props.rows, () => props.selectedIds], () => {
@@ -217,16 +227,11 @@ function resize(newWidth: number, _oldWidth: number, column: { property?: string
   pref.value.widths = { ...pref.value.widths, [key]: Math.round(newWidth) };
   persist();
 }
+function openColumnSettings() { settings.value = true; }
 function reset() {
   pref.value = defaultPref();
-  filters.value = {};
-  localSort.value = { key: "", order: "" };
-  if (sortingEnabled.value) table.value?.clearSort();
   persist();
-  if (!props.clientSide) {
-    if (filteringEnabled.value) emit("filter-change", {});
-    if (sortingEnabled.value) emit("sort-change", { key: "", order: "" });
-  }
+  void restoreColumnLayout();
 }
 function filter() {
   if (filteringEnabled.value && !props.clientSide)
@@ -258,6 +263,7 @@ watch(() => props.tableKey, async () => {
 </script>
 <template>
   <div class="business-table">
+    <slot name="toolbar" :open-settings="openColumnSettings" :clear-filters="clearFilters" :active-filter-count="activeFilterCount" :has-active-filters="hasActiveFilters" :applied-filters="appliedFilters">
     <div class="business-table-tools">
       <div class="business-table-state">
         <span class="business-table-row-count" role="status">{{ loading ? '正在加载…' : '本页 ' + tableRows.length + ' 条' }}</span>
@@ -267,6 +273,7 @@ watch(() => props.tableKey, async () => {
       </div>
       <ElButton class="business-column-setting-trigger" size="small" plain @click="settings = true"><ElIcon><Setting /></ElIcon> 列设置</ElButton>
     </div>
+    </slot>
     <ElTable border allow-drag-last-column ref="table" :data="tableRows as Row[]" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
       :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
       @selection-change="selectionChanged($event, false)"
@@ -284,14 +291,14 @@ watch(() => props.tableKey, async () => {
           <template v-else>
             <span class="business-column-title" :title="col.label">{{ col.label }}</span>
             <ElPopover v-if="filteringEnabled && col.filterable !== false" trigger="click" width="220" placement="bottom">
-              <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" />
+              <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" @keyup.enter="filter" />
               <template #reference><ElButton class="business-filter-button" :class="{ 'is-active-filter': !!filters[col.key]?.trim() }" text size="small" :aria-label="'筛选' + col.label" :aria-pressed="!!filters[col.key]?.trim()" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
             </ElPopover>
           </template>
         </template>
         <template #default="{ row }">
-          <ElButton v-if="col.key === detailColumn && valueAt(row, col.key)" class="cell-link" link type="primary"
-            @click.stop="emit('open-detail', row as TRow)">{{ valueAt(row, col.key) }}</ElButton>
+          <ElButton v-if="col.key === detailColumn && detailValue(row, col.key)" class="cell-link" link type="primary" :data-guide-action="detailGuideAction"
+            @click.stop="emit('open-detail', row as TRow)">{{ detailValue(row, col.key) }}</ElButton>
           <slot v-else name="cell" :row="row as TRow" :column="col" :value="formatVisibleDateTime(valueAt(row, col.key), col.key)">
             {{ formatVisibleDateTime(valueAt(row, col.key), col.key) ?? "—" }}
           </slot>

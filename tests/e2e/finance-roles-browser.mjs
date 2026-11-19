@@ -37,14 +37,14 @@ async function as(role) {
   contexts.push(context);
   const page=await context.newPage();
   page.on("pageerror",err=>errors.push(role+": "+err.message));
-  await page.goto(base+"/#/projects?project="+project.id+"&tab=finance");
+  await page.goto(base+"/#/projects/"+project.id+"/finance");
   await page.getByLabel("用户名",{exact:true}).fill(role);
   await page.getByLabel("密码",{exact:true}).fill(passwords[role]);
   await page.getByRole("button",{name:"登录",exact:true}).click();
-  const detail=page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("heading",{name:project.name,exact:true}).waitFor();
+  const detail=page.locator(".business-detail-page:visible");
+  await detail.getByText(project.name,{exact:true}).first().waitFor();
   await detail.getByRole("button",{name:"核定费用",exact:true}).waitFor();
-  await detail.getByRole("button",{name:"新增结算草稿",exact:true}).waitFor();
+  if (role === "admin" || role === "editor") await detail.getByRole("button",{name:"新增结算草稿",exact:true}).waitFor();
   await detail.getByRole("button",{name:"新增正式核对",exact:true}).waitFor();
   const bill=detail.getByRole("row").filter({hasText:draft.number}).first();
   await bill.waitFor();
@@ -84,9 +84,10 @@ try {
   await editor.page.screenshot({path:join(output,"02-editor.png"),fullPage:true});
 
   const viewer=await as("viewer");
-  for(const name of ["核定费用","新增结算草稿","新增正式核对"])
+  for(const name of ["核定费用","新增正式核对"])
     assert.equal(await button(viewer.detail,name).isDisabled(),true);
-  await viewer.detail.getByText("结算草稿须由具备编辑权限的人员编制").waitFor();
+  assert.equal(await button(viewer.detail,"新增结算草稿").count(),0);
+  await viewer.detail.getByText("当前账号可查看结算").waitFor();
   assert.equal(await button(viewer.bill,"审核结算").count(),0,
     "read-only viewers have no review action");
   await viewer.bill.getByRole("button",{name:"更多操作"}).click();
@@ -101,8 +102,8 @@ try {
 
   const verifier=await as("verifier");
   assert.equal(await button(verifier.detail,"核定费用").isEnabled(),true);
-  assert.equal(await button(verifier.detail,"新增结算草稿").isDisabled(),true);
-  await verifier.detail.getByText("结算草稿须由具备编辑权限的人员编制").waitFor();
+  assert.equal(await button(verifier.detail,"新增结算草稿").count(),0);
+  await verifier.detail.getByText("当前账号可查看结算").waitFor();
   assert.equal(await button(verifier.detail,"新增正式核对").isEnabled(),true);
   await approveSettlement(verifier.page, verifier.bill);
   await verifier.bill.getByText(/第\s*\d+\s*版.*已审核/).waitFor();

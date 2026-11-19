@@ -43,35 +43,33 @@ try {
   await login("admin", "Schema113-test-password");
   await navigate("输电设备台账");
   const row = page.getByRole("row").filter({ hasText: "操作菜单验收线" });
-  await row.getByRole("button", { name: "查看", exact: true }).waitFor();
+  await row.locator(".cell-link:visible").first().waitFor();
+  assert.equal(await row.getByRole("button", { name: "查看", exact: true }).count(), 0);
   assert.equal(await row.getByRole("button", { name: "操作菜单验收线", exact: true }).count(), 1);
   for (const theme of ["light", "dark"]) {
     const currentDark = await page.locator("html").evaluate(element => element.classList.contains("dark"));
     if (currentDark !== (theme === "dark")) await page.getByRole("button", { name: theme === "dark" ? "切换为深色" : "切换为浅色", exact: true }).click();
-    await page.getByRole("heading", { name: "输电设备台账", exact: true }).click();
     for (const width of [1500, 1280, 960, 760]) {
       await page.setViewportSize({ width, height: 1000 });
-      await row.getByRole("button", { name: "更多操作" }).click();
-      const menu = page.getByRole("menu").filter({ has: page.getByRole("menuitem", { name: "编辑", exact: true }) });
-      await menu.waitFor();
-      await page.waitForTimeout(200);
-      for (const label of ["编辑", "历史", "删除"]) assert.ok(await menu.getByRole("menuitem", { name: label, exact: true }).isEnabled());
-      const box = await menu.boundingBox();
-      assert.ok(box.x >= 0 && box.x + box.width <= width + 1);
+      await row.locator(".cell-link:visible").first().click();
+      const detail = page.locator(".business-detail-dialog:visible");
+      for (const label of ["编辑", "完整历史", "删除"]) await detail.getByRole("button", { name: label, exact: true }).waitFor();
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({ path: join(output, `ledger-${theme}-${width}.png`), fullPage: true });
-      await page.keyboard.press("Escape");
-      await menu.waitFor({ state: "hidden" });
-      await page.waitForTimeout(200);
+      await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
     }
   }
-  await row.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await row.locator(".cell-link:visible").first().click();
+  const ledger = page.locator(".business-detail-dialog:visible");
+  await ledger.getByRole("button", { name: "删除", exact: true }).click();
+  const preview = page.locator(".el-message-box:visible");
+  await preview.getByText(/当前关联线路 0 条/).waitFor();
+  await preview.getByRole("button", { name: "取消", exact: true }).click();
+  await ledger.getByRole("button", { name: "关闭详情", exact: true }).click();
   assert.equal(s.catalog.list("lines").length, 1);
   await page.setViewportSize({ width: 1500, height: 1000 });
   await navigate("费用与结算");
-  await page.getByRole("button", { name: "进入项目办理" }).click();
+  await page.locator(".cell-link:visible").first().click();
   const billRow = page.getByRole("row").filter({ hasText: bill.number });
   await submitSettlement(page, billRow);
   await billRow.getByRole("button", { name: "审核结算", exact: true }).click();
@@ -86,12 +84,12 @@ try {
   await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await login("reader", "Reader-test-password");
   await navigate("输电设备台账");
-  await row.getByRole("button", { name: "更多操作" }).click();
-  for (const label of ["编辑", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
-  assert.ok(await page.getByRole("menuitem", { name: "历史", exact: true }).isEnabled());
-  await page.keyboard.press("Escape");
+  await row.locator(".cell-link:visible").first().click();
+  for (const label of ["编辑", "删除"]) assert.equal(await ledger.getByRole("button", { name: label, exact: true }).count(), 0);
+  assert.ok(await ledger.getByRole("button", { name: "完整历史", exact: true }).isEnabled());
+  await ledger.getByRole("button", { name: "关闭详情", exact: true }).click();
   await navigate("费用与结算");
-  await page.getByRole("button", { name: "进入项目办理" }).click();
+  await page.locator(".cell-link:visible").first().click();
   await billRow.getByRole("button", { name: "附件", exact: true }).waitFor();
   await billRow.getByRole("button", { name: "更多操作" }).click();
   assert.equal(await billRow.getByRole("button", { name: "审核结算", exact: true }).count(), 0);

@@ -418,16 +418,25 @@ export function createEquipment(
         ? audit.history(kind, key)
         : repository.history(kind, key);
     },
+    deletionImpact(actor: Actor, kind: EquipmentCatalogKind, key: string) {
+      authorize(actor, "admin");
+      return { expected_version: get(kind, key).version, references: repository.deletionReferences(kind, key) };
+    },
     remove(
       actor: Actor,
       kind: EquipmentCatalogKind,
       key: string,
       version: unknown,
+      references?: unknown,
     ) {
       authorize(actor, "admin");
       return database.transaction(() => {
         const previous = get(kind, key);
         expectedVersion(previous.version, version);
+        const current = repository.deletionReferences(kind, key);
+        requireValue(references === undefined || (isObject(references) &&
+          Object.entries(current).every(([field, count]) => references[field] === count)),
+          "设备引用已变化，请重新核对删除影响", 409);
         if (kind === "voltages")
           repository.reviseAsset(kind, key, { status: "inactive" });
         audit.record(actor, kind, key, "delete", previous, { logical: true });

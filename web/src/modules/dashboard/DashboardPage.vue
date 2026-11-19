@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { computed, ref, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
@@ -21,27 +22,64 @@ function metricValue(key: string): number {
 }
 const can = useAccess();
 const loading = ref(true);
-const queueCounts = ref<Record<string, number | undefined>>({});
-const queue = computed(() => [
-  ...(can("demand.activate") ? [{ key: "pending_demands", label: "确认专业需求", hint: "核对现场事实与作业位置", path: "/demands", state: "待确认" }] : []),
-  ...(can("write") ? [{ key: "stocked_projects", label: "编制项目立项", hint: "核对承接范围与预算", path: "/projects", state: "已入库" }] : []),
-  ...(can("project.approve") ? [{ key: "initial_review", label: "审核项目立项", hint: "复核首版范围与预算", path: "/projects", state: "立项中" }] : []),
-  ...(can("change.approve") ? [{ key: "change_review", label: "审核项目变更", hint: "复核与当前批准的差异", path: "/projects", state: "变更中" }] : []),
+type QueueRow = { id: string; label: string; projectId?: string; reason?: string };
+type QueueTask = { key: string; label: string; path: string; state: string; action?: string };
+const queueRows = ref<Record<string, { total: number; records: QueueRow[] }>>({});
+const queueErrors = ref<Record<string, string>>({});
+const queue = computed<QueueTask[]>(() => [
+  ...(can("demand.activate") ? [{ key: "confirm", label: "确认专业需求", path: "/demands", state: "待确认" }] : []),
+  ...(can("write") ? [{ key: "compile", label: "编制项目立项", path: "/projects", state: "已入库" }] : []),
+  ...(can("project.approve") ? [{ key: "initial", label: "审核项目立项", path: "/projects", state: "立项中" }] : []),
+  ...(can("change.approve") ? [{ key: "change", label: "审核项目变更", path: "/projects", state: "变更中" }] : []),
+  ...(can("settlement.approve") ? [{ key: "review", label: "审核结算", path: "/finance/settlements", state: "submit", action: "review" }] : []),
+  ...(can("write") ? [{ key: "returned", label: "处理退回结算", path: "/finance/settlements", state: "return" }] : []),
 ]);
-async function loadQueue() {
-  queueCounts.value = Object.fromEntries(await Promise.all(queue.value.map(async task => {
-    if (task.key === "pending_demands") return [task.key, dashboard.value.pending_demands];
-    try {
-      const query = new URLSearchParams({ page_size: "1", filters: JSON.stringify({ display_status: task.state }) });
-      const result = await api<{total: number}>(task.path + "?" + query);
-      return [task.key, result.total];
-    } catch {
-      return [task.key, undefined];
-    }
-  })));
+function taskFilters(task: QueueTask) {
+  return JSON.stringify(task.path === "/finance/settlements" ? { status: task.state } : { display_status: task.state });
 }
-function openQueue(task: {path: string; state: string}) {
-  void router.push({ path: task.path, query: { filters: JSON.stringify({ display_status: task.state }) } });
+async function loadQueue() {
+  queueErrors.value = {};
+  const entries = await Promise.all(queue.value.map(async task => {
+    try {
+      const parameters = new URLSearchParams({ page_size: "5", filters: taskFilters(task) });
+      if (task.path === "/finance/settlements") {
+        const result = await api<{ total: number; items: Array<{ id: string; label: string; project_name: string; project_id: string }> }>(
+          "/finance/settlements?" + parameters);
+        return [task.key, { total: result.total, records: result.items.map(row => ({
+          id: row.id, projectId: row.project_id, label: row.project_name + " · " + row.label,
+        })) }] as const;
+      }
+      const result = await api<{ total: number; items: Array<{ id: string; name?: string; demand_no?: string; problem_description?: string;
+        scopes?: Array<{ binding: unknown; demand_status: string; expected_on?: string | null }> }> }>(task.path + "?" + parameters);
+      const records = result.items.map(row => {
+        const active = row.scopes?.filter(scope => scope.binding && scope.demand_status === "active") || [];
+        const reason = task.path !== "/projects" ? "" : !active.length ? "请先关联已确认需求"
+          : active.some(scope => !scope.expected_on) ? "请补填预计解决时间" : "";
+        return { id: row.id, label: row.name || row.problem_description || row.demand_no || row.id, reason };
+      });
+      return [task.key, { total: result.total, records }] as const;
+    } catch (error) {
+      queueErrors.value[task.key] = (error as Error).message;
+      return [task.key, { total: 0, records: [] }] as const;
+    }
+  }));
+  queueRows.value = Object.fromEntries(entries);
+}
+function openQueue(task: QueueTask) {
+  void router.push({ path: task.path, query: { filters: taskFilters(task) } });
+}
+function openTask(task: QueueTask, row: QueueRow) {
+  if (row.projectId) {
+    const reviewing = task.action === "review";
+    void router.push({ name: "projects", params: { projectId: row.projectId, work: reviewing ? "settlements" : "finance",
+      recordId: reviewing ? row.id : "", recordAction: reviewing ? "review" : "" },
+      query: { returnTo: "/dashboard", ...(reviewing ? {} : { focus: "settlement", record: row.id }) } });
+  } else if (task.path === "/demands") {
+    void router.push({ path: "/demands", query: { filters: taskFilters(task), demand: row.id } });
+  } else {
+    void router.push({ path: "/projects", query: { filters: taskFilters(task), project: row.id,
+      tab: row.reason ? "scope" : task.key === "compile" ? "overview" : "approval" } });
+  }
 }
 const router = useRouter();
 function openMetric(key: string) {
@@ -69,6 +107,7 @@ const portfolioColumns: TableColumn[] = [
   { key: "approved_budget_fen", label: "批准预算", minWidth: 135 },
   { key: "actual_cost_fen", label: "真实费用", minWidth: 135 },
   { key: "settlement_fen", label: "已批准结算", minWidth: 140 },
+  { key: "settlement_progress_percent", label: "结算进度", minWidth: 155 },
   { key: "unreconciled_cost_fen", label: "待核对费用", minWidth: 140 },
 ];
 const alertColumns: TableColumn[] = [
@@ -81,6 +120,8 @@ const frameworkColumns: TableColumn[] = [
   { key: "limit_fen", label: "额度", minWidth: 155 },
   { key: "approved_budget_fen", label: "已批准预算", minWidth: 155 },
   { key: "actual_cost_fen", label: "实际费用", minWidth: 155 },
+  { key: "settlement_progress_percent", label: "有基数项目结算进度", minWidth: 178 },
+  { key: "projects_without_cost_basis", label: "待核定基数项目", minWidth: 145 },
 ];
 const monthColumns: TableColumn[] = [
   { key: "month", label: "月份", minWidth: 160 },
@@ -100,6 +141,7 @@ const alertRows = computed(() => dashboard.value.alerts.map((item, i) => ({
 })));
 function display(row: DashboardRow, col: TableColumn): string {
   const value: unknown = Object.entries(row).find(([name]) => name === col.key)?.[1];
+  if (col.key === "settlement_progress_percent") return settlementProgressText(typeof value === "number" ? value : null);
   if (value === undefined || value === null || value === "") return "—";
   if (col.key === "status") return statusText[String(value)] || String(value);
   if (col.key.endsWith("_fen") && typeof value === "number") return "¥" + money(value);
@@ -119,11 +161,17 @@ onMounted(refreshDashboard);
   </div>
   <section v-if="queue.length" class="panel task-queue">
     <h2>待办理</h2>
-    <ElButton v-for="task in queue" :key="task.key" class="task-queue-row" text @click="openQueue(task)">
-      <span class="queue-task">{{ task.label }}<small>{{ task.hint }}</small></span>
-      <strong v-if="queueCounts[task.key] !== undefined">{{ queueCounts[task.key] }}</strong>
-      <span aria-hidden="true">→</span>
-    </ElButton>
+    <div v-for="task in queue" :key="task.key" class="queue-group">
+      <div class="toolbar"><strong>{{ task.label }}</strong>
+        <ElButton v-if="queueRows[task.key]?.total" link type="primary" @click="openQueue(task)">查看全部 {{ queueRows[task.key].total }} 项</ElButton>
+      </div>
+      <p v-if="queueErrors[task.key]" class="muted">读取失败 · {{ queueErrors[task.key] }}</p>
+      <p v-else-if="!loading && !queueRows[task.key]?.total" class="muted">暂无记录</p>
+      <div v-for="record in queueRows[task.key]?.records" :key="record.id" class="queue-record">
+        <ElButton link type="primary" @click="openTask(task, record)">{{ record.label }}</ElButton>
+        <span v-if="record.reason" class="muted">{{ record.reason }}</span>
+      </div>
+    </div>
   </section>
   <div class="metric-grid">
     <ElButton v-for="metric in [
@@ -192,6 +240,8 @@ onMounted(refreshDashboard);
 </template>
 
 <style scoped>
+.queue-group + .queue-group { margin-top: 14px }
+.queue-record { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 0 }
 .task-queue h2 { margin:0 0 5px }
 .task-queue-row { display:flex; width:100%; height:auto; min-height:48px; text-align:left; border-radius:0; border-bottom:1px solid var(--edge); padding:8px 2px; margin:0 }
 .task-queue-row:last-child { border-bottom:0 }

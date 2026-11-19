@@ -18,6 +18,7 @@ import type {
 } from "../../../../server/shared/types/contracts";
 import { api, statusText } from "../../shared/api/client";
 import { useAccess } from "../../shared/composables/use-access";
+import { usePageSelection } from "../../shared/composables/use-page-selection";
 import { useListRoute } from "../../shared/composables/use-list-route";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
@@ -26,7 +27,6 @@ import BusinessTable, {
 } from "../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
-import RowActions from "../../shared/ui/RowActions.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EquipmentEditor from "./EquipmentEditor.vue";
 import EquipmentReplacementDialog from "./EquipmentReplacementDialog.vue";
@@ -60,7 +60,6 @@ const rows = ref<EquipmentRecord[]>([]),
   sortDirection = ref(""),
   columnFilters = ref<Record<string, string>>({}),
   deleted = ref(false),
-  selectedIds = ref<string[]>([]),
   loading = ref(false),
   error = ref("");
 const editing = ref<EquipmentRecord | null>(null),
@@ -86,6 +85,9 @@ const columns = computed<TableColumn[]>(() =>
       ]
     : equipmentColumns[kind.value],
 );
+const selection = usePageSelection(rows, () => JSON.stringify([kind.value, query.value, deleted.value, columnFilters.value]));
+const { selectedIds, selected } = selection;
+const appliedQuery = ref("");
 let sequence = 0;
 async function load() {
   const current = ++sequence,
@@ -105,6 +107,7 @@ async function load() {
       `/catalog/${requested}?${parameters}`,
     );
     if (current === sequence && requested === kind.value) {
+      appliedQuery.value = parameters.toString();
       rows.value = result.items;
       total.value = result.total;
     }
@@ -123,6 +126,11 @@ const detailDialog = useEntityDialog(
     history.value = null;
   },
 );
+function inspectImport(id: string, importedKind?: EquipmentKind) {
+  if (!importedKind) return;
+  if (importedKind === kind.value) void detailDialog.open(id);
+  else void router.push({ name: "ledger", params: { kind: importedKind }, query: { record: id } });
+}
 const {
   isOpen: detailOpen,
   loading: detailLoading,
@@ -144,13 +152,16 @@ function edit(row?: EquipmentRecord) {
 }
 async function remove(row: EquipmentRecord) {
   try {
+    const impact = await api<{ expected_version: number; references: {lines: number; towers: number; spans: number; locations: number} }>(
+      `/catalog/${kind.value}/${row.id}/deletion-impact`);
+    const { lines, towers, spans, locations } = impact.references;
     await ElMessageBox.confirm(
-      "删除后从正常列表与新增选择中移除，正式历史和已有引用保留。",
+      `当前关联线路 ${lines} 条、逻辑杆塔 ${towers} 基、档距 ${spans} 条、正式需求位置 ${locations} 处。删除后保留已有引用与历史，并停止新增选用。`,
       "确认删除",
       { type: "warning" },
     );
     await api(`/catalog/${kind.value}/${row.id}`, "DELETE", {
-      expected_version: row.version,
+      expected_version: impact.expected_version, expected_references: impact.references,
     });
     await refresh();
   } catch (failure) {
@@ -214,7 +225,7 @@ function clearSearch() {
   void load();
 }
 watch(kind, () => {
-  selectedIds.value = [];
+  appliedQuery.value = "";
   rows.value = [];
   history.value = null;
   void load();
@@ -265,17 +276,7 @@ onMounted(async () => {
         }}
       </p>
     </div>
-    <div class="page-heading-actions">
-      <ElButton :data-guide-action="kind === 'physical' ? 'ledger.physical' : kind === 'towers' ? 'ledger.logical' : kind === 'spans' ? 'ledger.span' : voltage ? 'dictionaries.voltage' : 'ledger.line'" :disabled="!can('admin') || !definitions[kind]" type="primary" @click="edit()"
-        >新增{{ definitions[kind]?.title }}</ElButton
-      ><ExchangePanel
-        v-if="!voltage"
-        kind="assets"
-        :query="query"
-        :selected-ids="selectedIds"
-        @changed="load"
-      />
-    </div>
+
   </div>
   <ElTabs v-if="!voltage" v-model="kind"
     ><ElTabPane
@@ -289,26 +290,8 @@ onMounted(async () => {
     ><ElButton @click="load">重试</ElButton></ElAlert
   >
   <div class="panel">
-    <div class="toolbar">
-      <ElInput
-        v-model="query"
-        clearable
-        placeholder="搜索名称或真实属性"
-        @change="
-          page = 1;
-          load();
-        "
-      /><ElCheckbox data-guide-action="ledger.show-deleted"
-        v-model="deleted"
-        @change="
-          page = 1;
-          load();
-        "
-        >包含已删除</ElCheckbox
-      ><ElButton @click="load">刷新</ElButton
-      ><span class="muted">共 {{ total }} 项</span>
-    </div>
-    <BusinessTable :detail-column="kind === 'physical' ? 'asset_no' : kind === 'towers' ? 'tower_no' : kind === 'spans' ? 'start_tower_no' : 'name'" @open-detail="detailDialog.open($event.id)"
+
+    <BusinessTable detail-fallback-key="label" :detail-column="kind === 'physical' ? 'asset_no' : kind === 'towers' ? 'tower_no' : kind === 'spans' ? 'start_tower_no' : 'name'" @open-detail="detailDialog.open($event.id)"
       :rows="rows"
       :columns="columns"
       :table-key="'catalog:' + kind"
@@ -326,12 +309,58 @@ onMounted(async () => {
       :selectable="!voltage"
       :actions-width="180"
       @clear-search="clearSearch"
-      @selection-change="
-        (selected) => (selectedIds = selected.map((row) => String(row.id)))
-      "
+      :selected-ids="selectedIds" @selection-change="selection.updatePage"
       @sort-change="tableSort"
       @filter-change="tableFilter"
     >
+      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
+        <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="设备批量操作">
+          <span role="status">已选 {{ selected.length }} 条</span>
+          <ExchangePanel kind="assets" :asset-kind="kind === 'voltages' ? undefined : kind"
+            :selected-ids="selectedIds" :applied-query="appliedQuery" @changed="load" @inspect="inspectImport" />
+          <ElButton link @click="selection.clear">清空选择</ElButton>
+          <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+        </div>
+        <div v-else class="unified-list-tools">
+          <div class="toolbar">
+            <ElInput
+        v-model="query"
+        clearable
+        placeholder="搜索名称或真实属性"
+        @change="
+          page = 1;
+          load();
+        "
+      />
+            <ElPopover trigger="click" placement="bottom-start">
+              <template #reference><ElButton>筛选</ElButton></template>
+              <ElCheckbox data-guide-action="ledger.show-deleted"
+        v-model="deleted"
+        @change="
+          page = 1;
+          load();
+        "
+        >包含已删除</ElCheckbox
+      >
+            </ElPopover>
+            <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+          </div>
+          <div class="toolbar page-heading-actions">
+      <ElButton :loading="loading" @click="load">刷新</ElButton>
+      <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+      <ElButton :data-guide-action="kind === 'physical' ? 'ledger.physical' : kind === 'towers' ? 'ledger.logical' : kind === 'spans' ? 'ledger.span' : voltage ? 'dictionaries.voltage' : 'ledger.line'" v-if="can('admin') && definitions[kind]" type="primary" @click="edit()"
+        >新增{{ definitions[kind]?.title }}</ElButton
+      ><ExchangePanel
+        v-if="!voltage"
+        kind="assets"
+        :applied-query="appliedQuery"
+        :asset-kind="kind === 'voltages' ? undefined : kind"
+        :selected-ids="selectedIds"
+        @changed="load" @inspect="inspectImport"
+      />
+    </div>
+        </div>
+      </template>
       <template #cell="{ row, column }"
         ><ElTag
           v-if="column.key === 'status'"
@@ -346,33 +375,7 @@ onMounted(async () => {
           >{{ row.deleted ? "已删除" : cell(row, column) }}</ElTag
         ><span v-else>{{ cell(row, column) }}</span></template
       >
-      <template #actions="{ row }"
-        ><RowActions
-          :actions="[
-            { label: '查看', run: () => detailDialog.open(row.id) },
-            {
-              label: '编辑',
-              disabled: !can('admin') || row.deleted,
-              run: () => edit(row),
-            },
-            ...(row.deleted && !voltage
-              ? [
-                  {
-                    label: '更正历史',
-                    disabled: !can('admin'),
-                    run: () => edit(row),
-                  },
-                ]
-              : []),
-            { label: '历史', run: () => viewHistory(row) },
-            {
-              label: '删除',
-              danger: true,
-              disabled: !can('admin') || row.deleted,
-              run: () => remove(row),
-            },
-          ]"
-      /></template> </BusinessTable
+ </BusinessTable
     ><ElPagination
       v-model:current-page="page"
       :page-size="30"
@@ -400,9 +403,9 @@ onMounted(async () => {
         <ElButton v-if="returnToDemand" link type="primary"
           @click="resumeTask(router, returnToDemand)">返回需求详情</ElButton>
         <ElButton data-guide-action="ledger.edit"
-          :disabled="!can('admin') || detail.deleted"
+          v-if="can('admin') && (!detail.deleted || !voltage)"
           @click="edit(detail)"
-          >编辑</ElButton
+          >{{ detail.deleted ? "更正历史" : "编辑" }}</ElButton
         ><ElButton data-guide-action="ledger.history" @click="viewHistory(detail)">完整历史</ElButton
         ><ElButton
           v-if="
@@ -415,7 +418,7 @@ onMounted(async () => {
           >整基更换</ElButton
         ><ElButton data-guide-action="ledger.delete"
           type="danger"
-          :disabled="!can('admin') || detail.deleted"
+          v-if="can('admin') && !detail.deleted"
           @click="remove(detail)"
           >删除</ElButton
         >

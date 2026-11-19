@@ -8,8 +8,7 @@ import { useListRoute } from "../../shared/composables/use-list-route";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
-import RowActions from "../../shared/ui/RowActions.vue";
-import { projectContext, type BusinessFocus } from "../../shared/navigation/business-context";
+import { projectFinanceContext, type BusinessFocus } from "../../shared/navigation/business-context";
 
 interface ProjectListItem {
   id: string;
@@ -67,16 +66,13 @@ async function viewRecord(row: FinanceListItem) {
 function openProjectForRecord(record: FinanceListItem) {
   const focus: BusinessFocus = kind.value === "costs" ? "cost" :
     kind.value === "settlements" ? "settlement" : "reconciliation";
-  void router.push(projectContext(record.project_id, "finance", { focus, record: record.id }));
+  void router.push(projectFinanceContext(record.project_id, route.fullPath, { kind: focus, id: record.id }));
 }
 const rows = ref<FinanceListItem[]>([]), total = ref(0), page = ref(1), query = ref("");
 const sort = ref(""), direction = ref("desc"), filters = ref<Record<string, string>>({});
 const deleted = ref(false), loading = ref(false), error = ref("");
 function openProjectFinance(projectId: string) {
-  void router.push({
-    name: "projects", params: { projectId, work: "finance" },
-    query: { returnTo: route.fullPath },
-  });
+  void router.push(projectFinanceContext(projectId, route.fullPath));
 }
 const settlementItemColumns: TableColumn[] = [
   { key: "amount_fen", label: "费用金额", minWidth: 150 },
@@ -87,6 +83,7 @@ const columns = computed<TableColumn[]>(() => [
   { key: "project_name", label: "子项目", minWidth: 210 },
   { key: "label", label: kind.value === "projects" ? "项目编号" : kind.value === "settlements" ? "结算编号" : "费用事项", minWidth: 190 },
   { key: "amount_fen", label: kind.value === "projects" ? "批准预算" : kind.value === "costs" ? "实际金额" : kind.value === "settlements" ? "本次金额" : "核对结算金额", minWidth: 140, sortable: kind.value !== "projects", filterable: kind.value !== "projects" },
+  ...(kind.value === "settlements" ? [{ key: "effective_amount_fen", label: "当前生效", minWidth: 130, sortable: false, filterable: false }] : []),
   { key: "status", label: "状态", minWidth: 110 },
   ...(kind.value === "projects" ? [] : [{ key: "occurred_on", label: "业务日期", minWidth: 130 }]),
 ]);
@@ -150,27 +147,32 @@ onMounted(() => { void load(); });
     </ElTabs>
   </div>
   <div class="panel">
-    <div class="toolbar"><ElInput v-model="query" clearable placeholder="搜索子项目、编号或费用事项" @change="reset" />
-      <ElCheckbox data-guide-action="finance.show-deleted" v-model="deleted" @change="reset">包含已删除</ElCheckbox><ElButton @click="load">刷新</ElButton></div>
-    <ElAlert v-if="error" :title="error" type="error" :closable="false"><ElButton text @click="load">重试</ElButton></ElAlert>
     <BusinessTable :search-active="!!query" @clear-search="query = ''; filters = {}; page = 1; load()" :table-key="'finance:cross:' + kind" :rows="rows" :columns="columns" :loading="loading" :filter-state="filters"
       :sort-state="{ prop: sort, order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="value => { sort = value.key; direction = value.order === 'ascending' ? 'asc' : 'desc'; reset(); }"
       @filter-change="value => { filters = value; reset(); }">
+      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
+        <div class="unified-list-tools">
+          <div class="toolbar">
+            <ElInput v-model="query" clearable placeholder="搜索子项目、编号或费用事项" @change="reset" />
+            <ElPopover trigger="click" placement="bottom-start">
+              <template #reference><ElButton>筛选</ElButton></template>
+              <ElCheckbox v-model="deleted" @change="reset">包含已删除</ElCheckbox>
+            </ElPopover>
+            <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+          </div>
+          <div class="toolbar">
+            <ElButton :loading="loading" @click="load">刷新</ElButton>
+            <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+          </div>
+        </div>
+      </template>
       <template #cell="{ row, column, value }">
         <ElButton v-if="kind === 'projects' && column.key === 'project_name'" link type="primary" class="cell-link"
           @click="openProjectFinance(row.project_id)">{{ row.project_name }}</ElButton>
         <ElButton v-else-if="kind !== 'projects' && column.key === 'label'" link type="primary" class="cell-link"
           @click="viewRecord(row)">{{ row.label }}</ElButton>
-        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ row.amount_fen == null ? (kind === 'projects' ? '尚未批准' : '—') : money(row.amount_fen) }}</span><span v-else>{{ value ?? '—' }}</span></template>
-      <template #actions="{ row }">
-        <RowActions :actions="kind === 'projects'
-          ? [{ label: '进入项目办理', run: () => openProjectFinance(row.project_id) }]
-          : [
-            { label: '查看记录', run: () => viewRecord(row) },
-            { label: '查看所属项目', run: () => openProjectForRecord(row) },
-          ]" />
-      </template>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="['amount_fen', 'effective_amount_fen'].includes(column.key)">{{ value == null ? (kind === 'projects' ? '尚未批准' : '—') : money(Number(value)) }}</span><span v-else>{{ value ?? '—' }}</span></template>
     </BusinessTable>
     <ElPagination v-model:current-page="page" :total="total" :page-size="30" layout="prev,pager,next,total" @current-change="load" />
   </div>
@@ -203,12 +205,15 @@ onMounted(() => { void load(); });
             {{ currentRecord?.reconciled_cost_fen == null ? '—' : '¥' + money(currentRecord.reconciled_cost_fen) }}
           </ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'reconciliations'" label="核对依据">{{ currentRecord?.evidence || '—' }}</ElDescriptionsItem>
+          <ElDescriptionsItem v-if="kind === 'settlements'" label="当前生效金额">
+            {{ selectedRecord.effective_amount_fen == null ? '尚无批准' : '¥' + money(selectedRecord.effective_amount_fen) }}
+          </ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'settlements'" label="审核结果">
             {{ statusText[currentRecord?.review?.action || ''] || currentRecord?.review?.action || '待审核' }}
           </ElDescriptionsItem>
         </ElDescriptions>
       </div>
-      <div v-if="kind === 'settlements'" class="panel">
+      <div v-if="kind === 'settlements' && currentRecord?.items?.length" class="panel">
         <h2>本次结算明细</h2>
         <BusinessTable :rows="currentRecord?.items || []" :columns="settlementItemColumns"
           table-key="finance:cross:settlement-items" client-side>

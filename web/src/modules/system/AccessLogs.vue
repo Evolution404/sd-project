@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, reactive, ref } from "vue";
 import { ElMessage } from "element-plus";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -9,6 +9,11 @@ import { useListRoute } from "../../shared/composables/use-list-route";
 import type { AccessRecord } from "../../../../server/platform/access-logs/service";
 const page = ref(1), sort = ref("time"), direction = ref("desc"), filters = ref<Record<string, string>>({});
 const from = ref(""), to = ref(""), ip = ref(""), username = ref(""), method = ref(""), status = ref(""), q = ref("");
+const fields = { from, to, ip, username, method, status, q };
+const draft = reactive({ from: "", to: "", ip: "", username: "", method: "", status: "", q: "" });
+function syncDraft() {
+  for (const key of Object.keys(fields) as (keyof typeof fields)[]) draft[key] = fields[key].value;
+}
 const rows = ref<AccessRecord[]>([]), total = ref(0), loading = ref(false), exporting = ref(false);
 const detail = ref<AccessRecord | null>(null), dialog = ref(false), diagnostic = ref("");
 const retention = ref(30), maxBytes = ref(0);
@@ -46,19 +51,27 @@ async function load() {
   } catch (error) { ElMessage.error((error as Error).message); }
   finally { if (request === sequence) loading.value = false; }
 }
-function apply() { page.value = 1; void load(); }
+function refreshFirstPage() { page.value = 1; void load(); }
+function apply() {
+  for (const key of Object.keys(fields) as (keyof typeof fields)[]) fields[key].value = draft[key] || "";
+  refreshFirstPage();
+}
 function sortChanged(value: { key: string; order: string }) {
   sort.value = value.key;
   direction.value = value.order === "ascending" ? "asc" : "desc";
-  apply();
+  refreshFirstPage();
 }
 async function exportLogs() {
   exporting.value = true;
-  try { await download("/access-logs/export?" + search()); }
+  const applied = search();
+  applied.delete("page");
+  applied.delete("page_size");
+  try { await download("/access-logs/export?" + applied); }
   catch (error) { ElMessage.error((error as Error).message); }
   finally { exporting.value = false; }
 }
-useListRoute({ page, sort, direction, filters, from, to, ip, username, method, status, q }, load);
+useListRoute({ page, sort, direction, filters, ...fields }, () => { syncDraft(); void load(); });
+syncDraft();
 onMounted(load);
 </script>
 <template>
@@ -66,22 +79,21 @@ onMounted(load);
   <div class="panel access-logs">
     <ElForm label-position="top" novalidate @submit.prevent="apply">
       <div class="log-filters">
-        <ElFormItem label="开始时间（北京时间）"><ElDatePicker v-model="from" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>
-        <ElFormItem label="结束时间（北京时间）"><ElDatePicker v-model="to" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>
-        <ElFormItem label="客户端IP"><ElInput v-model="ip" clearable /></ElFormItem>
-        <ElFormItem label="账号"><ElInput v-model="username" clearable /></ElFormItem>
-        <ElFormItem label="请求方法"><ElSelect v-model="method" clearable><ElOption v-for="value in ['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS']" :key="value" :value="value" :label="value" /></ElSelect></ElFormItem>
-        <ElFormItem label="状态码"><ElInput v-model="status" clearable placeholder="例如 403" /></ElFormItem>
-        <ElFormItem label="关键词"><ElInput v-model="q" clearable placeholder="路径、访问结果或请求ID" @keyup.enter="apply" /></ElFormItem>
+        <ElFormItem label="开始时间（北京时间）"><ElDatePicker v-model="draft.from" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>
+        <ElFormItem label="结束时间（北京时间）"><ElDatePicker v-model="draft.to" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>
+        <ElFormItem label="客户端IP"><ElInput v-model="draft.ip" clearable /></ElFormItem>
+        <ElFormItem label="账号"><ElInput v-model="draft.username" clearable /></ElFormItem>
+        <ElFormItem label="请求方法"><ElSelect v-model="draft.method" clearable><ElOption v-for="value in ['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS']" :key="value" :value="value" :label="value" /></ElSelect></ElFormItem>
+        <ElFormItem label="状态码"><ElInput v-model="draft.status" clearable placeholder="例如 403" /></ElFormItem>
+        <ElFormItem label="关键词"><ElInput v-model="draft.q" clearable placeholder="路径、访问结果或请求ID" @keyup.enter="apply" /></ElFormItem>
       </div>
       <div class="log-actions"><ElButton type="primary" @click="apply">查询</ElButton><ElButton :loading="loading" @click="load">刷新</ElButton><ElButton :loading="exporting" @click="exportLogs">下载筛选日志</ElButton></div>
     </ElForm>
     <p class="log-policy">保留最近 {{ retention }} 个北京时间自然日，单文件上限 {{ (maxBytes / 1024 / 1024).toFixed(2) }} MB。下载文件为 UTF-8 JSONL。</p>
     <BusinessTable detail-column="path" @open-detail="detail = $event; dialog = true" :rows="rows" :columns="columns" :loading="loading" table-key="system:access-logs" :filter-state="filters"
       :sort-state="{ prop: sort, order: direction === 'asc' ? 'ascending' : 'descending' }"
-      @sort-change="sortChanged" @filter-change="value => { filters = value; apply(); }">
+      @sort-change="sortChanged" @filter-change="value => { filters = value; refreshFirstPage(); }">
       <template #cell="{ row, column }"><span>{{ logValue(row, column.key) }}</span></template>
-      <template #actions="{ row }"><ElButton link type="primary" @click="detail = row; dialog = true">查看</ElButton></template>
     </BusinessTable>
     <ElPagination v-model:current-page="page" :page-size="30" :total="total" layout="prev,pager,next,total" @current-change="load" />
   </div>

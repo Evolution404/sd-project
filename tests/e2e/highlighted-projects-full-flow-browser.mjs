@@ -54,7 +54,7 @@ page.on("response", async response => {
   if (response.url().includes("/api/") && response.status() >= 400)
     rejected.push({ url: new URL(response.url()).pathname, status: response.status(), message: (await response.json()).message });
 });
-const detail = page.locator(".business-detail-dialog:visible");
+const detail = page.locator(".business-detail-dialog:visible, .business-detail-page[aria-label='费用与结算']:visible");
 const editor = activeEditor(page);
 const budgetMultiplier = 10000;
 function recordStep(name, facts = {}) {
@@ -96,6 +96,10 @@ async function openProject(record, tab = "overview") {
   await detail.getByRole("heading", { name: record.name, exact: true }).waitFor();
   const names = { overview: "概览", scope: "承接需求", approval: "立项与变更", finance: "费用与结算", history: "历史记录" };
   await detail.getByRole("tab", { name: names[tab], exact: true }).click();
+  if (tab === "finance") {
+    await detail.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
+    await page.getByRole("region", { name: "费用与结算", exact: true }).waitFor();
+  }
 }
 async function selectLocations(lineName) {
   await editor.getByRole("button", { name: "添加作业位置", exact: true }).click();
@@ -314,16 +318,22 @@ async function createCost(record, node, title, amount) {
   await saveEditor();
   return system.finance.costs(record.projectId).find(cost => cost.title === title);
 }
-async function createBill(record, node, evidence, amount, resolved, candidate) {
+async function createBill(record, node, evidence, amount, resolved, candidate, itemized = false) {
   await detail.getByRole("button", { name: "新增结算草稿", exact: true }).click();
-  await choose("费用科目", node.name);
-  await choose("关联需求（共同费用可不选）", system.demands.get(record.demandId).demand_no);
+  if (itemized) {
+    await editor.getByText("按子费用", { exact: true }).click();
+    await choose("费用科目", node.name);
+    await choose("关联需求（共同费用可不选）", system.demands.get(record.demandId).demand_no);
+    await editor.getByLabel("依据", { exact: true }).fill(evidence);
+  }
   await editor.getByLabel("本次金额（元）", { exact: true }).fill(amountInput(amount));
-  await editor.getByLabel("依据", { exact: true }).fill(evidence);
-  await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
-  await choose("项目需求", system.demands.get(record.demandId).demand_no);
-  await editor.locator(".el-form-item").filter({ has:page.getByText("本次新增解决量", {exact:true}) })
-    .locator("input").fill(String(resolved));
+  await editor.getByLabel("结算依据", { exact: true }).fill(evidence);
+  if (resolved > 0) {
+    await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
+    await choose("项目需求", system.demands.get(record.demandId).demand_no);
+    await editor.locator(".el-form-item").filter({ has:page.getByText("本次新增解决量", {exact:true}) })
+      .locator("input").fill(String(resolved));
+  }
   if (candidate) {
     await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
     const last = editor.locator(".finance-editor-line").last();
@@ -332,7 +342,8 @@ async function createBill(record, node, evidence, amount, resolved, candidate) {
       .locator("input").fill("0");
   }
   await saveEditor("保存草稿");
-  const bill = system.finance.settlements(record.projectId).find(item => item.draft?.document.items[0].evidence === evidence);
+  const bill = system.finance.settlements(record.projectId).find(item => item.draft?.document.basis === evidence);
+  assert.equal(bill.draft.document.mode, itemized ? "itemized" : "project_total");
   record.bills.push(bill.id);
   return bill;
 }
@@ -379,7 +390,7 @@ async function financialFlow(record, candidate) {
   assert.equal(system.finance.settlements(record.projectId).some(b => b.id === cancelledDraft.id), false);
   recordStep("首次结算草稿撤回及审计保留", { project: record.source_reference });
   const materialAmount = Math.floor(record.approved_settlement_fen / 2);
-  const difference = record.index === 0 ? 123456 : 20000;
+  const difference = record.index === 0 ? -123456 : 20000;
   const materialCost = await createCost(record, materialNode, "模拟绝缘子材料费用", materialAmount);
   await createCost(record, laborNode, "模拟施工费用", record.approved_settlement_fen - materialAmount + difference);
   const baseline = system.finance.summary(record.projectId).actual_cost_fen;
@@ -399,9 +410,9 @@ async function financialFlow(record, candidate) {
   const firstTarget = Math.floor(record.approved_settlement_fen * 0.6);
   const originalAmount = Math.floor(record.submitted_amount_fen * 0.6);
   let firstBill = await createBill(record, materialNode, "模拟第一期，送审额拆分", originalAmount,
-    record.index === 0 ? 10 : 7, candidate);
+    record.index === 0 ? 10 : 7, candidate, record.index === 1);
   firstBill = await submitBill(firstBill, record.index === 0);
-  const oldReconciliation = await reconcile(record, materialCost, firstBill, "原送审版");
+  const oldReconciliation = record.index === 1 ? await reconcile(record, materialCost, firstBill, "原送审版") : null;
   const previousVersion = firstBill.version.id;
   const previousApproval = firstBill.version.approval_version_id;
   await changeApproval(record, { budgetFen: system.projects.get(record.projectId).approval.approved_budget_fen + 100 });
@@ -425,11 +436,13 @@ async function financialFlow(record, candidate) {
   assert.equal(firstBill.version.approval_version_id, previousApproval);
   assert.equal(system.finance.summary(record.projectId).settlement_fen, firstTarget);
   assert.equal(system.finance.summary(record.projectId).reconciled_cost_fen, 0);
-  const staleRow = detail.getByRole("row").filter({ hasText:"模拟双金额核对原送审版" }).first();
-  await rowAction(staleRow, "删除");
-  await confirm();
-  assert.equal(system.finance.reconciliationHistory(oldReconciliation.record_id).at(-1).status, "voided");
-  await reconcile(record, materialCost, firstBill, "审定修正版");
+  if (oldReconciliation) {
+    const staleRow = detail.getByRole("row").filter({ hasText:"模拟双金额核对原送审版" }).first();
+    await rowAction(staleRow, "删除");
+    await confirm();
+    assert.equal(system.finance.reconciliationHistory(oldReconciliation.record_id).at(-1).status, "voided");
+    await reconcile(record, materialCost, firstBill, "审定修正版");
+  }
   recordStep("结算修订替代及原核对撤销再核对", { project:record.source_reference, first_bill:firstBill.number });
 
   const second = await createBill(record, laborNode, "模拟第二期", record.approved_settlement_fen - firstTarget - 10000,
@@ -439,6 +452,9 @@ async function financialFlow(record, candidate) {
   await submitBill(third);
   let summary = system.finance.summary(record.projectId);
   assert.equal(summary.settlement_fen, record.approved_settlement_fen);
+  assert.equal(summary.excess_settlement_fen, record.index === 0 ? 123456 : 0);
+  assert.equal(summary.project_total_settlement_fen, record.index === 0 ? summary.settlement_fen : summary.settlement_fen - firstTarget);
+  assert.equal(system.finance.settlement(third.id).resolutions.length, 0);
   const mainResult = summary.demands.find(d => d.demand_id === record.demandId);
   assert.equal(mainResult.resolved_quantity_scaled, record.index === 0 ? 170000 : 120000);
   if (candidate) {
@@ -451,17 +467,17 @@ async function financialFlow(record, candidate) {
   await rowAction(thirdRow, "发起新修订");
   await editor.getByLabel("结算依据", { exact:true }).fill("模拟未提交修订，随后撤回");
   await saveEditor("保存草稿");
-  await detail.getByRole("tab", { name:"概览", exact:true }).click();
+  await openProject(record, "overview");
   await detail.getByText(/尚有未提交的结算草稿或修订草稿/).waitFor();
   assert.equal(await detail.getByRole("button", { name:"结项核对", exact:true }).isDisabled(), true);
-  await detail.getByRole("tab", { name:"费用与结算", exact:true }).click();
+  await openProject(record, "finance");
   await rowAction(thirdRow, "撤回草稿");
   await confirm();
   await thirdRow.getByText(/已审核/).waitFor();
   assert.equal(system.finance.settlement(third.id).draft, null);
   assert.equal(system.finance.summary(record.projectId).settlement_fen, record.approved_settlement_fen);
   recordStep("撤回未提交结算修订，保留原批准金额", { project:record.source_reference });
-  await detail.getByRole("tab", { name:"概览", exact:true }).click();
+  await openProject(record, "overview");
   await detail.getByRole("button", { name:"结项核对", exact:true }).click();
   const closeDialog = page.getByRole("dialog", { name:"结项前业务核对", exact:true });
   await closeDialog.getByText("待核对费用", { exact:true }).waitFor();

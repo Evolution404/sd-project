@@ -34,7 +34,7 @@ async function closeDetail() {
 try {
   await page.goto(`${base}/#/demands`);
   await login("admin", "Schema113-test-password");
-  await page.getByRole('row').filter({ hasText: demand.demand_no }).getByRole('button', { name: '查看', exact: true }).click();
+  await page.getByRole('row').filter({ hasText: demand.demand_no }).locator(".cell-link:visible").first().click();
   await detail.getByRole('heading', { name: /安装防鸟装置 · 防鸟设施缺失/ }).waitFor();
   await detail.getByText('需求编号：' + demand.demand_no, { exact: false }).waitFor();
   assert.equal(page.url(), `${base}/#/demands`);
@@ -57,7 +57,7 @@ try {
   await page.waitForTimeout(800);
   assert.equal(await page.locator('main .el-table__body-wrapper .el-table__row').count(), 0);
   await page.getByText('没有符合筛选条件的记录', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '清除检索与筛选', exact: true }).last().click();
+  await page.getByRole('button', { name: '清除检索与列筛选', exact: true }).last().click();
   assert.equal(await demandSearch.inputValue(), '');
   await demandSearch.clear();
   await demandSearch.press('Enter');
@@ -78,7 +78,7 @@ try {
   await page.getByRole("button", { name: "下一页", exact: true }).click();
   await page.waitForURL(/page=2/);
   const listUrl = page.url();
-  await page.getByRole('row').filter({ hasText: '路由验收00线' }).getByRole('button', { name: '查看', exact: true }).click();
+  await page.getByRole('row').filter({ hasText: '路由验收00线' }).locator(".cell-link:visible").first().click();
   await detail.getByRole('heading', { name: /路由验收00线/ }).waitFor();
   assert.equal(page.url(), listUrl);
   assert.ok(await page.getByRole('heading', { name: '输电设备台账', exact: true }).isVisible());
@@ -87,7 +87,7 @@ try {
   const search = page.getByPlaceholder('搜索名称或真实属性');
   await search.fill('路由验收17线');
   await search.press('Enter');
-  await page.getByRole('row').filter({ hasText: '路由验收17线' }).getByRole('button', { name: '查看', exact: true }).click();
+  await page.getByRole('row').filter({ hasText: '路由验收17线' }).locator(".cell-link:visible").first().click();
   await closeDetail();
   assert.equal(await search.inputValue(), '路由验收17线');
   assert.equal(await page.locator('.el-pager .is-active').innerText(), '1');
@@ -107,9 +107,9 @@ try {
   await page.locator('main h1').click();
   await selectNavigation(page, "基础数据");
   await page.getByRole('tab', { name: '电压等级', exact: true }).click();
-  await page.getByRole('row').filter({ hasText: '500kV' }).getByRole('button', { name: '更多操作' }).click();
+  await page.getByRole('row').filter({ hasText: '500kV' }).locator('.cell-link:visible').first().click();
   const beforeHistory = page.url();
-  await page.getByRole('menuitem', { name: '历史', exact: true }).click();
+  await detail.getByRole('button', { name: '完整历史', exact: true }).click();
   await detail.getByRole('heading', { name: '完整版本与审计历史', exact: true }).waitFor();
   assert.equal(page.url(), beforeHistory);
   await closeDetail();
@@ -124,7 +124,7 @@ try {
   assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
     "finance opens in project-first workflow mode");
   const financeUrl = page.url();
-  await page.getByRole('button', { name: '进入项目办理', exact: true }).click();
+  await page.locator(".cell-link:visible").first().click();
   const financeWork = page.getByRole("region", { name: "费用与结算", exact: true });
   await financeWork.getByRole('heading', { name: '独立结算单', exact: true }).waitFor();
   assert.match(page.url(), /\/projects\/[^/]+\/finance/);
@@ -154,9 +154,9 @@ try {
   await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await page.goto(`${base}/#/ledger`);
   await login('route-reader', 'Route-reader-password');
-  await page.getByRole('row').filter({ hasText: '路由验收34线' }).getByRole('button', { name: '查看', exact: true }).click();
+  await page.getByRole('row').filter({ hasText: '路由验收34线' }).locator(".cell-link:visible").first().click();
   await detail.getByRole('heading', { name: /路由验收34线/ }).waitFor();
-  assert.ok(await detail.getByRole('button', { name: '编辑', exact: true }).isDisabled());
+  assert.equal(await detail.getByRole('button', { name: '编辑', exact: true }).count(), 0);
   await closeDetail();
   await page.goto(`${base}/#/system/audit`);
   await page.getByRole('heading', { name: '工作台', exact: true }).waitFor();

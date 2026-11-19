@@ -35,7 +35,7 @@ const browser = await chromium.launch(existsSync(chromium.executablePath())
 const page = await browser.newPage({ viewport: { width: 1450, height: 1000 } });
 try {
   await page.goto("http://127.0.0.1:" + server.address().port
-    + "/#/projects?project=" + project.id + "&tab=finance");
+    + "/#/projects/" + project.id + "/finance");
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();

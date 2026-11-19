@@ -80,7 +80,7 @@ try {
     await page.goto("http://127.0.0.1:" + server.address().port + "/#/" + path);
     await page.locator("main h1").waitFor();
     if (path === "finance") {
-      await page.getByRole("button", { name: "进入项目办理", exact: true }).first().click();
+      await page.locator(".cell-link:visible").first().click();
       await page.locator(".business-detail-page:visible").waitFor();
       await page.locator(".business-detail-page:visible")
         .getByRole("button", { name: "核定费用", exact: true }).waitFor();
@@ -94,8 +94,8 @@ try {
       assert.ok(alignment.every(diff => diff < 8), "panel headings and buttons must share a baseline " + alignment);
     }
     await page.getByRole("button", { name: button, exact: true }).click();
-    const routed = kind === "demand" || kind === "settlement";
-    const dialog = routed ? page.getByRole("region", { name: kind === "demand" ? "新增专业需求" : "编制结算草稿", exact: true })
+    const routed = ["operation", "demand", "settlement"].includes(kind);
+    const dialog = routed ? page.getByRole("region", { name: kind === "operation" ? "新增操作类型" : kind === "demand" ? "新增专业需求" : "编制结算草稿", exact: true })
       : page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog").last();
     await dialog.waitFor();
     // Capture neutral, fully animated form states before the focus test opens
@@ -110,10 +110,17 @@ try {
       await inspect(dialog, kind, width);
     }
     if (kind === "settlement") {
+      await dialog.getByLabel("本次金额（元）", { exact: true }).waitFor();
+      assert.equal(await dialog.getByText("费用明细 1", { exact: true }).count(), 0);
+      await dialog.getByText("按子费用", { exact: true }).click();
+      await dialog.getByText("费用明细 1", { exact: true }).waitFor();
       assert.equal(await dialog.getByText("费用明细 1", { exact: true }).count(), 1);
       assert.equal(await dialog.getByRole("button", { name: "移除此项", exact: true }).count(), 1);
     }
-    if (routed) await dialog.getByRole("button", { name: "← 返回", exact: true }).click();
+    if (routed) {
+      await dialog.getByRole("button", { name: "← 返回", exact: true }).click();
+      if (kind === "settlement") await page.getByRole("button", { name: "放弃修改", exact: true }).click();
+    }
     else await dialog.locator(".el-dialog__headerbtn").click();
     await dialog.waitFor({state: "hidden"});
   }

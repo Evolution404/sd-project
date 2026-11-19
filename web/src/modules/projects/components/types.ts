@@ -28,6 +28,10 @@ export interface ProjectCloseDemandFact {
 export interface ProjectFinanceSnapshot {
   actual_cost_fen: number;
   settlement_fen: number;
+  settlement_progress_percent: number | null;
+  project_total_settlement_fen: number;
+  unsettled_cost_fen: number | null;
+  excess_settlement_fen: number | null;
   unreconciled_cost_fen: number;
   budget_difference_fen: number | null;
   demands: ProjectCloseDemandFact[];

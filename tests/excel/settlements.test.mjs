@@ -162,3 +162,21 @@ test("partial success excludes invalid documents, atomic batch rolls back every 
   );
   assert.equal(s.finance.allSettlements().length, 1);
 });
+
+test("project total workbook can round-trip without detail sheets or an artificial new draft", async t => {
+  const { s, user, project } = approvedFixture(t);
+  const exchange = createExchange(s);
+  const input = await makeWorkbook("settlements", {
+    documents: [{ number: "TOTAL-EXCEL", project_id: project.id, mode: "按项目总额", amount_fen: 123456 }],
+  });
+  const imported = await exchange.preview(user, "settlements", input, { projectId: project.id });
+  assert.deepEqual(imported.issues, []);
+  const result = exchange.commit(user, imported.token, { request_key: "total-excel-draft" });
+  const bill = s.finance.settlement(result.results[0].id);
+  assert.equal(bill.draft.document.amount_fen, 123456);
+  assert.deepEqual(bill.draft.document.items, []);
+  const exportData = await exchange.exportData(user, "settlements", { projectId: project.id, ids: [bill.id] });
+  const preview = await exchange.preview(user, "settlements", exportData, { mode: "update", projectId: project.id });
+  assert.deepEqual(preview.issues, []);
+  assert.equal(preview.documents[0].action, "unchanged");
+});

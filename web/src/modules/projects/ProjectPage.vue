@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
+import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import HandlingReviewDialog from "../../shared/ui/HandlingReviewDialog.vue";
 import { useHandlingReview } from "../../shared/composables/use-handling-review";
 import { usePageSelection } from "../../shared/composables/use-page-selection";
@@ -35,7 +37,7 @@ import ProjectOverview from "./components/ProjectOverview.vue";
 import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
 import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
-import { api, download, money, quantity } from "../../shared/api/client";
+import { ApiError, api, download, money, quantity } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { System } from "../../../../server/bootstrap";
 import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate } from "../../../../server/database/repositories/projects";
@@ -85,18 +87,18 @@ const approvalReviewPage = computed(() => projectWork.value === "review");
 const projectFinancePage = computed(() => projectWork.value === "finance" || projectWork.value === "settlements");
 const approvalEditorTitle = computed(() => detail.value?.approval ? "编制项目变更" : "编制项目立项");
 const approvalReviewTitle = computed(() => detail.value?.approval ? "审核项目变更" : "审核项目立项");
-function goToProjectWork(work: string, recordId = "", recordAction = "") {
+function goToProjectWork(work: string, recordId = "", recordAction = "", focus = "") {
   const project = detail.value;
   if (!project) return;
   return workRoute.enter({
     name: "projects", params: { projectId: project.id, work, recordId, recordAction },
-    query: route.query,
+    query: { ...route.query, ...(focus ? { focus, record: recordId } : {}) },
   });
 }
 function returnFromProjectWork() {
   if (projectWork.value === "finance" && typeof route.query.returnTo === "string") {
     const origin = router.resolve(route.query.returnTo);
-    if (origin.name === "finance") return workRoute.exit(origin.fullPath);
+    if (["finance", "dashboard", "frameworks", "agreements", "funding"].includes(String(origin.name))) return workRoute.exit(origin.fullPath);
   }
   if (projectWork.value === "settlements") return workRoute.exit({ name: "projects",
     params: { projectId: workProjectId.value, work: "finance", recordId: "", recordAction: "" }, query: route.query,
@@ -151,6 +153,7 @@ const overviewProject = computed<ProjectOverviewFacts | null>(() => {
 });
 const rows = ref<ProjectListItem[]>([]),
   listLoading = ref(false),
+  listReadError = ref(""),
   showDeleted = ref(false),
   total = ref(0),
   page = ref(1),
@@ -194,7 +197,7 @@ function stockSelectedProjects() {
   void handling.review({
     title: "核对批量入库", description: "入库后年度框架锁定。只有下方标为可办理的储备项目会提交。",
     targets, previewPath: "/projects/stock-batch/preview", commitPath: "/projects/stock-batch",
-    complete: async () => { selection.clear(); await load(); },
+    complete: async ids => { selection.remove(ids); await load(); },
   });
 }
 const approvalLoading = ref(false), approvalLoadError = ref("");
@@ -292,7 +295,7 @@ const listStatus = computed({
 });
 const projectColumns: TableColumn[] = [
   { key: "name", label: "项目名称", minWidth: 220 },
-  { key: "display_status", label: "项目状态", minWidth: 155, hideable: false },
+  { key: "display_status", filterable: false, label: "项目状态", minWidth: 155, hideable: false },
   { key: "approval", filterable: false, label: "批准预算", sortable: false },
   { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
   { key: "code", label: "项目编号", minWidth: 150 },
@@ -303,6 +306,18 @@ function sortTable(value: { key: string; order: string }) {
   page.value = 1;
   load();
 }
+const pendingSearch = ref(query.value);
+watch(query, (value) => { pendingSearch.value = value; }, { immediate: true });
+function applySearch() {
+  query.value = pendingSearch.value.trim();
+  resetListPage();
+}
+function clearSearchAndColumns() {
+  query.value = "";
+  columnFilters.value = listStatus.value ? { display_status: listStatus.value } : {};
+  page.value = 1;
+  void load();
+}
 function filterTable(value: Record<string, string>) {
   columnFilters.value = value;
   page.value = 1;
@@ -312,6 +327,7 @@ let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
+  listReadError.value = "";
   try {
     const value = await api<{ items: ProjectListItem[]; total: number }>(
       `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
@@ -325,7 +341,7 @@ async function load() {
       if (sequence === loadSequence && detail.value?.id === id) detail.value = updated;
     }
   } catch (error) {
-    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+    if (sequence === loadSequence) listReadError.value = (error as Error).message;
   } finally {
     if (sequence === loadSequence) listLoading.value = false;
   }
@@ -546,6 +562,27 @@ async function openDialog(type: string) {
   }
   if (request === approvalRequest && dialog.value === type && detail.value?.id === project.id) draftGuard.capture();
 }
+const projectConflict = ref("");
+watch([dialog, () => detail.value?.id], () => { projectConflict.value = ""; });
+async function compareProject() {
+  const project = editing.value || detail.value;
+  if (!project) return [];
+  const latest = await api<ProjectDetail>(`/projects/${project.id}`);
+  if (dialog.value === "approval") {
+    return [
+      { label: "项目办理版本", draft: String(form.value.expected_version || project.version), current: String(latest.version) },
+      { label: "批准预算", draft: "¥" + money(form.value.approved_budget_fen),
+        current: latest.approval ? "¥" + money(latest.approval.approved_budget_fen) : "尚未批准" },
+      { label: "需求数", draft: String(approvalRows.value.filter(row => row.selected).length),
+        current: String(latest.scopes.filter(row => row.binding).length) },
+    ];
+  }
+  return [
+    { label: "档案版本", draft: String(form.value.expected_version || project.profile_version), current: String(latest.profile_version) },
+    { label: "项目名称", draft: form.value.name || "—", current: latest.name },
+    { label: "计划结束", draft: form.value.planned_end_on || "未填写", current: latest.planned_end_on || "未填写" },
+  ];
+}
 async function save() {
   if (busy.value || dialog.value === "approval" && (approvalLoading.value || approvalLoadError.value)) return;
   if (dialog.value === "charge" &&
@@ -634,7 +671,9 @@ async function save() {
       await detailDialog.open(newlyCreatedProject.id);
     }
   } catch (e) {
-    ElMessage.error((e as Error).message);
+    if ((dialog.value === "approval" || (dialog.value === "project" && editing.value)) && e instanceof ApiError && e.status === 409)
+      projectConflict.value = e.message;
+    else ElMessage.error((e as Error).message);
   } finally {
     busy.value = false;
   }
@@ -926,14 +965,7 @@ onMounted(async () => {
       <div>
         <h1>子项目管理</h1>
       </div>
-      <div class="page-heading-actions">
-        <ElButton
-          :disabled="!can('write')"
-          type="primary"
-          data-guide-action="projects.create" @click="editProject()"
-          >新增子项目</ElButton
-        >
-      </div>
+
     </div>
     <ElTabs v-model="listStatus" aria-label="按项目状态筛选">
       <ElTabPane name="" label="全部项目" />
@@ -941,27 +973,57 @@ onMounted(async () => {
         :name="state" :label="state" />
     </ElTabs>
     <div class="panel">
-      <div class="toolbar">
-        <ElInput
-          v-model="query"
-          clearable
-          placeholder="搜索项目编号或名称"
-          @change="resetListPage"
-        /><ElCheckbox data-guide-action="projects.show-deleted" v-model="showDeleted" @change="resetListPage"
-          >包含已删除</ElCheckbox
-        ><ElButton @click="load">刷新</ElButton>
-      </div>
+      <ElAlert v-if="listReadError" :title="listReadError" type="error" :closable="false">
+        <p v-if="rows.length">当前显示上次成功读取的结果。</p>
+        <ElButton link type="primary" @click="load">重试</ElButton>
+      </ElAlert>
+      <BusinessTable :search-active="!!query" @clear-search="clearSearchAndColumns" :fixed-filter-keys="['display_status']" :loading="listLoading" :rows="rows" :columns="projectColumns" table-key="project:list" selectable :selected-ids="selectedIds" @selection-change="selection.updatePage" :filter-state="columnFilters"
+        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
+        @sort-change="sortTable" @filter-change="filterTable">
+        <template #toolbar="{ openSettings, clearFilters, hasActiveFilters, appliedFilters }">
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="子项目批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
+        <span class="muted">本页 {{ rows.length }} 条</span>
         <ElButton :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
-        <ElButton v-if="listStatus === '储备' && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
+        <ElButton v-if="selected.some(row => row.display_status === '储备' && !row.deleted) && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
+        <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
         <span v-else-if="eligibleIds.length !== selected.length" class="muted">导出前请取消勾选已删除记录</span>
       </div>
-      <BusinessTable :search-active="!!query" @clear-search="query = ''; columnFilters = {}; page = 1; load()" :loading="listLoading" :rows="rows" :columns="projectColumns" table-key="project:list" selectable :selected-ids="selectedIds" @selection-change="selection.updatePage" :filter-state="columnFilters"
-        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
-        @sort-change="sortTable" @filter-change="filterTable">
+          <div v-else class="unified-list-tools">
+            <div class="toolbar">
+        <ElInput
+          v-model="pendingSearch"
+          clearable
+          placeholder="搜索项目编号或名称"
+          @change="applySearch" @keyup.enter="applySearch"
+        />
+            <ElPopover trigger="click" placement="bottom-start">
+              <template #reference><ElButton>筛选</ElButton></template>
+              <ElCheckbox data-guide-action="projects.show-deleted" v-model="showDeleted" @change="resetListPage"
+          >包含已删除</ElCheckbox
+        >
+            </ElPopover>
+              <span role="status" class="muted">本页 {{ rows.length }} 条</span>
+              <ElTag v-for="condition in appliedFilters" :key="condition.label" effect="plain">{{ condition.label }} · {{ condition.value }}</ElTag>
+              <ElTag v-if="showDeleted" effect="plain">包含已删除</ElTag>
+              <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+            </div>
+            <div class="toolbar page-heading-actions">
+              <ElButton :loading="listLoading" @click="load">刷新</ElButton>
+              <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+
+        <ElButton
+          v-if="can('write')"
+          type="primary"
+          data-guide-action="projects.create" @click="editProject()"
+          >新增子项目</ElButton
+        >
+
+            </div>
+          </div>
+        </template>
         <template #cell="{ row, column }">
           <ElButton v-if="column.key === 'name'" link type="primary" class="cell-link" @click="open(row)">{{ row.name }}</ElButton>
           <ElTag v-else-if="column.key === 'display_status'" effect="plain"
@@ -969,9 +1031,6 @@ onMounted(async () => {
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x) => x.binding).length || 0 }}</span>
           <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
-        </template>
-        <template #actions="{ row }">
-          <ElButton size="small" @click="open(row)">进入项目</ElButton>
         </template>
       </BusinessTable>
       <ElPagination
@@ -1010,7 +1069,8 @@ onMounted(async () => {
       <ProjectOverview :project="overviewProject" :summary="overviewSummary" :framework="overviewFramework"
         :agreement="overviewAgreement" :loading="overviewLoading" :can-write="can('write')" :can-admin="can('admin')"
         :delete-reason="deleteReason" :close-reason="closeAction?.reason ?? (closeAction ? '' : undefined)"
-        :description-columns="descriptionColumns"
+        :description-columns="descriptionColumns" :settlement-blockers="closeAction?.settlement_blockers"
+        @settlement="(id) => goToProjectWork('finance', id, '', 'settlement')"
         @fund="(kind, id) => router.push(fundContext(kind, id))"
         @edit="editProject(detail || undefined)" @remove="removeProject" @close="closeReviewOpen = true" />
     </template>
@@ -1182,6 +1242,12 @@ onMounted(async () => {
         </BusinessTable>
       </div></template
     >
+    <ElDescriptions v-if="tab === 'finance' && !projectFinancePage && overviewSummary" border :column="descriptionColumns">
+      <ElDescriptionsItem label="核定实际费用">¥{{ money(overviewSummary.actual_cost_fen) }}</ElDescriptionsItem>
+      <ElDescriptionsItem label="已批准结算">¥{{ money(overviewSummary.settlement_fen) }}</ElDescriptionsItem>
+      <ElDescriptionsItem label="结算进度">{{ settlementProgressText(overviewSummary.settlement_progress_percent) }}</ElDescriptionsItem>
+      <ElDescriptionsItem v-if="overviewSummary.excess_settlement_fen" label="超结算">¥{{ money(overviewSummary.excess_settlement_fen) }}</ElDescriptionsItem>
+    </ElDescriptions>
     <ElButton v-if="tab === 'finance' && !projectFinancePage && !detail.deleted" link type="primary"
       @click="goToProjectWork('finance')">打开项目财务工作区</ElButton>
     <ElAlert
@@ -1190,7 +1256,7 @@ onMounted(async () => {
       type="info"
       :closable="false"
     /><FinancePanel
-      v-if="tab === 'finance' && !detail.deleted"
+      v-if="tab === 'finance' && projectFinancePage && !detail.deleted"
       :project="detail" :refresh-key="financeRevision"
       :focus="route.query.focus === 'cost' || route.query.focus === 'settlement' || route.query.focus === 'reconciliation'
         ? { kind: route.query.focus, id: String(route.query.record || '') } : null"
@@ -1207,6 +1273,8 @@ onMounted(async () => {
           <ElDescriptionsItem label="结项时间">{{ formatVisibleDateTime(closure?.closed_at, 'closed_at') }}</ElDescriptionsItem>
           <ElDescriptionsItem label="实际费用">¥{{ money(closureSnapshot.actual_cost_fen) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="已批准结算">¥{{ money(closureSnapshot.settlement_fen) }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="结算进度">{{ settlementProgressText(closureSnapshot.settlement_progress_percent) }}</ElDescriptionsItem>
+          <ElDescriptionsItem v-if="closureSnapshot.excess_settlement_fen" label="超结算">¥{{ money(closureSnapshot.excess_settlement_fen) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="待核对费用">¥{{ money(closureSnapshot.unreconciled_cost_fen) }}</ElDescriptionsItem>
         </ElDescriptions>
         <BusinessTable v-if="closureSnapshot.demands?.length" table-key="project:closed-quantity"
@@ -1260,7 +1328,8 @@ onMounted(async () => {
     ><ElAlert v-if="dialog === 'approval' && approvalLoadError" type="error" :closable="false" :title="'批准范围读取失败：' + approvalLoadError">
       <ElButton @click="openDialog('approval')">重新读取</ElButton>
       </ElAlert>
-      <ElForm ref="formRef" :model="form" label-position="top" novalidate
+      <VersionConflictNotice :message="projectConflict" :read-current="compareProject" />
+    <ElForm ref="formRef" :model="form" label-position="top" novalidate
         v-loading="dialog === 'approval' && approvalLoading"
         :disabled="dialog === 'approval' && (approvalLoading || !!approvalLoadError)">
       <ElAlert v-if="dialog === 'project' && handoffDemand" type="info" :closable="false"

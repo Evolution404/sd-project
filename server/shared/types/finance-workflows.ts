@@ -69,7 +69,10 @@ export interface SettlementResolutionInput {
   resolved_quantity_scaled: number;
   evidence?: string;
 }
+export type SettlementMode = "project_total" | "itemized";
 export interface SettlementDraftInput {
+  mode?: SettlementMode;
+  amount_fen?: number;
   approval_version_id?: string;
   funding_version_id?: string | null;
   number?: string;
@@ -84,6 +87,8 @@ export interface SettlementDraftInput {
   resolutions?: SettlementResolutionInput[];
 }
 export interface NormalizedSettlementDraft extends Omit<SettlementDraftInput, "items" | "resolutions"> {
+  mode: SettlementMode;
+  amount_fen: number;
   items: SettlementItemInput[];
   resolutions: SettlementResolutionInput[];
   approval_version_id: string;
@@ -104,6 +109,8 @@ export interface SettlementVersion {
   approval_version_id: string;
   funding_version_id: string | null;
   change_type: "void" | "initial" | "revision";
+  mode: SettlementMode;
+  amount_fen: number;
   reason: string;
   basis: string;
   settlement_on: string | null;
@@ -129,6 +136,7 @@ export interface SettlementReviewEvent {
   reason?: string;
 }
 export interface SettlementWorkflow {
+  effective_amount_fen: number | null;
   id: string;
   project_id: string;
   number: string;

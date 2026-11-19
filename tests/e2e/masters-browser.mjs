@@ -22,22 +22,22 @@ const output = join(process.cwd(), "test-results/schema113");
 mkdirSync(output, { recursive: true });
 async function select(label, value) {
   await page
-    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel(label, { exact: true })
     .press("ArrowDown");
   await page.getByRole("option", { name: value, exact: true }).last().click();
 }
 async function save() {
   await page
-    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
   try {
-    await page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden", timeout: 8000 });
+    await page.locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden", timeout: 8000 });
   } catch (error) {
     console.error(
       "MASTER_SAVE_STILL_OPEN",
-      await page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").innerText(),
+      await page.locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").innerText(),
     );
     console.error("MASTER_PAGE_ERRORS", errors);
     await page.screenshot({
@@ -64,11 +64,11 @@ try {
   await page
     .getByRole("row")
     .filter({ hasText: "110kV" })
-    .getByRole("button", { name: "查看", exact: true })
+    .locator(".cell-link:visible").first()
     .click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page
-    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel("名称", { exact: true })
     .fill("110千伏");
   await save();
@@ -84,11 +84,9 @@ try {
     path: join(output, "ledger-detail-1500.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
-  await page.getByRole("row").filter({ hasText: "110千伏" })
-    .getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "删除", exact: true }).click();
+  await page.getByRole("button", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
+  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page.getByText("暂无记录", { exact: true }).waitFor();
   await selectNavigation(page, "作业标准");
   await page.getByRole("tab", { name: "作业对象", exact: true }).click();
@@ -115,7 +113,7 @@ try {
   await select("作业对象", "浏览器专用对象");
   await select("固定计量单位", "件");
   await page
-    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("tab", { name: "录入模板", exact: true })
     .click();
   await page.getByLabel("默认验收标准", { exact: true }).fill("安装牢固");
@@ -131,7 +129,7 @@ try {
   await chooseDemandLocations(page,["T15"]);
   await page.getByLabel("来源说明", { exact: true }).fill("浏览器现场记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
-  await page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+  await page.locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   const demand = s.demands
     .list()
     .find((row) => row.problem_description === "真实动态附加字段验收");
@@ -147,9 +145,10 @@ try {
   await page.locator(".business-detail-dialog:visible").waitFor({ state: "hidden" });
   await selectNavigation(page,"作业标准");
   await page.getByRole("tab",{name:"操作类型",exact:true}).click();
-  await page.getByRole("row").filter({hasText:"浏览器安装"}).getByRole("button",{name:"更多操作"}).click();
-  await page.getByRole("menuitem",{name:"编辑",exact:true}).last().click();
-  const factorEditor=page.getByRole("dialog",{name:"编辑操作类型",exact:true});
+  await page.getByRole("row").filter({hasText:"浏览器安装"}).locator(".cell-link:visible").first().click();
+  await page.locator(".business-detail-dialog:visible").getByRole("button",{name:"编辑",exact:true}).click();
+  const factorEditor=page.getByRole("region",{name:"编辑操作类型",exact:true});
+  await factorEditor.getByRole("tab", { name: "基本定义", exact: true }).waitFor();
   assert.equal(await factorEditor.getByRole("tab").count(),4);
   await addOperationAttribute(page,{label:"施工难度",type:"单选",options:["普通","困难"],pricing:true,requirement:"计价必需"});
   await addOperationAttribute(page,{label:"施工高度",type:"整数",precision:0,min:0,max:100,pricing:true});
@@ -159,9 +158,10 @@ try {
   const definitions=JSON.parse(configured.attributes_schema_json);
   assert.equal(definitions.find(field=>field.label==="施工难度").pricing,true);
   assert.equal(definitions.find(field=>field.label==="施工高度").max,"100");
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name:"关闭详情", exact:true }).click();
   await selectNavigation(page, "参考价格");
   await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
-  const priceEditor=page.getByRole("dialog",{name:"新增参考价格规则",exact:true});
+  const priceEditor=page.getByRole("region",{name:"新增参考价格规则",exact:true});
   await priceEditor.waitFor();
   assert.deepEqual(await priceEditor.getByRole("tab").allTextContents(),
     ["基本信息", "适用条件", "计价方式"]);

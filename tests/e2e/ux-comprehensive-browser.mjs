@@ -49,7 +49,7 @@ page.on("pageerror", err => errors.push(err.message));
 const out = join(process.cwd(), "test-results/schema113/ux-comprehensive");
 mkdirSync(out, { recursive: true });
 const base = "http://127.0.0.1:" + server.address().port;
-const editor = page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+const editor = page.locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
 try {
   await page.goto(base);
   await page.getByLabel("用户名", { exact: true }).fill("admin");
@@ -60,8 +60,9 @@ try {
   assert.ok(await page.getByRole("row").filter({ hasText: oldRule.title })
     .getByText("安装防鸟装置").count(), "operation reference must show the readable name");
   const priceRow = page.getByRole("row").filter({ hasText: oldRule.title });
-  await priceRow.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "编辑", exact: true }).last().click();
+  await priceRow.locator(".cell-link:visible").first().click();
+  const priceDetail = page.locator(".business-detail-dialog:visible");
+  await priceDetail.getByRole("button", { name: "编辑", exact: true }).click();
   await editor.getByLabel("价格来源", { exact: true }).waitFor();
   assert.equal(await editor.getByLabel("价格来源", { exact: true }).inputValue(), "2026年工程价格依据");
   assert.equal(await editor.getByLabel("计价依据", { exact: true }).inputValue(), "现场定额核验");
@@ -70,8 +71,7 @@ try {
   await editor.waitFor({ state: "hidden" });
 
   // Modifying a draft cannot be lost through Cancel or the dialog close icon.
-  await priceRow.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "编辑", exact: true }).last().click();
+  await priceDetail.getByRole("button", { name: "编辑", exact: true }).click();
   await editor.getByLabel("规则名称", { exact: true }).fill("临时调整但不保存");
   await editor.getByRole("button", { name: "取消", exact: true }).click();
   const discard = page.getByRole("dialog", { name: "放弃未保存的修改？" });
@@ -84,8 +84,7 @@ try {
   assert.equal(s.catalog.get("prices", oldRule.id).title, oldRule.title);
 
   // A status-only retirement is possible after the feature version advances.
-  await priceRow.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "停用", exact: true }).last().click();
+  await priceDetail.getByRole("button", { name: "停用规则", exact: true }).click();
   await page.getByRole("button", { name: "确认停用", exact: true }).click();
   await page.getByRole("row").filter({ hasText: oldRule.title }).getByText("停用", { exact: true }).waitFor();
   const stopped = s.catalog.get("prices", oldRule.id);
@@ -94,6 +93,7 @@ try {
   assert.equal(stopped.additional_conditions_json, oldRule.additional_conditions_json);
   assert.equal(s.catalog.history("prices", oldRule.id).length, 2);
   await page.screenshot({ path: join(out, "inactive-price-960.png"), fullPage: true });
+  await priceDetail.getByRole("button", { name: "关闭详情" }).click();
   // Saving on another tab must locate a required error in its correct tab.
   await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
   await editor.getByRole("tab", { name: "计价方式" }).click();
@@ -113,9 +113,9 @@ try {
   await filter.fill("必然不存在的线路");
   await filter.press("Enter");
   await page.getByText("没有符合筛选条件的记录").waitFor();
-  await page.getByRole("button", { name: /已筛选 1 列 · 清除/ }).click();
+  await page.getByRole("button", { name: "清除检索与列筛选", exact: true }).click();
   await page.getByRole("cell", { name: "体验审计线路", exact: true }).waitFor();
-  assert.equal(await page.getByRole("button", { name: /已筛选 1 列 · 清除/ }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "清除检索与列筛选", exact: true }).count(), 0);
 
   // System management requires inline validation and an unsaved draft guard.
   await page.goto(base + "/#/system/users");
@@ -153,7 +153,7 @@ try {
   assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
     "finance opens in project-first workflow mode");
   await page.getByRole("row").filter({ hasText: existingProject.name })
-    .getByRole("button", { name: "进入项目办理" }).click();
+    .locator(".cell-link:visible").first().click();
   const projectDetail = page.locator(".business-work-surface:visible");
   await projectDetail.getByRole("button", { name: "新增科目" }).click();
   await editor.getByLabel("名称", { exact: true }).fill("尚未保存的费用科目");

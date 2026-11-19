@@ -48,7 +48,7 @@ try {
   await page.getByRole("tab",{name:"已批准",exact:true}).click();
   await page.getByRole("row").filter({hasText:"测试子项目"}).waitFor();
   await page.screenshot({path:join(out,"project-stage-tabs.png"),fullPage:true});
-  await page.getByRole("row").filter({hasText:"测试子项目"}).getByRole("button",{name:"进入项目"}).click();
+  await page.getByRole("row").filter({hasText:"测试子项目"}).locator(".cell-link:visible").first().click();
   const detail=page.locator(".business-detail-dialog:visible");
   await detail.getByRole("tab",{name:"承接需求"}).click();
   await detail.getByText("当前正式批准范围内的需求不可直接解绑").waitFor();
@@ -60,7 +60,7 @@ try {
   s.finance.close(user,project.id,{expected_version:project.version});
   await page.reload();
   await page.getByRole("tab",{name:"已结项",exact:true}).click();
-  await page.getByRole("row").filter({hasText:"测试子项目"}).getByRole("button",{name:"进入项目"}).click();
+  await page.getByRole("row").filter({hasText:"测试子项目"}).locator(".cell-link:visible").first().click();
   await detail.getByRole("tab",{name:"承接需求"}).click();
   await detail.getByText("项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。").waitFor();
   await release.waitFor();

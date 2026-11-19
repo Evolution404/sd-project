@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useWorkRoute } from "../../shared/navigation/use-work-route";
+import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { resumeTask } from "../../shared/navigation/business-context";
@@ -26,7 +28,6 @@ import BusinessTable, {
 } from "../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
-import RowActions from "../../shared/ui/RowActions.vue";
 import StandardEditor from "./StandardEditor.vue";
 type Kind = "operations" | "objects";
 type Item = OperationRecord | WorkObjectRecord;
@@ -39,6 +40,15 @@ const route = useRoute(),
   router = useRouter(),
   can = useAccess(),
   descriptionColumns = useDescriptionColumns();
+const workRoute = useWorkRoute();
+const editorMode = computed(() => String(route.params.editor || ""));
+const editorError = ref("");
+let editorOriginDetail = "";
+const editorLoading = ref(false);
+let editorSequence = 0;
+function leaveEditor() {
+  return workRoute.exit({ name: "standards", params: { kind: route.params.kind || "", editor: "", definitionId: "" }, query: route.query });
+}
 const kind = computed({
   get: () => String(route.params.kind || "operations") as Kind,
   set: (value: Kind) => {
@@ -95,7 +105,8 @@ function changeSetupStep(next: "objects" | "operations" | "units") {
       query: returnToDemand.value ? { returnTo: returnToDemand.value } : {} });
   }
 }
-function setupSaved() {
+async function setupSaved() {
+  await leaveEditor();
   if (!returnToDemand.value) return;
   if (kind.value === "objects") changeSetupStep("operations");
   else backToDemand();
@@ -166,23 +177,46 @@ async function load() {
 const detailDialog = useEntityDialog(
   detailState,
   (id) => api<Detail>(`/catalog/${kind.value}/${id}?deleted=true&history=true`),
-  () => {
-    editor.value = false;
-    showHistory.value = false;
-  },
+  () => { showHistory.value = false; },
 );
 async function refresh() {
   await load();
   if (detail.value) await detailDialog.reload();
 }
 function edit(row?: Item) {
-  editing.value = row || null;
-  editor.value = true;
+  editorOriginDetail = detailDialog.isOpen.value ? detail.value?.id || "" : "";
+  return workRoute.enter({ name: "standards", params: { kind: route.params.kind || "", editor: row ? "edit" : "new", definitionId: row?.id || "" }, query: route.query });
 }
-async function history(row: Item) {
-  if (detail.value?.id !== row.id) await detailDialog.open(row.id);
-  if (detail.value?.id === row.id) showHistory.value = true;
+async function loadEditor() {
+  const sequence = ++editorSequence;
+  const mode = editorMode.value;
+  editorError.value = "";
+  editor.value = false;
+  editing.value = null;
+  if (!mode) {
+    editorLoading.value = false;
+    const detailId = editorOriginDetail;
+    editorOriginDetail = "";
+    if (detailId && !detailDialog.isOpen.value) await detailDialog.open(detailId);
+    return;
+  }
+  editorLoading.value = true;
+  try {
+    if (!can("admin")) throw new Error("当前账号没有维护正式定义的权限");
+    const id = route.params.definitionId;
+    const row = mode === "new" ? null : typeof id === "string" && id
+      ? await api<Item>(`/catalog/${kind.value}/${id}`) : null;
+    if (sequence !== editorSequence) return;
+    if (mode !== "new" && (!row || row.deleted)) throw new Error("正式定义不存在或已删除");
+    editing.value = row;
+    editor.value = true;
+  } catch (error) {
+    if (sequence === editorSequence) editorError.value = (error as Error).message;
+  } finally {
+    if (sequence === editorSequence) editorLoading.value = false;
+  }
 }
+watch([editorMode, () => route.params.definitionId, kind], loadEditor, { immediate: true });
 async function remove(row: Item) {
   try {
     const impact = await api<{ references: number; expected_version: number }>(
@@ -204,24 +238,6 @@ async function remove(row: Item) {
   }
 }
 
-function actions(row: Item) {
-  return [
-    { label: "查看", run: () => detailDialog.open(row.id) },
-    {
-      label: "编辑",
-      disabled: !can("admin") || row.deleted,
-      run: () => edit(row),
-    },
-
-    { label: "历史", run: () => history(row) },
-    {
-      label: "删除",
-      danger: true,
-      disabled: !can("admin") || row.deleted,
-      run: () => remove(row),
-    },
-  ];
-}
 function tableSort(value: { key: string; order: string }) {
   sort.value = value.key;
   direction.value = value.order === "ascending" ? "asc" : "desc";
@@ -261,17 +277,14 @@ onMounted(async () => {
 });
 </script>
 <template>
+  <div v-show="!editorMode">
   <div class="page-heading">
     <div>
       <div class="section-caption">作业定义管理</div>
       <h1>作业标准</h1>
       <p>维护固定单位、作业对象和录入模板，正式定义变更保留历史。</p>
     </div>
-    <div class="page-heading-actions">
-      <ElButton :data-guide-action="kind === 'objects' ? 'standards.object' : 'standards.operation'" type="primary" :disabled="!can('admin')" @click="edit()"
-        >新增{{ definitions[kind]?.title }}</ElButton
-      >
-    </div>
+
   </div>
   <ElAlert v-if="returnToDemand" class="setup-return-bar" type="info" :closable="false"
     title="当前正在配置需求录入所需的基础信息；配置完成后将恢复原需求草稿。">
@@ -288,26 +301,7 @@ onMounted(async () => {
       label="作业对象"
   /></ElTabs>
   <div class="panel">
-    <div class="toolbar">
-      <ElInput
-        v-model="query"
-        clearable
-        placeholder="搜索名称或真实属性"
-        @change="
-          page = 1;
-          load();
-        "
-      />
-      <ElCheckbox data-guide-action="standards.show-deleted"
-        v-model="deleted"
-        @change="
-          page = 1;
-          load();
-        "
-        >包含已删除</ElCheckbox
-      ><ElButton @click="load">刷新</ElButton
-      ><span class="muted">共 {{ total }} 项</span>
-    </div>
+
     <ElAlert
       v-if="loadError"
       :title="loadError"
@@ -335,6 +329,40 @@ onMounted(async () => {
       @sort-change="tableSort"
       @filter-change="tableFilter"
     >
+      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
+        <div class="unified-list-tools">
+          <div class="toolbar">
+            <ElInput
+        v-model="query"
+        clearable
+        placeholder="搜索名称或真实属性"
+        @change="
+          page = 1;
+          load();
+        "
+      />
+            <ElPopover trigger="click" placement="bottom-start">
+              <template #reference><ElButton>筛选</ElButton></template>
+              <ElCheckbox data-guide-action="standards.show-deleted"
+        v-model="deleted"
+        @change="
+          page = 1;
+          load();
+        "
+        >包含已删除</ElCheckbox
+      >
+            </ElPopover>
+            <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+          </div>
+          <div class="toolbar page-heading-actions">
+      <ElButton :loading="loading" @click="load">刷新</ElButton>
+      <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+      <ElButton :data-guide-action="kind === 'objects' ? 'standards.object' : 'standards.operation'" type="primary" v-if="can('admin')" @click="edit()"
+        >新增{{ definitions[kind]?.title }}</ElButton
+      >
+    </div>
+        </div>
+      </template>
       <template #cell="{ row, column }"
         ><ElTag
           v-if="column.key === 'status'"
@@ -349,9 +377,7 @@ onMounted(async () => {
           >{{ row.deleted ? "已删除" : cell(row, column) }}</ElTag
         ><span v-else>{{ cell(row, column) }}</span></template
       >
-      <template #actions="{ row }"
-        ><RowActions :actions="actions(row)"
-      /></template>
+
     </BusinessTable>
     <ElPagination
       v-model:current-page="page"
@@ -362,7 +388,7 @@ onMounted(async () => {
     />
   </div>
   <BusinessDetailDialog
-    :open="detailDialog.isOpen.value"
+    :open="detailDialog.isOpen.value && !editorMode"
     :title="(definitions[kind]?.title || '') + '详情'"
     :loading="detailDialog.loading.value"
     :error="detailDialog.error.value"
@@ -380,13 +406,13 @@ onMounted(async () => {
         <ElButton v-if="adoptedDemandReturnTo" link type="primary"
           @click="resumeTask(router, adoptedDemandReturnTo)">返回需求详情</ElButton>
         <ElButton data-guide-action="standards.edit"
-          :disabled="!can('admin') || detail.deleted"
+          v-if="can('admin') && !detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
         ><ElButton data-guide-action="standards.version" @click="showHistory = true">完整历史</ElButton
         ><ElButton data-guide-action="standards.delete"
           type="danger"
-          :disabled="!can('admin') || detail.deleted"
+          v-if="can('admin') && !detail.deleted"
           @click="remove(detail)"
           >删除</ElButton
         >
@@ -420,9 +446,15 @@ onMounted(async () => {
       </div>
     </template>
   </BusinessDetailDialog>
+  </div>
+  <BusinessWorkSurface v-if="editorMode && (editorLoading || editorError)" title="读取办理信息" @back="leaveEditor">
+    <ElSkeleton v-if="editorLoading" :rows="4" animated />
+    <ElAlert v-else :title="editorError" type="error" :closable="false"><ElButton @click="loadEditor">重试</ElButton></ElAlert>
+  </BusinessWorkSurface>
   <StandardEditor
     :key="kind"
-    v-model:open="editor"
+    :open="editor"
+    @update:open="value => { if (!value) leaveEditor(); }"
     :kind="kind"
     :definition="definitions[kind]"
     :editing="editing"

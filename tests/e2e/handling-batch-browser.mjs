@@ -79,9 +79,30 @@ try {
   await linkReview.waitFor({ state: "hidden" });
   assert.equal(s.projects.get(projects[0].id).scopes.filter(row => row.binding).length, 2);
 
+  await page.getByRole("tab", { name: "已承接", exact: true }).click();
+  await page.getByText("本页 2 条", { exact: true }).waitFor();
+  const beforeFilter = await bodyRows.first().locator(".cell-link:visible").first().innerText();
+  await page.getByRole("button", { name: "筛选问题描述", exact: true }).click();
+  const filter = page.getByPlaceholder("筛选问题描述", { exact: true });
+  await filter.fill(beforeFilter);
+  await filter.press("Enter");
+  await page.getByText("本页 1 条", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Excel 批量处理", exact: true }).click();
+  const exchange = page.getByRole("dialog").filter({ hasText: "筛选结果维护导出" });
+  const filtered = page.waitForEvent("download");
+  await exchange.getByRole("button", { name: "筛选结果维护导出", exact: true }).click();
+  const subset = new ExcelJS.Workbook();
+  await subset.xlsx.readFile(await (await filtered).path());
+  assert.equal(subset.getWorksheet("需求清单").actualRowCount, 2);
+
   await page.goto(base + "/#/projects");
-  await page.getByRole("tab", { name: "储备", exact: true }).click();
   for (const project of projects.slice(0, 2)) await selectRow(bodyRows.filter({ hasText: project.name }));
+  await projectBatch.getByText("已选 2 条", { exact: true }).waitFor();
+  const stateBeforeReset = page.url();
+  await projectBatch.getByRole("button", { name: "列设置", exact: true }).click();
+  await page.getByRole("button", { name: "恢复默认", exact: true }).click();
+  await page.getByRole("button", { name: "完成", exact: true }).click();
+  assert.equal(page.url(), stateBeforeReset);
   await projectBatch.getByText("已选 2 条", { exact: true }).waitFor();
   const report = await downloadSelected(projectBatch);
   assert.equal(report.getWorksheet("子项目清单").actualRowCount, 3);
@@ -97,7 +118,7 @@ try {
   const row = bodyRows.filter({ hasText: projects[0].name });
   await selectRow(row);
   const listUrl = page.url();
-  await row.getByRole("button", { name: "进入项目", exact: true }).click();
+  await row.locator(".cell-link:visible").first().click();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.getByRole("button", { name: "编制立项", exact: true }).click();
   const editor = page.getByRole("region", { name: "编制项目立项" });

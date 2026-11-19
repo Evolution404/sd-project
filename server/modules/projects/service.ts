@@ -571,13 +571,13 @@ export function createProjects(
       const rows = repo.selectedProjects(ids);
       requireValue(rows.length === new Set(ids).size, "所选项目已删除或不存在，请刷新后重选", 409);
       return rows.map(row => ({
-        项目编号: row.code, 项目名称: row.name, 项目状态: row.display_status,
+        id: row.id, 项目编号: row.code, 项目名称: row.name, 项目状态: row.display_status,
         "批准预算（元）": row.approval_json ? (JSON.parse(row.approval_json) as Pick<ProjectApprovalVersion, "approved_budget_fen">).approved_budget_fen / 100 : null,
         关联需求数: (JSON.parse(row.scopes_json) as ProjectScopeListItem[]).filter(scope => scope.binding).length,
       }));
     },
-    dashboardPortfolio() {
-      return repo.projectDashboardPortfolio();
+    dashboardPortfolio(ids?: string[]) {
+      return repo.projectDashboardPortfolio(ids);
     },
     workspace(key: string, includeDeleted = false) {
       return get(key, includeDeleted, true);

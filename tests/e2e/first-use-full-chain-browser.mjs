@@ -71,7 +71,7 @@ try {
   assert.equal(s.catalog.list("units").length, 1);
 
   await visit("dictionaries/organizations");
-  await page.getByRole("button", { name: "新增归口单位", exact: true }).click();
+  await page.getByRole("button", { name: "新增根单位", exact: true }).click();
   await editor.getByLabel("名称", { exact: true }).fill("A2空库输电中心");
   await save();
   assert.equal(s.catalog.list("organizations").length, 1);

@@ -112,6 +112,8 @@ try {
   await login("admin", "Schema113-test-password");
   let detail = page.locator(".business-detail-dialog:visible");
   await detail.getByRole("tab", { name: "费用与结算", exact: true }).click();
+  await detail.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
+  detail = page.locator(".business-detail-page:visible");
   const workspace = detail.locator(".cost-category-workspace");
   await workspace
     .locator(".tree-node-label")
@@ -281,7 +283,7 @@ try {
       fullPage: true,
     });
   }
-  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await detail.getByRole("button", { name: "← 返回", exact: true }).click();
   // Restore desktop viewport before exercising tree actions; mobile uses a list/detail switch.
   await page.setViewportSize({ width: 1100, height: 1050 });
   checkpoint("organization-entry");
@@ -315,6 +317,26 @@ try {
     name: "调整组织上级",
     exact: true,
   });
+  let releasePreview;
+  let markPreviewStarted;
+  const pendingPreview = new Promise(resolve => { releasePreview = resolve; });
+  const previewStarted = new Promise(resolve => { markPreviewStarted = resolve; });
+  await page.route("**/organizations/*/move-preview?*", async route => {
+    const response = await route.fetch();
+    markPreviewStarted();
+    await pendingPreview;
+    await route.fulfill({ response });
+  }, { times: 1 });
+  await pickTree(moveEditor, "目标上级单位", "其他公司");
+  await moveEditor.getByRole("button", { name: "预览调整", exact: true }).click();
+  await previewStarted;
+  await pickTree(moveEditor, "目标上级单位", "示例公司");
+  const lateResponse = page.waitForResponse(response => response.url().includes("/move-preview"));
+  releasePreview();
+  await lateResponse;
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  assert.equal(await moveEditor.getByRole("button", { name: "确认调整", exact: true }).isDisabled(), true);
+  assert.equal(await moveEditor.getByText("其他公司 / 运检部", { exact: true }).count(), 0);
   await pickTree(moveEditor, "目标上级单位", "其他公司");
   await moveEditor
     .getByRole("button", { name: "预览调整", exact: true })
@@ -419,7 +441,7 @@ try {
   await page.locator(".organization-workspace").waitFor();
   assert.equal(
     await page
-      .getByRole("button", { name: "新增归口单位", exact: true })
+      .getByRole("button", { name: "新增根单位", exact: true })
       .isDisabled(),
     true,
   );

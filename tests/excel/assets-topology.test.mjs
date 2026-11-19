@@ -60,7 +60,7 @@ test("single workbook creates main line, junction tower, branch, both circuits a
 
   const exported = new ExcelJS.Workbook();
   await exported.xlsx.load(await exchange.exportData(user, "assets", {
-    ids: [branch.id],
+    ids: [branch.id, branchEnd.id, branchSpan.id, branchEnd.physical_tower_id],
   }));
   const lineSheet = exported.getWorksheet("线路"),
     spanSheet = exported.getWorksheet("档距"),
@@ -227,7 +227,7 @@ test("logical tower Excel physical change is not incorrectly unchanged", async (
   });
   const original = s.catalog.get("physical", tower.physical_tower_id);
   const book = new ExcelJS.Workbook();
-  await book.xlsx.load(await exchange.exportData(user, "assets", { ids: [line.id] }));
+  await book.xlsx.load(await exchange.exportData(user, "assets", { ids: [tower.id] }));
   const sheet = book.getWorksheet("杆塔");
   assert.equal(sheet.getRow(2).getCell(headerIndex(sheet, "tower_material")).value, "角钢塔");
   sheet.getRow(2).getCell(headerIndex(sheet, "tower_material")).value = "钢管杆";
@@ -265,7 +265,7 @@ test("conflicting physical-attribute revisions from two shared logical circuits 
     line_id: second.id, tower_no: "#19", physical_mode: "shared", physical_tower_id: physical.id,
   });
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await exchange.exportData(user, "assets", { ids: [main.id, second.id] }));
+  await workbook.xlsx.load(await exchange.exportData(user, "assets", { ids: [first.id, sibling.id] }));
   const towers = workbook.getWorksheet("杆塔");
   assert.equal(towers.rowCount, 3);
   const typeColumn = headerIndex(towers, "tower_material");

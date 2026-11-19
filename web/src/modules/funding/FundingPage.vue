@@ -1,15 +1,15 @@
 <script setup lang="ts">
+import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
-import { fundContext, projectContext } from "../../shared/navigation/business-context";
+import { fundContext, projectContext, projectFinanceContext } from "../../shared/navigation/business-context";
 import { api, money, statusText } from "../../shared/api/client";
 import type { FundingKind, FundingRecord, FundingProject } from "../../../../server/shared/types/funding";
 import { useListRoute } from "../../shared/composables/use-list-route";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import { useAccess } from "../../shared/composables/use-access";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
-import RowActions from "../../shared/ui/RowActions.vue";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
@@ -31,10 +31,11 @@ type FundingDraft = {
 };
 type FundingDetails = {
   item: FundingRecord;
-  projects: FundingProject[];
+  projects: (FundingProject & { settlement_progress_percent: number | null })[];
   agreements: FundingRecord[];
   summary: { project_count: number; approved_budget_fen: number;
-    actual_cost_fen: number; settlement_fen: number; capacity_difference_fen: number };
+    actual_cost_fen: number; settlement_fen: number; capacity_difference_fen: number;
+    settlement_progress_percent: number | null; projects_without_cost_basis: number };
 };
 function emptyDraft(): FundingDraft {
   return {
@@ -72,6 +73,7 @@ const linkedProjectColumns = computed<TableColumn[]>(() => [
   { key: "approved_budget_fen", label: "批准预算", minWidth: 155 },
   { key: "actual_cost_fen", label: "真实费用", minWidth: 155 },
   { key: "settlement_fen", label: "已批准结算", minWidth: 155 },
+  { key: "settlement_progress_percent", label: "结算进度", minWidth: 155 },
 ]);
 const columns = computed<TableColumn[]>(() => isAgreement.value ? [
   { key: "name", label: "协议名称", minWidth: 190 },
@@ -92,7 +94,8 @@ function relatedAgreementCell(row: FundingRecord, column: TableColumn): string {
   if (column.key === "status") return row.deleted ? "已删除" : statusText[row.status] || row.status;
   return String(row[column.key as keyof FundingRecord] ?? "—");
 }
-function relatedProjectCell(row: FundingProject, column: TableColumn): string {
+function relatedProjectCell(row: FundingDetails["projects"][number], column: TableColumn): string {
+  if (column.key === "settlement_progress_percent") return settlementProgressText(row.settlement_progress_percent);
   if (column.key === "approved_budget_fen" || column.key === "actual_cost_fen" || column.key === "settlement_fen")
     return amountText(row[column.key]);
   if (column.key === "display_status") return row.display_status;
@@ -185,12 +188,17 @@ async function save() {
 }
 async function remove(row: FundingRecord) {
   try {
+    const impact = await api<{ expected_version: number; projects: FundingProject[]; agreements: FundingRecord[]; reference_ids: string[] }>(
+      `/funding/${props.kind}/${row.id}/deletion-impact`);
+    const label = (items: { name: string }[]) => items.length
+      ? ` ${items.length} 项（${items.slice(0, 5).map(item => item.name).join("、")}${items.length > 5 ? "等" : ""}）` : " 0 项";
     await ElMessageBox.confirm(
-      "删除后不再用于新业务关联，正式历史、已关联项目及费用仍完整保留。",
+      "关联子项目" + label(impact.projects) + "，关联执行协议" + label(impact.agreements) +
+        "。删除后停止新增关联，保留现有业务和历史。",
       "确认删除" + title.value, { type: "warning" },
     );
     await api(`/funding/${props.kind}/${row.id}`, "DELETE",
-      { expected_version: row.version_no });
+      { expected_version: impact.expected_version, expected_references: impact.reference_ids });
     await load();
     if (detailsOpen.value && selectedId.value === row.id) await refreshDetails();
     ElMessage.success("已保留历史并从可选业务移除");
@@ -241,39 +249,42 @@ onMounted(() => void load());
       <h1>{{ title }}</h1>
       <p>{{ introduction }}</p>
     </div>
-    <div class="page-heading-actions">
-      <ElButton :data-guide-action="isAgreement ? 'agreements.create' : 'frameworks.create'" type="primary" :disabled="!can('write')" @click="startEdit()">新增{{ title }}</ElButton>
-    </div>
+
   </div>
   <div class="panel">
-    <div class="toolbar">
-      <ElInput v-model="query" clearable
-        :placeholder="isAgreement ? '搜索协议名称、合同编号或合同对方' : '搜索框架名称或年度'"
-        @change="page = 1; load()" @keyup.enter="page = 1; load()" />
-      <ElCheckbox :data-guide-action="isAgreement ? 'agreements.show-deleted' : 'frameworks.show-deleted'" v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox>
-      <ElButton @click="load">刷新</ElButton>
-      <span class="muted">共 {{ total }} 项</span>
-    </div>
-    <BusinessTable detail-column="name" @open-detail="openDetails" :rows="rows" :columns="columns" :table-key="'funding:' + kind"
+
+    <BusinessTable detail-column="name" :detail-guide-action="isAgreement ? undefined : 'frameworks.detail'" @open-detail="openDetails" :rows="rows" :columns="columns" :table-key="'funding:' + kind"
       :loading="loading" :actions-width="170" :search-active="!!query"
       :filter-state="filters"
       :sort-state="{ prop: sort, order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="changeSort" @filter-change="changeFilters"
       @clear-search="query = ''; filters = {}; page = 1; load()">
+      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
+        <div class="unified-list-tools">
+          <div class="toolbar">
+            <ElInput v-model="query" clearable
+        :placeholder="isAgreement ? '搜索协议名称、合同编号或合同对方' : '搜索框架名称或年度'"
+        @change="page = 1; load()" @keyup.enter="page = 1; load()" />
+            <ElPopover trigger="click" placement="bottom-start">
+              <template #reference><ElButton>筛选</ElButton></template>
+              <ElCheckbox :data-guide-action="isAgreement ? 'agreements.show-deleted' : 'frameworks.show-deleted'" v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox>
+            </ElPopover>
+            <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+          </div>
+          <div class="toolbar page-heading-actions">
+      <ElButton :loading="loading" @click="load">刷新</ElButton>
+      <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+      <ElButton :data-guide-action="isAgreement ? 'agreements.create' : 'frameworks.create'" type="primary" v-if="can('write')" @click="startEdit()">新增{{ title }}</ElButton>
+    </div>
+        </div>
+      </template>
       <template #cell="{ row, column }">
         <ElTag v-if="column.key === 'status'"
           :type="row.deleted ? 'danger' : row.status === 'active' ? 'success' : 'info'"
           effect="plain">{{ row.deleted ? "已删除" : cell(row, column) }}</ElTag>
         <span v-else>{{ cell(row, column) }}</span>
       </template>
-      <template #actions="{ row }">
-        <RowActions :actions="[
-          { label: '查看', guideActionId: isAgreement ? undefined : 'frameworks.detail', run: () => openDetails(row) },
-          { label: '编辑', disabled: !can('write') || !!row.deleted, run: () => startEdit(row) },
-          { label: '历史', run: () => showHistory(row) },
-          { label: '删除', danger: true, disabled: !can('admin') || !!row.deleted, run: () => remove(row) },
-        ]" />
-      </template>
+
     </BusinessTable>
     <ElPagination v-model:current-page="page" :page-size="30" :total="total"
       layout="prev, pager, next, total" @current-change="load" />
@@ -291,8 +302,9 @@ onMounted(() => void load());
         </ElTag>
       </div>
       <div class="toolbar">
-        <ElButton :data-guide-action="isAgreement ? 'agreements.edit' : 'frameworks.edit'" :disabled="!can('write') || !!details.item.deleted" @click="startEdit(details.item)">编辑</ElButton>
+        <ElButton :data-guide-action="isAgreement ? 'agreements.edit' : 'frameworks.edit'" v-if="can('write') && !details.item.deleted" @click="startEdit(details.item)">编辑</ElButton>
         <ElButton :data-guide-action="isAgreement ? 'agreements.history' : 'frameworks.history'" @click="showHistory(details.item)">完整历史</ElButton>
+        <ElButton v-if="can('admin') && !details.item.deleted" type="danger" plain @click="remove(details.item)">删除{{ title }}</ElButton>
       </div>
       <div class="panel">
         <h2>资金概览</h2>
@@ -302,6 +314,8 @@ onMounted(() => void load());
           <div><span>批准预算合计</span><strong>{{ amountText(details.summary.approved_budget_fen) }}</strong></div>
           <div><span>真实费用合计</span><strong>{{ amountText(details.summary.actual_cost_fen) }}</strong></div>
           <div><span>已批准结算合计</span><strong>{{ amountText(details.summary.settlement_fen) }}</strong></div>
+          <div><span>有基数项目结算进度</span><strong>{{ settlementProgressText(details.summary.settlement_progress_percent) }}</strong></div>
+          <div><span>待核定费用基数</span><strong>{{ details.summary.projects_without_cost_basis }} 个项目</strong></div>
         </div>
         <p class="funding-caption">额度减关联项目批准预算：
           <strong>{{ amountText(details.summary.capacity_difference_fen) }}</strong>。
@@ -322,26 +336,24 @@ onMounted(() => void load());
       </div>
       <div v-if="!isAgreement" class="panel">
         <h2>关联执行协议（{{ details.agreements.length }}）</h2>
-        <BusinessTable client-side table-key="funding:linked-agreements" :rows="details.agreements"
+        <BusinessTable client-side detail-column="name" @open-detail="row => router.push(fundContext('agreements', row.id))" table-key="funding:linked-agreements" :rows="details.agreements"
           :columns="linkedAgreementColumns" :actions-width="110">
           <template #cell="{ row, column }">
             {{ relatedAgreementCell(row, column) }}
-          </template>
-          <template #actions="{ row }">
-            <ElButton link type="primary" @click="router.push(fundContext('agreements', row.id))">查看协议</ElButton>
           </template>
         </BusinessTable>
       </div>
       <div class="panel">
         <h2>关联子项目（{{ details.projects.length }}）</h2>
-        <BusinessTable client-side table-key="funding:linked-projects" :rows="details.projects"
+        <BusinessTable client-side detail-column="name" detail-guide-action="agreements.projects"
+          @open-detail="row => router.push(projectContext(row.id, 'overview', { focus: 'funding', record: details!.item.id }))"
+          table-key="funding:linked-projects" :rows="details.projects"
           :columns="linkedProjectColumns" :actions-width="110">
           <template #cell="{ row, column }">
             {{ relatedProjectCell(row, column) }}
           </template>
           <template #actions="{ row }">
-            <ElButton data-guide-action="agreements.projects" link type="primary" @click="router.push(projectContext(row.id, 'overview',
-              { focus: 'funding', record: details.item.id }))">进入项目</ElButton>
+            <ElButton link type="primary" @click="router.push(projectFinanceContext(row.id, router.resolve(fundContext(props.kind, details!.item.id)).fullPath))">费用与结算</ElButton>
           </template>
         </BusinessTable>
         <ElEmpty v-if="!details.projects.length" description="暂无关联子项目" :image-size="56" />

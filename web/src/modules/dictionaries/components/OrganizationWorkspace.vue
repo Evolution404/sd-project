@@ -160,28 +160,42 @@ async function save() {
     saving.value = false;
   }
 }
+const previewLoading = ref(false);
+let movePreviewRequest = 0;
+function clearMovePreview() {
+  ++movePreviewRequest;
+  preview.value = null;
+  previewError.value = "";
+  previewLoading.value = false;
+}
 function openMove() {
   targetParent.value = selected.value?.parent_id || null;
-  preview.value = null;
-  previewError.value = "";
+  clearMovePreview();
   moving.value = true;
 }
-watch(targetParent, () => {
+watch([targetParent, selectedId, moving, () => selected.value?.unit_version_id,
+  () => nodes.value.find(node => node.id === targetParent.value)?.unit_version_id],
+  clearMovePreview, { flush: "sync" });
+async function previewMove() {
+  const source = selectedId.value;
+  const parent = targetParent.value;
+  const request = ++movePreviewRequest;
   preview.value = null;
   previewError.value = "";
-});
-async function previewMove() {
-  previewError.value = "";
+  previewLoading.value = true;
   try {
-    preview.value = await api<OrganizationMovePreview>(
-      `/organizations/${selectedId.value}/move-preview?parent_id=${encodeURIComponent(targetParent.value || "")}`,
+    const result = await api<OrganizationMovePreview>(
+      `/organizations/${source}/move-preview?parent_id=${encodeURIComponent(parent || "")}`,
     );
+    if (request === movePreviewRequest && moving.value) preview.value = result;
   } catch (failure) {
-    previewError.value = (failure as Error).message;
+    if (request === movePreviewRequest) previewError.value = (failure as Error).message;
+  } finally {
+    if (request === movePreviewRequest) previewLoading.value = false;
   }
 }
 async function move() {
-  if (!preview.value || saving.value) return;
+  if (!preview.value || previewLoading.value || saving.value) return;
   saving.value = true;
   try {
     await api(`/organizations/${selectedId.value}/parent`, "POST", {
@@ -245,7 +259,7 @@ const projectDialog = useEntityDialog(
     </div>
     <div class="page-heading-actions">
       <ElButton data-guide-action="dictionaries.organization" type="primary" :disabled="!can('admin')" @click="edit()"
-        >新增归口单位</ElButton
+        >新增根单位</ElButton
       >
     </div>
   </div>
@@ -268,11 +282,7 @@ const projectDialog = useEntityDialog(
         :nodes="visible"
         label="归口单位"
         :loading="loading"
-        ><template #empty
-          ><ElButton data-guide-action="dictionaries.organization-root" :disabled="!can('admin')" @click="edit()"
-            >新增根单位</ElButton
-          ></template
-        ></BusinessTree
+        ><template #empty><span class="muted">暂无归口单位</span></template></BusinessTree
       >
       <section v-if="selected" class="tree-facts">
         <ElButton class="mobile-back" text @click="mobilePane = 'list'">返回列表</ElButton>
@@ -429,10 +439,10 @@ const projectDialog = useEntityDialog(
       ></ElDescriptions
     ><template #footer
       ><ElButton @click="moving = false">取消</ElButton
-      ><ElButton @click="previewMove">预览调整</ElButton
+      ><ElButton :loading="previewLoading" :disabled="saving" @click="previewMove">预览调整</ElButton
       ><ElButton data-guide-action="dictionaries.organization-move-confirm"
         type="primary"
-        :disabled="!preview"
+        :disabled="!preview || previewLoading"
         :loading="saving"
         @click="move"
         >确认调整</ElButton

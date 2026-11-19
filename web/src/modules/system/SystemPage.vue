@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
+import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useRoute, useRouter } from "vue-router";
 import { useListRoute } from "../../shared/composables/use-list-route";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
@@ -84,6 +86,7 @@ const
   saving = ref(false),
   form = ref<Partial<SystemRow>>({}),
   editing = ref<SystemRow | null>(null);
+const selectedAudit = ref<SystemRow | null>(null);
 const tableColumns = computed<TableColumn[]>(() => {
   if (tab.value === "users") return [
     { key: "username", label: "账号", minWidth: 170 },
@@ -206,9 +209,7 @@ onMounted(() => {
       <h1>系统管理</h1>
       <p>账号角色、内网访问、操作审计与访问日志。</p>
     </div>
-    <div class="page-heading-actions">
-      <ElButton :data-guide-action="tab === 'users' ? 'system.user' : 'system.ip'" v-if="['users','ips'].includes(tab)" type="primary" :disabled="!can('admin')" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
-    </div>
+
   </div>
   <ElTabs v-model="tab"
     ><ElTabPane label="用户与角色" name="users" /><ElTabPane
@@ -237,8 +238,20 @@ onMounted(() => {
     <BusinessTable :loading="listLoading" :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">
+      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
+        <div class="unified-list-tools">
+          <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除列筛选</ElButton>
+          <div class="toolbar page-heading-actions">
+            <ElButton :loading="listLoading" @click="load">刷新</ElButton>
+            <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+<ElButton :data-guide-action="tab === 'users' ? 'system.user' : 'system.ip'" v-if="can('admin') && ['users','ips'].includes(tab)" type="primary" @click="edit()">{{ tab === 'users' ? '新增用户' : '新增授权IP' }}</ElButton>
+
+          </div>
+        </div>
+      </template>
       <template #cell="{ row, column }">
-        <span v-if="['role','status','action'].includes(column.key)">{{ statusText[String(row[column.key])] || row[column.key] || '—' }}</span>
+        <ElButton v-if="tab === 'audit' && column.key === 'created_at'" class="cell-link" link type="primary" @click="selectedAudit = row">{{ formatVisibleDateTime(row.created_at, 'created_at') }}</ElButton>
+        <span v-else-if="['role','status','action'].includes(column.key)">{{ statusText[String(row[column.key])] || row[column.key] || '—' }}</span>
         <span v-else>{{ formatVisibleDateTime(row[column.key], column.key) ?? '—' }}</span>
       </template>
       <template v-if="['users','ips'].includes(tab)" #actions="{ row }">
@@ -251,6 +264,9 @@ onMounted(() => {
     <ElPagination v-model:current-page="page" :page-size="30" :total="total"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
+  <BusinessDetailDialog :open="!!selectedAudit" title="操作审计详情" @close="selectedAudit = null">
+    <BusinessHistory v-if="selectedAudit" :value="selectedAudit" />
+  </BusinessDetailDialog>
   <ElDialog append-to-body
     v-model="dialog"
     :title="(editing ? '编辑' : '新增') + (tab === 'users' ? '用户账号' : 'IP授权')"

@@ -118,28 +118,14 @@ try {
   await page.getByRole("heading", { name: "输电设备台账", exact: true }).waitFor();
   const restored = await page.locator(".business-table-grid").first().getByRole("columnheader", { name: /线路名称/ }).boundingBox();
   assert.ok(Math.abs(restored.width - savedWidth) <= 3, JSON.stringify({ restored: restored.width, savedWidth }));
-  // The final fixed action column must be resizable and saved as well.
   const lastTable = page.locator(".business-table-grid").first();
-  await lastTable.locator(".el-loading-mask").waitFor({ state: "hidden" });
-  const actionsHeader = lastTable.getByRole("columnheader", { name: "操作", exact: true });
   await stableTableLayout(lastTable);
-  const actionsBefore = await actionsHeader.boundingBox();
-  const ax = actionsBefore.x + actionsBefore.width - 2;
-  const ay = actionsBefore.y + actionsBefore.height / 2;
-  await page.mouse.move(ax, ay);
-  await page.waitForFunction(() => document.body.style.cursor === "col-resize");
-  await page.mouse.down();
-  await page.mouse.move(ax - 46, ay, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForFunction(() => {
-    const saved = JSON.parse(localStorage.getItem("sd-columns:catalog:lines") || "{}");
-    return saved.widths?.__actions > 80 && saved.widths.__actions < 295;
-  });
-  const actionsSaved = await page.evaluate(() => JSON.parse(localStorage.getItem("sd-columns:catalog:lines")).widths.__actions);
-  await page.reload();
-  await selectNavigation(page, "输电设备台账");
-  const actionsRestored = await page.locator(".business-table-grid").first().getByRole("columnheader", { name: "操作", exact: true }).boundingBox();
-  assert.ok(Math.abs(actionsRestored.width - actionsSaved) < 3);
+  assert.equal(await lastTable.getByRole("columnheader", { name: "操作", exact: true }).count(), 0,
+    "ledger uses one detail link and has no duplicate fixed action column");
+  const lastHeader = lastTable.getByRole("columnheader", { name: /状态/ }).last();
+  await lastHeader.scrollIntoViewIfNeeded();
+  const lastBounds = await lastHeader.boundingBox();
+  assert.ok(lastBounds && lastBounds.width > 0, "last business column remains accessible");
 
   // Changing the query from page 2 must display page 1 of the NEW result set.
   await page.locator(".el-pagination .btn-next").first().click();

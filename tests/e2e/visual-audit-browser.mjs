@@ -31,7 +31,7 @@ async function visit(path) {
   await page.waitForLoadState('networkidle');
   if (isDetail) {
     if (parts[0] === "finance") assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked());
-    await page.locator('main').getByRole('button', { name: parts[0] === 'finance' ? '进入项目办理' : parts[0] === 'projects' ? '进入项目' : '查看', exact: true }).first().click();
+    await page.locator('main .cell-link:visible').first().click();
     await page.locator(parts[0] === "finance" ? ".business-detail-page h1" : ".business-detail-dialog h1").waitFor();
     await page.waitForLoadState('networkidle');
   }
@@ -86,8 +86,10 @@ async function auditLayout(name, width) {
 async function auditDialog(name, button, width) {
   await page.setViewportSize({ width, height: 700 });
   await page.getByRole('button', { name: button, exact: true }).click();
-  const routed = button === "新增需求" || button === "新增结算草稿";
-  const dialog = routed ? page.getByRole("region", { name: button === "新增需求" ? "新增专业需求" : "编制结算草稿", exact: true })
+  const workTitles = { 新增需求: "新增专业需求", 新增结算草稿: "编制结算草稿", 新增操作类型: "新增操作类型",
+    新增作业对象: "新增作业对象", 新增参考价格规则: "新增参考价格规则" };
+  const routed = Boolean(workTitles[button]);
+  const dialog = routed ? page.getByRole("region", { name: workTitles[button], exact: true })
     : page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog');
   await dialog.waitFor();
   await settleLayout();

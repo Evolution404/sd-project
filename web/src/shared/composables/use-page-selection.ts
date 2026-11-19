@@ -16,11 +16,17 @@ export function usePageSelection<T extends { id: string; deleted?: boolean }>(
     ElMessage.info("筛选已变化，已清空原有选中项");
   }, { flush: "sync" });
 
+  function remove(ids: string[]) {
+    const remaining = new Map(records.value);
+    for (const id of ids) remaining.delete(id);
+    records.value = remaining;
+  }
+
   function updatePage(picked: T[]) {
     const updated = new Map(records.value);
     for (const row of pageRows.value) updated.delete(row.id);
     for (const row of picked) updated.set(row.id, row);
     records.value = updated;
   }
-  return { selected, selectedIds, eligibleIds, clear, updatePage };
+  return { selected, selectedIds, eligibleIds, clear, remove, updatePage };
 }

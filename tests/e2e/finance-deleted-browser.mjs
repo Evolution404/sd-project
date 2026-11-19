@@ -30,7 +30,7 @@ try {
   await page.locator("main h1").waitFor();
   assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked(),
     "finance opens in project-first workflow mode");
-  await page.getByRole("button", { name: "进入项目办理" }).first().click();
+  await page.locator(".cell-link:visible").first().click();
   const detail = page.locator(".business-work-surface:visible");
   await detail.waitFor();
   await detail.getByText("包含已删除科目", { exact: true }).click();

@@ -1,3 +1,4 @@
+import { settlementProgress } from "../../shared/settlement-progress.js";
 import { safeAmount } from "../pricing/calculation.js";
 import type { PricingService } from "../pricing/service.js";
 import type {
@@ -34,6 +35,8 @@ export function financialSummary(
     approved_budget_fen: budget,
     actual_cost_fen: actual,
     settlement_fen: settled,
+    project_total_settlement_fen: safeAmount(BigInt(raw.project_total_settlement_fen)),
+    ...settlementProgress(actual, settled),
     reconciled_cost_fen: reconciled,
     unreconciled_cost_fen: actual - reconciled,
     budget_difference_fen: budget !== null ? actual - budget : null,

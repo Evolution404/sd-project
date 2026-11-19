@@ -94,6 +94,7 @@ try {
   await page.getByRole("button", { name: "审核立项", exact: true }).click();
   await confirmProjectApproval(page);
   await page.getByRole("tab", { name: "费用与结算", exact: true }).click();
+  await page.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
   await page.getByRole("button", { name: "新增科目", exact: true }).click();
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
@@ -119,6 +120,7 @@ try {
     await page
       .getByRole("button", { name: "新增结算草稿", exact: true })
       .click();
+    await workPage(page).getByText("按子费用", { exact: true }).click();
     await select("费用科目", "人工费");
     await select("关联需求（共同费用可不选）", demand.demand_no);
     await page.getByLabel("本次金额（元）", { exact: true }).fill("400");
@@ -132,7 +134,7 @@ try {
     await resolution.press("Tab");
     assert.equal(await resolution.inputValue(), String(resolved));
     await workPage(page).getByRole("button", { name: "保存草稿", exact: true }).click();
-    await workPage(page).waitFor({ state: "hidden" });
+    await page.getByRole("region", { name: "编制结算草稿", exact: true }).waitFor({ state: "hidden" });
     const createdBill = s.finance
       .allSettlements()
       .find(
@@ -205,6 +207,7 @@ try {
       fullPage: true,
     });
   }
+  await page.getByRole("region", { name: "费用与结算", exact: true }).getByRole("button", { name: "← 返回", exact: true }).click();
   await page.getByRole("tab", { name: "概览", exact: true }).click();
   await page.getByRole("button", { name: "结项核对", exact: true }).click();
   await page.getByRole("dialog", { name: "结项前业务核对" })

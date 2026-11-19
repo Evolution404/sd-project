@@ -44,7 +44,8 @@ try {
   await page.getByRole("tab",{name:"已退回",exact:true}).click();
   await page.getByRole("row").filter({hasText:primary.demand_no}).waitFor({state:"hidden"});
   await page.getByRole("row").filter({hasText:returned.demand_no}).waitFor();
-  assert.equal(await page.getByRole("button",{name:"筛选需求状态"}).getAttribute("aria-pressed"),"true");
+  assert.equal(await page.getByRole("tab",{name:"已退回",exact:true}).getAttribute("aria-selected"),"true");
+  assert.equal(await page.getByRole("button",{name:"筛选需求状态"}).count(),0);
   assert.equal(await page.getByRole("row").filter({hasText:primary.demand_no}).count(),0,
     "returned tab must exclude pending demand");
   await page.getByRole("tab",{name:"待确认",exact:true}).click();
@@ -56,7 +57,7 @@ try {
   await page.screenshot({path:join(out,"five-state-tabs.png"),fullPage:true});
 
   await page.getByRole("row").filter({hasText:primary.demand_no})
-    .getByRole("button",{name:"查看",exact:true}).click();
+    .locator(".cell-link:visible").first().click();
   const detail=page.locator(".business-detail-dialog:visible");
   await detail.getByText(primary.demand_no).waitFor();
   await detail.getByRole("button",{name:"修订需求",exact:true}).click();

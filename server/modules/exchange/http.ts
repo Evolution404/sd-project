@@ -1,3 +1,4 @@
+import { parseListQuery } from "../../platform/http/list-query.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { requireValue } from '../../shared/errors/business-error.js';
 import { isObject } from "../../shared/types/contracts.js";
@@ -34,10 +35,13 @@ export async function handleExchange(context: RouteContext): Promise<{
                     await workbook(res, exchange.projectReport(actor, url.searchParams.getAll("id")), "所选子项目清单");
                     return;
                 }
+                const assetKind = url.searchParams.get("asset_kind");
+                requireValue(assetKind === null || assetKind === "lines" || assetKind === "physical" || assetKind === "towers" || assetKind === "spans", "设备导出分类无效");
                 await workbook(res, exchange.exportData(actor, kindValue(key), {
                     ids: url.searchParams.getAll("id"),
                     projectId: url.searchParams.get("project_id") || undefined,
-                    query: url.searchParams.get("q") || "",
+                    listQuery: parseListQuery(url.searchParams),
+                    assetKind: assetKind || undefined,
                     report: url.searchParams.get("report") === "true",
                 }), ({ assets: "设备台账", demands: "需求", settlements: "结算" } as Record<string, string>)[key] + (url.searchParams.get("report") === "true" ? "报表" : "数据维护"));
                 return;

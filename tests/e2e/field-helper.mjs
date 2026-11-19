@@ -20,7 +20,7 @@ export async function selectFormChoice(page, label, name, scope = page) {
 }
 
 export async function addOperationAttribute(page, {label,type='文字',scope='位置级',options=[],pricing=false,requirement='可选',precision,min,max}) {
-  const operation=page.getByRole('dialog',{name:/操作类型$/,exact:false});
+  const operation=page.getByRole('region',{name:/操作类型$/,exact:false});
   await operation.getByRole('tab',{name:'附加属性',exact:true}).click();
   await operation.getByRole('button',{name:'添加附加属性',exact:true}).click();
   const editor=page.getByRole('dialog',{name:'附加属性',exact:true});

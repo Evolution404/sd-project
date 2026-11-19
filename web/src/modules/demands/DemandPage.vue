@@ -138,6 +138,7 @@ function secondaryAction(action: string) {
 }
 const rows = ref<DemandListItem[]>([]),
   listLoading = ref(false),
+  listReadError = ref(""),
   total = ref(0),
   page = ref(1),
   query = ref(""),
@@ -171,8 +172,8 @@ const batchLinkItems = ref<HandlingTarget[] | null>(null);
 function selectedTargets() {
   return selected.value.map(row => ({ id: row.id, expected_version: row.current_version }));
 }
-async function finishBatch() {
-  selection.clear();
+async function finishBatch(ids: string[]) {
+  selection.remove(ids);
   projectPickerOpen.value = false;
   batchLinkItems.value = null;
   await load();
@@ -282,7 +283,7 @@ function resetListPage() {
 const demandColumns: TableColumn[] = [
   { key: "problem_description", label: "问题描述", minWidth: 230 },
   { key: "line_summary", label: "涉及线路", minWidth: 180 },
-  { key: "display_status", label: "需求状态", minWidth: 130 },
+  { key: "display_status", filterable: false, label: "需求状态", minWidth: 130 },
   { key: "expected_on", label: "预计解决时间", minWidth: 155 },
   { key: "quantity_scaled", label: "工作量" },
   { key: "unit_snapshot", label: "计量单位" },
@@ -298,20 +299,38 @@ function sortTable(value: { key: string; order: string }) {
   page.value = 1;
   load();
 }
+const pendingSearch = ref(query.value);
+watch(query, (value) => { pendingSearch.value = value; }, { immediate: true });
+function applySearch() {
+  query.value = pendingSearch.value.trim();
+  resetListPage();
+}
+function clearSearchAndColumns() {
+  query.value = "";
+  columnFilters.value = processing.value ? { display_status: processing.value } : {};
+  page.value = 1;
+  void load();
+}
 function filterTable(value: Record<string, string>) {
   columnFilters.value = value;
   page.value = 1;
   load();
 }
+const appliedQuery = ref("");
 let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
+  listReadError.value = "";
   try {
-    const result = await api<Page<DemandListItem>>(
-      `/demands?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
-    );
+    const parameters = new URLSearchParams({
+      page: String(page.value), q: query.value, deleted: String(showDeleted.value),
+      sort: sortKey.value || "created_at", direction: sortDirection.value,
+      filters: JSON.stringify(columnFilters.value),
+    });
+    const result = await api<Page<DemandListItem>>(`/demands?${parameters}`);
     if (sequence !== loadSequence) return;
+    appliedQuery.value = parameters.toString();
     rows.value = result.items;
     total.value = result.total;
     const id = detail.value?.id;
@@ -320,7 +339,7 @@ async function load() {
       if (sequence === loadSequence && detail.value?.id === id) detail.value = updated;
     }
   } catch (error) {
-    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+    if (sequence === loadSequence) listReadError.value = (error as Error).message;
   } finally {
     if (sequence === loadSequence) listLoading.value = false;
   }
@@ -436,44 +455,67 @@ onMounted(async () => {
       <div>
         <h1>专业需求</h1>
       </div>
-      <div class="page-heading-actions">
-        <ExchangePanel
-          kind="demands"
-          :selected-ids="eligibleIds"
-          :query="query"
-          @changed="load" @inspect="detailDialog.open($event)"
-        /><ElButton data-guide-action="demands.create" :disabled="!can('write')" type="primary" @click="edit()"
-          >新增需求</ElButton
-        >
-      </div>
+
     </div>
     <ElTabs v-model="processing" aria-label="按需求状态筛选">
       <ElTabPane label="全部需求" name="" />
       <ElTabPane v-for="state in demandStatuses" :key="state" :label="state" :name="state" />
     </ElTabs>
     <div class="panel">
-      <div class="toolbar">
-        <ElInput
-          v-model="query"
-          placeholder="需求编号、问题或位置"
-          clearable
-          @change="resetListPage"
-        /><ElCheckbox data-guide-action="demands.show-deleted" v-model="showDeleted" @change="resetListPage"
-          >包含已删除</ElCheckbox
-        ><ElButton @click="load">刷新</ElButton>
-      </div>
+      <ElAlert v-if="listReadError" :title="listReadError" type="error" :closable="false">
+        <p v-if="rows.length">当前显示上次成功读取的结果。</p>
+        <ElButton link type="primary" @click="load">重试</ElButton>
+      </ElAlert>
+      <BusinessTable :search-active="!!query" @clear-search="clearSearchAndColumns" :fixed-filter-keys="['display_status']" :loading="listLoading" :rows="rows" :columns="demandColumns" table-key="demand:list" selectable :filter-state="columnFilters"
+        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
+        @selection-change="selection.updatePage" :selected-ids="selectedIds" @sort-change="sortTable" @filter-change="filterTable">
+        <template #toolbar="{ openSettings, clearFilters, hasActiveFilters, appliedFilters }">
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="专业需求批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
+        <span class="muted">本页 {{ rows.length }} 条</span>
         <ElButton :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
-        <ElButton v-if="processing === '待确认' && can('demand.activate')" type="primary" :disabled="selected.length > 100" @click="confirmSelectedDemands">批量确认</ElButton>
-        <ElButton v-if="processing === '待承接' && can('write')" type="primary" :disabled="selected.length > 100" @click="openBatchProjectPicker">批量关联子项目</ElButton>
+        <ElButton v-if="selected.some(row => row.display_status === '待确认' && !row.deleted) && can('demand.activate')" type="primary" :disabled="selected.length > 100" @click="confirmSelectedDemands">批量确认</ElButton>
+        <ElButton v-if="selected.some(row => row.display_status === '待承接' && !row.deleted) && can('write')" type="primary" :disabled="selected.length > 100" @click="openBatchProjectPicker">批量关联子项目</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
+        <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
         <span v-else-if="eligibleIds.length !== selected.length" class="muted">导出前请取消勾选已删除记录</span>
       </div>
-      <BusinessTable :search-active="!!query" @clear-search="query = ''; columnFilters = {}; page = 1; load()" :loading="listLoading" :rows="rows" :columns="demandColumns" table-key="demand:list" selectable :filter-state="columnFilters"
-        :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
-        @selection-change="selection.updatePage" :selected-ids="selectedIds" @sort-change="sortTable" @filter-change="filterTable">
+          <div v-else class="unified-list-tools">
+            <div class="toolbar">
+        <ElInput
+          v-model="pendingSearch"
+          placeholder="需求编号、问题或位置"
+          clearable
+          @change="applySearch" @keyup.enter="applySearch"
+        />
+            <ElPopover trigger="click" placement="bottom-start">
+              <template #reference><ElButton>筛选</ElButton></template>
+              <ElCheckbox data-guide-action="demands.show-deleted" v-model="showDeleted" @change="resetListPage"
+          >包含已删除</ElCheckbox
+        >
+            </ElPopover>
+              <span role="status" class="muted">本页 {{ rows.length }} 条</span>
+              <ElTag v-for="condition in appliedFilters" :key="condition.label" effect="plain">{{ condition.label }} · {{ condition.value }}</ElTag>
+              <ElTag v-if="showDeleted" effect="plain">包含已删除</ElTag>
+              <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+            </div>
+            <div class="toolbar page-heading-actions">
+              <ElButton :loading="listLoading" @click="load">刷新</ElButton>
+              <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+
+        <ExchangePanel
+          kind="demands"
+          :selected-ids="eligibleIds"
+          :applied-query="appliedQuery"
+          @changed="load" @inspect="detailDialog.open($event)"
+        /><ElButton data-guide-action="demands.create" v-if="can('write')" type="primary" @click="edit()"
+          >新增需求</ElButton
+        >
+
+            </div>
+          </div>
+        </template>
         <template #cell="{ row, column }">
           <ElButton v-if="column.key === 'problem_description'" link type="primary" class="cell-link"
             @click="detailDialog.open(row.id)">{{ row.problem_description }}</ElButton>
@@ -485,9 +527,6 @@ onMounted(async () => {
             <ElTag v-if="row.deleted" type="danger" effect="plain">已删除</ElTag>
           </template>
           <span v-else>{{ valueAt(row,column.key) ?? '—' }}</span>
-        </template>
-        <template #actions="{ row }">
-          <ElButton size="small" @click="detailDialog.open(row.id)">查看</ElButton>
         </template>
       </BusinessTable>
       <ElPagination

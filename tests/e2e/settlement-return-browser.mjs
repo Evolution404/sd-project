@@ -38,12 +38,12 @@ async function clickAction(row, name) {
 }
 try {
   const base = "http://127.0.0.1:" + server.address().port;
-  await page.goto(base + "/#/projects?project=" + project.id + "&tab=finance");
+  await page.goto(base + "/#/projects/" + project.id + "/finance");
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  const detail = page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
+  const detail = page.locator(".business-detail-page:visible");
+  await detail.getByText(project.name, { exact: true }).first().waitFor();
   const row = detail.getByRole("row").filter({ hasText: draft.number }).first();
   await row.waitFor();
   await row.getByRole("button", { name: "更多操作" }).click();

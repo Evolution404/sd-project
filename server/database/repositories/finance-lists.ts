@@ -9,7 +9,7 @@ import type {
 } from "../../shared/types/finance-workflows.js";
 
 type CostRow = ActualCostVersion & CategoryCost;
-type SettlementListRoot = SettlementRoot & { deleted: boolean };
+type SettlementListRoot = SettlementRoot & { deleted: boolean; effective_amount_fen: number | null };
 
 /** SQL pagination keeps full workflow facts limited to the selected page. */
 export function financeListRepository(store: Store) {
@@ -31,9 +31,19 @@ export function financeListRepository(store: Store) {
     },
     searchSettlementWorkflows(projectId: string | undefined, query: ListQuery) {
       const source: ListSource = {
-        sql: `SELECT s.* FROM settlements s${projectId ? " WHERE s.project_id=?" : ""}`,
+        sql: `SELECT s.*,effective.amount_fen AS effective_amount_fen,
+          COALESCE(json_extract(draft.draft_json,'$.amount_fen'), latest.amount_fen) AS amount_fen,
+          CASE WHEN draft.settlement_id IS NOT NULL THEN 'draft'
+            ELSE COALESCE(review.last_action,'draft') END AS status
+          FROM settlements s
+          LEFT JOIN settlement_drafts draft ON draft.settlement_id=s.id
+          LEFT JOIN settlement_versions latest ON latest.id=(SELECT id FROM settlement_versions
+             WHERE settlement_id=s.id ORDER BY version_no DESC LIMIT 1)
+          LEFT JOIN v_settlement_review_status review ON review.settlement_version_id=latest.id
+          LEFT JOIN v_settlement_effective_versions effective ON effective.settlement_id=s.id
+          ${projectId ? " WHERE s.project_id=?" : ""}`,
         parameters: projectId ? [projectId] : [],
-        columns: ["id", "number", "created_at"], search: ["number"],
+        columns: ["id", "number", "created_at", "amount_fen", "status"], search: ["number", "status"],
       };
       const page = searchPage<SettlementListRoot>(store, "settlements", source, query);
       if (!page.items.length) return { ...page, items: [] as SettlementWorkflow[] };

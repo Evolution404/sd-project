@@ -134,3 +134,8 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 ## 2026-11-17 验收矩阵与项目财务分页
 
 项目内费用、结算及费用核对列表使用finance-lists Repository执行数据库筛选排序分页。结算只批量加载当前页正式版本、草稿、审核、明细及解决量。费用和核对逻辑删除分别按entry_id、record_id稳定身份过滤。tests/api/project-finance-pagination.test.mjs、tests/performance/project-finance-pagination.bench.mjs及project-workspace.bench.mjs、tests/e2e/project-workspace-loading-browser.mjs进入常规门禁。四角色正式变更专项覆盖整条候选新增及移出。现行验收状态见docs/implementation/2026-11-17_验收矩阵核对与项目财务分页收口.md，Windows实机与历史操作次数比较继续按实际取证情况记录。
+
+
+## 2026-11-19 全系统操作和结算改造
+
+当前 Schema113 正式结算版本保存单据方式和唯一整单金额。按项目总额允许只录入金额，按子费用取末级明细合计，需求解决量独立选填。只累计单据当前生效批准版本。结算进度按累计核定实际费用为基数，缺基数明确提示，超结显示差额。结项冻结这些事实，结项前提示未提交、待审核和已退回单据。详见 `docs/implementation/2026-11-19_全系统操作与项目结算改造.md`。

@@ -183,7 +183,10 @@ export function createExchange(system:System) {
             "文件单据不属于当前子项目",
           );
         const payload:Record<string,unknown> = {
-          ...(kind === "demands" ? existingDemand : existingSettlement?.draft?.document || {}),
+          ...(kind === "demands" ? existingDemand : existingSettlement?.draft?.document ||
+            (existingSettlement?.version ? {
+              ...existingSettlement.version, items: existingSettlement.items, resolutions: existingSettlement.resolutions,
+            } : {})),
           ...clean(root),
         };
         const detailKeys:DetailKind[] = kind==="demands" ? ["work_locations","materials"] : ["items","resolutions"];
@@ -349,13 +352,31 @@ export function createExchange(system:System) {
         } else {
           const settlementProject=typeof payload.project_id==="string" && payload.project_id ? payload.project_id : existingSettlement?.project_id;
           requireValue(settlementProject,"请明确结算所属子项目");
-          finance.validateDraft(settlementProject,financeSettlementDraft(payload));
+          if (payload.mode === "按项目总额") payload.mode = "project_total";
+          if (payload.mode === "按子费用") payload.mode = "itemized";
+          if (payload.mode === "itemized" && root.amount_fen === undefined) delete payload.amount_fen;
+          Object.assign(payload, finance.validateDraft(settlementProject, financeSettlementDraft(payload)));
         }
+        const settlementFacts = (input: Record<string, unknown>) => {
+          const { expected_version, expected_edit_version, number: _number, project_id,
+            change_type, ...facts } = financeSettlementDraft(input);
+          return {
+            ...facts, change_type: change_type === "void" ? "void" : undefined,
+            funding_version_id: facts.funding_version_id || null,
+            basis: facts.basis || "", reason: facts.reason || "", settlement_on: facts.settlement_on || null,
+            items: facts.items?.map(item => ({ ...item, project_scope_id: item.project_scope_id || null,
+              unit_price_fen: item.unit_price_fen ?? null, work_mode: item.work_mode || null,
+              quantity_scaled: item.quantity_scaled ?? 0, evidence: item.evidence || "" })),
+          };
+        };
+        const previousSettlement = existingSettlement?.draft?.document || (existingSettlement?.version
+          ? { ...existingSettlement.version, items: existingSettlement.items, resolutions: existingSettlement.resolutions }
+          : undefined);
         const change = differences(
           kind === "demands" && existingDemand
             ? {...demands.normalize(existingDemand, existingDemand)}
-            : {...(existingSettlement?.draft?.document || {})},
-          kind === "demands" && normalized ? {...normalized} : payload,
+            : previousSettlement ? settlementFacts({ ...previousSettlement }) : {},
+          kind === "demands" ? normalized ? {...normalized} : payload : settlementFacts(payload),
         );
         if (
           kind === "demands" &&
@@ -604,7 +625,11 @@ export function createExchange(system:System) {
               requireValue(typeof result.id==="string","提交后业务身份无效");
               const resultNumber = "demand_no" in result && typeof result.demand_no==="string" ? result.demand_no
                 : "number" in result && typeof result.number==="string" ? result.number : document.number;
-              results.push({import_ref: body.kind === "demands" ? document.number : undefined,number:resultNumber,id:result.id,action:document.action});
+              results.push({
+                ...("kind" in document ? { entity_kind: document.kind } : {}),
+                ...(body.kind === "demands" ? { import_ref: document.number } : {}),
+                number: resultNumber, id: result.id, action: document.action,
+              });
             } catch (error) {
               if (input.atomic) throw error;
               failures.push(
@@ -670,7 +695,18 @@ export function createExchange(system:System) {
     preview,
     commit,
     exportData,
-    projectReport: (actor: Actor, ids: string[]) => makeBusinessReport("projects", system.projects.selectedProjectReport(actor, ids)),
+    projectReport(actor: Actor, ids: string[]) {
+      const records = system.projects.selectedProjectReport(actor, ids);
+      const finances = system.finance.summariesForPortfolio(system.projects.dashboardPortfolio(ids));
+      return makeBusinessReport("projects", records.map(({ id, ...record }) => {
+        const summary = finances.get(id);
+        requireValue(summary, "项目财务概要不存在", 409);
+        return { ...record, "核定实际费用（元）": summary.actual_cost_fen / 100,
+          "累计生效结算（元）": summary.settlement_fen / 100,
+          "结算进度": summary.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent + "%",
+          "超结算（元）": summary.excess_settlement_fen == null ? null : summary.excess_settlement_fen / 100 };
+      }));
+    },
     template(actor:Actor,kind:WorkbookKind,projectId?:string|null) {
       authorize(actor, "read");
       if (kind === "assets") return makeWorkbook("assets");

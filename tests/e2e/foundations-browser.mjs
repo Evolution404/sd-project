@@ -38,8 +38,8 @@ async function save(name) {
   await editor.waitFor({ state: "hidden" });
 }
 async function rowAction(row, name) {
-  await row.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
+  await row.locator(".cell-link:visible").first().click();
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name, exact: true }).click();
 }
 try {
   await page.goto(base + "/#/dictionaries/units");
@@ -57,6 +57,7 @@ try {
     .getByLabel("名称", { exact: true })
     .fill("浏览器单位新版");
   await save("编辑计量单位");
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "关闭详情" }).click();
   await page.getByRole("tab", { name: "优先级", exact: true }).click();
   await page.getByRole("button", { name: "新增优先级", exact: true }).click();
   await page
@@ -88,7 +89,7 @@ try {
     .getByRole("row")
     .filter({ hasText: "新版物资浏览器" });
   const location = page.url();
-  await materialRow.getByRole("button", { name: "查看", exact: true }).click();
+  await materialRow.locator(".cell-link:visible").first().click();
   const detail = page.getByRole("dialog", { name: "物资详情", exact: true });
   await detail
     .getByRole("heading", {
@@ -140,7 +141,9 @@ try {
   const current = page.getByRole("row").filter({ hasText: "浏览器单位新版" });
   await rowAction(current, "删除");
   await page.getByRole("button", { name: "确定", exact: true }).click();
-  await page.getByText("包含已删除", { exact: true }).click();
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "关闭详情" }).click();
+  await page.getByRole("button", { name: "筛选", exact: true }).click();
+  await page.locator("label.el-checkbox:visible").filter({ hasText: "包含已删除" }).click();
   await page
     .getByRole("row")
     .filter({ hasText: "浏览器单位新版" })
@@ -149,18 +152,20 @@ try {
   await page.getByRole("button", { name: /^账号设置/ }).click();
   await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await login("foundation-reader", "Foundation-reader-password");
+  await page.getByRole("heading", { name: "基础数据", exact: true }).waitFor();
   assert.equal(
     await page
       .getByRole("button", { name: "新增计量单位", exact: true })
-      .isDisabled(),
-    true,
+      .count(),
+    0,
   );
   await page.goto(base + "/#/materials");
+  await page.getByRole("heading", { name: "物资管理", exact: true }).waitFor();
   assert.equal(
     await page
       .getByRole("button", { name: "新增物资", exact: true })
-      .isDisabled(),
-    true,
+      .count(),
+    0,
   );
   assert.deepEqual(errors, []);
   console.log(

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import VersionConflictNotice from "../../../shared/ui/VersionConflictNotice.vue";
 import BusinessWorkSurface from "../../../shared/ui/BusinessWorkSurface.vue";
 import { newClientId } from "../../../shared/utils/id";
 import { computed, nextTick, ref, watch } from "vue";
@@ -17,7 +18,7 @@ import type {
 } from "../../../../../server/shared/types/operation-attributes";
 import type { DemandDraft, LocationDraft } from "../types/demand";
 import { normalizeAttributeValues } from "../../../../../server/shared/operation-attributes";
-import { api } from "../../../shared/api/client";
+import { api, ApiError } from "../../../shared/api/client";
 import {
   readAdoptedQuantityPrecision,
   readCurrentMaterialPrecision,
@@ -421,6 +422,18 @@ function addLocations(rows: LocationDraft[]) {
     }),
   );
 }
+const recordConflict = ref("");
+watch(() => props.editing?.id, () => { recordConflict.value = ""; });
+async function compareDemand() {
+  if (!props.editing) return [];
+  const record = await api<DemandRecord>(`/demands/${props.editing.id}`);
+  return [
+    { label: "需求版本", draft: String(props.editing.current_version), current: String(record.current_version) },
+    { label: "问题描述", draft: draft.value.problem_description, current: record.problem_description },
+    { label: "预计解决时间", draft: draft.value.expected_on || "未填写", current: record.expected_on || "未填写" },
+    { label: "作业位置数", draft: String(draft.value.work_locations.length), current: String(record.work_locations.length) },
+  ];
+}
 async function save(duplicate?: string[], duplicateReason?: string, tokens?: Record<string, string>) {
   if (loading.value || preparing.value || resumable.value || !can("write")) return;
   loading.value = true;
@@ -517,7 +530,8 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
             ? "materials"
             : "basic",
       );
-      ElMessage.error(problem.message);
+      if (props.editing && failure instanceof ApiError && failure.status === 409) recordConflict.value = failure.message;
+      else ElMessage.error(problem.message);
     }
   } finally {
     loading.value = false;
@@ -546,6 +560,7 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
         name="materials" /><ElTabPane label="来源及其他信息" name="sources"
     /></ElTabs>
     <div v-show="!duplicateReviewOpen" ref="scroll" class="editor-content" @scroll.passive="syncSectionFromScroll">
+      <VersionConflictNotice :message="recordConflict" :read-current="compareDemand" />
       <ElForm ref="formRef" :model="draft" label-position="top" novalidate
         :disabled="preparing || !!resumable" v-loading="preparing">
         <ElAlert

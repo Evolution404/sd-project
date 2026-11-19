@@ -74,6 +74,26 @@ export function equipmentRepository(store: ReturnType<typeof createStore>) {
     ) as EquipmentRecord[];
   }
   return {
+    deletionReferences(kind: EquipmentCatalogKind, key: string) {
+      const counts = (sql: string, ...parameters: string[]) =>
+        store.get<{ total: number }>(sql, ...parameters)?.total ?? 0;
+      if (kind === "voltages")
+        return { lines: counts("SELECT count(*) AS total FROM transmission_lines WHERE voltage_level_id=?", key), towers: 0, spans: 0, locations: 0 };
+      if (kind === "lines")
+        return {
+          lines: counts("SELECT count(*) AS total FROM transmission_lines WHERE parent_line_id=?", key),
+          towers: counts("SELECT count(*) AS total FROM logical_towers WHERE line_id=?", key),
+          spans: counts("SELECT count(*) AS total FROM line_spans WHERE line_id=?", key),
+          locations: counts("SELECT count(*) AS total FROM demands WHERE context_line_id=?", key),
+        };
+      const field = kind === "physical" ? "physical_tower_id" : kind === "towers" ? "logical_tower_id" : "span_id";
+      return {
+        lines: kind === "towers" ? counts("SELECT count(*) AS total FROM transmission_lines WHERE junction_tower_id=?", key) : 0,
+        towers: kind === "physical" ? counts("SELECT count(*) AS total FROM logical_towers WHERE physical_tower_id=?", key) : 0,
+        spans: kind === "towers" ? counts("SELECT count(*) AS total FROM line_spans WHERE start_tower_id=? OR end_tower_id=?", key, key) : 0,
+        locations: counts(`SELECT count(*) AS total FROM demand_version_work_locations WHERE ${field}=?`, key),
+      };
+    },
     current: (kind: EquipmentCatalogKind, id: string) =>
       rows(kind, "WHERE source.id=?", [id])[0],
     all: (kind: EquipmentCatalogKind, includeDeleted: boolean) =>

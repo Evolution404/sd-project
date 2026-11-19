@@ -1109,11 +1109,15 @@ CREATE TABLE settlement_versions (
  -- actual project cost. Do not store cumulative totals or a false "final"
  -- status. The application derives how much remains unsettled.
  change_type TEXT NOT NULL CHECK(change_type IN ('initial','revision','void')),
+ mode TEXT NOT NULL CHECK(mode IN ('project_total','itemized')),
+ amount_fen INTEGER NOT NULL CHECK(amount_fen BETWEEN 0 AND 9007199254740991),
  reason TEXT NOT NULL DEFAULT '',
  basis TEXT NOT NULL DEFAULT '',
  settlement_on TEXT CHECK(settlement_on IS NULL OR (length(settlement_on)=10 AND COALESCE(strftime('%Y-%m-%d',julianday(settlement_on))=settlement_on,0))),
  created_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  recorded_at TEXT NOT NULL CHECK(recorded_at IS NULL OR (length(recorded_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(recorded_at))=recorded_at,0))),
+ CHECK((change_type='void' AND amount_fen=0) OR
+       (change_type<>'void' AND (mode='itemized' OR amount_fen>0))),
  UNIQUE(settlement_id,version_no),
  UNIQUE(id,settlement_id),
  CHECK((version_no=1 AND previous_version_id IS NULL AND change_type='initial')
@@ -1125,7 +1129,18 @@ CREATE TABLE settlement_versions (
 CREATE TABLE settlement_drafts (
  settlement_id TEXT PRIMARY KEY REFERENCES settlements(id) ON DELETE RESTRICT,
  based_on_version_id TEXT REFERENCES settlement_versions(id) ON DELETE RESTRICT,
- draft_json TEXT NOT NULL CHECK(json_valid(draft_json)),
+ draft_json TEXT NOT NULL CHECK(json_valid(draft_json) AND COALESCE(
+  json_type(draft_json)='object' AND
+  json_extract(draft_json,'$.mode') IN ('project_total','itemized') AND
+  json_type(draft_json,'$.amount_fen')='integer' AND
+  json_extract(draft_json,'$.amount_fen') BETWEEN 0 AND 9007199254740991 AND
+  json_type(draft_json,'$.items')='array' AND json_type(draft_json,'$.resolutions')='array' AND
+  CASE WHEN json_extract(draft_json,'$.change_type')='void' THEN
+    json_extract(draft_json,'$.amount_fen')=0 AND json_array_length(draft_json,'$.items')=0
+      AND json_array_length(draft_json,'$.resolutions')=0
+  WHEN json_extract(draft_json,'$.mode')='project_total' THEN
+    json_extract(draft_json,'$.amount_fen')>0 AND json_array_length(draft_json,'$.items')=0
+  ELSE json_array_length(draft_json,'$.items')>0 END,0)),
  edit_version INTEGER NOT NULL DEFAULT 1 CHECK(edit_version>0),
  updated_by TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
  updated_at TEXT NOT NULL CHECK(updated_at IS NULL OR (length(updated_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(updated_at))=updated_at,0)))
@@ -2204,8 +2219,8 @@ BEGIN
  WHERE nv.id=NEW.cost_node_version_id AND nv.recorded_at<=sv.recorded_at)
  THEN RAISE(ABORT,'结算明细不能引用登记时间晚于结算版本的费用科目定义') END;
  SELECT CASE WHEN EXISTS(SELECT 1 FROM settlement_versions v
- WHERE v.id=NEW.settlement_version_id AND v.change_type='void')
- THEN RAISE(ABORT,'注销结算版本不应再包含有效明细') END;
+ WHERE v.id=NEW.settlement_version_id AND (v.change_type='void' OR v.mode='project_total'))
+ THEN RAISE(ABORT,'注销或按项目总额的结算版本不应包含费用明细') END;
 END;
 CREATE TRIGGER settlement_scope_result_insert_guard
  BEFORE INSERT ON settlement_scope_results
@@ -2263,28 +2278,15 @@ BEGIN
  WHERE e.settlement_version_id=NEW.settlement_version_id
  ORDER BY e.event_seq DESC LIMIT 1),'initial')<>'submit'
  THEN RAISE(ABORT,'结算必须先提交才能审核') END;
- SELECT CASE WHEN NEW.action='submit' AND
- (SELECT change_type FROM settlement_versions WHERE id=NEW.settlement_version_id)<>'void'
- AND NOT EXISTS(SELECT 1 FROM settlement_item_versions i
- WHERE i.settlement_version_id=NEW.settlement_version_id)
- THEN RAISE(ABORT,'完整结算版本至少包含一条正式明细') END;
-
- SELECT CASE WHEN NEW.action IN ('submit','approve')
- AND (SELECT change_type FROM settlement_versions
-      WHERE id=NEW.settlement_version_id)<>'void'
- AND NOT EXISTS(SELECT 1 FROM settlement_scope_results r
-   WHERE r.settlement_version_id=NEW.settlement_version_id)
- THEN RAISE(ABORT,'每张正式结算单必须明确记录本次解决的至少一项需求及实际数量') END;
- SELECT CASE WHEN NEW.action IN ('submit','approve')
- AND EXISTS(
-  SELECT 1 FROM settlement_item_versions iv
-  JOIN settlement_items item ON item.id=iv.settlement_item_id
-  WHERE iv.settlement_version_id=NEW.settlement_version_id
-    AND item.project_scope_id IS NOT NULL
-    AND NOT EXISTS(SELECT 1 FROM settlement_scope_results r
-     WHERE r.settlement_version_id=NEW.settlement_version_id
-       AND r.project_scope_id=item.project_scope_id))
- THEN RAISE(ABORT,'有明确需求归属的结算费用明细必须对应本次需求解决结果') END;
+ SELECT CASE WHEN NEW.action IN ('submit','approve') AND EXISTS(
+ SELECT 1 FROM settlement_versions v WHERE v.id=NEW.settlement_version_id
+ AND v.change_type<>'void' AND (
+   (v.mode='project_total' AND EXISTS(SELECT 1 FROM settlement_item_versions i WHERE i.settlement_version_id=v.id))
+   OR (v.mode='itemized' AND (
+      NOT EXISTS(SELECT 1 FROM settlement_item_versions i WHERE i.settlement_version_id=v.id)
+      OR v.amount_fen<>(SELECT SUM(i.amount_fen) FROM settlement_item_versions i WHERE i.settlement_version_id=v.id)))
+ ))
+ THEN RAISE(ABORT,'结算方式、整单金额与费用明细不一致') END;
 
  SELECT CASE WHEN NEW.action='approve' AND
  (SELECT v.version_no FROM settlement_versions v WHERE v.id=NEW.settlement_version_id)

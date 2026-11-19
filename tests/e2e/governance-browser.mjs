@@ -54,7 +54,7 @@ try {
   // A changed pricing date invalidates the previously viewed formal quote.
   await page.goto(base + "/#/demands");
   await page.getByRole("row").filter({ hasText: "220kV青峰线15、16号杆塔缺少防鸟装置" })
-    .getByRole("button", { name: "查看" }).click();
+    .locator(".cell-link:visible").first().click();
   await page.locator(".business-detail-dialog:visible")
     .getByRole("button", { name: "更多操作", exact: true }).click();
   await page.getByRole("menuitem", { name: "参考价试算", exact: true }).click();

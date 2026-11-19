@@ -263,7 +263,7 @@ def event(ver,seq,action):
         effective_on="2026-11-07" if action=="approve" else None)
 
 def settlement_version(name,seq,amount):
-    add("settlement_versions",id=name,settlement_id="st",
+    add("settlement_versions",id=name,mode="itemized",amount_fen=amount,settlement_id="st",
         version_no=seq,previous_version_id=None if seq==1 else "stv1",
         approval_version_id="av1",funding_version_id="fund1",
         change_type="initial" if seq==1 else "revision",
@@ -439,7 +439,7 @@ ok("draft V3 does not mask officially approved V2",
     row("SELECT approved_budget_fen FROM v_project_current_approval "
         "WHERE project_id='p'")["approved_budget_fen"]==7000)
 # New settlement version submitted but not yet approved does not change net.
-add("settlement_versions",id="stv2",settlement_id="st",version_no=2,
+add("settlement_versions",id="stv2",mode="itemized",amount_fen=10500,settlement_id="st",version_no=2,
     previous_version_id="stv1",approval_version_id="av2",
     funding_version_id="fund2",
     change_type="revision",reason="重新结算",recorded_at="2026-11-07T00:00:00.000Z",
@@ -871,7 +871,7 @@ add("settlements",id="stclose",project_id="pclose",number="SCLOSE",
     created_by="u",created_at="2026-11-07T10:00:00.000Z")
 add("settlement_items",id="itclose",settlement_id="stclose",
     project_scope_id="sclose",created_at="2026-11-07T10:00:00.000Z")
-add("settlement_versions",id="vclose",settlement_id="stclose",
+add("settlement_versions",id="vclose",mode="itemized",amount_fen=1000,settlement_id="stclose",
     version_no=1,approval_version_id="avclose",
     change_type="initial",reason="关闭结算",created_by="u",
     recorded_at="2026-11-07T10:00:00.000Z")
@@ -1198,9 +1198,9 @@ add("settlements",id="st_future",project_id="p",number="FUND-TIME",
     created_by="u",created_at="2026-11-07T13:00:00.000Z")
 blocked("settlement cannot use a future funding association version",
     "INSERT INTO settlement_versions(id,settlement_id,version_no,"
-    "approval_version_id,funding_version_id,change_type,reason,"
+    "approval_version_id,funding_version_id,change_type,reason,mode,amount_fen,"
     "created_by,recorded_at) VALUES('futurev','st_future',1,'av3',"
-    "'fund3','initial','穿越资金归属','u',"
+    "'fund3','initial','穿越资金归属','project_total',100,'u',"
     "'2026-11-07T13:00:00.000Z')")
 
 # Model metadata, organization hierarchy and source provenance are typed,
@@ -1865,7 +1865,7 @@ add("settlements",id="end_to_end_st",project_id="end_to_end_p",
 add("settlement_items",id="end_to_end_item",
     settlement_id="end_to_end_st",project_scope_id="end_to_end_scope",
     created_at="2026-11-07T20:40:00.000Z")
-add("settlement_versions",id="end_to_end_sv",
+add("settlement_versions",id="end_to_end_sv",mode="itemized",amount_fen=3000,
     settlement_id="end_to_end_st",version_no=1,
     approval_version_id="end_to_end_ap",
     change_type="initial",reason="最终结算",
@@ -1906,7 +1906,7 @@ add("settlements",id="end_to_end_st2",project_id="end_to_end_p",
 add("settlement_items",id="end_to_end_item2",
     settlement_id="end_to_end_st2",project_scope_id="end_to_end_scope",
     created_at="2026-11-07T20:44:11.000Z")
-add("settlement_versions",id="end_to_end_sv2",
+add("settlement_versions",id="end_to_end_sv2",mode="itemized",amount_fen=500,
     settlement_id="end_to_end_st2",version_no=1,
     approval_version_id="end_to_end_ap",change_type="initial",
     reason="第二期新增费用结算",created_by="u",
@@ -1941,7 +1941,7 @@ ok("cross-version installment reconciliation covers corrected actual cost",
         "WHERE entry_id='end_to_end_cost'")["amount_fen"]==3500)
 # A revised statement supersedes its former approved snapshot and MUST
 # invalidate the previous 3000-fen cost application (not erase its history).
-add("settlement_versions",id="end_to_end_sv_revision",
+add("settlement_versions",id="end_to_end_sv_revision",mode="itemized",amount_fen=2500,
     settlement_id="end_to_end_st",version_no=2,
     previous_version_id="end_to_end_sv",
     approval_version_id="end_to_end_ap",change_type="revision",
@@ -2005,7 +2005,7 @@ add("settlements",id="end_to_end_st3",project_id="end_to_end_p",
 add("settlement_items",id="end_to_end_item3",
     settlement_id="end_to_end_st3",project_scope_id="end_to_end_scope",
     created_at="2026-11-07T20:44:22.000Z")
-add("settlement_versions",id="end_to_end_sv3",
+add("settlement_versions",id="end_to_end_sv3",mode="itemized",amount_fen=450,
     settlement_id="end_to_end_st3",version_no=1,
     approval_version_id="end_to_end_ap",change_type="initial",
     reason="第一期更正后的余额结算",created_by="u",
@@ -2073,7 +2073,7 @@ add("settlements",id="end_to_end_st_extra",project_id="end_to_end_p",
 add("settlement_items",id="end_to_end_extra_item",
     settlement_id="end_to_end_st_extra",project_scope_id="end_to_end_scope",
     created_at="2026-11-07T20:44:28.000Z")
-add("settlement_versions",id="end_to_end_extra_v1",
+add("settlement_versions",id="end_to_end_extra_v1",mode="itemized",amount_fen=25,
     settlement_id="end_to_end_st_extra",version_no=1,
     approval_version_id="end_to_end_ap",change_type="initial",
     reason="待核对的额外结算",created_by="u",
@@ -2096,7 +2096,7 @@ e2e_close_with_variance(
     "approved unmatched settlement is retained but does not prohibit acknowledged close")
 # Explicit approved void supersedes only that extra statement. Nothing is
 # silently erased from the audit history or earlier approved snapshots.
-add("settlement_versions",id="end_to_end_extra_void",
+add("settlement_versions",id="end_to_end_extra_void",mode="itemized",amount_fen=0,
     settlement_id="end_to_end_st_extra",version_no=2,
     previous_version_id="end_to_end_extra_v1",
     approval_version_id="end_to_end_ap",change_type="void",
@@ -2278,7 +2278,7 @@ try:
         add("settlement_items",id=item,settlement_id=sid,
             project_scope_id="scope",
             created_at="2026-11-08T02:02:00.000Z")
-        add("settlement_versions",id=version,
+        add("settlement_versions",id=version,mode="itemized",amount_fen=settled_amount,
             settlement_id=sid,version_no=1,
             approval_version_id="av2",funding_version_id="fund2",
             change_type="initial",reason="本次费用部分结算",
@@ -2739,7 +2739,7 @@ try:
         vid=f'fee_doc_{n}_v1'
         add('settlements',id=sid,project_id='p',number=f'FEE-{n}',
             created_by='u',created_at=t)
-        add('settlement_versions',id=vid,settlement_id=sid,version_no=1,
+        add('settlement_versions',id=vid,mode="itemized",amount_fen=sum(amounts.values()),settlement_id=sid,version_no=1,
             approval_version_id='av2',funding_version_id='fund2',
             change_type='initial',reason='按费用项分次结算',
             created_by='u',recorded_at=t)
@@ -2824,7 +2824,7 @@ try:
         created_by='u',created_at=t)
     add('settlement_items',id='fee_doc_4_item',settlement_id='fee_doc_4',
         cost_node_id='fee_material',project_scope_id=None,created_at=t)
-    add('settlement_versions',id='fee_doc_4_v1',settlement_id='fee_doc_4',
+    add('settlement_versions',id='fee_doc_4_v1',mode="itemized",amount_fen=600,settlement_id='fee_doc_4',
         version_no=1,approval_version_id='av2',funding_version_id='fund2',
         change_type='initial',reason='新增费用部分结算',created_by='u',recorded_at=t)
     add('settlement_item_versions',id='fee_doc_4_item_v1',
@@ -2867,7 +2867,7 @@ try:
          t,'fee_overpay'))
     # A newer APPROVED full-statement revision supersedes old reconciliation
     # amounts. Old versions remain inspectable but are no longer effective.
-    add('settlement_versions',id='fee_doc_3_v2',settlement_id='fee_doc_3',
+    add('settlement_versions',id='fee_doc_3_v2',mode="itemized",amount_fen=1500,settlement_id='fee_doc_3',
         version_no=2,previous_version_id='fee_doc_3_v1',
         approval_version_id='av2',funding_version_id='fund2',
         change_type='revision',reason='材料费结算金额复核修正',
@@ -3044,7 +3044,7 @@ try:
     add('settlement_items',id='fee_future_statement_item',
         settlement_id='fee_future_statement',cost_node_id='fee_material',
         project_scope_id=None,created_at=t)
-    add('settlement_versions',id='fee_future_statement_v1',
+    add('settlement_versions',id='fee_future_statement_v1',mode="itemized",amount_fen=100,
         settlement_id='fee_future_statement',version_no=1,
         approval_version_id='av2',funding_version_id='fund2',
         change_type='initial',reason='测试科目未来版本时间',
@@ -3277,11 +3277,11 @@ try:
         created_by='u',created_at='2026-11-07T20:00:00.000Z')
     blocked('settlement version cannot predate its stable statement identity',
         'INSERT INTO settlement_versions(id,settlement_id,version_no,'
-        'approval_version_id,funding_version_id,change_type,reason,'
-        'created_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?)',
+        'approval_version_id,funding_version_id,change_type,reason,mode,amount_fen,'
+        'created_by,recorded_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
         ('temporal_settle_v1_bad','temporal_settle',1,'av2','fund2',
-         'initial','不能倒签正式结算','u','2026-11-07T19:59:59.000Z'))
-    add('settlement_versions',id='temporal_settle_v1',
+         'initial','不能倒签正式结算','project_total',100,'u','2026-11-07T19:59:59.000Z'))
+    add('settlement_versions',id='temporal_settle_v1',mode="itemized",amount_fen=100,
         settlement_id='temporal_settle',version_no=1,
         approval_version_id='av2',funding_version_id='fund2',
         change_type='initial',reason='核对结算时点',
@@ -3898,8 +3898,26 @@ try:
     add("settlement_items",id="r14_item_b_labor",settlement_id="r14_st",
         project_scope_id="r14_scope_b",cost_node_id="r14_fee_labor",
         created_at="2026-11-08T03:06:00.000Z")
+    db.execute("SAVEPOINT project_total_checks")
+    try:
+        add("settlements", id="r14_total", project_id="r14_project", number="R14-TOTAL",
+            created_by="u", created_at="2026-11-08T03:06:00.000Z")
+        add("settlement_versions", id="r14_total_v1", settlement_id="r14_total",
+            version_no=1, approval_version_id="r14_approval", change_type="initial",
+            mode="project_total", amount_fen=999, created_by="u", recorded_at="2026-11-08T03:07:00.000Z")
+        insert_raw("settlement_review_events", id="r14_total_submit", settlement_version_id="r14_total_v1",
+            event_seq=1, action="submit", actor_id="u", recorded_at="2026-11-08T03:08:00.000Z")
+        insert_raw("settlement_review_events", id="r14_total_approve", settlement_version_id="r14_total_v1",
+            event_seq=2, action="approve", actor_id="u", recorded_at="2026-11-08T03:09:00.000Z",
+            effective_on="2026-11-08")
+        ok("project total can be approved with no detailed fee or demand resolution",
+            row("SELECT amount_fen FROM v_settlement_effective_versions WHERE settlement_id='r14_total'")["amount_fen"] == 999
+            and row("SELECT count(*) n FROM v_effective_settlement_items WHERE settlement_version_id='r14_total_v1'")["n"] == 0)
+    finally:
+        db.execute("ROLLBACK TO project_total_checks")
+        db.execute("RELEASE project_total_checks")
     def r14_version(vid,number,action,at,qty_a,qty_b):
-        add("settlement_versions",id=vid,settlement_id="r14_st",
+        add("settlement_versions",id=vid,mode="itemized",amount_fen=450,settlement_id="r14_st",
             version_no=number,
             previous_version_id=None if number==1 else "r14_sv1",
             approval_version_id="r14_approval",change_type=action,
@@ -3915,15 +3933,15 @@ try:
                 evidence="财务账证",scope_snapshot_json="{}")
         return vid
     r14_version("r14_sv1",1,"initial","2026-11-08T03:07:00.000Z",30000,5000)
-    # Missing demand result is a genuine SQL submission error; test bypasses
-    # fixture convenience which would otherwise synthesize old test outcomes.
-    blocked_reason("formal settlement submission without any resolved demand is rejected",
-        "INSERT INTO settlement_review_events("
-        "id,settlement_version_id,event_seq,action,actor_id,recorded_at)"
-        " VALUES(?,?,?,?,?,?)",
-        "每张正式结算单必须明确记录本次解决的至少一项需求及实际数量",
-        ("r14_missing_result","r14_sv1",1,"submit","u",
-         "2026-11-08T03:08:00.000Z"))
+    db.execute("SAVEPOINT optional_resolution")
+    try:
+        insert_raw("settlement_review_events", id="r14_no_resolution", settlement_version_id="r14_sv1",
+            event_seq=1, action="submit", actor_id="u", recorded_at="2026-11-08T03:08:00.000Z")
+        ok("itemized statement can be submitted without new demand resolutions",
+            row("SELECT count(*) n FROM settlement_scope_results WHERE settlement_version_id='r14_sv1'")["n"]==0)
+    finally:
+        db.execute("ROLLBACK TO optional_resolution")
+        db.execute("RELEASE optional_resolution")
     blocked_reason("cross-project or unmatched approval scope cannot be a demand result",
         "INSERT INTO settlement_scope_results("
         "id,settlement_version_id,project_scope_id,approval_scope_version_id,"
@@ -3935,13 +3953,6 @@ try:
         settlement_version_id="r14_sv1",project_scope_id="r14_scope_a",
         approval_scope_version_id="r14_aps_a",
         resolved_quantity_scaled=30000)
-    blocked_reason("scoped financial row requires matching demand resolution",
-        "INSERT INTO settlement_review_events("
-        "id,settlement_version_id,event_seq,action,actor_id,recorded_at)"
-        " VALUES(?,?,?,?,?,?)",
-        "有明确需求归属的结算费用明细必须对应本次需求解决结果",
-        ("r14_missing_b","r14_sv1",1,"submit","u",
-         "2026-11-08T03:08:00.000Z"))
     add("settlement_scope_results",id="r14_resolved_b1",
         settlement_version_id="r14_sv1",project_scope_id="r14_scope_b",
         approval_scope_version_id="r14_aps_b",
@@ -4016,7 +4027,7 @@ try:
         settlement_id="r14_st_second",project_scope_id="r14_scope_b",
         cost_node_id="r14_fee_material",
         created_at="2026-11-08T03:12:11.000Z")
-    add("settlement_versions",id="r14_sv_second",
+    add("settlement_versions",id="r14_sv_second",mode="itemized",amount_fen=250,
         settlement_id="r14_st_second",version_no=1,
         approval_version_id="r14_approval",change_type="initial",
         created_by="u",recorded_at="2026-11-08T03:12:12.000Z")
@@ -4089,7 +4100,7 @@ try:
         settlement_id="r14_prior_work_settle",
         project_scope_id="r14_scope_a",cost_node_id="r14_fee_labor",
         created_at="2026-11-08T03:12:16.000Z")
-    add("settlement_versions",id="r14_prior_work_sv",
+    add("settlement_versions",id="r14_prior_work_sv",mode="itemized",amount_fen=80,
         settlement_id="r14_prior_work_settle",version_no=1,
         approval_version_id="r14_approval",change_type="initial",
         created_by="u",recorded_at="2026-11-08T03:12:17.000Z")

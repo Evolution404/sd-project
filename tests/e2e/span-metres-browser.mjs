@@ -35,7 +35,7 @@ try {
   await page.getByRole("columnheader", { name: /中心管辖长度（米）/ }).waitFor();
   await page.getByRole("cell", { name: "125.75", exact: true }).waitFor();
   await page.getByRole("row").filter({ hasText: "125.75" })
-    .getByRole("button", { name: "查看", exact: true }).click();
+    .locator(".cell-link:visible").first().click();
   await detail.getByText(label, { exact: true }).waitFor();
   await detail.getByText("125.75", { exact: true }).waitFor();
   await detail.getByRole("button", { name: "编辑", exact: true }).click();

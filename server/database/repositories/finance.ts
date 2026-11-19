@@ -5,6 +5,7 @@ type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
 export interface FinanceTotals {
   actual_cost_fen: number;
   settlement_fen: number;
+  project_total_settlement_fen: number;
   reconciled_cost_fen: number;
 }
 export interface FinanceDemandTotal {
@@ -20,8 +21,20 @@ export function financeReadRepository(store: Store) {
     projectStage(projectId: string): string | undefined {
       return store.get<{status:string}>("SELECT status FROM projects WHERE id=?", projectId)?.status;
     },
-    unfinishedSettlementDrafts(projectId: string): Array<{id: string; number: string}> {
-      return store.query("SELECT s.id,s.number FROM settlement_drafts d JOIN settlements s ON s.id=d.settlement_id WHERE s.project_id=? ORDER BY s.id", projectId);
+    unfinishedSettlements(projectId: string): Array<{id: string; number: string; status: string}> {
+      return store.query(`SELECT s.id,s.number,CASE
+        WHEN d.settlement_id IS NOT NULL OR v.id IS NULL THEN 'draft'
+        ELSE COALESCE(r.last_action,'draft') END AS status
+        FROM settlements s
+        LEFT JOIN settlement_drafts d ON d.settlement_id=s.id
+        LEFT JOIN settlement_versions v ON v.id=(SELECT id FROM settlement_versions
+          WHERE settlement_id=s.id ORDER BY version_no DESC LIMIT 1)
+        LEFT JOIN v_settlement_review_status r ON r.settlement_version_id=v.id
+        WHERE s.project_id=? AND (d.settlement_id IS NOT NULL
+          OR (v.id IS NULL AND NOT EXISTS(SELECT 1 FROM audit_events a
+            WHERE a.entity='settlements' AND a.entity_id=s.id AND a.action='delete'))
+          OR (v.id IS NOT NULL AND COALESCE(r.last_action,'draft') IN ('draft','submit','return')))
+        ORDER BY s.number`, projectId);
     },
     projectReconciliations(projectId?: string, includeDeleted = false) {
       const rows = store.query(`SELECT r.*,
@@ -83,14 +96,15 @@ export function financeReadRepository(store: Store) {
       return store.query(`SELECT p.id AS project_id,
         COALESCE(actual.amount_fen,0) AS actual_cost_fen,
         COALESCE(settled.amount_fen,0) AS settlement_fen,
+        COALESCE(settled.project_total_fen,0) AS project_total_settlement_fen,
         COALESCE(reconciled.amount_fen,0) AS reconciled_cost_fen
         FROM projects p
         LEFT JOIN (SELECT project_id,SUM(amount_fen) AS amount_fen
           FROM v_cost_current WHERE status='active' GROUP BY project_id) actual
           ON actual.project_id=p.id
-        LEFT JOIN (SELECT v.project_id,SUM(i.amount_fen) AS amount_fen
+        LEFT JOIN (SELECT v.project_id,SUM(v.amount_fen) AS amount_fen,
+          SUM(CASE WHEN v.mode='project_total' THEN v.amount_fen ELSE 0 END) AS project_total_fen
           FROM v_settlement_effective_versions v
-          JOIN settlement_item_versions i ON i.settlement_version_id=v.id
           WHERE v.change_type<>'void' GROUP BY v.project_id) settled
           ON settled.project_id=p.id
         LEFT JOIN (SELECT project_id,SUM(reconciled_cost_fen) AS amount_fen
@@ -116,13 +130,14 @@ export function financeReadRepository(store: Store) {
       const row = store.get(`SELECT
         (SELECT COALESCE(SUM(c.amount_fen),0) FROM v_cost_current c
          WHERE c.project_id=? AND c.status='active') AS actual_cost_fen,
-        (SELECT COALESCE(SUM(i.amount_fen),0) FROM settlement_item_versions i
-         JOIN v_settlement_effective_versions v ON v.id=i.settlement_version_id
+        (SELECT COALESCE(SUM(v.amount_fen),0) FROM v_settlement_effective_versions v
          WHERE v.project_id=? AND v.change_type<>'void') AS settlement_fen,
+        (SELECT COALESCE(SUM(v.amount_fen),0) FROM v_settlement_effective_versions v
+         WHERE v.project_id=? AND v.change_type<>'void' AND v.mode='project_total') AS project_total_settlement_fen,
         (SELECT COALESCE(SUM(r.reconciled_cost_fen),0)
          FROM v_effective_cost_reconciliations r
          WHERE r.project_id=?) AS reconciled_cost_fen`,
-        projectId, projectId, projectId) as FinanceTotals;
+        projectId, projectId, projectId, projectId) as FinanceTotals;
       return row;
     },
     projectFinanceDemands(approvalId: string): FinanceDemandTotal[] {

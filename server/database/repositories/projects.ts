@@ -322,7 +322,7 @@ export function projectReadRepository(store: Store) {
         return { ...row, work_locations: definition.work_locations };
       });
     },
-    projectDashboardPortfolio(): ProjectDashboardBase[] {
+    projectDashboardPortfolio(ids?: string[]): ProjectDashboardBase[] {
       return store.query(`SELECT p.id,p.code,m.name,p.status,p.framework_id,
         m.planned_end_on,approved.approval_version_id,approved.approved_budget_fen
         FROM projects p
@@ -330,7 +330,8 @@ export function projectReadRepository(store: Store) {
         LEFT JOIN v_project_current_approval approved ON approved.project_id=p.id
         WHERE NOT EXISTS(SELECT 1 FROM audit_events a
           WHERE a.entity='projects' AND a.entity_id=p.id AND a.action='delete')
-        ORDER BY p.created_at,p.id`) as ProjectDashboardBase[];
+        AND (? IS NULL OR p.id IN (SELECT value FROM json_each(?)))
+        ORDER BY p.created_at,p.id`, ids ? JSON.stringify(ids) : null, ids ? JSON.stringify(ids) : null) as ProjectDashboardBase[];
     },
     projectSummaryBasis(projectId: string) {
       return store.query(`SELECT p.id,ap.approval_version_id,ap.approved_budget_fen

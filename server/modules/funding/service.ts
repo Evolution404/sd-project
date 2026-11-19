@@ -1,3 +1,4 @@
+import { portfolioSettlementProgress, settlementProgress } from "../../shared/settlement-progress.js";
 import type { FundingRepository, FundingKind, FundingRecord } from "../../database/repositories/funding.js";
 import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
@@ -94,11 +95,25 @@ export function createFunding(
       return result;
     });
   }
-  function remove(actor: Actor, kind: FundingKind, key: string, version: unknown) {
+  function deletionImpact(actor: Actor, kind: FundingKind, key: string) {
+    authorize(actor, "admin");
+    const item = get(kind, key);
+    const projects = repository.linkedProjects(kind, key).map(({ id, name }) => ({ id, name }));
+    const agreements = kind === "frameworks"
+      ? repository.list("agreements").filter(row => row.framework_id === key).map(({ id, name }) => ({ id, name }))
+      : [];
+    return { expected_version: item.version_no, projects, agreements,
+      reference_ids: [...projects, ...agreements].map(row => row.id).sort() };
+  }
+  function remove(actor: Actor, kind: FundingKind, key: string, version: unknown, references?: unknown) {
     authorize(actor, "admin");
     return database.transaction(() => {
       const previous = get(kind, key);
       expectedVersion(previous.version_no, version);
+      const impact = deletionImpact(actor, kind, key);
+      requireValue(references === undefined || (Array.isArray(references) &&
+        JSON.stringify([...references].sort()) === JSON.stringify(impact.reference_ids)),
+        "资金归属已变化，请重新核对删除影响", 409);
       if (previous.status === "active")
         save(actor, kind, { status: "inactive", expected_version: version }, key);
       audit.record(actor, kind, key, "delete", previous, { logical: true });
@@ -115,7 +130,9 @@ export function createFunding(
       Number.isSafeInteger(actualCost) && Number.isSafeInteger(approvedSettlement),
       "资金关联汇总金额超出安全范围");
     return {
-      item, projects,
+      item, projects: projects.map(project => ({
+        ...project, ...settlementProgress(project.actual_cost_fen, project.settlement_fen),
+      })),
       agreements: kind === "frameworks"
         ? repository.list("agreements", true).filter(agreement => agreement.framework_id === key).map(readable)
         : [],
@@ -124,6 +141,7 @@ export function createFunding(
         approved_budget_fen: approvedBudget,
         actual_cost_fen: actualCost,
         settlement_fen: approvedSettlement,
+        ...portfolioSettlementProgress(projects),
         capacity_difference_fen: item.limit_fen - approvedBudget,
       },
     };
@@ -132,6 +150,7 @@ export function createFunding(
     get,
     save,
     remove,
+    deletionImpact,
     details,
     list: (kind: FundingKind, includeDeleted = false) =>
       repository.list(kind, includeDeleted).map(readable),

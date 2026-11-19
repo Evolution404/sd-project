@@ -27,7 +27,7 @@ try {
   await search.press("Enter");
   await page.waitForURL(url => url.hash.includes("q="));
   const previous = page.url();
-  await row.getByRole("button", { name: "查看记录", exact: true }).click();
+  await row.locator(".cell-link:visible").first().click();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.getByRole("heading", { name: "跨项目检索验收费用", exact: true }).waitFor();
   assert.equal(page.url(), previous);
@@ -46,7 +46,7 @@ try {
   await search.fill("不存在的费用");
   await search.press("Enter");
   await page.getByText("没有符合筛选条件的记录", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "清除检索与筛选", exact: true }).last().click();
+  await page.getByRole("button", { name: "清除检索与列筛选", exact: true }).last().click();
   await row.waitFor();
   assert.equal(await search.inputValue(), "");
   assert.deepEqual(errors, []);

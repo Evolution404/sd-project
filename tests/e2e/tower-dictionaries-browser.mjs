@@ -43,7 +43,7 @@ try{
   await page.getByRole("button",{name:"新增杆塔材质",exact:true}).click();
   await modal().getByLabel("名称",{exact:true}).fill("混凝土杆");
   await saveModal();
-  await page.getByRole("cell",{name:"混凝土杆",exact:true}).waitFor();
+  await page.getByRole("cell",{name:"混凝土杆",exact:true}).first().waitFor();
   const custom=s.catalog.list("tower_materials").find(m=>m.name==="混凝土杆");
   assert.ok(custom?.id && custom.status==="active");
 
@@ -55,7 +55,7 @@ try{
   await selectRef("杆塔性质","耐张");
   await selectRef("杆塔材质","混凝土杆");
   await saveModal();
-  await page.getByRole("cell",{name:"混凝土杆",exact:true}).waitFor();
+  await page.getByRole("cell",{name:"混凝土杆",exact:true}).first().waitFor();
   await page.getByRole("cell",{name:"耐张",exact:true}).waitFor();
   const physical=s.catalog.list("physical").find(row=>row.tower_material===custom.id);
   assert.ok(physical);
@@ -63,13 +63,13 @@ try{
   await page.screenshot({path:join(dir,"physical-custom-material-1440.png"),fullPage:true});
 
   await page.goto(base+"/#/dictionaries/tower_materials");
-  await page.getByRole("row").filter({hasText:"混凝土杆"}).getByRole("button",{name:"查看",exact:true}).click();
+  await page.getByRole("row").filter({hasText:"混凝土杆"}).locator(".cell-link:visible").first().click();
   await page.getByRole("button",{name:"编辑",exact:true}).click();
   await modal().getByLabel("名称",{exact:true}).fill("混凝土杆（维护版）");
   await saveModal();
   assert.equal(s.catalog.get("tower_materials",custom.id).version,2);
   await page.goto(base+"/#/ledger/physical");
-  await page.getByRole("cell",{name:"混凝土杆（维护版）",exact:true}).waitFor();
+  await page.getByRole("cell",{name:"混凝土杆（维护版）",exact:true}).first().waitFor();
   assert.equal(s.catalog.get("physical",physical.id).tower_material,custom.id);
   assert.deepEqual(errors,[]);
   console.log("TOWER_DICTIONARIES_BROWSER_OK 2 seeded dictionaries, custom version, physical reference, live label, no tower type");

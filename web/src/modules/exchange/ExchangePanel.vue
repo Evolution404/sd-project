@@ -5,7 +5,7 @@ import { ref, computed, inject, onUnmounted } from "vue";
 import { guideCenterKey } from "../../guides/core/guide-center";
 const openGuide = inject(guideCenterKey, null);
 import { ElMessage, type UploadFile } from "element-plus";
-import type { ExchangePreviewDocument, ExchangeCommitResult, WorkbookIssue, ExchangeMode } from "../../../../server/shared/types/exchange";
+import type { AssetExchangeKind, ExchangePreviewDocument, ExchangeCommitResult, WorkbookIssue, ExchangeMode } from "../../../../server/shared/types/exchange";
 import { api, download } from "../../shared/api/client";
 import { newClientId } from "../../shared/utils/id";
 import { fieldName, factText, visibleFact } from "../../shared/utils/display";
@@ -13,7 +13,8 @@ import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.v
 const props = defineProps<{
   kind: "demands" | "settlements" | "assets";
   selectedIds?: string[];
-  query?: string;
+  appliedQuery?: string;
+  assetKind?: "lines" | "physical" | "towers" | "spans";
   projectId?: string;
   readonly?: boolean;
 }>();
@@ -40,7 +41,7 @@ type ExchangeDisplayRow = ExchangePreviewDocument | WorkbookIssue;
 function rowField(row: ExchangeDisplayRow, key: string): unknown {
   return Object.entries(row).find(([field]) => field === key)?.[1];
 }
-const emit = defineEmits<{changed:[];inspect:[id:string]}>();
+const emit = defineEmits<{changed:[];inspect:[id:string, kind?: AssetExchangeKind]}>();
 const exchangeSections=ref(["template","upload"]);
 const dialog = ref(false),
   mode = ref<ExchangeMode>("mixed"),
@@ -150,17 +151,26 @@ function predictedResult(row: ExchangePreviewDocument) {
   const previous = row.payload.expected_version;
   return "需求第 " + ((typeof previous === "number" ? previous : 0) + 1) + " 版";
 }
+const exportScope = computed(() => {
+  if (!props.appliedQuery) return "正在读取列表范围";
+  const query = new URLSearchParams(props.appliedQuery);
+  const filters: unknown = JSON.parse(query.get("filters") || "{}");
+  const names = filters && typeof filters === "object" ? Object.entries(filters)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && !!entry[1])
+    .map(([key, value]) => (key === "display_status" ? "状态" : fieldName(key)) + " · " + value) : [];
+  return [query.get("q") ? "检索 · " + query.get("q") : "", ...names,
+    query.get("deleted") === "true" ? "包含已删除" : ""].filter(Boolean).join("，") || "当前分类全部记录";
+});
 async function exportFile(report = false, selected = false) {
-  const query = new URLSearchParams({
-    q: props.query || "",
-    report: String(report),
-    ...(props.projectId ? { project_id: props.projectId } : {}),
-  });
+  const query = new URLSearchParams(selected ? "" : props.appliedQuery);
+  query.delete("page");
+  query.set("report", String(report));
+  if (props.projectId) query.set("project_id", props.projectId);
+  if (props.assetKind) query.set("asset_kind", props.assetKind);
   if (selected)
     for (const id of props.selectedIds || []) query.append("id", id);
-  await download(
-    `/exchange/${props.kind}/export?${query}`,
-  );
+  try { await download(`/exchange/${props.kind}/export?${query}`); }
+  catch (failure) { ElMessage.error((failure as Error).message); }
 }
 async function upload(file: UploadFile) {
   beginPhase("正在上传和预检 Excel 数据");
@@ -259,6 +269,7 @@ async function commit() {
     >
     <ElCollapse v-model="exchangeSections">
     <ElCollapseItem title="下载模板与维护导出" name="template">
+    <p class="muted">筛选范围 · {{ exportScope }}（全部页）。勾选范围 · {{ selectedIds?.length || 0 }} 条。</p>
     <div class="toolbar">
       <ElButton data-guide-action="excel.template"
         @click="
@@ -267,12 +278,12 @@ async function commit() {
           )
         "
         >空白模板</ElButton
-      ><ElButton data-guide-action="excel.export-filtered" @click="exportFile()">筛选结果维护导出</ElButton
+      ><ElButton data-guide-action="excel.export-filtered" :disabled="appliedQuery === ''" @click="exportFile()">筛选结果维护导出</ElButton
       ><ElButton data-guide-action="excel.export-selected"
         :disabled="!selectedIds?.length"
         @click="exportFile(false, true)"
         >勾选项维护导出</ElButton
-      ><ElButton @click="exportFile(true)">业务报表</ElButton>
+      ><ElButton :disabled="appliedQuery === ''" @click="exportFile(true)">业务报表</ElButton>
     </div>
     </ElCollapseItem>
     <ElCollapseItem title="上传并预检" name="upload">
@@ -389,10 +400,13 @@ async function commit() {
       @click="download(`/exchange/${preview!.token}/results`, '导入结果.xlsx')"
       >下载导入结果</ElButton
     >
-    <BusinessTable v-if="result && kind === 'demands'" :rows="result.results" :columns="[{key:'import_ref',label:'导入关联号'},{key:'number',label:'正式需求编号'},{key:'action',label:'处理结果'}]"
-      table-key="exchange:demand-results" client-side :max-height="300" :actions-width="120">
-      <template #cell="{row,column}">{{column.key==='import_ref'?row.import_ref:column.key==='number'?row.number:row.action==='create'?'已新增':row.action==='update'?'已更新':'保持原值'}}</template>
-      <template #actions="{row}"><ElButton size="small" @click="dialog=false;emit('inspect',row.id)">查看需求</ElButton></template>
+    <BusinessTable v-if="result" :rows="result.results"
+      :columns="[...(kind === 'demands' ? [{key:'import_ref',label:'导入关联号'}] : []), {key:'number',label:'业务记录'}, {key:'action',label:'处理结果'}]"
+      :table-key="'exchange:results:' + kind" client-side :max-height="300">
+      <template #cell="{row,column}">
+        <ElButton v-if="column.key === 'number'" link type="primary" class="cell-link" @click="dialog = false; emit('inspect', row.id, row.entity_kind)">{{ row.number }}</ElButton>
+        <span v-else>{{ column.key === 'import_ref' ? row.import_ref : row.action === 'create' ? '已新增' : row.action === 'update' ? '已更新' : '保持原值' }}</span>
+      </template>
     </BusinessTable>
     </ElCollapseItem></ElCollapse>
     <template #footer

@@ -92,9 +92,8 @@ export function fundingRepository(store: Store) {
           FROM v_cost_current WHERE status='active' GROUP BY project_id
         ) cost ON cost.project_id=p.id
         LEFT JOIN (
-          SELECT v.project_id,SUM(i.amount_fen) AS amount_fen
+          SELECT v.project_id,SUM(v.amount_fen) AS amount_fen
           FROM v_settlement_effective_versions v
-          JOIN settlement_item_versions i ON i.settlement_version_id=v.id
           WHERE v.change_type<>'void' GROUP BY v.project_id
         ) settled ON settled.project_id=p.id
         WHERE ${scope}=?

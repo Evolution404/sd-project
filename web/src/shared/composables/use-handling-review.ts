@@ -10,7 +10,7 @@ interface ReviewRequest {
   previewPath: string;
   commitPath: string;
   payload?: (targets: HandlingTarget[]) => object;
-  complete: () => unknown;
+  complete: (ids: string[]) => unknown;
 }
 
 export function useHandlingReview() {
@@ -48,7 +48,7 @@ export function useHandlingReview() {
       await api(config.commitPath, "POST", config.payload?.(targets) ?? { items: targets });
       open.value = false;
       ElMessage.success("已办理 " + targets.length + " 条");
-      await config.complete();
+      await config.complete(targets.map(target => target.id));
     } catch (failure) {
       error.value = (failure as Error).message;
     } finally {

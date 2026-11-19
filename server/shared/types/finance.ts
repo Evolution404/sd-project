@@ -20,6 +20,7 @@ export interface FinanceListItem {
   project_code: string;
   label: string;
   amount_fen: number | null;
+  effective_amount_fen?: number | null;
   occurred_on: string | null;
   status: string;
   version_no: number | null;

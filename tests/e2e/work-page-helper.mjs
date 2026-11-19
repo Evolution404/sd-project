@@ -1,6 +1,6 @@
 export const workPage = page => page.locator(".business-work-surface:visible");
 export const activeEditor = page => page.locator(
-  ".business-work-surface:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible",
+  ".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible",
 );
 
 export async function confirmProjectApproval(page) {

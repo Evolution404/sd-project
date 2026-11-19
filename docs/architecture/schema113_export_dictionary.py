@@ -19,7 +19,7 @@ after_json|操作后的结构化审计事实
 agreement_id|业务归属执行协议
 additional_conditions_json|参考价扩展条件的不可变字典：键是正式价格因素编码，值锁定因素定义版本与枚举/整数范围；实际价格匹配由应用层执行
 base_fee_fen|参考价格每个作业位置收取一次的固定基础费，人民币分，不随同位置设备数量重复收取
-amount_fen|本条财务事实的金额（人民币分）；结算明细只对应本次结算费用，不保存累计金额
+amount_fen|本条财务事实的金额（人民币分）；结算正式版本保存本次整单金额，分项方式必须等于当前版本明细合计
 approval_version_id|项目正式批准版本身份
 approved_amount_fen|本次项目批准范围的独立预算/金额事实，非同需求参考价计价结果，NULL表示未核定
 approved_at|项目正式批准的UTC时间点
@@ -29,6 +29,7 @@ asset_no|一次性清洗后的设备资产编号
 base_approval_version_id|变更单所依据的前一项目正式批准版本
 based_on_version_id|草稿所依据的上一正式结算版本
 basis|价格、结算或估算的依据说明
+mode|结算方式，project_total 按项目总额，itemized 按子费用
 batch_id|需求导入批次身份
 before_json|操作前的结构化审计事实
 bytes|证据文件字节数

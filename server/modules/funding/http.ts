@@ -10,13 +10,14 @@ export async function handleFunding(context: RouteContext): Promise<{ result: un
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
   const kind: FundingKind = key;
   if (read) {
+    if (subKey === "deletion-impact") return { result: system.funding.deletionImpact(actor, kind, sub) };
     if (sub === "history") return { result: system.funding.history(kind, subKey) };
     if (sub) return { result: url.searchParams.get("detail") === "true"
       ? system.funding.details(kind, sub) : system.funding.get(kind, sub, deleted) };
     return { result: system.funding.search(kind, parseListQuery(url.searchParams)) };
   }
   if (method === "DELETE")
-    return { result: mutate("admin", () => system.funding.remove(actor, kind, sub, input.expected_version)) };
+    return { result: mutate("admin", () => system.funding.remove(actor, kind, sub, input.expected_version, input.expected_references)) };
   requireValue(method === "POST", "资金业务写入请求方法无效", 405);
   return { result: mutate("write", () => system.funding.save(actor, kind, input, sub || undefined)) };
 }

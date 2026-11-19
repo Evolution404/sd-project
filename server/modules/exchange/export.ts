@@ -27,20 +27,13 @@ function sumScaled(rows:readonly unknown[],field:string):bigint {
     return sum+BigInt(value);
   },0n);
 }
-function usable<T extends {id:string}>(rows:T[],options:ExchangeExportOptions,projectId:(row:T)=>string|null):T[] {
-  return rows.filter(row=>
-    (!options.projectId||projectId(row)===options.projectId)&&
-    (!options.ids?.length||options.ids.includes(row.id))&&
-    (!options.query||JSON.stringify(row).includes(options.query))
-  );
-}
 function scopeDescription(system:System,scopeId:string|null|undefined):string|undefined {
   if (!scopeId) return undefined;
   const demandId=system.exchangePersistence.scopeDemandId(scopeId);
   requireValue(demandId,"结算已采用需求范围不存在",404);
   return system.demands.get(demandId,true).problem_description;
 }
-function effectiveVersion(system:System,key:string):{items:unknown[];resolutions:unknown[]} {
+function effectiveVersion(system:System,key:string):{amount_fen:number;resolutions:unknown[]} {
   return system.finance.effectiveSettlementExport(key);
 }
 function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
@@ -69,17 +62,26 @@ function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
 }
 function reportSettlement(system:System,records:SettlementWorkflow[]):Promise<Buffer> {
   const statuses:Record<string,string>={submit:"待审核",approve:"已批准",return:"已退回",reject:"已驳回"};
+  const projects = system.projects.dashboardPortfolio([...new Set(records.map(record => record.project_id))]);
+  const summaries = system.finance.summariesForPortfolio(projects);
   return makeBusinessReport("settlements",records.map(record=>{
     const project=system.projects.get(record.project_id);
     const adopted=effectiveVersion(system,record.id);
+    const summary = summaries.get(record.project_id);
     return {
       结算编号:record.number,子项目编号:project.code,子项目当前名称:project.name,
       最新正式版本:record.version?.version_no||0,
       最新审核状态:statuses[record.review?.action||""]||"未提交",
       草稿状态:record.draft?"有草稿":"无草稿",
       "本次草稿金额（元）":record.draft?
-        decimalText(sumScaled(record.draft.document.items,"amount_fen"),2):"",
-      "当前已批准金额（元）":decimalText(sumScaled(adopted.items,"amount_fen"),2),
+        decimalText(record.draft.document.amount_fen,2):"",
+      "最近提交金额（元）":record.version ? decimalText(record.version.amount_fen,2) : "",
+      "当前已批准金额（元）":decimalText(adopted.amount_fen,2),
+      结算方式:(record.draft?.document.mode || record.version?.mode) === "project_total" ? "按项目总额" : "按子费用",
+      "项目核定实际费用（元）": summary ? decimalText(summary.actual_cost_fen, 2) : "",
+      "项目累计生效结算（元）": summary ? decimalText(summary.settlement_fen, 2) : "",
+      项目结算进度: summary?.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent + "%",
+      "项目超结算（元）": summary?.excess_settlement_fen == null ? "" : decimalText(summary.excess_settlement_fen, 2),
       当前新增解决量:decimalText(sumScaled(adopted.resolutions,"resolved_quantity_scaled"),4),
       结算日期:record.version?.settlement_on||record.draft?.document.settlement_on||"",
       结算依据:record.version?.basis||record.draft?.document.basis||"",
@@ -118,7 +120,9 @@ function exportSettlements(system:System,records:SettlementWorkflow[],lookups:()
     const draft=record.draft?.document;
     const doc=draft||record.version||{};
     rows.documents.push({
-      ...doc,id:record.id,number:record.number,
+      ...doc,mode: "mode" in doc ? doc.mode === "project_total" ? "按项目总额" : "按子费用" : undefined,
+      amount_fen: (draft || record.version)?.mode === "project_total" ? (draft || record.version)?.amount_fen : undefined,
+      id:record.id,number:record.number,
       project_name:project.name,project_id:record.project_id,
       expected_version:record.version?.version_no||0,
       expected_edit_version:record.draft?.edit_version||0,
@@ -152,21 +156,26 @@ export function createExchangeExporter(system:System,lookups:()=>Record<string,u
   return async (actor:Actor,kind:WorkbookKind,options:ExchangeExportOptions={}):Promise<Buffer>=>{
     authorize(actor,"read");
     if(kind==="assets")throw new Error("设备导出由设备专用服务处理");
-    if(kind==="demands"){
-      const ids = [...new Set(options.ids || [])];
-      requireValue(ids.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
-      let records: DemandRecord[];
-      if (ids.length) {
-        records = usable(ids.map(id => system.demands.get(id)), options, row => row.binding?.project_id || null);
-      } else {
-        const listed = usable(system.demands.list(), options, row => row.binding?.project_id || null);
-        requireValue(listed.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
-        records = listed.map(item => system.demands.get(item.id));
-      }
-      return options.report?reportDemand(system,records):exportDemands(system,records,lookups);
+    const ids = [...new Set(options.ids || [])];
+    requireValue(ids.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
+    const query = {
+      q: "", filters: {}, sort: "created_at", direction: "desc" as const, deleted: false,
+      ...options.listQuery, page: 1, page_size: MAX_DOCUMENTS + 1,
+    };
+    if (kind === "demands") {
+      const listed = ids.length ? ids : system.demands.search(query).items.map(row => row.id);
+      requireValue(listed.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
+      const records = listed.map(id => system.demands.get(id, ids.length > 0 || query.deleted));
+      requireValue(!options.projectId || records.every(row => row.binding?.project_id === options.projectId),
+        "导出范围包含不属于当前项目的需求", 409);
+      return options.report ? reportDemand(system, records) : exportDemands(system, records, lookups);
     }
-    const records=usable(system.finance.allSettlements(),options,row=>row.project_id);
-    requireValue(records.length<=MAX_DOCUMENTS,"导出超过5000张，请收窄筛选条件");
-    return options.report?reportSettlement(system,records):exportSettlements(system,records,lookups);
+    const records = ids.length
+      ? ids.map(id => system.finance.settlement(id))
+      : system.finance.searchSettlements(options.projectId, query).items;
+    requireValue(records.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
+    requireValue(!options.projectId || records.every(row => row.project_id === options.projectId),
+      "导出范围包含不属于当前项目的结算", 409);
+    return options.report ? reportSettlement(system, records) : exportSettlements(system, records, lookups);
   };
 }

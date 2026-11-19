@@ -24,7 +24,7 @@ const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/catalog-polish');
 mkdirSync(output, { recursive: true });
-const editor = page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible');
+const editor = page.locator('.business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible');
 async function select(label, name) {
   await editor.getByLabel(label, { exact: true }).press('ArrowDown');
   await page.getByRole('option', { name, exact: true }).last().click();
@@ -70,11 +70,12 @@ try {
   await spanRow.waitFor();
   assert.equal(s.catalog.get('operations',spanOperation.id).object_position,'corridor');
   assert.equal(s.catalog.get('operations',spanOperation.id).attribution_unit,'logical_tower');
-  await spanRow.getByRole('button', { name: '查看', exact: true }).click();
+  await spanRow.locator(".cell-link:visible").first().click();
   const detail = page.locator('.business-detail-dialog:visible');
   await detail.getByText('作业对象', { exact: true }).waitFor();
   await detail.getByRole('button', { name: '关闭详情' }).click();
   await page.getByRole('button', { name: '新增操作类型', exact: true }).click();
+  await editor.getByRole('tab', { name: '基本定义' }).waitFor();
   assert.equal(await editor.getByRole('tab').count(), 4);
   assert.equal(await editor.getByRole('tab',{name:'作业范围与计量'}).count(),0);
   await editor.getByText('固定计量单位',{exact:true}).waitFor();

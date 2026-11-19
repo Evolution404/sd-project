@@ -366,7 +366,7 @@ function populate(system, password) {
       evidence: "【演示】现场费用核定记录（虚构）",
     });
     let bill = system.finance.saveDraft(user, project.id, {
-      number: "DEMO-S-001", approval_version_id: approval.id,
+      number: "DEMO-S-001", approval_version_id: approval.id, mode: "itemized",
       items: [{
         cost_node_id: node.id,
         project_scope_id: project.scopes[0].id,
@@ -388,18 +388,8 @@ function populate(system, password) {
     });
     system.finance.saveDraft(user, project.id, {
       number: "DEMO-S-002", approval_version_id: approval.id,
-      items: [{
-        cost_node_id: node.id,
-        project_scope_id: project.scopes[0].id,
-        quantity_scaled: 30000,
-        amount_fen: 16600,
-        evidence: "【演示】第二批待提交结算资料",
-      }],
-      resolutions: [{
-        project_scope_id: project.scopes[0].id,
-        resolved_quantity_scaled: 30000,
-        evidence: "【演示】第二批施工登记",
-      }],
+      mode: "project_total", amount_fen: 16600,
+      basis: "【演示】第二批按项目总额结算，待提交",
     });
 
     let pending = system.projects.save(user, {

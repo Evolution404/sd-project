@@ -17,6 +17,7 @@ export type ProjectAction = {
   enabled: boolean;
   reason?: string;
   approval_id?: string;
+  settlement_blockers?: Array<{ id: string; number: string; status: string }>;
 };
 function allowed(actor: Actor, permission: string) {
   return actor.permissions.includes(permission);
@@ -30,7 +31,8 @@ function offer(actor: Actor, key: ProjectActionKey, label: string,
     ...(approval_id ? { approval_id } : {}),
   };
 }
-export function projectActionHints(actor: Actor, project: ProjectActionFacts, closeBlockReason = ""): ProjectAction[] {
+export function projectActionHints(actor: Actor, project: ProjectActionFacts, closeBlockReason = "",
+  settlementBlockers: NonNullable<ProjectAction["settlement_blockers"]> = []): ProjectAction[] {
   if (project.deleted || project.status === "closed")
     return [{ key: "history", label: "查看正式历史", section: "history", enabled: true }];
   const activeScopes = project.scopes.filter(s => s.binding && s.demand_status === "active");
@@ -57,6 +59,6 @@ export function projectActionHints(actor: Actor, project: ProjectActionFacts, cl
     offer(actor, "finance", "办理费用与结算", "finance", "read"),
     offer(actor, "approval", "编制正式变更", "approval", "write"),
     { ...offer(actor, "close", "审核结项", "overview", "project.close"),
-      ...(closeBlockReason ? {enabled:false, reason:closeBlockReason} : {}) },
+      ...(closeBlockReason ? {enabled:false, reason:closeBlockReason, settlement_blockers: settlementBlockers} : {}) },
   ];
 }

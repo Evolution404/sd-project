@@ -1,3 +1,5 @@
+import type { ListQuery } from "./contracts.js";
+import type { EquipmentKind } from "./equipment.js";
 import type { OperationAttribute } from "./operation-attributes.js";
 /** Excel exchange contracts: user-visible fields and server-owned identities are distinct. */
 export type WorkbookKind = "assets" | "demands" | "settlements";
@@ -160,7 +162,8 @@ export interface ExchangePreviewOptions {
 }
 export interface ExchangeExportOptions {
   ids?:string[];
-  query?:string;
+  listQuery?: ListQuery;
+  assetKind?: EquipmentKind;
   report?:boolean;
   projectId?:string;
 }
@@ -185,7 +188,7 @@ export interface ExchangeCommitInput {
   atomic:boolean;
 }
 export interface ExchangeCommitResult {
-  results:Array<{import_ref?:string;number:string;id:string;action:"create"|"update"|"unchanged"}>;
+  results:Array<{entity_kind?: AssetExchangeKind;import_ref?:string;number:string;id:string;action:"create"|"update"|"unchanged"}>;
   issues:WorkbookIssue[];
   timings_ms:{revalidation:number;business_writes:number};
   submitted_at:string;

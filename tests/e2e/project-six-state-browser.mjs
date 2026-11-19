@@ -64,7 +64,7 @@ try {
   const draft=change.approvals.find(a=>a.status==="draft");
   await refresh();
   await selectStatus("变更中",project.name);
-  await page.getByRole("row").filter({hasText:project.name}).getByRole("button",{name:"进入项目"}).click();
+  await page.getByRole("row").filter({hasText:project.name}).locator(".cell-link:visible").first().click();
   await detail.locator(".detail-header").getByText("变更中", { exact: true }).waitFor();
   await detail.getByRole("button",{name:"查看变更差异",exact:true}).click();
   const review = page.getByRole("region", { name: "审核项目变更", exact: true });

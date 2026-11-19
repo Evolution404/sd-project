@@ -25,7 +25,7 @@ const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const out = join(process.cwd(), "test-results/schema113/empty-database");
 mkdirSync(out, { recursive: true });
-const dialog = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+const dialog = page.locator(".business-work-surface:visible:not(.business-detail-page), .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
 async function visit(path) {
   await page.goto(base + "/#/" + path);
   await page.locator("main h1").waitFor();
@@ -65,18 +65,19 @@ async function audit(name, width) {
 }
 async function auditOpenDialog(name, width) {
   await page.setViewportSize({ width, height: 760 });
-  await dialog.locator(".el-dialog").waitFor();
+  const surface = page.locator(".el-overlay-dialog:visible .el-dialog, .business-work-surface:visible:not(.business-detail-page)").last();
+  await surface.waitFor();
   // Wait until the Element Plus opening transition has finished before
   // measuring/photographing geometry; transitional frames are not layout bugs.
   await page.waitForTimeout(300);
-  const bounds = await dialog.locator(".el-dialog").evaluate((node) => {
+  const bounds = await surface.evaluate((node) => {
     const d = node.getBoundingClientRect();
-    const footer = node.querySelector(".el-dialog__footer")?.getBoundingClientRect();
-    return { top: d.top, bottom: d.bottom, left: d.left, right: d.right,
+    const footer = node.querySelector(".el-dialog__footer, .work-footer")?.getBoundingClientRect();
+    return { page: node.classList.contains("business-work-surface"), top: d.top, bottom: d.bottom, left: d.left, right: d.right,
       footerTop: footer?.top || 1, footerBottom: footer?.bottom || 0,
       viewportWidth: innerWidth, viewportHeight: innerHeight };
   });
-  assert.ok(bounds.top >= -1 && bounds.bottom <= bounds.viewportHeight + 1 &&
+  assert.ok((bounds.page || (bounds.top >= -1 && bounds.bottom <= bounds.viewportHeight + 1)) &&
     bounds.left >= -1 && bounds.right <= bounds.viewportWidth + 1 &&
     bounds.footerBottom <= bounds.viewportHeight + 1 &&
     bounds.footerTop > 0,
@@ -167,17 +168,19 @@ try {
   // commands rather than relying solely on application service tests.
   const originalRule = s.catalog.list("prices")[0];
   const ruleRow = page.getByRole("row").filter({ hasText: "空库普通施工参考价" });
-  await ruleRow.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "复制规则", exact: true }).last().click();
+  await ruleRow.locator(".cell-link:visible").first().click();
+  const recordDetail = page.locator(".business-detail-dialog:visible");
+  await recordDetail.getByRole("button", { name: "复制规则", exact: true }).click();
   await dialog.getByRole("button", { name: "保存前检查" }).click();
   await dialog.getByText("存在可能重叠的参考价格规则").waitFor();
   await save();
+  await recordDetail.getByRole("button", { name: "关闭详情" }).click();
   const copiedRule = s.catalog.list("prices").find((row) =>
     row.title.endsWith("（副本）"));
   assert.ok(copiedRule && copiedRule.id !== originalRule.id);
   await page.getByRole("row").filter({ hasText: "（副本）" })
-    .getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "删除", exact: true }).last().click();
+    .locator(".cell-link:visible").first().click();
+  await recordDetail.getByRole("button", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   assert.equal(s.catalog.list("prices").length, 1);
   assert.equal(s.catalog.get("prices", copiedRule.id, true).deleted, true);
@@ -189,14 +192,12 @@ try {
   const priority = s.catalog.list("priorities")[0];
   assert.equal(priority.name, "空库临时优先级");
   await page.getByRole("row").filter({ hasText: "空库临时优先级" })
-    .getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "编辑", exact: true }).last().click();
+    .locator(".cell-link:visible").first().click();
+  await recordDetail.getByRole("button", { name: "编辑", exact: true }).click();
   await dialog.getByLabel("名称", { exact: true }).fill("空库已修订优先级");
   await save();
   assert.equal(s.catalog.get("priorities", priority.id).version, 2);
-  await page.getByRole("row").filter({ hasText: "空库已修订优先级" })
-    .getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "删除", exact: true }).last().click();
+  await recordDetail.getByRole("button", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   assert.equal(s.catalog.list("priorities").length, 0);
   assert.equal(s.catalog.get("priorities", priority.id, true).deleted, true);

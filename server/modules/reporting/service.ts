@@ -1,3 +1,4 @@
+import { portfolioSettlementProgress } from "../../shared/settlement-progress.js";
 import { authorize } from "../../platform/auth/service.js";
 import { safeAmount } from "../pricing/calculation.js";
 import type { Actor } from "../../shared/types/contracts.js";
@@ -75,6 +76,8 @@ export function createReporting(
         approved_budget_fen: safeAmount(children.reduce(
           (sum, item) => sum + BigInt(item.approved_budget_fen || 0), 0n)),
         actual_cost_fen: actual,
+        settlement_fen: safeAmount(children.reduce((sum, item) => sum + BigInt(item.settlement_fen), 0n)),
+        ...portfolioSettlementProgress(children),
         projects: children.length,
         difference_fen: actual - framework.limit_fen,
       };
@@ -99,6 +102,10 @@ export function createReporting(
     });
     const alerts: DashboardAlert[] = items.flatMap(project => {
       const issues: DashboardAlert[] = [];
+      if (project.excess_settlement_fen)
+        issues.push({ project_id: project.id, project: project.name, kind: "超结算", difference_fen: project.excess_settlement_fen });
+      if (project.settlement_fen && project.settlement_progress_percent === null)
+        issues.push({ project_id: project.id, project: project.name, kind: "待核定费用基数" });
       if (project.budget_difference_fen !== null && project.budget_difference_fen > 0)
         issues.push({
           project_id: project.id,

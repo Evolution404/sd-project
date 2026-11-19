@@ -78,7 +78,8 @@ test("cross-project finance queries preserve formal amount, drafts and reference
     resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000, evidence: "本次解决" }] });
   const draft = s.finance.search("settlements", query({ q: bill.number })).items[0];
   assert.equal(draft.status, "draft");
-  assert.equal(draft.amount_fen, null);
+  assert.equal(draft.amount_fen, 70000);
+  assert.equal(draft.effective_amount_fen, null);
   s.finance.submit(user, bill.id, { expected_version: 0, expected_edit_version: 1 });
   const submitted = s.finance.search("settlements", query({ q: bill.number })).items[0];
   assert.equal(submitted.amount_fen, 70000);

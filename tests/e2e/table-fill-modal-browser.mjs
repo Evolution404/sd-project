@@ -62,7 +62,7 @@ try {
   await page.getByRole('tab', { name: '物理杆塔', exact: true }).click();
   assert.equal(await page.locator('.el-table__expand-column').count(), 0);
   const url = page.url();
-  await page.getByRole('row').filter({ hasText: '金龙5603线' }).getByRole('button', { name: '查看', exact: true }).click();
+  await page.getByRole('row').filter({ hasText: '金龙5603线' }).locator(".cell-link:visible").first().click();
   const detail = page.locator('.business-detail-dialog:visible');
   await detail.getByText('关联逻辑杆塔（2）', { exact: true }).waitFor();
   await page.waitForTimeout(350);

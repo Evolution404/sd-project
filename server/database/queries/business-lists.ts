@@ -75,7 +75,7 @@ const projectSource: ListSource = {
     CASE WHEN approval.approval_version_id IS NOT NULL THEN json_object('id', approval.approval_version_id,
       'version_no', approval.approval_version_no, 'approved_budget_fen', approval.approved_budget_fen) END AS approval_json,
     (SELECT json_group_array(json_object('id', sc.id, 'project_id', sc.project_id, 'demand_id', sc.demand_id,
-      'demand_no', d.demand_no, 'demand_status', dv.status, 'binding',
+      'demand_no', d.demand_no, 'demand_status', dv.status, 'expected_on', dv.expected_on, 'binding',
       CASE WHEN b.project_scope_id IS NOT NULL THEN json_object('project_scope_id', b.project_scope_id,
         'project_id', b.project_id, 'demand_id', b.demand_id) END))
       FROM project_demand_scopes sc JOIN demands d ON d.id=sc.demand_id
@@ -105,7 +105,8 @@ const financeSources: Record<FinanceListKind, ListSource> = {
   },
   settlements: {
     sql: `SELECT s.id, s.project_id, p.name AS project_name, root.code AS project_code, s.number AS label,
-      (SELECT SUM(i.amount_fen) FROM settlement_item_versions i WHERE i.settlement_version_id=v.id) AS amount_fen,
+      COALESCE(json_extract(draft.draft_json,'$.amount_fen'), v.amount_fen) AS amount_fen,
+      effective.amount_fen AS effective_amount_fen,
       v.settlement_on AS occurred_on, v.version_no, s.created_at,
       CASE WHEN draft.settlement_id IS NOT NULL THEN 'draft'
         WHEN v.change_type='void' AND r.last_action='approve' THEN 'voided'
@@ -115,6 +116,7 @@ const financeSources: Record<FinanceListKind, ListSource> = {
       LEFT JOIN settlement_versions v ON v.settlement_id=s.id AND v.version_no=(
         SELECT MAX(newer.version_no) FROM settlement_versions newer WHERE newer.settlement_id=s.id)
       LEFT JOIN v_settlement_review_status r ON r.settlement_version_id=v.id
+      LEFT JOIN v_settlement_effective_versions effective ON effective.settlement_id=s.id
       LEFT JOIN settlement_drafts draft ON draft.settlement_id=s.id`,
     columns: ["id", "project_id", "project_name", "project_code", "label", "amount_fen", "occurred_on", "status", "version_no", "created_at", "deleted"],
     search: ["label", "project_name", "project_code", "status"],

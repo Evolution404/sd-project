@@ -636,20 +636,31 @@ export function createAssetExchange(system: System) {
   async function exportData(actor:Actor, options:ExchangeExportOptions = {}):Promise<Buffer> {
     authorize(actor, "read");
     const rows:Record<"documents"|"physical"|"towers"|"spans",WorkbookRow[]> = { documents: [], physical: [], towers: [], spans: [] },
-      selected = new Set(options.ids || []),
-      selectedLineIds = new Set(
-        equipment.list("lines").filter((row) => selected.has(row.id))
-          .map((row) => row.id),
-      );
-    const accept = (kind:AssetExchangeKind, record:EquipmentRecord):boolean => (
-      (!options.query || record.label.includes(options.query) ||
-        (kind !== "lines" && Boolean(resolveEquipment("lines", record.line_id).name?.includes(options.query)))) &&
-      (!selected.size || selected.has(record.id) ||
-        (kind !== "lines" && Boolean(record.line_id && selectedLineIds.has(record.line_id))))
-    );
+      selected = new Set(options.ids || []);
+    const kinds = ["lines", "towers", "spans", "physical"] as const;
+    const records = new Map<AssetExchangeKind, EquipmentRecord[]>();
+    const query = options.listQuery;
+    for (const kind of kinds) {
+      if (options.assetKind && options.assetKind !== kind) continue;
+      if (selected.size) {
+        records.set(kind, options.assetKind
+          ? [...selected].map(id => equipment.get(kind, id, true))
+          : equipment.list(kind, true).filter(row => selected.has(row.id)));
+        continue;
+      }
+      const first = equipment.search(kind, { ...query, page: 1, page_size: 200 });
+      requireValue(first.total <= MAX_DOCUMENTS, "设备导出超过5000条，请收窄筛选条件");
+      const found = first.items;
+      for (let page = 2; (page - 1) * first.page_size < first.total; page++) {
+        found.push(...equipment.search(kind, { ...query, page, page_size: first.page_size }).items);
+      }
+      records.set(kind, found);
+    }
+    const rootCount = [...records.values()].reduce((sum, entries) => sum + entries.length, 0);
+    requireValue(rootCount <= MAX_DOCUMENTS, "设备导出超过5000条，请收窄筛选条件");
+    requireValue(!selected.size || rootCount === selected.size, "所选设备已变更，请刷新后重选", 409);
     for (const kind of ["lines", "towers", "spans"] as const)
-      for (const record of equipment.list(kind)) {
-        if (!accept(kind, record)) continue;
+      for (const record of records.get(kind) || []) {
         const value:WorkbookRow = { ...record, expected_version: record.version };
         if (kind === "lines") {
           value.voltage_name = resolveEquipment(
@@ -704,13 +715,7 @@ export function createAssetExchange(system: System) {
         }
         rows[kind === "lines" ? "documents" : kind].push(value);
       }
-    const includedPhysical = new Set(rows.towers.map((tower) => tower.physical_tower_id).filter(Boolean));
-    for (const physicalTower of equipment.list("physical")) {
-      if (selected.size && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id)) continue;
-      if (options.query && !selected.has(physicalTower.id) && !includedPhysical.has(physicalTower.id) &&
-          ![physicalTower.tower_material, physicalTower.model, physicalTower.tower_code,
-            physicalTower.related_lines, physicalTower.related_towers].some((value) =>
-              String(value || "").includes(options.query ?? ""))) continue;
+    for (const physicalTower of records.get("physical") || []) {
       rows.physical.push({
         ...physicalTower, expected_version: physicalTower.version,
         tower_material:physicalTower.tower_material

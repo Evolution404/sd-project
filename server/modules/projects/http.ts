@@ -48,7 +48,7 @@ export async function handleProjects(context: RouteContext): Promise<{
                     : !key
                     ? system.projects.search(parseListQuery(url.searchParams))
                     : sub === "actions"
-                        ? projectActionHints(actor, system.projects.workspace(key, deleted), system.finance.closeBlockReason(key))
+                        ? projectActionHints(actor, system.projects.workspace(key, deleted), system.finance.closeBlockReason(key), system.finance.closeSettlementBlockers(key))
                     : sub === "deletion-preview"
                         ? system.projects.previewDeletion(actor, key)
                     : sub === "history"

@@ -39,7 +39,7 @@ try {
   assert.equal(await page.locator("main").getByText("基础数据管理", { exact: true }).count(), 0);
   assert.equal(await page.getByPlaceholder("搜索名称或真实属性").count(), 0);
   const frameworkRow = page.getByRole("row").filter({ hasText: framework.name }).last();
-  await frameworkRow.getByRole("button", { name: "查看", exact: true }).click();
+  await frameworkRow.locator(".cell-link:visible").first().click();
   await detail.getByRole("heading", { name: framework.name, exact: true }).waitFor();
   await detail.getByRole("heading", { name: "资金概览" }).waitFor();
   assert.ok(await detail.getByText("¥1,000.00", { exact: true }).count() >= 1);
@@ -55,7 +55,7 @@ try {
   assert.equal(await page.locator("main").getByText("统一维护业务定义", { exact: false }).count(), 0);
   assert.ok(await page.getByPlaceholder("搜索协议名称、合同编号或合同对方").isVisible());
   const agreementRow = page.getByRole("row").filter({ hasText: agreement.name });
-  await agreementRow.getByRole("button", { name: "查看", exact: true }).click();
+  await agreementRow.locator(".cell-link:visible").first().click();
   await detail.getByRole("heading", { name: agreement.name, exact: true }).waitFor();
   await detail.getByText("BROWSER-2026").first().waitFor();
   await detail.getByRole("heading", { name: "关联子项目（1）" }).waitFor();

@@ -39,10 +39,17 @@ test("all business data tables use the single customizable BusinessTable adapter
 });
 
 test("multi-action rows use one primary action and an accessible shared menu", () => {
-  for (const name of ["modules/catalog/CatalogPage.vue", "modules/equipment/EquipmentPage.vue", "modules/materials/MaterialsPage.vue", "modules/dictionaries/DictionaryPage.vue", "modules/system/SystemPage.vue", "modules/projects/ProjectPage.vue", "modules/finance/FinancePanel.vue", "modules/files/EvidencePanel.vue"]) {
+  for (const name of ["modules/catalog/CatalogPage.vue", "modules/system/SystemPage.vue", "modules/projects/ProjectPage.vue", "modules/finance/FinancePanel.vue", "modules/files/EvidencePanel.vue"]) {
     const source = readFileSync(resolve("web/src", name), "utf8");
     assert.match(source, /<RowActions\b/);
     assert.doesNotMatch(source, /:actions-width="(?:295|300|530)"/);
+  }
+  for (const name of ["equipment/EquipmentPage", "materials/MaterialsPage", "dictionaries/DictionaryPage",
+    "work-standards/WorkStandardsPage", "pricing/PricingPage", "funding/FundingPage"]) {
+    const layout = readFileSync(resolve("web/src/modules", name + ".vue"), "utf8");
+    assert.match(layout, /detail-column=/);
+    assert.match(layout, /#toolbar=/);
+    assert.doesNotMatch(layout, /<RowActions\b|label: ['"]查看['"]/);
   }
   const source = readFileSync(resolve("web/src/shared/ui/RowActions.vue"), "utf8");
   assert.match(source, /placement="bottom-end"/);

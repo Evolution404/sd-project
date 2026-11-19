@@ -38,6 +38,7 @@ export async function handleEquipment(
     };
   }
   if (read) {
+    if (subKey === "deletion-impact") return { result: system.equipment.deletionImpact(actor, key, sub) };
     if (sub === "history")
       return { result: system.equipment.history(key, subKey) };
     if (sub) return { result: system.equipment.get(key, sub, deleted) };
@@ -57,7 +58,7 @@ export async function handleEquipment(
   if (method === "DELETE")
     return {
       result: mutate("admin", () =>
-        system.equipment.remove(actor, key, sub, input.expected_version),
+        system.equipment.remove(actor, key, sub, input.expected_version, input.expected_references),
       ),
     };
   requireValue(method === "POST", "设备写入请求方法无效", 405);

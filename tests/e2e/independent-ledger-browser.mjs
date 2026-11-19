@@ -161,7 +161,7 @@ try {
   await page
     .getByRole("row")
     .filter({ hasText: "最少录入甲线" })
-    .getByRole("button", { name: "查看", exact: true })
+    .locator(".cell-link:visible").first()
     .click();
   await page.getByRole("heading", { name: /最少录入甲线/ }).waitFor();
   await page.getByRole("button", { name: "整基更换", exact: true }).click();
@@ -233,7 +233,7 @@ try {
   await page
     .getByRole("row")
     .filter({ hasText: "中文正式特征历史" })
-    .getByRole("button", { name: "查看", exact: true })
+    .locator(".cell-link:visible").first()
     .click();
   await page.getByText("正式施工环境 · 山地", { exact: true }).waitFor();
   await page.getByRole("button", { name: "关闭详情", exact: true }).click();

@@ -578,3 +578,21 @@ html.dark .business-detail-overlay { background:rgba(3,7,12,.52) }
 .business-work-surface .el-form-item__label { color:var(--ink); font-weight:600 }
 .business-work-surface .el-form > h3 { margin:18px 0 12px }
 .business-work-surface .el-form > .el-alert { margin:10px 0 14px }
+
+.unified-list-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.unified-list-tools > .toolbar { flex-wrap: wrap; margin-bottom: 0; }
+.business-table > .selection-toolbar { min-height: 34px; margin-bottom: 12px; flex-wrap: wrap; }
+
+.unified-list-tools > .toolbar:first-child { flex: 1 1 320px; min-width: 0; }
+.unified-list-tools > .toolbar .el-input { width: min(260px, 100%); }
+.unified-list-tools > .toolbar:last-child { margin-left: auto; }
+@media (max-width: 600px) {
+  .unified-list-tools > .toolbar:last-child { margin-left: 0; }
+}

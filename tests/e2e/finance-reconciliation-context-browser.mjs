@@ -59,14 +59,13 @@ try {
   });
   assert.equal(list.total, 1);
   assert.equal(list.items[0].project_id, project.id);
-  await page.getByRole("button", { name: "查看记录", exact: true }).first().click();
+  await page.locator(".cell-link:visible").first().click();
   await detail.getByText("正式费用核对记录", { exact: true }).waitFor();
   await detail.getByText("三类财务定位专项核对依据").first().waitFor();
   await page.screenshot({ path: join(out, "reconciliation-direct.png") });
   await detail.getByRole("button", { name: /查看所属项目/ }).click();
   await page.waitForURL(url => url.hash.includes("focus=reconciliation") &&
     url.hash.includes("record=" + rec.record_id));
-  await page.getByRole("tab", { name: "费用与结算", exact: true }).click();
   await page.getByRole("heading", { name: "定位正式费用核对", exact: true }).waitFor();
   await page.getByText("三类财务定位专项核对依据").first().waitFor();
   await page.getByRole("button", { name: "查看正式历史", exact: true }).click();
@@ -86,8 +85,8 @@ try {
   }
 
   // Nonexistent record: no previous fact remains on screen.
-  await page.goto(base + "/#/projects?project=" + project.id +
-    "&tab=finance&focus=reconciliation&record=missing-identity");
+  await page.goto(base + "/#/projects/" + project.id +
+    "/finance?focus=reconciliation&record=missing-identity");
   await page.getByRole("heading", { name: "定位正式费用核对" }).waitFor();
   const focusedPanel = page.locator(".panel").filter({ has:
     page.getByRole("heading", { name: "定位正式费用核对", exact: true }) }).first();

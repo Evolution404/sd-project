@@ -1,3 +1,4 @@
+import { safeAmount } from "../pricing/calculation.js";
 import { closedWriteReason } from "../../shared/project-lifecycle.js";
 import { authorize, documentCode, id, now, today } from "../../platform/auth/service.js";
 import {
@@ -177,6 +178,7 @@ export function createFinance(
       : [];
     return {
       ...root,
+      effective_amount_fen: repo.effectiveSettlement(key)?.amount_fen ?? null,
       version: version || null,
       items,
       resolutions,
@@ -197,23 +199,21 @@ export function createFinance(
       project.status === "approved" && approval?.status === "approved",
       "结算须采用本项目正式批准版本",
     );
+    const items = input.items ?? [], resolutions = input.resolutions ?? [];
+    const mode = input.mode ?? (items.length ? "itemized" : "project_total");
+    requireValue(mode === "itemized" || mode === "project_total", "结算方式无效");
+    const references = { approval_version_id: approval.id,
+      funding_version_id: input.funding_version_id || project.funding?.id || null };
     if (input.change_type === "void")
-      return { ...input, approval_version_id: approval.id,
-        funding_version_id: input.funding_version_id || project.funding?.id || null,
-        items: [], resolutions: [] };
-    requireValue(
-      Array.isArray(input.items) && input.items.length > 0,
-      "至少一条费用明细",
-    );
-    requireValue(
-      Array.isArray(input.resolutions) && input.resolutions.length > 0,
-      "至少一条独立需求解决明细",
-    );
+      return { ...input, ...references, mode, amount_fen: 0, items: [], resolutions: [] };
+    requireValue(mode === "project_total" ? !items.length : items.length > 0,
+      mode === "project_total" ? "按项目总额的结算单不能包含费用明细" : "按子费用结算至少填写一条费用明细");
+    const total = mode === "project_total" ? integer(input.amount_fen, "本次结算金额", 1) : null;
     const scopes = new Set(approval.scopes.map((x) => x.project_scope_id));
     const scopeUnits = quantityUnits.approvedScopeUnits(approval.id);
     requireValue(scopeUnits.size === scopes.size, "批准需求的计量单位正式版本不完整", 404);
     const results = new Set();
-    for (const [index, r] of input.resolutions.entries()) {
+    for (const [index, r] of resolutions.entries()) {
       requireValue(scopes.has(r.project_scope_id), "解决需求不属于本批准范围");
       requireValue(
         !results.has(r.project_scope_id),
@@ -227,15 +227,12 @@ export function createFinance(
         `resolutions.${index}.resolved_quantity_scaled`);
     }
     const identities = new Set();
-    for (const [index, item] of input.items.entries()) {
+    let itemTotal = 0n;
+    for (const [index, item] of items.entries()) {
       activeLeaf(project, item.cost_node_id);
       requireValue(
         !item.project_scope_id || scopes.has(item.project_scope_id),
         "费用需求不属于本批准范围",
-      );
-      requireValue(
-        !item.project_scope_id || results.has(item.project_scope_id),
-        "费用对应需求缺少独立解决明细",
       );
       const identity = `${item.cost_node_id}/${item.project_scope_id || ""}`;
       requireValue(!identities.has(identity), "同一科目及需求的费用行重复");
@@ -247,7 +244,7 @@ export function createFinance(
         assertQuantityPrecision(itemQuantity, rule.fields_json, rule.name,
           `items.${index}.quantity_scaled`);
       }
-      integer(item.amount_fen, "本次结算金额");
+      itemTotal += BigInt(integer(item.amount_fen, "本次结算金额"));
       requireValue(
         item.amount_fen > 0 || (item.quantity_scaled ?? 0) > 0,
         "费用明细金额和数量不能同时为0",
@@ -258,16 +255,16 @@ export function createFinance(
       );
       text(item.evidence, "结算依据");
     }
+    const amount = total ?? safeAmount(itemTotal);
+    requireValue(mode !== "itemized" || input.amount_fen === undefined || input.amount_fen === amount,
+      "结算总额须与费用明细合计一致");
     return {
-      ...input,
-      approval_version_id: approval.id,
-      funding_version_id:
-        input.funding_version_id || project.funding?.id || null,
-      items: input.items.map(item => ({
+      ...input, ...references, mode, amount_fen: amount,
+      items: items.map(item => ({
         ...item, quantity_scaled: item.quantity_scaled ?? 0,
         evidence: text(item.evidence, "结算依据"),
       })),
-      resolutions: input.resolutions.map(item => ({ ...item, evidence: item.evidence || "" })),
+      resolutions: resolutions.map(item => ({ ...item, evidence: item.evidence || "" })),
     };
   }
   function saveDraft(actor: Actor, projectId: string, input: SettlementDraftInput, key?: string) {
@@ -291,7 +288,8 @@ export function createFinance(
           input.expected_edit_version,
         );
       }
-      const normalized = validateDraft(projectId, input),
+      const normalized = validateDraft(projectId, input.change_type === "void" && previous?.version
+        ? { ...input, mode: previous.version.mode } : input),
         settlementId = key || id(),
         timestamp = now();
       if (!previous)
@@ -350,6 +348,7 @@ export function createFinance(
             ? "void"
             : "revision"
           : "initial",
+        mode: draft.mode, amount_fen: draft.amount_fen,
         reason: draft.reason || "",
         basis: draft.basis || "",
         settlement_on: draft.settlement_on || null,
@@ -458,10 +457,12 @@ export function createFinance(
     );
   }
   function closeBlockReason(projectId: string): string {
-    const unfinished = repo.unfinishedSettlementDrafts(projectId);
-    return unfinished.length
-      ? "尚有未提交的结算草稿或修订草稿，请先提交审核或撤回：" + unfinished.map(row => row.number).join("、")
-      : "";
+    const unfinished = repo.unfinishedSettlements(projectId);
+    const labels: Record<string, string> = { draft: "尚有未提交的结算草稿或修订草稿", submit: "结算待审核", return: "结算已退回待处理" };
+    return Object.entries(labels).flatMap(([status, label]) => {
+      const records = unfinished.filter(row => row.status === status);
+      return records.length ? [label + "：" + records.map(row => row.number).join("、")] : [];
+    }).join("。");
   }
   function summariesForPortfolio(portfolio: ProjectDashboardBase[]) {
     if (!portfolio.length) return new Map();
@@ -479,7 +480,7 @@ export function createFinance(
     const references = pricing.summariesForApprovals(approvalIds);
     return new Map(portfolio.map(project => [project.id, financialSummary(
       project,
-      totals.get(project.id) || { actual_cost_fen: 0, settlement_fen: 0, reconciled_cost_fen: 0 },
+      totals.get(project.id) || { actual_cost_fen: 0, settlement_fen: 0, project_total_settlement_fen: 0, reconciled_cost_fen: 0 },
       project.approval_version_id ? demands.get(project.approval_version_id) || [] : [],
       project.approval_version_id ? references.get(project.approval_version_id) || null : null,
     )]));
@@ -487,8 +488,8 @@ export function createFinance(
   return {
     effectiveSettlementExport(key:string) {
       const version=repo.effectiveSettlement(key);
-      if(!version||version.change_type==="void") return {items:[],resolutions:[]};
-      return {items:repo.settlementVersionItems(version.id),
+      if(!version||version.change_type==="void") return {amount_fen:0,items:[],resolutions:[]};
+      return {amount_fen:version.amount_fen,items:repo.settlementVersionItems(version.id),
         resolutions:repo.settlementResults(version.id)};
     },
     search: (kind: FinanceListKind, query: ListQuery) => repo.searchFinance(kind, query),
@@ -505,6 +506,7 @@ export function createFinance(
     validateDraft,
     summary,
     closeBlockReason,
+    closeSettlementBlockers: (projectId: string) => repo.unfinishedSettlements(projectId),
     costTree(actor: Actor, projectId: string) {
       authorize(actor, "read");
       requireValue(hierarchies.projectExists(projectId, true), "项目不存在", 404);

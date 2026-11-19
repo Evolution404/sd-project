@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
+import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
+import BusinessEditorSurface from "../../shared/ui/BusinessEditorSurface.vue";
 import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage, type FormInstance } from "element-plus";
 import type {
@@ -12,7 +15,7 @@ import type {
 import type { OperationRecord, OperationVersion } from "../../../../server/shared/types/work-standards";
 import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import type { FieldErrors } from "../../../../server/shared/types/contracts";
-import { api, money, quantity } from "../../shared/api/client";
+import { ApiError, api, money, quantity } from "../../shared/api/client";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import PriceConditionsEditor from "./PriceConditionsEditor.vue";
@@ -217,8 +220,11 @@ async function preview() {
     checkPanel.value?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 }
+onBeforeRouteLeave(() => !props.open || guard.canClose());
+onBeforeRouteUpdate((to, from) => !props.open || to.path === from.path || guard.canClose());
 function close(done?: () => void) {
   void guard.confirmClose(() => {
+    guard.capture();
     emit("update:open", false);
     done?.();
   });
@@ -235,6 +241,17 @@ async function focusError() {
   (formRef.value?.$el as HTMLElement | undefined)
     ?.querySelector<HTMLElement>(".el-form-item.is-error input")
     ?.focus();
+}
+const definitionConflict = ref("");
+watch(() => props.open, () => { definitionConflict.value = ""; });
+async function compareDefinition() {
+  if (!props.editing) return [];
+  const current = await api<PriceRuleRecord>(`/catalog/prices/${props.editing.id}`);
+  const revision = (record: PriceRuleRecord) => "version" in record ? record.version : record.version_no;
+  return [
+    { label: "正式版本", draft: String(revision(props.editing)), current: String(revision(current)) },
+    { label: "业务名称", draft: String(form.value.title || "—"), current: current.title },
+  ];
 }
 async function save() {
   if (saving.value) return;
@@ -281,6 +298,7 @@ async function save() {
       },
     );
     await props.refresh();
+    guard.capture();
     emit("update:open", false);
     ElMessage.success("正式版本已保存");
     for (const warning of saved.warnings || [])
@@ -289,22 +307,22 @@ async function save() {
     const problem = failure as Error & { fields?: FieldErrors };
     errors.value = problem.fields || {};
     await focusError();
-    ElMessage.error(problem.message);
+    if (props.editing && failure instanceof ApiError && failure.status === 409) definitionConflict.value = failure.message;
+    else ElMessage.error(problem.message);
   } finally {
     saving.value = false;
   }
 }
 </script>
 <template>
-  <ElDialog
-    append-to-body
-    :model-value="open"
+  <BusinessEditorSurface page
+    :open="open"
     :title="(existing ? '编辑' : '新增') + '参考价格规则'"
     width="800px"
-    :close-on-click-modal="false"
-    :before-close="close"
-    @update:model-value="emit('update:open', $event)"
+    :busy="saving"
+    @close="close()"
   >
+    <VersionConflictNotice :message="definitionConflict" :read-current="compareDefinition" />
     <ElForm ref="formRef" :model="form" label-position="top" novalidate>
       <ElTabs v-model="tab"
         ><ElTabPane label="基本信息" name="basic" /><ElTabPane
@@ -442,5 +460,5 @@ async function save() {
         >保存</ElButton
       ></template
     >
-  </ElDialog>
+  </BusinessEditorSurface>
 </template>

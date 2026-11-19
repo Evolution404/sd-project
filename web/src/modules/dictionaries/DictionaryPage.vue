@@ -21,7 +21,6 @@ import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import BusinessTable from "../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
-import RowActions from "../../shared/ui/RowActions.vue";
 const route = useRoute(),
   router = useRouter(),
   can = useAccess();
@@ -183,11 +182,7 @@ onMounted(load);
       <h1>基础数据</h1>
       <p>{{ title }}与正式版本</p>
     </div>
-    <div class="page-heading-actions">
-      <ElButton :data-guide-action="kind === 'tower_natures' ? 'dictionaries.tower-nature' : kind === 'tower_materials' ? 'dictionaries.tower-material' : kind === 'units' ? 'dictionaries.unit' : 'dictionaries.category'" type="primary" :disabled="!can('admin')" @click="edit()"
-        >新增{{ title }}</ElButton
-      >
-    </div>
+
   </div>
   <slot name="tabs" />
   <ElAlert v-if="returnToDemand" type="info" :closable="false"
@@ -202,25 +197,7 @@ onMounted(load);
     ><ElButton @click="load">重试</ElButton></ElAlert
   >
   <div class="panel">
-    <div class="toolbar">
-      <ElInput
-        v-model="query"
-        clearable
-        placeholder="搜索名称或真实属性"
-        @change="
-          page = 1;
-          load();
-        "
-      /><ElCheckbox data-guide-action="dictionaries.show-deleted"
-        v-model="deleted"
-        @change="
-          page = 1;
-          load();
-        "
-        >包含已删除</ElCheckbox
-      ><ElButton @click="load">刷新</ElButton
-      ><span class="muted">共 {{ total }} 项</span>
-    </div>
+
     <BusinessTable detail-column="name" @open-detail="detailDialog.open($event.id)"
       :rows="rows"
       :loading="loading"
@@ -253,6 +230,36 @@ onMounted(load);
         }
       "
     >
+      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
+        <div class="unified-list-tools">
+          <div class="toolbar">
+<ElInput
+        v-model="query"
+        clearable
+        placeholder="搜索名称或真实属性"
+        @change="
+          page = 1;
+          load();
+        "
+      /><ElPopover trigger="click" placement="bottom-start"><template #reference><ElButton>筛选</ElButton></template><ElCheckbox data-guide-action="dictionaries.show-deleted"
+        v-model="deleted"
+        @change="
+          page = 1;
+          load();
+        "
+        >包含已删除</ElCheckbox
+      ></ElPopover>
+            <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+          </div>
+    <div class="toolbar page-heading-actions">
+      <ElButton :loading="loading" @click="load">刷新</ElButton>
+      <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+      <ElButton :data-guide-action="kind === 'tower_natures' ? 'dictionaries.tower-nature' : kind === 'tower_materials' ? 'dictionaries.tower-material' : kind === 'units' ? 'dictionaries.unit' : 'dictionaries.category'" type="primary" v-if="can('admin')" @click="edit()"
+        >新增{{ title }}</ElButton
+      >
+    </div>
+        </div>
+      </template>
       <template #cell="{ row, column, value }"
         ><ElTag
           v-if="column.key === 'status'"
@@ -268,24 +275,7 @@ onMounted(load);
         ><span v-else-if="column.key === 'quantity_precision'">{{ row.quantity_precision === 0 ? '整数' : '最多' + row.quantity_precision + '位小数' }}</span
         ><span v-else>{{ value }}</span></template
       >
-      <template #actions="{ row }"
-        ><RowActions
-          :actions="[
-            { label: '查看', run: () => detailDialog.open(row.id) },
-            {
-              label: '编辑',
-              disabled: !can('admin') || row.deleted,
-              run: () => edit(row),
-            },
-            { label: '历史', guideActionId: 'dictionaries.history', run: () => detailDialog.open(row.id) },
-            {
-              label: '删除',
-              danger: true,
-              disabled: !can('admin') || row.deleted,
-              run: () => remove(row),
-            },
-          ]"
-      /></template> </BusinessTable
+ </BusinessTable
     ><ElPagination
       v-model:current-page="page"
       :page-size="30"
@@ -310,12 +300,12 @@ onMounted(load);
       </div>
       <div class="toolbar">
         <ElButton data-guide-action="dictionaries.edit"
-          :disabled="!can('admin') || detail.deleted"
+          v-if="can('admin') && !detail.deleted"
           @click="edit(detail)"
           >编辑</ElButton
         ><ElButton data-guide-action="dictionaries.delete"
           type="danger"
-          :disabled="!can('admin') || detail.deleted"
+          v-if="can('admin') && !detail.deleted"
           @click="remove(detail)"
           >删除</ElButton
         >
@@ -330,7 +320,7 @@ onMounted(load);
           >第{{ detail.version }}版</ElDescriptionsItem
         ></ElDescriptions
       >
-      <h2>完整版本与审计历史</h2>
+      <h2 data-guide-action="dictionaries.history">完整版本与审计历史</h2>
       <BusinessHistory
         :value="{
           versions: history,

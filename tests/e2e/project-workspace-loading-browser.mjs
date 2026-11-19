@@ -41,12 +41,12 @@ try {
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   const row = page.getByRole("row").filter({ hasText: project.name });
-  await row.getByRole("button", { name: "进入项目", exact: true }).waitFor();
+  await row.locator(".cell-link:visible").first().waitFor();
   const listUrl = page.url();
   requests.length = 0;
   await measure("项目列表打开详情", async () => {
     const response = page.waitForResponse(response => response.url().includes(`/api/projects/${project.id}/actions`));
-    await row.getByRole("button", { name: "进入项目", exact: true }).click();
+    await row.locator(".cell-link:visible").first().click();
     assert.equal((await response).status(), 200);
     await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
   });
@@ -57,12 +57,13 @@ try {
   await measure("项目详情进入财务", async () => {
     const response = page.waitForResponse(response => response.url().includes(`/api/projects/${project.id}/settlements?`));
     await detail.getByRole("tab", { name: "费用与结算", exact: true }).click();
+    await detail.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
     const pageResult = await (await response).json();
     assert.equal(pageResult.total, 35);
     assert.equal(pageResult.items.length, 30);
-    await detail.getByRole("heading", { name: "独立结算单", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "独立结算单", exact: true }).waitFor();
   });
-  const costsPanel = detail.locator(".panel").filter({ has: page.getByRole("heading", { name: "实际费用", exact: true }) });
+  const costsPanel = page.locator(".business-detail-page:visible .panel").filter({ has: page.getByRole("heading", { name: "实际费用", exact: true }) });
   const secondPage = page.waitForResponse(response => response.url().includes(`/api/projects/${project.id}/costs?page=2&`));
   await costsPanel.locator(".el-pagination").getByText("2", { exact: true }).click();
   const secondPageResult = await (await secondPage).json();
@@ -71,6 +72,7 @@ try {
   await costsPanel.getByRole("row").filter({ hasText: "按需加载费用" }).first().waitFor();
   await costsPanel.getByRole("heading", { name: "实际费用", exact: true }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(out, "finance-page-two.png"), fullPage: true });
+  await page.getByRole("region", { name: "费用与结算", exact: true }).getByRole("button", { name: "← 返回", exact: true }).click();
   await measure("项目详情打开完整历史", async () => {
     const response = page.waitForResponse(response => response.url().endsWith(`/api/projects/${project.id}/approval-history`));
     await detail.getByRole("tab", { name: "历史记录", exact: true }).click();
@@ -78,14 +80,14 @@ try {
     await detail.getByRole("heading", { name: "完整正式历史", exact: true }).waitFor();
   });
   for (const [kind, label, heading] of [
-    ["costs", "真实费用", "真实费用记录"], ["settlements", "结算单", "本次结算明细"],
+    ["costs", "真实费用", "真实费用记录"], ["settlements", "结算单", "当前正式事实"],
   ]) {
     await page.goto(base + "/#/finance/" + kind);
     await page.getByRole("tab", { name: label, exact: true }).waitFor();
-    await page.getByRole("button", { name: "查看记录", exact: true }).first().waitFor();
+    await page.locator(".cell-link:visible").first().waitFor();
     const route = page.url();
     await measure("跨项目" + label + "打开记录", async () => {
-      await page.getByRole("button", { name: "查看记录", exact: true }).first().click();
+      await page.locator(".cell-link:visible").first().click();
       await detail.getByText(heading, { exact: true }).waitFor();
     });
     assert.equal(page.url(), route);

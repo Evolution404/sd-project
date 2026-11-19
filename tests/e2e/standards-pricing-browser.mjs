@@ -34,8 +34,8 @@ page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/standards-pricing");
 mkdirSync(output, { recursive: true });
 async function action(row, name) {
-  await row.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
+  await row.locator(".cell-link:visible").first().click();
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name, exact: true }).click();
 }
 async function settle() {
   await page.evaluate(async () => {
@@ -64,7 +64,7 @@ try {
     .getByRole("row")
     .filter({ hasText: "新版安装作业" });
   await action(operationRow, "编辑");
-  const standardEditor = page.getByRole("dialog", {
+  const standardEditor = page.getByRole("region", {
     name: "编辑操作类型",
     exact: true,
   });
@@ -98,10 +98,11 @@ try {
     .getByRole("button", { name: "取消", exact: true })
     .click();
   await standardEditor.waitFor({ state: "hidden" });
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "关闭详情", exact: true }).click();
   await page.setViewportSize({ width: 1500, height: 1000 });
   await page.getByRole("tab", { name: "作业对象", exact: true }).click();
   await page.getByRole("button", { name: "新增作业对象", exact: true }).click();
-  const objectEditor = page.getByRole("dialog", {
+  const objectEditor = page.getByRole("region", {
     name: "新增作业对象",
     exact: true,
   });
@@ -117,14 +118,15 @@ try {
   const confirm = page.locator(".el-message-box:visible");
   await confirm.getByText(/当前有0处正式关联/).waitFor();
   await confirm.getByRole("button", { name: "确定", exact: true }).click();
-  await page
+  await page.locator("main .business-table-grid")
     .getByRole("row")
-    .filter({ hasText: "独立作业对象" })
+    .filter({ hasText: "独立作业对象" }).first()
     .waitFor({ state: "hidden" });
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "关闭详情", exact: true }).click();
   await selectNavigation(page, "参考价格");
   const priceRow = page.getByRole("row").filter({ hasText: price.title });
   await action(priceRow, "编辑");
-  const ruleEditor = page.getByRole("dialog", {
+  const ruleEditor = page.getByRole("region", {
     name: "编辑参考价格规则",
     exact: true,
   });
@@ -147,14 +149,13 @@ try {
   await ruleEditor.waitFor({ state: "hidden" });
   assert.equal(s.priceRules.get(price.id).operation_version, 2);
   const listUrl = page.url();
-  await priceRow.getByRole("button", { name: "查看", exact: true }).click();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.getByRole("button", { name: "完整历史", exact: true }).click();
   await detail.getByText("正式内容版本", { exact: true }).waitFor();
   assert.equal(page.url(), listUrl);
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await action(priceRow, "复制规则");
-  const copyEditor = page.getByRole("dialog", {
+  const copyEditor = page.getByRole("region", {
     name: "新增参考价格规则",
     exact: true,
   });

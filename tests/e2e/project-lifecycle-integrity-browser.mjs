@@ -58,12 +58,14 @@ try {
   await page.reload();
   await workspace.waitFor();
   await workspace.getByRole("tab", { name: "费用与结算", exact: true }).click();
-  await workspace.getByText("项目已结项，普通费用、科目、结算及核对写入已冻结", { exact: true }).waitFor();
+  await workspace.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
+  const financial = page.getByRole("region", { name: "费用与结算", exact: true });
+  await financial.getByText("项目已结项，普通费用、科目、结算及核对写入已冻结", { exact: true }).first().waitFor();
   for (const name of ["新增科目", "核定费用", "编制结算", "新增核对", "上传并预检"]) {
-    const button = workspace.getByRole("button", { name, exact: true });
+    const button = financial.getByRole("button", { name, exact: true });
     if (await button.count()) assert.equal(await button.isDisabled(), true, name);
   }
-  await workspace.screenshot({ path: join(out, "结项财务冻结.png") });
+  await financial.screenshot({ path: join(out, "结项财务冻结.png") });
   assert.deepEqual(errors, []);
   console.log("PROJECT_LIFECYCLE_INTEGRITY_BROWSER_OK candidate proposal, atomic add/release, frozen closed finance and immutable history");
 } catch (error) {

@@ -32,12 +32,8 @@ try {
   await logs.getByText("/api/missing-log-browser", { exact: true }).waitFor();
   await page.waitForFunction(() => Array.from(document.querySelectorAll(".access-logs .el-loading-mask"))
     .every(mask => getComputedStyle(mask).display === "none" || mask.getClientRects().length === 0));
+  await logs.getByRole("button", { name: "/api/missing-log-browser", exact: true }).click();
   const scrollBefore = await logs.locator(".el-table__body-wrapper .el-scrollbar__wrap").evaluate(root => root.scrollLeft);
-  const viewButton = await logs.getByRole("button", { name: "查看", exact: true }).boundingBox();
-  assert.ok(viewButton);
-  // Click the rendered sticky action after its loading mask disappears.
-  // Locator scrolling would move the underlying table to the cell's flow position.
-  await page.mouse.click(viewButton.x + viewButton.width / 2, viewButton.y + viewButton.height / 2);
   const dialog = page.getByRole("dialog", { name: "访问请求详情", exact: true });
   await dialog.getByText("资源不存在", { exact: true }).waitFor();
   assert.match(await dialog.innerText(), /2026-11-13 00:03:47/);
@@ -45,6 +41,9 @@ try {
   await dialog.getByRole("button", { name: "关闭详情", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(await logs.locator(".el-table__body-wrapper .el-scrollbar__wrap").evaluate(root => root.scrollLeft), scrollBefore, "closing details must preserve the table scroll position");
+  await logs.getByLabel("状态码", { exact: true }).fill("403");
+  await logs.getByRole("button", { name: "刷新", exact: true }).click();
+  await logs.getByRole("button", { name: "/api/missing-log-browser", exact: true }).waitFor();
   const [download] = await Promise.all([page.waitForEvent("download"), logs.getByRole("button", { name: "下载筛选日志" }).click()]);
   assert.equal(download.suggestedFilename(), "访问日志.jsonl");
   const saved = join(output, "访问日志.jsonl"); await download.saveAs(saved);
@@ -62,10 +61,10 @@ try {
   await page.emulateMedia({ colorScheme: "dark" });
   await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
   await page.screenshot({ path: join(output, "logs-dark-760.png"), fullPage: true, animations: "disabled" });
-  assert.ok(await logs.locator("td.el-table-fixed-column--right").first().evaluate(cell => {
+  assert.ok(await logs.locator(".el-table__body-wrapper td").first().evaluate(cell => {
     const channels = getComputedStyle(cell).backgroundColor.match(/\d+/g)?.slice(0,3).map(Number);
     return channels && channels.every(value => value < 100);
-  }),"fixed actions must use the dark table surface");
+  }),"log records must use the dark table surface");
   await page.reload(); await logs.getByText("登录成功", { exact: true }).waitFor();
   assert.equal(await logs.getByLabel("关键词", { exact: true }).inputValue(), "登录成功");
   const viewer = await browser.newContext();
