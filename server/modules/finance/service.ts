@@ -707,7 +707,7 @@ export function createFinance(
       const result = settlement(key);
       requireValue(result.project_id === projectId,
         "结算单不存在于当前项目", 404);
-      return result;
+      return { ...result, deleted: repo.settlementDeleted(key) };
     },
     removeNode(actor: Actor, projectId: string, key: string, input: {expected_version:number;expected_references?:number;expected_children?:number}) {
       authorize(actor, "admin");

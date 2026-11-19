@@ -36,7 +36,7 @@ page.on("request",request=>{
 });
 const out=join(process.cwd(),"test-results/schema113/adopted-quantity");
 mkdirSync(out,{recursive:true});
-const editor=page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+const editor=page.locator(".business-work-surface:visible");
 async function openDetail() {
   await page.goto("http://127.0.0.1:"+server.address().port+"/#/demands?demand="+original.id);
   await page.getByLabel("用户名",{exact:true}).fill("admin");

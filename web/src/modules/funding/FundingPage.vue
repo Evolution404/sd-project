@@ -254,7 +254,7 @@ onMounted(() => void load());
       <ElButton @click="load">刷新</ElButton>
       <span class="muted">共 {{ total }} 项</span>
     </div>
-    <BusinessTable :rows="rows" :columns="columns" :table-key="'funding:' + kind"
+    <BusinessTable detail-column="name" @open-detail="openDetails" :rows="rows" :columns="columns" :table-key="'funding:' + kind"
       :loading="loading" :actions-width="170" :search-active="!!query"
       :filter-state="filters"
       :sort-state="{ prop: sort, order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null }"

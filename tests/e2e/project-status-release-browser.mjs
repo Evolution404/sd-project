@@ -50,10 +50,9 @@ try {
   await page.screenshot({path:join(out,"project-stage-tabs.png"),fullPage:true});
   await page.getByRole("row").filter({hasText:"测试子项目"}).getByRole("button",{name:"进入项目"}).click();
   const detail=page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("tab",{name:"需求与范围"}).click();
+  await detail.getByRole("tab",{name:"承接需求"}).click();
   await detail.getByText("当前正式批准范围内的需求不可直接解绑").waitFor();
-  await detail.getByRole("button",{name:"更多操作"}).click();
-  const release=page.getByRole("menuitem",{name:"显式解绑"});
+  const release=detail.getByRole("button",{name:"显式解绑",exact:true});
   await release.waitFor();
   assert.ok(await release.isDisabled(),"approved bound demand must have disabled release action");
   assert.match((await release.getAttribute("title"))||"",/正式批准范围/);
@@ -62,9 +61,8 @@ try {
   await page.reload();
   await page.getByRole("tab",{name:"已结项",exact:true}).click();
   await page.getByRole("row").filter({hasText:"测试子项目"}).getByRole("button",{name:"进入项目"}).click();
-  await detail.getByRole("tab",{name:"需求与范围"}).click();
+  await detail.getByRole("tab",{name:"承接需求"}).click();
   await detail.getByText("项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。").waitFor();
-  await detail.getByRole("button",{name:"更多操作"}).click();
   await release.waitFor();
   assert.ok(await release.isDisabled(),"closed project must retain its approved binding");
   assert.match((await release.getAttribute("title"))||"",/已结项.*正式批准范围/);

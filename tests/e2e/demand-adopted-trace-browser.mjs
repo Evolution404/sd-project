@@ -26,7 +26,7 @@ try {
   await page.getByLabel("密码",{exact:true}).fill("Schema113-test-password");
   await page.getByRole("button",{name:"登录",exact:true}).click();
   await detail.getByRole("heading",{name:project.name,exact:true}).waitFor();
-  await page.getByRole("tab",{name:"需求与范围"}).click();
+  await page.getByRole("tab",{name:"承接需求"}).click();
   await detail.getByRole("button",{name:demand.demand_no,exact:true}).click();
   await page.waitForURL(url=>url.hash.includes("#/demands")&&url.hash.includes("demand="+demand.id));
   await detail.getByText(demand.problem_description).first().waitFor();

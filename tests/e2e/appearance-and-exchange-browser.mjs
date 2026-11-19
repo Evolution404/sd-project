@@ -24,8 +24,13 @@ page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113");
 mkdirSync(output, { recursive: true });
 async function chooseAppearance(label) {
-  await page.getByRole("button", { name: "外观设置" }).click();
-  await page.getByText(label, { exact: true }).click();
+  if (label === "跟随系统") {
+    await page.getByRole("button", { name: /^账号设置/ }).click();
+    await page.getByRole("menuitem", { name: "外观跟随系统", exact: true }).click();
+  } else {
+    await page.getByRole("button", { name: "切换为" + label, exact: true }).click();
+    assert.equal(await page.getByText("界面外观", { exact: true }).count(), 0);
+  }
 }
 async function darkIs(expected) {
   await page.waitForFunction((dark) =>
@@ -41,7 +46,7 @@ try {
   await chooseAppearance("深色");
   await darkIs(true);
   assert.equal(await page.evaluate(() => localStorage.getItem("sd-appearance")), "dark");
-  assert.equal(await page.locator(".navigation").evaluate(node => getComputedStyle(node).backgroundColor), "rgb(24, 35, 55)");
+  assert.equal(await page.locator(".navigation").evaluate(node => getComputedStyle(node).backgroundColor), "rgb(23, 31, 43)");
   await page.screenshot({ path: join(output, "appearance-dark-dashboard.png"), fullPage: true });
 
   await page.reload();

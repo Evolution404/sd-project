@@ -5,8 +5,8 @@ export const router = createRouter({
   routes: [
     { path: "/", redirect: "/dashboard" },
     { path: "/dashboard", name: "dashboard", component: () => import("../modules/dashboard/DashboardPage.vue") },
-    { path: "/demands", name: "demands", component: () => import("../modules/demands/DemandPage.vue") },
-    { path: "/projects", name: "projects", component: () => import("../modules/projects/ProjectPage.vue") },
+    { path: "/demands/:editMode(new|edit)?/:demandId?", name: "demands", component: () => import("../modules/demands/DemandPage.vue") },
+    { path: "/projects/:projectId?/:work(compile|review|finance|settlements)?/:recordId?/:recordAction(submit|review)?", name: "projects", component: () => import("../modules/projects/ProjectPage.vue") },
     { path: "/finance/:kind(costs|settlements|reconciliations|projects)?", name: "finance", component: () => import("../modules/finance/FinancePage.vue") },
     { path: "/frameworks", name: "frameworks", component: funding, props: { kind: "frameworks" } },
     { path: "/agreements", name: "agreements", component: funding, props: { kind: "agreements" } },

@@ -11,6 +11,7 @@ export function projectPersistenceRepository(store: Store, database: Pick<Databa
     ...projectReadRepository(store),
     ...projectCommandRepository(store),
     ...projectHistoryRepository(store),
+    selectedProjects: businessLists(store).selectedProjects,
     searchProjects: businessLists(store).projects,
     transaction: database.transaction,
   };

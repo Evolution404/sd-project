@@ -65,9 +65,13 @@ try {
   await refresh();
   await selectStatus("变更中",project.name);
   await page.getByRole("row").filter({hasText:project.name}).getByRole("button",{name:"进入项目"}).click();
-  await detail.getByText("当前项目状态 · 变更中").waitFor();
-  await detail.getByRole("button",{name:"正式批准变更"}).waitFor();
+  await detail.locator(".detail-header").getByText("变更中", { exact: true }).waitFor();
+  await detail.getByRole("button",{name:"查看变更差异",exact:true}).click();
+  const review = page.getByRole("region", { name: "审核项目变更", exact: true });
+  await review.getByRole("button", { name: "确认正式批准", exact: true }).waitFor();
   await page.screenshot({path:join(out,"project-change-pending.png"),fullPage:true});
+  await review.getByRole("button", { name: "← 返回", exact: true }).click();
+  await review.waitFor({ state: "hidden" });
   let revised=s.projects.discardApproval(user,project.id,draft.id);
   await refresh();
   await selectStatus("已批准",project.name);

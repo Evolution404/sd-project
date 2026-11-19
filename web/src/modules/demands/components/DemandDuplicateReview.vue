@@ -88,23 +88,14 @@ function confirm() {
 </script>
 
 <template>
-  <ElDialog
-    :model-value="open"
-    append-to-body
-    width="min(1100px, 96vw)"
-    title="疑似重复需求核对"
-    class="demand-duplicate-review"
-    :close-on-click-modal="false"
-    :close-on-press-escape="!submitting"
-    :show-close="!submitting"
-    @update:model-value="value => { if (!value && !submitting) emit('close'); }"
-  >
+  <section v-if="open" class="demand-duplicate-review" aria-label="疑似重复需求核对">
+    <h2>疑似重复需求核对</h2>
     <ElAlert type="warning" :closable="false" show-icon
       title="发现相同操作类型、相同作业位置的既有需求"
       description="请直接对比现场事实。返回修改不会清空本次填写内容；只有确认两者确属独立需求并说明依据后，才会再次提交保存。" />
     <div class="duplicate-review-count">
       疑似重复 <strong>{{ candidates.length }}</strong> 条
-      <span class="muted">逐条核对已有正式记录；此窗口不会修改原需求。</span>
+      <span class="muted">逐条核对已有正式记录。</span>
     </div>
     <div v-if="candidates.length > 1" class="duplicate-candidate-list" role="group" aria-label="选择待核对的重复需求">
       <ElButton v-for="item in candidates" :key="item.id"
@@ -192,18 +183,20 @@ function confirm() {
         </p>
       </ElForm>
     </div>
-    <template #footer>
-      <span class="duplicate-footer-note">当前填写内容仍保留在编辑器中</span>
-      <ElButton :disabled="submitting" @click="emit('park')">暂存草稿并关闭</ElButton>
+    <div class="duplicate-review-actions">
+      <ElButton :disabled="submitting" @click="emit('park')">暂存并返回</ElButton>
       <ElButton :disabled="submitting" @click="emit('close')">返回继续修改</ElButton>
       <ElButton type="primary" :loading="submitting" :disabled="!canConfirm" @click="confirm">
         确认独立并保存
       </ElButton>
-    </template>
-  </ElDialog>
+    </div>
+  </section>
 </template>
 
 <style scoped>
+.demand-duplicate-review > h2 { margin:0 0 12px; font-size:18px }
+.duplicate-review-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px }
+.duplicate-review-actions .el-button + .el-button { margin-left:0 }
 .duplicate-review-count {
   display: flex;
   align-items: center;
@@ -267,10 +260,8 @@ function confirm() {
 }
 .duplicate-decision :deep(.el-form-item) {margin-bottom:12px}
 .duplicate-decision-hint {font-size:12px;line-height:1.55;margin:8px 0 0}
-.duplicate-footer-note {margin-right:auto;color:var(--muted);font-size:12px;line-height:1.5}
 @media(max-width:780px){
   .duplicate-compare {grid-template-columns:1fr}
   .duplicate-side {padding:12px}
-  .duplicate-footer-note {flex:1 1 100%}
 }
 </style>

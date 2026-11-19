@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { ordinaryLinkReason, approvalDraftReason } from "../../../../server/shared/project-lifecycle";
+import HandlingReviewDialog from "../../shared/ui/HandlingReviewDialog.vue";
+import { useHandlingReview } from "../../shared/composables/use-handling-review";
+import { usePageSelection } from "../../shared/composables/use-page-selection";
+import type { HandlingTarget } from "../../../../server/shared/types/handling-batch";
+import { ordinaryLinkReason, approvalDraftReason, projectDeleteReason } from "../../../../server/shared/project-lifecycle";
 import type { DemandRecord } from "../../../../server/shared/types/demands";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
+import BusinessEditorSurface from "../../shared/ui/BusinessEditorSurface.vue";
+import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
+import { useWorkRoute } from "../../shared/navigation/use-work-route";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 const descriptionColumns = useDescriptionColumns();
@@ -11,7 +18,7 @@ import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 import { ref, onMounted, computed, watch } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { demandContext, fundContext, projectContext } from "../../shared/navigation/business-context";
 import type { ProjectAction } from "../../../../server/modules/projects/actions";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -22,12 +29,13 @@ import type { PriceRuleRecord } from "../../../../server/shared/types/price-rule
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import PricingQuoteDialog from "../pricing/PricingQuoteDialog.vue";
 import FinancePanel from "../finance/FinancePanel.vue";
+import { approvalDifferences } from "./components/approval-differences";
 import ProjectWorkflowHeader from "./components/ProjectWorkflowHeader.vue";
 import ProjectOverview from "./components/ProjectOverview.vue";
 import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
 import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
-import { api, money, quantity, statusText } from "../../shared/api/client";
+import { api, download, money, quantity } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { System } from "../../../../server/bootstrap";
 import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate } from "../../../../server/database/repositories/projects";
@@ -36,6 +44,7 @@ import type { ProjectManagementInput, ProjectAgreementOption } from "../../../..
 type ProjectDetail = ReturnType<System["projects"]["get"]>;
 type ProjectListItem = ReturnType<System["projects"]["search"]>["items"][number];
 type ApprovalDetail = ProjectDetail["approvals"][number];
+type ProjectHistory = ReturnType<System["projects"]["history"]>;
 type ReferenceCharge = ApprovalDetail["reference"]["charges"][number];
 interface ApprovalEditorRow {
   project_scope_id: string;
@@ -68,12 +77,42 @@ const formRef = ref(),
   actors = ref<Array<{id:string; username:string}>>([]);
 
 const route = useRoute(), router = useRouter();
+const workRoute = useWorkRoute();
+const projectWork = computed(() => route.name === "projects" ? String(route.params.work || "") : "");
+const workProjectId = computed(() => typeof route.params.projectId === "string" ? route.params.projectId : "");
+const approvalEditorPage = computed(() => projectWork.value === "compile");
+const approvalReviewPage = computed(() => projectWork.value === "review");
+const projectFinancePage = computed(() => projectWork.value === "finance" || projectWork.value === "settlements");
+const approvalEditorTitle = computed(() => detail.value?.approval ? "编制项目变更" : "编制项目立项");
+const approvalReviewTitle = computed(() => detail.value?.approval ? "审核项目变更" : "审核项目立项");
+function goToProjectWork(work: string, recordId = "", recordAction = "") {
+  const project = detail.value;
+  if (!project) return;
+  return workRoute.enter({
+    name: "projects", params: { projectId: project.id, work, recordId, recordAction },
+    query: route.query,
+  });
+}
+function returnFromProjectWork() {
+  if (projectWork.value === "finance" && typeof route.query.returnTo === "string") {
+    const origin = router.resolve(route.query.returnTo);
+    if (origin.name === "finance") return workRoute.exit(origin.fullPath);
+  }
+  if (projectWork.value === "settlements") return workRoute.exit({ name: "projects",
+    params: { projectId: workProjectId.value, work: "finance", recordId: "", recordAction: "" }, query: route.query,
+  });
+  return workRoute.exit({ name: "projects",
+    params: { projectId: "", work: "", recordId: "", recordAction: "" },
+    query: { ...route.query, project: workProjectId.value, tab: projectFinancePage.value ? "finance" : "approval" },
+  });
+}
 const projectActions = ref<ProjectAction[]>([]);
 const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
 const overviewFramework = ref<ProjectReference | null>(null);
 const overviewAgreement = ref<ProjectReference | null>(null);
 const overviewLoading = ref(false);
 const closeReviewOpen = ref(false);
+const financeRevision = ref(0);
 const handoffDemand = ref<DemandRecord | null>(null);
 const focusedDemandId = computed(() => route.query.focus === "demand" && typeof route.query.record === "string"
   ? route.query.record : null);
@@ -112,6 +151,7 @@ const overviewProject = computed<ProjectOverviewFacts | null>(() => {
 });
 const rows = ref<ProjectListItem[]>([]),
   listLoading = ref(false),
+  showDeleted = ref(false),
   total = ref(0),
   page = ref(1),
   query = ref(""),
@@ -127,11 +167,36 @@ const rows = ref<ProjectListItem[]>([]),
   agreementChoices = ref<ProjectAgreementOption[]>([]),
   agreementLoading = ref(false),
   agreementError = ref(""),
-  history = ref<unknown>(null),
+  history = ref<(ProjectHistory & { approval_details: ApprovalDetail[] }) | null>(null),
   tab = ref("overview"),
   approvalRows = ref<ApprovalEditorRow[]>([]),
   priceScopeContext = ref<ApprovedScope | null>(null),
   quoteOpen = ref(false);
+
+const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]));
+const { selected, selectedIds, eligibleIds } = selection;
+const handling = useHandlingReview();
+const exportingSelection = ref(false);
+
+async function exportSelected() {
+  const ids = eligibleIds.value;
+  if (!ids.length || ids.length > 100 || exportingSelection.value) return;
+  const query = new URLSearchParams();
+  for (const id of ids) query.append("id", id);
+  exportingSelection.value = true;
+  try { await download("/exchange/projects/export?" + query); }
+  catch (failure) { ElMessage.error((failure as Error).message); }
+  finally { exportingSelection.value = false; }
+}
+
+function stockSelectedProjects() {
+  const targets: HandlingTarget[] = selected.value.map(row => ({ id: row.id, expected_version: row.version }));
+  void handling.review({
+    title: "核对批量入库", description: "入库后年度框架锁定。只有下方标为可办理的储备项目会提交。",
+    targets, previewPath: "/projects/stock-batch/preview", commitPath: "/projects/stock-batch",
+    complete: async () => { selection.clear(); await load(); },
+  });
+}
 const approvalLoading = ref(false), approvalLoadError = ref("");
 let approvalRequest = 0;
 const approvalQuantityError = ref<Record<string, boolean>>({});
@@ -185,7 +250,7 @@ watch(
     }
   },
 );
-const showDeleted = ref(false);
+
 // Approval decision fields must remain visible: column customization cannot
 // hide a selected scope or its approved quantity during a formal submission.
 const approvalEditorColumns: TableColumn[] = [
@@ -226,11 +291,11 @@ const listStatus = computed({
   },
 });
 const projectColumns: TableColumn[] = [
-  { key: "code", label: "项目编号", minWidth: 150 },
   { key: "name", label: "项目名称", minWidth: 220 },
   { key: "display_status", label: "项目状态", minWidth: 155, hideable: false },
   { key: "approval", filterable: false, label: "批准预算", sortable: false },
   { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
+  { key: "code", label: "项目编号", minWidth: 150 },
 ];
 function sortTable(value: { key: string; order: string }) {
   sortKey.value = value.key;
@@ -266,6 +331,7 @@ async function load() {
   }
 }
 async function open(row: {id:string}) {
+  tab.value = "overview";
   await detailDialog.open(row.id);
 }
 const draftGuard = useDialogDraftGuard(() => ({
@@ -273,9 +339,22 @@ const draftGuard = useDialogDraftGuard(() => ({
   // Approved locations are edited in their own table, not in the header form.
   approvalRows: dialog.value === "approval" ? approvalRows.value : [],
 }));
+function confirmApprovalExit() {
+  return !approvalEditorPage.value || dialog.value !== "approval" || approvalLoading.value || draftGuard.canClose();
+}
+onBeforeRouteLeave(confirmApprovalExit);
+onBeforeRouteUpdate((to, from) => to.path === from.path || confirmApprovalExit());
 function closeEditor() {
-  if (dialog.value === "approval" && approvalLoading.value) { dialog.value = ""; return; }
-  void draftGuard.confirmClose(() => { dialog.value = ""; });
+  if (dialog.value === "approval" && approvalLoading.value) {
+    void returnFromProjectWork();
+    return;
+  }
+  void draftGuard.confirmClose(() => {
+    if (approvalEditorPage.value) {
+      draftGuard.capture();
+      void returnFromProjectWork();
+    } else dialog.value = "";
+  });
 }
 function beforeEditorClose(done: () => void) {
   if (dialog.value === "approval" && approvalLoading.value) { done(); return; }
@@ -379,6 +458,10 @@ async function addApprovalCandidates(records: DemandRecord[]) {
   }
 }
 async function openDialog(type: string) {
+  if (type === "approval" && !approvalEditorPage.value) {
+    await goToProjectWork("compile");
+    return;
+  }
   if (type === "approval" && !detail.value?.scopes.some((scope) =>
       scope.binding && scope.demand_status === "active")) {
     ElMessage.warning("当前没有已确认有效的专业需求。请先在专业需求中确认，再编制立项范围。");
@@ -488,7 +571,7 @@ async function save() {
   }
   busy.value = true;
   try {
-    if (!(await formRef.value?.validate().catch(() => false))) return;
+    if (!formRef.value || !(await formRef.value.validate().catch(() => false))) return;
     // Direct framework ownership is a complete business route. Loading the
     // optional agreement catalog must never block saving a direct project.
     if (dialog.value === "project" && form.value.agreement_id &&
@@ -514,15 +597,6 @@ async function save() {
     }
     if (dialog.value === "approval") {
       const differences = pendingApprovalChanges();
-      if (differences.length) {
-        await ElMessageBox.confirm(
-          "请核对本次正式变更：\n" + differences.map(
-            (item, index) => (index + 1) + ". " + item).join("\n") +
-            "\n确认后方可生成新版批准草稿，原批准历史不会被修改。",
-          "复核正式变更差异",
-          { type: "warning", confirmButtonText: "已核对，编制变更" },
-        );
-      }
       await api(`/projects/${detail.value!.id}/approvals`, "POST", {
         ...form.value,
         confirm_changes: differences.length > 0,
@@ -547,8 +621,11 @@ async function save() {
         },
       );
     ElMessage.success("业务数据已保存，正在同步列表");
+    const finishedApproval = dialog.value === "approval";
     dialog.value = "";
+    draftGuard.capture();
     await load();
+    if (finishedApproval) await returnFromProjectWork();
     if (newlyCreatedProject?.id && !editing.value) {
       const demandId = handoffDemand.value?.id;
       handoffDemand.value = null;
@@ -563,8 +640,12 @@ async function save() {
   }
 }
 async function action(name: string, approval?: ApprovalDetail, reviewed = false) {
+  if (busy.value) return;
+  busy.value = true;
   try {
-    const projectName = detail.value!.name;
+    const project = detail.value;
+    if (!project) return;
+    const projectName = project.name;
     const description: Record<string, string> = {
       stock: "将子项目正式入库，之后才可编制立项批准范围。",
       close: "正式审核结项；请确认未实施工作、未核对费用和未结算费用已处理或明确接受差异。结项后不再新增需求或调整批准范围。",
@@ -584,26 +665,29 @@ async function action(name: string, approval?: ApprovalDetail, reviewed = false)
         confirmButtonText: titles[name] || "确认" },
     );
     if (name === "stock" || name === "close")
-      await api(`/projects/${detail.value!.id}/${name}`, "POST", {
-        expected_version: detail.value!.version,
+      await api(`/projects/${project.id}/${name}`, "POST", {
+        expected_version: project.version,
       });
     if (name === "approve")
       await api(
-        `/projects/${detail.value!.id}/approvals/${approval!.id}/approve`,
+        `/projects/${project.id}/approvals/${approval!.id}/approve`,
         "POST",
-        { expected_version: detail.value!.version },
+        { expected_version: project.version },
       );
     if (name === "discard")
       await api(
-        `/projects/${detail.value!.id}/approvals/${approval!.id}`,
+        `/projects/${project.id}/approvals/${approval!.id}`,
         "DELETE",
         {},
       );
     ElMessage.success((titles[name] || "正式操作") + "成功，正在刷新业务状态");
     closeReviewOpen.value = false;
     await load();
+    if (name === "approve" && approvalReviewPage.value) await returnFromProjectWork();
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message);
+  } finally {
+    busy.value = false;
   }
 }
 function releaseBlockReason(scope: ProjectScopeProjection): string {
@@ -672,14 +756,21 @@ async function removeCharge(charge: ReferenceCharge) {
   }
 }
 async function removeProject() {
+  const project = detail.value;
+  if (!project || project.deleted || !can("admin") || deleteReason.value) return;
   try {
+    const impact = await api<ReturnType<System["projects"]["previewDeletion"]>>(`/projects/${project.id}/deletion-preview`);
+    if (impact.reason) { ElMessage.warning(impact.reason); return; }
+    if (detail.value?.id !== project.id) return;
+    const linked = impact.linked_demands.length;
+    const approval = impact.approved_version ? "。最近一次正式批准为第 " + impact.approved_version + " 版" : "";
     await ElMessageBox.confirm(
-      "删除后从正常项目列表移除，正式范围、费用、结算和证据历史继续保留。",
+      impact.name + "当前有 " + linked + " 条承接需求" + approval +
+        "。删除后项目从正常列表移除，承接关系、历次批准、费用、结算和附件历史继续保留。",
       "删除子项目",
+      { type: "warning", confirmButtonText: "确认删除" },
     );
-    await api(`/projects/${detail.value!.id}`, "DELETE", {
-      expected_version: detail.value!.version,
-    });
+    await api(`/projects/${project.id}`, "DELETE", { expected_version: impact.version });
     await detailDialog.close();
     await load();
     ElMessage.success("项目已删除，可在包含已删除中查询");
@@ -689,13 +780,21 @@ async function removeProject() {
 }
 async function showHistory() {
   const id = detail.value!.id;
-  const [records, approvals] = await Promise.all([
-    api<Record<string, unknown>>(`/projects/${id}/history`),
-    api<ApprovalDetail[]>(`/projects/${id}/approval-history`),
-  ]);
-  if (detail.value?.id !== id) return;
-  history.value = { ...records, approval_details: approvals };
+  try {
+    const [records, approvals] = await Promise.all([
+      api<ProjectHistory>(`/projects/${id}/history`),
+      api<ApprovalDetail[]>(`/projects/${id}/approval-history`),
+    ]);
+    if (detail.value?.id === id) history.value = { ...records, approval_details: approvals };
+  } catch (failure) {
+    if (detail.value?.id === id) ElMessage.error((failure as Error).message);
+  }
 }
+const closure = computed(() => history.value?.closures.at(-1));
+const closureSnapshot = computed(() => {
+  const snapshot = closure.value?.close_snapshot_json;
+  return typeof snapshot === "string" ? JSON.parse(snapshot) as ProjectFinanceSnapshot : null;
+});
 let overviewSequence = 0;
 async function loadOverview() {
   const id = detail.value?.id;
@@ -721,34 +820,65 @@ async function loadOverview() {
     if (sequence === overviewSequence) overviewLoading.value = false;
   }
 }
-function runWorkflowAction(item: ProjectAction) {
-  if (!item.enabled || !detail.value) return;
-  if (item.key === "stock") void action("stock");
-  else if (item.key === "link") {
-    tab.value = "scope"; void openDialog("link");
-  } else if (item.key === "approval") {
-    tab.value = "approval";
-    if (!detail.value.approvals.some((approval) => approval.status === "draft"))
-      void openDialog("approval");
-  } else if (item.key === "approve") {
-    tab.value = "approval";
-    const draft = detail.value.approvals.find((approval) => approval.id === item.approval_id);
-    if (draft) void action("approve", draft);
-  } else if (item.key === "finance") tab.value = "finance";
-  else if (item.key === "close") closeReviewOpen.value = true;
-  else if (item.key === "history") {
-    tab.value = "history";
-    void showHistory();
-  }
+const currentApproval = computed(() => detail.value?.approvals.find(row => row.id === detail.value?.approval?.id));
+const approvalDraft = computed(() => detail.value?.approvals.find(row => row.status === "draft"));
+const editorDifferences = computed(() => approvalEditorPage.value && !approvalLoading.value ? pendingApprovalChanges() : []);
+const approvalComparison = computed(() => approvalDraft.value ? approvalDifferences(currentApproval.value, approvalDraft.value) : []);
+const missingExpected = computed(() => [...new Map([
+  ...(detail.value?.scopes || []).filter(scope => scope.binding && !scope.expected_on)
+    .map(row => [row.demand_id, { id: row.demand_id, number: row.demand_no }] as const),
+  ...(approvalDraft.value?.pending_scopes || []).filter(row => !row.snapshot.expected_on)
+    .map(row => [row.demand_id, { id: row.demand_id, number: row.snapshot.demand_no }] as const),
+]).values()]);
+const hasActiveScope = computed(() => !!detail.value?.scopes.some(row => row.binding && row.demand_status === "active"));
+const closeAction = computed(() => !overviewLoading.value && projectActions.value.find(row => row.key === "close") || undefined);
+const deleteReason = computed(() => detail.value ? projectDeleteReason(detail.value) : "");
+const overviewStep = computed(() => {
+  const project = detail.value;
+  if (!project) return { message: "" };
+  if (project.deleted) return { message: "此项目已删除，可查阅保留的业务记录。", label: "查看历史", action: "history" };
+  if (project.display_status === "已结项") return { message: "结项结果及差异已保存。", label: "查看结项结果", action: "history" };
+  if (approvalDraft.value) return currentApproval.value
+    ? { message: "第 " + currentApproval.value.version_no + " 版批准继续生效。本次变更等待审核。", label: "查看变更差异", action: "draft" }
+    : { message: "已保存立项草稿，等待审核。", label: "查看立项草稿", action: "draft" };
+  if (currentApproval.value) return {
+    message: "第 " + currentApproval.value.version_no + " 版批准范围和预算已生效。",
+    label: "办理费用与结算", action: "finance",
+  };
+  const count = project.scopes.filter(row => row.binding).length;
+  const action = project.status === "reserve" && count && can("project.stock") ? "stock"
+    : project.status === "stocked" && hasActiveScope.value && can("write") ? "approval"
+    : !ordinaryLinkReason(project) && can("write") ? "link"
+    : project.status === "reserve" && can("project.stock") ? "stock" : "";
+  const labels: Record<string, string> = { stock: "确认入库", approval: "编制立项", link: "关联需求" };
+  const message = action === "link" && count
+    ? "已有 " + count + " 条关联需求。立项前请确认需求有效。"
+    : count ? "已关联 " + count + " 条需求。" : "尚未关联专业需求。";
+  return { message, label: labels[action], action };
+});
+function runOverviewStep() {
+  const next = overviewStep.value.action;
+  if (next === "stock") void action("stock");
+  if (next === "link") { tab.value = "scope"; void openDialog("link"); }
+  if (next === "approval") { tab.value = "approval"; void openDialog("approval"); }
+  if (next === "draft") { tab.value = "approval"; void goToProjectWork("review"); }
+  if (next === "history") tab.value = "history";
+  if (next === "finance") void goToProjectWork("finance");
 }
 watch(() => detail.value, () => {
-  if (detail.value?.id) void loadOverview();
+  if (detail.value?.id) {
+    void loadOverview();
+    if (tab.value === "history" && !history.value) void showHistory();
+  }
 });
 watch(tab, value => {
   if (value === "history" && detail.value?.id && !history.value) void showHistory();
 });
-useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters, tab }, load);
-const detailDialog = useEntityDialog(detail, id => api<ProjectDetail>('/projects/' + id + '?deleted=true'), () => { dialog.value = ''; history.value = null; quoteOpen.value = false; });
+useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "projects" && !projectWork.value);
+const detailDialog = useEntityDialog(detail, id => api<ProjectDetail>('/projects/' + id + '?deleted=true'), () => {
+  dialog.value = ''; history.value = null; quoteOpen.value = false; closeReviewOpen.value = false;
+  projectActions.value = []; overviewSummary.value = null; overviewFramework.value = null; overviewAgreement.value = null;
+});
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 watch(() => [route.query.action, route.query.demand], async () => {
   if (route.query.action !== "create" || typeof route.query.demand !== "string") return;
@@ -759,26 +889,42 @@ watch(() => [route.query.action, route.query.demand], async () => {
   }
   if (!dialog.value) editProject();
 }, { immediate: true });
-watch(() => route.query.project, (projectId) => {
-  if (typeof projectId === "string" && projectId &&
-      projectId !== detail.value?.id)
-    void detailDialog.open(projectId);
+watch([() => route.query.project, () => route.query.tab], ([projectId, section]) => {
+  if (projectWork.value || typeof projectId !== "string" || !projectId) return;
+  tab.value = typeof section === "string" && ["overview", "scope", "approval", "finance", "history"].includes(section)
+    ? section : "overview";
+  if (projectId !== detail.value?.id) void detailDialog.open(projectId);
 }, { immediate: true });
+let workReadSequence = 0;
+async function openWorkRoute() {
+  const sequence = ++workReadSequence;
+  const work = projectWork.value;
+  if (!work) {
+    ++approvalRequest;
+    if (dialog.value === "approval") dialog.value = "";
+    if (workProjectId.value && detail.value?.id !== workProjectId.value) await detailDialog.open(workProjectId.value);
+    return;
+  }
+  if (!workProjectId.value) {
+    await router.replace({ name: "projects", params: { projectId: "", work: "", recordId: "", recordAction: "" }, query: route.query });
+    return;
+  }
+  tab.value = projectFinancePage.value ? "finance" : "approval";
+  if (detail.value?.id !== workProjectId.value) await detailDialog.open(workProjectId.value);
+  if (sequence !== workReadSequence || !detail.value) return;
+  if (work === "compile" && can("write") && !approvalDraft.value) await openDialog("approval");
+}
+watch([projectWork, workProjectId], openWorkRoute, { immediate: true });
 onMounted(async () => {
   actors.value = await api("/actors");
   await load();
 });
 </script>
 <template>
+  <div v-show="!projectWork">
   <div class="page-heading">
       <div>
-        <div class="section-caption">
-          项目管理
-        </div>
         <h1>子项目管理</h1>
-        <p>
-          按年度框架储备项目，执行协议可选；保留正式批准与结算历史。
-        </p>
       </div>
       <div class="page-heading-actions">
         <ElButton
@@ -805,11 +951,20 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
-      <BusinessTable :search-active="!!query" @clear-search="query = ''; columnFilters = {}; page = 1; load()" :loading="listLoading" :rows="rows" :columns="projectColumns" table-key="project:list" :filter-state="columnFilters"
+      <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="子项目批量操作">
+        <span role="status">已选 {{ selected.length }} 条</span>
+        <ElButton :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
+        <ElButton v-if="listStatus === '储备' && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
+        <ElButton link @click="selection.clear">清空选择</ElButton>
+        <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
+        <span v-else-if="eligibleIds.length !== selected.length" class="muted">导出前请取消勾选已删除记录</span>
+      </div>
+      <BusinessTable :search-active="!!query" @clear-search="query = ''; columnFilters = {}; page = 1; load()" :loading="listLoading" :rows="rows" :columns="projectColumns" table-key="project:list" selectable :selected-ids="selectedIds" @selection-change="selection.updatePage" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
-          <ElTag v-if="column.key === 'display_status'" effect="plain"
+          <ElButton v-if="column.key === 'name'" link type="primary" class="cell-link" @click="open(row)">{{ row.name }}</ElButton>
+          <ElTag v-else-if="column.key === 'display_status'" effect="plain"
             :type="row.display_status === '已批准' ? 'success' : row.display_status === '已结项' ? 'info' : ['立项中','变更中'].includes(row.display_status) ? 'warning' : undefined">{{ row.display_status }}</ElTag>
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x) => x.binding).length || 0 }}</span>
@@ -827,36 +982,38 @@ onMounted(async () => {
         @current-change="load"
       /></div
   >
-  <BusinessDetailDialog :open="detailOpen" title="子项目详情" :loading="detailLoading" :error="detailError"
-    @close="detailDialog.close" @retry="detailDialog.reload">
-    <template v-if="detail"><div class="detail-header">
+  </div>
+  <HandlingReviewDialog :workflow="handling" />
+  <div v-show="projectWork !== 'settlements'">
+  <BusinessDetailDialog :open="detailOpen && !approvalEditorPage" :page="approvalReviewPage || projectFinancePage"
+    :title="approvalReviewPage ? approvalReviewTitle : projectFinancePage ? '费用与结算' : '子项目详情'"
+    :subtitle="projectWork ? detail?.name : undefined" bare :loading="detailLoading" :error="detailError"
+    @close="projectWork ? returnFromProjectWork() : detailDialog.close()" @retry="detailDialog.reload">
+    <template v-if="detail"><div v-if="!projectWork" class="detail-header">
       <h1>{{ detail.name }}</h1>
       <ElTag :type="detail.display_status === '已批准' ? 'success' : ['变更中','立项中'].includes(detail.display_status) ? 'warning' : undefined">{{ detail.display_status }}</ElTag
       ><ElTooltip :content="detail.code" placement="top">
          <span class="muted project-code">{{ detail.code }}</span>
        </ElTooltip>
     </div>
-    <ProjectWorkflowHeader :display-status="detail.display_status" :deleted="!!detail.deleted"
-      :loading="overviewLoading" :actions="projectActions" :can-write="can('write')"
-      :can-admin="can('admin')" :can-delete="detail.status === 'closed' || (['reserve', 'stocked'].includes(detail.status) && !(detail.scopes || []).some((scope) => scope.binding))" @action="runWorkflowAction"
-      @manage="command => {
-        if (command === 'edit') editProject(detail || undefined);
-        if (command === 'history') { tab = 'history'; showHistory(); }
-        if (command === 'delete') removeProject();
-      }" />
-    <ElTabs v-model="tab" class="project-workflow-tabs">
-      <ElTabPane name="overview" label="项目概览" />
-      <ElTabPane name="scope" label="需求与范围" />
-      <ElTabPane name="approval" label="批准与变更" />
+    <ElTabs v-if="!projectWork" v-model="tab" class="project-workflow-tabs">
+      <ElTabPane name="overview" label="概览" />
+      <ElTabPane name="scope" label="承接需求" />
+      <ElTabPane name="approval" label="立项与变更" />
       <ElTabPane name="finance" label="费用与结算" />
-      <ElTabPane name="history" label="完整历史" />
+      <ElTabPane name="history" label="历史记录" />
     </ElTabs>
-    <ProjectOverview v-if="tab === 'overview' && overviewProject" :project="overviewProject"
-      :summary="overviewSummary" :framework="overviewFramework"
-      :agreement="overviewAgreement" :loading="overviewLoading"
-      :can-write="can('write')" :description-columns="descriptionColumns"
-      @section="tab = $event" @fund="(kind, id) => router.push(fundContext(kind, id))"
-      @edit="editProject(detail || undefined)" />
+    <template v-if="tab === 'overview' && overviewProject">
+      <ProjectWorkflowHeader :message="overviewStep.message" :label="overviewStep.label" @proceed="runOverviewStep"
+        :action-id="overviewStep.action === 'stock' ? 'projects.stock' : overviewStep.action === 'approval' ? 'projects.approval-draft'
+          : overviewStep.action === 'link' ? 'projects.link' : overviewStep.action === 'history' ? 'projects.history' : overviewStep.action === 'finance' ? undefined : 'projects.approval-navigation'" />
+      <ProjectOverview :project="overviewProject" :summary="overviewSummary" :framework="overviewFramework"
+        :agreement="overviewAgreement" :loading="overviewLoading" :can-write="can('write')" :can-admin="can('admin')"
+        :delete-reason="deleteReason" :close-reason="closeAction?.reason ?? (closeAction ? '' : undefined)"
+        :description-columns="descriptionColumns"
+        @fund="(kind, id) => router.push(fundContext(kind, id))"
+        @edit="editProject(detail || undefined)" @remove="removeProject" @close="closeReviewOpen = true" />
+    </template>
     <template v-if="tab === 'scope'"
       ><div class="panel">
         <div class="toolbar">
@@ -871,7 +1028,7 @@ onMounted(async () => {
             scope.binding && releaseBlockReason(scope).includes('正式批准范围'))"
           type="info" :closable="false" show-icon
           title="当前正式批准范围内的需求不可直接解绑"
-          :description="detail.status === 'closed' ? '项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。' : '请先进入「批准与变更」，完成正式范围变更并移出该需求，再返回这里解绑。'" />
+          :description="detail.status === 'closed' ? '项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。' : '请先进入「立项与变更」办理正式变更。移出需求后，批准时同步解除承接关系。'" />
         <BusinessTable client-side table-key="project:scopes" :rows="detail.scopes || []"
           :columns="projectScopeColumns" :actions-width="135">
           <template #cell="{ row, column }">
@@ -899,55 +1056,83 @@ onMounted(async () => {
       </div>
     </template>
     <template v-if="tab === 'approval'">
-      <ElAlert v-if="(detail.scopes||[]).some((scope)=>scope.binding&&!scope.expected_on)"
+      <ElAlert v-if="approvalReviewPage && !approvalDraft" type="info" :closable="false" title="当前没有待审核的立项或变更草稿" />
+      <ElAlert v-if="missingExpected.length && detail.status !== 'closed'"
         type="warning" :closable="false" show-icon
-        title="正式批准前必须补全全部关联需求的预计解决时间"
-        :description="'尚未填写：'+(detail.scopes||[]).filter((scope)=>scope.binding&&!scope.expected_on)
-          .map((scope)=>scope.demand_no).join('、')+'。请到「需求与范围」打开需求补填；若已编制草稿且该需求列入批准范围，补填后需删除旧草稿并重新编制。'"/>
-      <div class="toolbar">
-        <ElButton :data-guide-action="detail.approval ? 'projects.change' : 'projects.approval-draft'"
-          type="primary"
-          :disabled="
-            !can('write') || detail.deleted || !['stocked', 'approved'].includes(detail.status) ||
-            detail.approvals.some((approval) => approval.status === 'draft')
-          "
-          :title="detail.approvals.some((approval) => approval.status === 'draft') ? '已有待批准草稿，请先批准或删除草稿' : undefined"
-          @click="openDialog('approval')"
-          >{{ detail.approval ? "编制正式变更" : "编制立项范围" }}</ElButton
-        ><ElButton :disabled="!can('write') || detail.deleted" @click="openDialog('charge')"
-          >增加批次 / 项目参考费用</ElButton
-        >
+        title="正式批准前，请填写全部关联需求和本次候选需求的预计解决时间">
+        <div class="toolbar">
+          <ElButton v-for="demand in missingExpected" :key="demand.id" link type="primary"
+            @click="router.push(demandContext(demand.id))">{{ demand.number }}</ElButton>
+        </div>
+        <p v-if="approvalDraft">若补填的是草稿采纳的需求，请撤回草稿后按最新需求版本重新编制。</p>
+      </ElAlert>
+      <div v-if="!approvalReviewPage && !approvalDraft && !detail.deleted && ['stocked', 'approved'].includes(detail.status)" class="toolbar">
+        <ElButton v-if="can('write')" :data-guide-action="detail.approval ? 'projects.change' : 'projects.approval-draft'"
+          type="primary" :disabled="!detail.approval && !hasActiveScope"
+          @click="openDialog('approval')">{{ detail.approval ? "编制变更" : "编制立项" }}</ElButton>
+        <span v-if="!detail.approval && !hasActiveScope" class="muted">请先关联至少一条已确认的专业需求。</span>
       </div>
+      <div v-if="approvalDraft" class="panel approval-comparison">
+        <h2>{{ currentApproval ? "本次变更差异" : "本次立项申请" }}</h2>
+        <ElDescriptions :column="2" border>
+          <ElDescriptionsItem label="当前生效">
+            {{ currentApproval ? "第 " + currentApproval.version_no + " 版 · ¥" + money(currentApproval.approved_budget_fen) : "尚未批准" }}
+          </ElDescriptionsItem>
+          <ElDescriptionsItem label="本次申请">第 {{ approvalDraft.version_no }} 版 · ¥{{ money(approvalDraft.approved_budget_fen) }}</ElDescriptionsItem>
+          <ElDescriptionsItem v-if="currentApproval" label="预算差额">
+            ¥{{ money(approvalDraft.approved_budget_fen - currentApproval.approved_budget_fen) }}
+          </ElDescriptionsItem>
+        </ElDescriptions>
+        <BusinessTable v-if="approvalComparison.length" :rows="approvalComparison" table-key="project:approval-difference" sort-mode="off" filter-mode="off"
+          :columns="[{key:'name',label:'需求编号',minWidth:180},{key:'changes',label:'本次调整',minWidth:150},
+            {key:'before',label:'当前批准',minWidth:140},{key:'after',label:'本次申请',minWidth:140}]">
+          <template #cell="{row,column}">
+            <span v-if="column.key === 'name'">{{ row.name }}</span>
+            <span v-else-if="column.key === 'changes'">{{ row.changes }}</span>
+            <template v-else>
+              <span v-if="row[column.key === 'before' ? 'before' : 'after']">
+                {{ quantity(row[column.key === 'before' ? 'before' : 'after']!.quantity) }} {{ row[column.key === 'before' ? 'before' : 'after']!.unit }} ·
+                {{ row[column.key === 'before' ? 'before' : 'after']!.locations.length || 1 }} 处 ·
+                {{ row[column.key === 'before' ? 'before' : 'after']!.materialSummary || (row[column.key === 'before' ? 'before' : 'after']!.materials.length + ' 项物资') }}
+              </span>
+              <span v-else>—</span>
+            </template>
+          </template>
+        </BusinessTable>
+        <p v-else>需求、工作量和批准物资沿用当前批准。</p>
+      </div>
+      <p v-else-if="!currentApproval" class="muted">{{ detail.status === 'reserve' ? '确认入库后可编制立项。' : '尚无生效的批准范围。' }}</p>
       <div
-        v-for="approval in detail.approvals"
+        v-for="approval in [...detail.approvals].sort((a,b) => Number(b.status === 'draft') - Number(a.status === 'draft'))"
         :key="approval.id"
         class="panel"
       >
         <div class="toolbar">
-          <h2>第 {{ approval.version_no }} 次批准</h2>
-          <ElTag>{{ statusText[approval.status] }}</ElTag
-          ><ElButton data-guide-action="projects.approve"
+          <h2>{{ approval.status === "draft" ? "待审核草稿" : "当前正式批准" }} · 第 {{ approval.version_no }} 版</h2>
+          <ElButton data-guide-action="projects.approve"
             :disabled="
-              detail.deleted || !can(
+              detail.deleted || missingExpected.length > 0 || !can(
                 approval.version_no === 1
                   ? 'project.approve'
                   : 'change.approve',
               )
             "
-            v-if="approval.status === 'draft'"
+            v-if="approval.status === 'draft' && !approvalReviewPage"
             type="primary"
-            @click="action('approve', approval)"
-            >正式批准</ElButton
+            @click="goToProjectWork('review')"
+            >{{ approval.version_no === 1 ? "审核立项" : "审核变更" }}</ElButton
           ><ElButton data-guide-action="projects.approval-discard"
             :disabled="!can('write') || detail.deleted"
             v-if="approval.status === 'draft'"
-            type="danger"
+            plain type="danger"
             @click="action('discard', approval)"
-            >删除草稿</ElButton
+            >撤回草稿</ElButton
           >
+          <span v-if="approval.status === 'draft' && !can(approval.version_no === 1 ? 'project.approve' : 'change.approve')" class="muted">由具备审核权限的人员办理</span>
+          <ElButton v-if="approval.status === 'draft' && !detail.deleted && can('write')" @click="openDialog('charge')">增加批次 / 项目参考费用</ElButton>
         </div>
         <ElDescriptions :column="descriptionColumns" border
-          ><ElDescriptionsItem label="批准预算"
+          ><ElDescriptionsItem :label="approval.status === 'draft' ? '申请预算' : '批准预算'"
             >¥{{ money(approval.approved_budget_fen) }}</ElDescriptionsItem
           ><ElDescriptionsItem label="参考价格">{{
             approval.reference.complete
@@ -997,6 +1182,8 @@ onMounted(async () => {
         </BusinessTable>
       </div></template
     >
+    <ElButton v-if="tab === 'finance' && !projectFinancePage && !detail.deleted" link type="primary"
+      @click="goToProjectWork('finance')">打开项目财务工作区</ElButton>
     <ElAlert
       v-if="detail.deleted && tab === 'finance'"
       title="项目已归档删除，费用与结算记录可在档案历史中查询。"
@@ -1004,38 +1191,72 @@ onMounted(async () => {
       :closable="false"
     /><FinancePanel
       v-if="tab === 'finance' && !detail.deleted"
-      :project="detail"
+      :project="detail" :refresh-key="financeRevision"
       :focus="route.query.focus === 'cost' || route.query.focus === 'settlement' || route.query.focus === 'reconciliation'
         ? { kind: route.query.focus, id: String(route.query.record || '') } : null"
-      @changed="load"
+      @changed="load" @open-settlement="(id, action) => goToProjectWork('settlements', id, action)"
     />
     <div v-if="tab === 'history'" class="panel">
       <div class="toolbar">
         <h2>完整正式历史</h2>
-        <ElButton :loading="busy" @click="showHistory">刷新历史</ElButton>
+        <ElButton data-guide-action="projects.history" :loading="busy" @click="showHistory">刷新历史</ElButton>
       </div>
+      <template v-if="closureSnapshot">
+        <h3>结项结果</h3>
+        <ElDescriptions :column="descriptionColumns" border class="closed-project-summary">
+          <ElDescriptionsItem label="结项时间">{{ formatVisibleDateTime(closure?.closed_at, 'closed_at') }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="实际费用">¥{{ money(closureSnapshot.actual_cost_fen) }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="已批准结算">¥{{ money(closureSnapshot.settlement_fen) }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="待核对费用">¥{{ money(closureSnapshot.unreconciled_cost_fen) }}</ElDescriptionsItem>
+        </ElDescriptions>
+        <BusinessTable v-if="closureSnapshot.demands?.length" table-key="project:closed-quantity"
+          :rows="closureSnapshot.demands" sort-mode="off" filter-mode="off"
+          :columns="[{key:'demand_no',label:'需求编号',minWidth:180},{key:'remaining_quantity_scaled',label:'未解决工作量'},
+            {key:'excess_quantity_scaled',label:'超出批准工作量'}]">
+          <template #cell="{row,column}">
+            {{ column.key === 'demand_no' ? row.demand_no : quantity(column.key === 'remaining_quantity_scaled' ? row.remaining_quantity_scaled : row.excess_quantity_scaled) }}
+          </template>
+        </BusinessTable>
+      </template>
       <BusinessHistory v-if="history" :value="history" />
       <ElSkeleton v-else :rows="5" animated />
     </div>
   </template>
+    <template v-if="approvalReviewPage && approvalDraft && detail && !detail.deleted && can(approvalDraft.version_no === 1 ? 'project.approve' : 'change.approve')" #footer>
+      <ElButton @click="returnFromProjectWork">取消</ElButton>
+      <ElButton type="primary" data-guide-action="projects.approve" :loading="busy" :disabled="missingExpected.length > 0"
+        @click="action('approve', approvalDraft, true)">确认正式批准</ElButton>
+    </template>
   </BusinessDetailDialog>
+  </div>
+  <template v-if="projectWork === 'settlements'">
+    <FinancePanel v-if="detail && !detailLoading" :key="String(route.params.recordId) + '/' + String(route.params.recordAction)"
+      :project="detail" :settlement-work="{ id: String(route.params.recordId || ''), action: String(route.params.recordAction || '') }"
+      @changed="financeRevision++; load()" @close-settlement="returnFromProjectWork" />
+    <BusinessWorkSurface v-else title="项目结算" @back="returnFromProjectWork">
+      <ElAlert v-if="detailError" :title="detailError" type="error" :closable="false"><ElButton text @click="detailDialog.reload">重新读取</ElButton></ElAlert>
+      <ElSkeleton v-else :rows="5" animated />
+    </BusinessWorkSurface>
+  </template>
   <ProjectCloseReviewDialog v-model:open="closeReviewOpen"
     :approved-version="detail?.approval?.version_no" :summary="overviewSummary"
-    :can-close="!!projectActions.find(action => action.key === 'close')?.enabled"
+    :can-close="!!closeAction?.enabled"
     @confirm="action('close', undefined, true)" />
-  <ElDialog append-to-body
-    :model-value="!!dialog"
+  <BusinessWorkSurface v-if="approvalEditorPage && dialog !== 'approval'" :title="approvalEditorTitle" :subtitle="detail?.name" @back="returnFromProjectWork">
+    <ElSkeleton v-if="detailLoading" :rows="5" animated />
+    <ElAlert v-else :title="detailError || '当前项目状态或账号权限无法编制批准范围'" type="info" :closable="false" />
+  </BusinessWorkSurface>
+  <BusinessEditorSurface :page="approvalEditorPage" :open="!!dialog" :busy="busy" :subtitle="detail?.name"
     :title="
       {
         project: editing ? '修订项目档案' : '新增子项目',
-        approval: '编制完整批准范围',
+        approval: approvalEditorTitle,
         charge: '批次 / 项目独立参考费用',
-      }[dialog]
+      }[dialog] || ''
     "
-    width="950px"
-    :close-on-click-modal="false"
+    width="min(950px, 94vw)"
     :before-close="beforeEditorClose"
-    @close="dialog = ''"
+    @close="approvalEditorPage ? closeEditor() : dialog = ''"
     ><ElAlert v-if="dialog === 'approval' && approvalLoadError" type="error" :closable="false" :title="'批准范围读取失败：' + approvalLoadError">
       <ElButton @click="openDialog('approval')">重新读取</ElButton>
       </ElAlert>
@@ -1228,8 +1449,11 @@ onMounted(async () => {
             >添加批准物资</ElButton
           >
         </div></template
-      ></ElForm
-    ><template #footer
+      ></ElForm>
+    <ElAlert v-if="editorDifferences.length" title="保存草稿前请核对本次调整" type="warning" :closable="false">
+      <ul><li v-for="difference in editorDifferences" :key="difference">{{ difference }}</li></ul>
+    </ElAlert>
+    <template #footer
       ><ElButton @click="closeEditor">取消</ElButton
       ><ElButton data-guide-action="projects.save"
         :disabled="!can('write') || (dialog === 'approval' && (approvalLoading || !!approvalLoadError)) || (dialog === 'project' &&
@@ -1237,23 +1461,14 @@ onMounted(async () => {
         type="primary"
         :loading="busy"
         @click="save"
-        >保存</ElButton
-      ></template
-    ></ElDialog
-  >
+        >{{ approvalEditorPage ? (editorDifferences.length ? '核对并保存变更草稿' : '保存批准草稿') : '保存' }}</ElButton
+      ></template>
+  </BusinessEditorSurface>
   <ProjectDemandPicker v-model:open="linkPickerOpen"
     :project-id="detail?.id || ''"
     :proposal="dialog === 'approval'"
     :existing-ids="[...(detail?.scopes || []).filter((scope) => scope.binding).map((scope) => scope.demand_id), ...approvalRows.flatMap((scope) => scope.demand_id ? [scope.demand_id] : [])]"
     @selected="addApprovalCandidates" @linked="load" />
-  <ElDialog append-to-body
-    :model-value="!!history"
-    title="项目正式历史"
-    width="950px"
-    @close="history = null"
-  >
-    <BusinessHistory :value="history" />
-  </ElDialog>
   <PricingQuoteDialog
     v-if="priceScopeContext"
     v-model="quoteOpen"
@@ -1264,6 +1479,9 @@ onMounted(async () => {
   />
 </template>
 <style scoped>
+.approval-comparison {display:grid;gap:12px}
+.approval-comparison h2 {margin:0}
+.closed-project-summary {margin-bottom:12px}
 .project-code {
   display: inline-block;
   max-width: min(260px, 37vw);

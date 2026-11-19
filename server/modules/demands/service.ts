@@ -1,3 +1,4 @@
+import type { HandlingTarget, HandlingReviewRow } from "../../shared/types/handling-batch.js";
 import { currentSources, reviseSource, removeSource } from "./sources.js";
 import type { Actor, ListQuery, Page } from "../../shared/types/contracts.js";
 import { isObject } from "../../shared/types/contracts.js";
@@ -555,6 +556,31 @@ export function createDemands(
       return get(keyId);
     });
   }
+  function transition(actor: Actor, key: string, raw: unknown, batch = false): DemandRecord {
+    const input = parseLifecycleInput(raw);
+    authorize(actor, "demand.activate");
+    return database.transaction(() => {
+      const previous = get(key);
+      expectedVersion(previous.current_version, input.expected_version);
+      if (batch) requireValue(previous.status === "pending", "仅待确认需求可批量确认", 409);
+      const last = repo.lastLifecycle(key);
+      requireValue(last, "需求初始状态事件不存在", 409);
+      expectedVersion(last.event_seq, input.expected_event_seq);
+      requireValue(!(input.status === "returned" && repo.binding(key)),
+        "需求已由子项目承接，不能退回；请正式修订需求，或先按项目规则明确解除关联", 409);
+      repo.appendLifecycle({
+        id: id(),
+        demand_id: key,
+        event_seq: last.event_seq + 1,
+        from_status: previous.status,
+        to_status: input.status,
+        actor_id: actor.id,
+        recorded_at: now(),
+        reason: input.reason || "",
+      });
+      return get(key);
+    });
+  }
   return {
     get,
     review,
@@ -592,28 +618,24 @@ export function createDemands(
           deleted: Boolean(row.deleted),
         }));
     },
-    transition(actor: Actor, key: string, raw: unknown): DemandRecord {
-      const input = parseLifecycleInput(raw);
+    transition,
+    previewConfirmation(actor: Actor, targets: HandlingTarget[]): HandlingReviewRow[] {
+      authorize(actor, "demand.activate");
+      return targets.map(target => {
+        const row = repo.current(target.id);
+        const last = row && repo.lastLifecycle(target.id);
+        const reason = !row || !last || repo.isDeleted(target.id) ? "需求不存在或已删除"
+          : row.current_version !== target.expected_version ? "需求版本已变化，请重新选择"
+          : row.status !== "pending" ? "仅待确认需求可批量确认" : "";
+        return { ...target, label: row ? row.demand_no : target.id,
+          expected_event_seq: last?.event_seq, reason };
+      });
+    },
+    confirmMany(actor: Actor, targets: HandlingTarget[]) {
       authorize(actor, "demand.activate");
       return database.transaction(() => {
-        const previous = get(key);
-        expectedVersion(previous.current_version, input.expected_version);
-        const last = repo.lastLifecycle(key);
-        requireValue(last, "需求初始状态事件不存在", 409);
-        expectedVersion(last.event_seq, input.expected_event_seq);
-        requireValue(!(input.status === "returned" && repo.binding(key)),
-          "需求已由子项目承接，不能退回；请正式修订需求，或先按项目规则明确解除关联", 409);
-        repo.appendLifecycle({
-          id: id(),
-          demand_id: key,
-          event_seq: last.event_seq + 1,
-          from_status: previous.status,
-          to_status: input.status,
-          actor_id: actor.id,
-          recorded_at: now(),
-          reason: input.reason || "",
-        });
-        return get(key);
+        for (const target of targets) transition(actor, target.id, { ...target, status: "active" }, true);
+        return { count: targets.length };
       });
     },
     history(key: string) {

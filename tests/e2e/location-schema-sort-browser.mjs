@@ -50,7 +50,7 @@ page.on("request",request=>{
 const base="http://127.0.0.1:"+server.address().port;
 const output=join(process.cwd(),"test-results/dux/location-schema-sort");
 mkdirSync(output,{recursive:true});
-const editor=page.getByRole("dialog",{name:"新增专业需求",exact:true});
+const editor=page.getByRole("region",{name:"新增专业需求",exact:true});
 const picker=page.getByRole("dialog",{name:"添加作业位置",exact:true});
 const rows=()=>picker.locator(".el-table__body-wrapper tr");
 const headers=()=>picker.locator(".el-table__header-wrapper th");

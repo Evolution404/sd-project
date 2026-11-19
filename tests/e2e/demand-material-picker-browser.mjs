@@ -24,7 +24,7 @@ page.on("pageerror",err=>exceptions.push(err.message));
 const output=join(process.cwd(),"test-results/schema113/demand-material-picker");
 mkdirSync(output,{recursive:true});
 const base="http://127.0.0.1:"+server.address().port;
-const editor=page.getByRole("dialog",{name:"修订需求",exact:true});
+const editor=page.getByRole("region",{name:"修订需求",exact:true});
 const picker=page.getByRole("dialog",{name:"添加预计物资",exact:true});
 function selectedTab(name) {
   return editor.getByRole("tab",{name,exact:true}).getAttribute("aria-selected");

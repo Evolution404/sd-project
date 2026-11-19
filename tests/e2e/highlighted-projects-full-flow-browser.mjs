@@ -1,3 +1,4 @@
+import { activeEditor, workPage, confirmProjectApproval, approveSettlement, submitSettlement } from "./work-page-helper.mjs";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -54,7 +55,7 @@ page.on("response", async response => {
     rejected.push({ url: new URL(response.url()).pathname, status: response.status(), message: (await response.json()).message });
 });
 const detail = page.locator(".business-detail-dialog:visible");
-const editor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+const editor = activeEditor(page);
 const budgetMultiplier = 10000;
 function recordStep(name, facts = {}) {
   steps.push({ name, ...facts });
@@ -93,7 +94,7 @@ async function rowAction(row, name) {
 async function openProject(record, tab = "overview") {
   await visit(`projects?project=${record.projectId}&tab=${tab}`);
   await detail.getByRole("heading", { name: record.name, exact: true }).waitFor();
-  const names = { overview: "项目概览", scope: "需求与范围", approval: "批准与变更", finance: "费用与结算", history: "正式历史" };
+  const names = { overview: "概览", scope: "承接需求", approval: "立项与变更", finance: "费用与结算", history: "历史记录" };
   await detail.getByRole("tab", { name: names[tab], exact: true }).click();
 }
 async function selectLocations(lineName) {
@@ -177,7 +178,7 @@ async function reviseDate(record, date) {
 }
 async function createApproval(record) {
   await openProject(record, "approval");
-  await detail.getByRole("button", { name: "编制立项范围", exact: true }).click();
+  await detail.getByRole("button", { name: "编制立项", exact: true }).click();
   await editor.getByLabel("批准预算（元）", { exact: true }).fill(
     (Number(record.budget_value) * budgetMultiplier).toFixed(2));
   for (const [index, quantity] of [record.tension_pieces, record.jumper_pieces].entries()) {
@@ -190,7 +191,7 @@ async function createApproval(record) {
     }).click();
     await materialRow.locator(".approval-material-field").nth(1).locator("input").fill(String(quantity));
   }
-  await editor.getByRole("button", { name: "保存", exact: true }).click();
+  await editor.getByRole("button", { name: "保存批准草稿", exact: true }).click();
   await editor.waitFor({ state: "hidden" });
   return system.projects.get(record.projectId).approvals.find(ap => ap.status === "draft");
 }
@@ -210,14 +211,13 @@ async function quoteAndApprove(record) {
     }
     await page.getByRole("button", { name: "关闭报价", exact: true }).click();
   }
-  await detail.getByRole("button", { name: "正式批准", exact: true }).click();
-  await confirm();
+  await detail.getByRole("button", { name: /^审核(立项|变更)$/ }).click();
+  await confirmProjectApproval(page);
   await page.getByText("确认正式批准成功，正在刷新业务状态", { exact: true }).last().waitFor();
 }
 async function linkAgreement(record) {
   await openProject(record);
-  await detail.getByRole("button", { name: "更多管理操作", exact: true }).click();
-  await page.getByRole("menuitem", { name: "修订档案", exact: true }).click();
+  await detail.getByRole("button", { name: "编辑档案", exact: true }).click();
   await editor.getByLabel("执行协议（选填）", { exact: true }).click();
   await page.getByRole("option", { name: new RegExp(agreement.name) }).click();
   await saveEditor();
@@ -264,7 +264,7 @@ async function createCandidate() {
 }
 async function changeApproval(record, { addCandidate, removeDemandId, budgetFen, changeMaterials } = {}) {
   await openProject(record, "approval");
-  await detail.getByRole("button", { name: "编制正式变更", exact: true }).click();
+  await detail.getByRole("button", { name: "编制变更", exact: true }).click();
   await editor.getByLabel("批准预算（元）", { exact: true }).fill(
     budgetFen === undefined ? (Number(record.budget_value) * budgetMultiplier + 1000).toFixed(2) : amountInput(budgetFen));
   if (changeMaterials) {
@@ -281,8 +281,7 @@ async function changeApproval(record, { addCandidate, removeDemandId, budgetFen,
     const number = system.demands.get(removeDemandId).demand_no;
     await editor.locator("label.el-checkbox").filter({ hasText: number }).click();
   }
-  await editor.getByRole("button", { name: "保存", exact: true }).click();
-  await confirm();
+  await editor.getByRole("button", { name: "核对并保存变更草稿", exact: true }).click();
   await editor.waitFor({ state: "hidden" });
   const draft = system.projects.get(record.projectId).approvals.find(ap => ap.status === "draft");
   if (addCandidate) assert.equal(system.demands.get(addCandidate.id).binding, null);
@@ -339,14 +338,13 @@ async function createBill(record, node, evidence, amount, resolved, candidate) {
 }
 async function submitBill(bill, returned = false) {
   const row = detail.getByRole("row").filter({ hasText: bill.number }).first();
-  await rowAction(row, "正式提交");
-  await confirm();
+  await submitSettlement(page, row);
   await row.getByText(/待审核/).waitFor();
   if (returned) {
-    await rowAction(row, "退回");
-    const prompt = page.locator(".el-message-box:visible");
-    await prompt.locator("textarea").fill("模拟退回，补充核定工作量及凭据后按原版重提");
-    await prompt.locator(".el-button--primary").click();
+    await rowAction(row, "审核结算");
+    const review = workPage(page);
+    await review.getByLabel("退回原因（选择退回时必填）").fill("模拟退回，补充核定工作量及凭据后按原版重提");
+    await review.getByRole("button", { name: "确认退回", exact: true }).click();
     await row.getByText(/退回原因/).waitFor();
     const versionId = system.finance.settlement(bill.id).version.id;
     await rowAction(row, "原版重新提交");
@@ -355,8 +353,7 @@ async function submitBill(bill, returned = false) {
     assert.equal(system.finance.settlement(bill.id).version.id, versionId);
     recordStep("结算退回后原版重新提交", { bill:bill.number });
   }
-  await rowAction(row, "批准");
-  await confirm();
+  await approveSettlement(page, row);
   await row.getByText(/已审核/).waitFor();
   return system.finance.settlement(bill.id);
 }
@@ -418,12 +415,10 @@ async function financialFlow(record, candidate) {
   await editor.getByLabel("结算依据", { exact:true }).fill("模拟按原表审定额修正本期金额");
   await saveEditor("保存草稿");
   assert.equal(system.finance.summary(record.projectId).settlement_fen, originalAmount);
-  await rowAction(firstRow, "正式提交");
-  await confirm();
+  await submitSettlement(page, firstRow);
   await firstRow.getByText(/待审核/).waitFor();
   assert.equal(system.finance.summary(record.projectId).settlement_fen, originalAmount);
-  await rowAction(firstRow, "批准");
-  await confirm();
+  await approveSettlement(page, firstRow);
   await firstRow.getByText(/已审核/).waitFor();
   firstBill = system.finance.settlement(firstBill.id);
   assert.notEqual(firstBill.version.id, previousVersion);
@@ -456,17 +451,18 @@ async function financialFlow(record, candidate) {
   await rowAction(thirdRow, "发起新修订");
   await editor.getByLabel("结算依据", { exact:true }).fill("模拟未提交修订，随后撤回");
   await saveEditor("保存草稿");
-  await detail.getByRole("button", { name:"其他办理操作", exact:true }).click();
-  assert.equal(await page.getByRole("menuitem", { name:"审核结项", exact:true }).isDisabled(), true);
-  await detail.getByRole("heading", { name:record.name, exact:true }).click();
+  await detail.getByRole("tab", { name:"概览", exact:true }).click();
+  await detail.getByText(/尚有未提交的结算草稿或修订草稿/).waitFor();
+  assert.equal(await detail.getByRole("button", { name:"结项核对", exact:true }).isDisabled(), true);
+  await detail.getByRole("tab", { name:"费用与结算", exact:true }).click();
   await rowAction(thirdRow, "撤回草稿");
   await confirm();
   await thirdRow.getByText(/已审核/).waitFor();
   assert.equal(system.finance.settlement(third.id).draft, null);
   assert.equal(system.finance.summary(record.projectId).settlement_fen, record.approved_settlement_fen);
   recordStep("撤回未提交结算修订，保留原批准金额", { project:record.source_reference });
-  await detail.getByRole("button", { name:"其他办理操作", exact:true }).click();
-  await page.getByRole("menuitem", { name:"审核结项", exact:true }).click();
+  await detail.getByRole("tab", { name:"概览", exact:true }).click();
+  await detail.getByRole("button", { name:"结项核对", exact:true }).click();
   const closeDialog = page.getByRole("dialog", { name:"结项前业务核对", exact:true });
   await closeDialog.getByText("待核对费用", { exact:true }).waitFor();
   await closeDialog.getByRole("button", { name:"已核对差异，正式结项", exact:true }).click();
@@ -501,16 +497,18 @@ try {
     await activateDemand(record, record.index === 0);
     await createProject(record);
     const oldDraft = await createApproval(record);
-    await detail.getByRole("button", { name: "正式批准", exact: true }).click();
-    await confirm();
-    await page.getByText(/正式批准前必须填写/).waitFor();
+    await detail.getByText(/正式批准前，请填写/).waitFor();
+    assert.equal(await detail.getByRole("button", { name: "审核立项", exact: true }).isDisabled(), true);
+    await postRejected(`/projects/${record.projectId}/approvals/${oldDraft.id}/approve`, {
+      expected_version: system.projects.get(record.projectId).version,
+    }, 422);
     assert.equal(system.projects.get(record.projectId).approval, null);
     await reviseDate(record, "2026-12-15");
     await openProject(record, "approval");
-    await detail.getByRole("button", { name: "正式批准", exact: true }).click();
-    await confirm();
+    await detail.getByRole("button", { name: /^审核(立项|变更)$/ }).click();
+    await workPage(page).getByRole("button", { name: "确认正式批准", exact: true }).click();
     await page.getByText(/需求正式版本已变化/).waitFor();
-    await detail.getByRole("button", { name: "删除草稿", exact: true }).click();
+    await workPage(page).getByRole("button", { name: "撤回草稿", exact: true }).click();
     await confirm();
     assert.equal(inspect(system).find("project_approval_versions", "id", oldDraft.id).status, "withdrawn");
     await createApproval(record);

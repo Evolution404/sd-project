@@ -29,6 +29,7 @@ export interface ProjectListRecord {
   code: string;
   name: string;
   status: string;
+  version: number;
   profile_version: number;
   approval_json: string | null;
   scopes_json: string;
@@ -164,6 +165,11 @@ export function businessLists(store: QueryStore) {
       return { ...result, items: result.items.map(row => ({ ...row, deleted: Boolean(row.deleted) })) };
     },
     demands: (query: ListQuery) => searchPage<DemandListRecord>(store, "demands", demandSource, query),
+    selectedProjects: (ids: string[]) => searchPage<ProjectListRecord>(store, "projects", {
+      ...projectSource,
+      sql: projectSource.sql + " WHERE p.id IN (SELECT value FROM json_each(?))",
+      parameters: [JSON.stringify(ids)],
+    }, { page: 1, page_size: ids.length, q: "", sort: "name", direction: "asc", filters: {}, deleted: false }).items,
     projects: (query: ListQuery) => searchPage<ProjectListRecord>(store, "projects", projectSource, query),
   };
 }

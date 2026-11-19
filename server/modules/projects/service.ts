@@ -1,7 +1,9 @@
+import type { HandlingTarget, HandlingReviewRow } from "../../shared/types/handling-batch.js";
 import type { ProjectApprovalScopeInput, ProjectApprovalCandidateProposal, ProjectScopeListItem } from "../../shared/types/projects.js";
-import { ordinaryLinkReason, approvalDraftReason } from "../../shared/project-lifecycle.js";
+import { ordinaryLinkReason, approvalDraftReason, projectDeleteReason } from "../../shared/project-lifecycle.js";
 import { authorize, documentCode, id, now, today } from "../../platform/auth/service.js";
 import {
+  BusinessError,
   requireValue,
   expectedVersion,
   text,
@@ -77,12 +79,11 @@ export function createProjects(
       changes: repo.projectChanges(key),
     };
   }
-  function preflightLink(project: ReturnType<typeof get>, input: ProjectLinkInput) {
+  function preflightLink(project: ReturnType<typeof get>, input: ProjectLinkInput, demand = demands.get(input.demand_id)) {
     requireValue(!Object.hasOwn(input, "quantity_scaled"),
       "子项目只允许整体承接需求，不能另填承接数量；请先修订或拆分需求", 422);
     const blocked = ordinaryLinkReason(project);
     requireValue(!blocked, blocked, 409);
-    const demand=demands.get(input.demand_id);
     expectedVersion(demand.current_version,input.expected_version);
     requireValue(demand.status === "active" || demand.status === "pending",
       "仅待承接或待确认的有效需求可以关联项目",422);
@@ -149,8 +150,10 @@ export function createProjects(
     authorize(actor, "write");
     return repo.transaction(() => {
       const previous = key ? get(key) : null;
-      if (previous)
+      if (previous) {
+        requireValue(previous.status !== "closed", "项目已结项，项目档案已冻结", 409);
         expectedVersion(previous.profile_version, input.expected_version);
+      }
       const projectId = key || id(),
         timestamp = now();
       const frameworkId = input.framework_id || previous?.framework_id;
@@ -175,9 +178,6 @@ export function createProjects(
       if (chosenAgreementId && (!previous || frameworkChanged ||
         chosenAgreementId !== previousAgreementId))
         requireAgreementEligible(chosenAgreementId, frameworkId);
-      if (previous && previous.status === "closed" &&
-          chosenAgreementId !== previousAgreementId)
-        requireValue(false, "已结项项目不可变更执行协议", 409);
       if (!previous) {
         repo.createProject({
           id: projectId,
@@ -262,6 +262,7 @@ export function createProjects(
     authorize(actor, permission);
     const p = get(key);
     expectedVersion(p.version, version);
+    if (stageName === "stocked") requireValue(p.status === "reserve", "仅储备项目可办理入库", 409);
     repo.appendStage({
       id: id(),
       project_id: key,
@@ -564,6 +565,17 @@ export function createProjects(
         deleted: Boolean(row.deleted),
       })) };
     },
+    selectedProjectReport(actor: Actor, ids: string[]) {
+      authorize(actor, "read");
+      requireValue(ids.length > 0 && ids.length <= 100, "请勾选1～100个子项目");
+      const rows = repo.selectedProjects(ids);
+      requireValue(rows.length === new Set(ids).size, "所选项目已删除或不存在，请刷新后重选", 409);
+      return rows.map(row => ({
+        项目编号: row.code, 项目名称: row.name, 项目状态: row.display_status,
+        "批准预算（元）": row.approval_json ? (JSON.parse(row.approval_json) as Pick<ProjectApprovalVersion, "approved_budget_fen">).approved_budget_fen / 100 : null,
+        关联需求数: (JSON.parse(row.scopes_json) as ProjectScopeListItem[]).filter(scope => scope.binding).length,
+      }));
+    },
     dashboardPortfolio() {
       return repo.projectDashboardPortfolio();
     },
@@ -620,6 +632,40 @@ export function createProjects(
       return repo.transaction(() =>
         stage(actor, key, "stocked", "project.stock", input.expected_version),
       );
+    },
+    previewStock(actor: Actor, targets: HandlingTarget[]): HandlingReviewRow[] {
+      authorize(actor, "project.stock");
+      return targets.map(target => {
+        const root = repo.projectIdentity(target.id);
+        const profile = root && repo.latestProjectProfile(target.id);
+        const reason = !root || !profile || repo.projectDeleted(target.id) ? "项目不存在或已删除"
+          : root.version !== target.expected_version ? "项目版本已变化，请重新选择"
+          : root.status !== "reserve" ? "仅储备项目可办理入库" : "";
+        return { ...target, label: profile?.name || root?.code || target.id, reason };
+      });
+    },
+    stockMany(actor: Actor, targets: HandlingTarget[]) {
+      authorize(actor, "project.stock");
+      return repo.transaction(() => {
+        for (const target of targets) stage(actor, target.id, "stocked", "project.stock", target.expected_version);
+        return { count: targets.length };
+      });
+    },
+    previewLinkMany(actor: Actor, key: string, input: ProjectLinkBatchInput): HandlingReviewRow[] {
+      authorize(actor, "write");
+      const project = get(key);
+      return input.links.map(link => {
+        let label = link.demand_id;
+        try {
+          const demand = demands.get(link.demand_id);
+          label = demand.demand_no + " · " + demand.problem_description;
+          preflightLink(project, link, demand);
+          return { id: link.demand_id, expected_version: link.expected_version, label, reason: "" };
+        } catch (error) {
+          if (!(error instanceof BusinessError)) throw error;
+          return { id: link.demand_id, expected_version: link.expected_version, label, reason: error.message };
+        }
+      });
     },
     link(actor: Actor, key: string, input: ProjectLinkInput) {
       authorize(actor,"write");
@@ -787,17 +833,22 @@ export function createProjects(
         return get(key);
       });
     },
+    previewDeletion(actor: Actor, key: string) {
+      authorize(actor, "admin");
+      const project = get(key, false, true);
+      return {
+        name: project.name, version: project.version, reason: projectDeleteReason(project),
+        linked_demands: project.scopes.filter(scope => scope.binding).map(scope => scope.demand_no),
+        approved_version: project.approval?.version_no ?? null,
+      };
+    },
     remove(actor: Actor, key: string, input: ProjectVersionAction) {
       authorize(actor, "admin");
       return repo.transaction(() => {
         const project = get(key);
         expectedVersion(project.version, input.expected_version);
-        requireValue(
-          project.status === "closed" ||
-            (["reserve", "stocked"].includes(project.status) &&
-              !project.scopes.some((x) => x.binding)),
-          "请先处理项目关联与正式结项",
-        );
+        const blocked = projectDeleteReason(project);
+        requireValue(!blocked, blocked, 409);
         catalog.audit(actor, "projects", key, "delete", project, {
           logical: true,
         });

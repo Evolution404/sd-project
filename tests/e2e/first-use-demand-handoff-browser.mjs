@@ -21,7 +21,7 @@ const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const out = join(process.cwd(), "test-results", "schema113", "first-use");
 mkdirSync(out, { recursive: true });
-const editor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+const editor = page.locator(".business-work-surface:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
 async function save() {
   await editor.getByRole("button", { name: "保存", exact: true }).click();
   await editor.waitFor({ state: "hidden" });

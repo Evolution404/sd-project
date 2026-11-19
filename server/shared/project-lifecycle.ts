@@ -25,3 +25,10 @@ export function approvalDraftReason(project: ProjectLifecycleFacts): string {
 export function closedWriteReason(project: Pick<ProjectLifecycleFacts, "status">): string {
   return project.status === "closed" ? "项目已结项，普通费用、科目、结算及核对写入已冻结" : "";
 }
+
+export function projectDeleteReason(project: ProjectLifecycleFacts & { scopes: ReadonlyArray<{ binding: unknown }> }): string {
+  if (project.deleted) return "项目已删除";
+  if (project.status === "closed" ||
+      (["reserve", "stocked"].includes(project.status) && !project.scopes.some(scope => scope.binding))) return "";
+  return "请先处理需求关联与正式结项";
+}

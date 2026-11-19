@@ -73,7 +73,7 @@ try {
   await page.screenshot({ path: join(out, "finance-page-two.png"), fullPage: true });
   await measure("项目详情打开完整历史", async () => {
     const response = page.waitForResponse(response => response.url().endsWith(`/api/projects/${project.id}/approval-history`));
-    await detail.getByRole("tab", { name: "完整历史", exact: true }).click();
+    await detail.getByRole("tab", { name: "历史记录", exact: true }).click();
     assert.equal((await response).status(), 200);
     await detail.getByRole("heading", { name: "完整正式历史", exact: true }).waitFor();
   });

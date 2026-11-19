@@ -34,8 +34,8 @@ page.on("pageerror",err=>errors.push(err.message));
 const base="http://127.0.0.1:"+server.address().port;
 const out=join(process.cwd(),"test-results/schema113/demand-status-duplicate");
 mkdirSync(out,{recursive:true});
-const editor=page.getByRole("dialog",{name:"修订需求",exact:true});
-const review=page.getByRole("dialog",{name:"疑似重复需求核对",exact:true});
+const editor=page.getByRole("region",{name:"修订需求",exact:true});
+const review=page.getByRole("region",{name:"疑似重复需求核对",exact:true});
 try {
   await page.goto(base+"/#/demands");
   await page.getByLabel("用户名",{exact:true}).fill("admin");
@@ -84,18 +84,17 @@ try {
   await review.getByText("第二次发现的独立故障",{exact:false}).waitFor();
   await review.getByText("位置重合",{exact:true}).first().waitFor();
   assert.equal(await review.getByRole("button",{name:"确认独立并保存"}).isDisabled(),true);
-  await page.waitForTimeout(470); // stacked dialogs animate independently
+  await page.waitForTimeout(470); // Allow the long comparison layout to settle
   await page.screenshot({path:join(out,"duplicate-side-by-side.png"),fullPage:true});
   await review.getByRole("button",{name:"返回继续修改",exact:true}).click();
   await review.waitFor({state:"hidden"});
   assert.equal(await editor.getByLabel("问题描述",{exact:true}).inputValue(),
     "保留现场修改并核对重合需求");
-  await editor.getByRole("button",{name:"暂存草稿并关闭",exact:true}).click();
+  await editor.getByRole("button",{name:"暂存并返回",exact:true}).click();
   await editor.waitFor({state:"hidden"});
   assert.equal(s.demands.get(primary.id).current_version,1,"parking is not a formal save");
   await detail.getByRole("button",{name:"修订需求",exact:true}).click();
-  const prompt=page.getByRole("dialog",{name:"恢复草稿",exact:true});
-  await prompt.getByRole("button",{name:"恢复草稿",exact:true}).click();
+  await editor.getByRole("button",{name:"恢复草稿",exact:true}).click();
   await editor.getByLabel("问题描述",{exact:true}).waitFor();
   assert.equal(await editor.getByLabel("问题描述",{exact:true}).inputValue(),
     "保留现场修改并核对重合需求");
@@ -108,7 +107,7 @@ try {
   await review.getByRole("button",{name:"确认独立并保存"}).click();
   await review.getByText("对比后被其他人员修订的来源",{exact:false}).waitFor();
   assert.equal(s.demands.get(primary.id).current_version,1,"stale review must not save a version");
-  assert.equal(await editor.getByLabel("问题描述",{exact:true}).inputValue(),"保留现场修改并核对重合需求");
+  assert.equal(await review.getByText("保留现场修改并核对重合需求",{exact:false}).count(),1);
   await review.getByLabel("独立保留依据（必填）").fill("不同故障原因与现场发现批次，重新核对后各自独立实施");
   await review.locator(".duplicate-decision .el-checkbox").click();
   await review.getByRole("button",{name:"确认独立并保存"}).click();

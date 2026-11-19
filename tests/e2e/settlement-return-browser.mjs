@@ -50,12 +50,12 @@ try {
   assert.equal(await page.getByRole("menuitem", { name: "审核中（禁止修订）", exact: true }).isDisabled(), true,
     "submitted settlement must be locked during review");
   await page.keyboard.press("Escape");
-  await clickAction(row, "退回");
-  const prompt = page.locator(".el-message-box:visible");
-  await prompt.locator(".el-button--primary").click();
-  await prompt.waitFor();
-  await prompt.locator("textarea").fill("发票编号需要补全");
-  await prompt.locator(".el-button--primary").click();
+  await clickAction(row, "审核结算");
+  const review = page.getByRole("region", { name: "审核结算", exact: true });
+  const returnButton = review.getByRole("button", { name: "确认退回", exact: true });
+  assert.equal(await returnButton.isDisabled(), true);
+  await review.getByLabel("退回原因（选择退回时必填）").fill("发票编号需要补全");
+  await returnButton.click();
   await row.getByText("退回原因：发票编号需要补全", { exact: false }).waitFor();
   assert.equal(s.finance.settlement(draft.id).review.action, "return");
   assert.equal(s.finance.settlement(draft.id).review.reason, "发票编号需要补全");

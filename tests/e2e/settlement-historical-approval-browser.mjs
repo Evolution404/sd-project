@@ -35,7 +35,7 @@ try {
   await detail.getByRole("tab", { name: "费用与结算", exact: true }).click();
   const row = detail.getByRole("row").filter({ hasText: bill.number }).first();
   await row.getByRole("button", { name: "发起新修订", exact: true }).click();
-  const editor = page.getByRole("dialog", { name: "结算草稿", exact: true });
+  const editor = page.getByRole("region", { name: "修订结算草稿", exact: true });
   assert.equal(Number(await editor.getByLabel("本次金额（元）", { exact: true }).first().inputValue()), 100);
   await editor.locator(".el-form-item").filter({ has: page.getByText("修订动作", { exact: true }) })
     .getByText("完整修订", { exact: true }).waitFor();

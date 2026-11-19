@@ -7,10 +7,13 @@ const categoryNodes = ref<CostCategoryNode[]>([]);
 import { useListRoute } from "../../shared/composables/use-list-route";import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import RowActions from "../../shared/ui/RowActions.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
+import BusinessEditorSurface from "../../shared/ui/BusinessEditorSurface.vue";
+import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 const writeBlock = computed(() => closedWriteReason(props.project));
-import { ref, watch, computed, toRaw } from "vue";
+import { ref, watch, computed, toRaw, nextTick } from "vue";
+import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
@@ -43,7 +46,50 @@ import {
 } from "../../shared/api/client";
 type FocusKind = "cost" | "settlement" | "reconciliation";
 type FocusedRecord = { kind: FocusKind; id: string };
-const props = defineProps<{ project: ProjectDetail; focus?: FocusedRecord | null }>();
+const actualSection = ref<HTMLElement>();
+const settlementSection = ref<HTMLElement>();
+const reconciliationSection = ref<HTMLElement>();
+function jumpToSection(section?: HTMLElement) {
+  section?.scrollIntoView({ block: "start" });
+}
+const props = defineProps<{
+  project: ProjectDetail;
+  focus?: FocusedRecord | null;
+  settlementWork?: { id: string; action: string };
+  refreshKey?: number;
+}>();
+const settlementReview = ref<BillFact | null>(null);
+const settlementWorkLoading = ref(false), settlementWorkError = ref(""), reviewReason = ref("");
+const settlementTitle = computed(() => props.settlementWork?.action === "review" ? "审核结算" :
+  props.settlementWork?.action === "submit" ? "复核并提交结算" :
+  props.settlementWork?.id === "new" ? "编制结算草稿" : "修订结算草稿");
+const reviewDocument = computed(() => props.settlementWork?.action === "submit"
+  ? settlementReview.value?.draft?.document : settlementReview.value?.version);
+const reviewItems = computed(() => props.settlementWork?.action === "submit"
+  ? settlementReview.value?.draft?.document.items || [] : settlementReview.value?.items || []);
+const reviewResolutions = computed(() => props.settlementWork?.action === "submit"
+  ? settlementReview.value?.draft?.document.resolutions || [] : settlementReview.value?.resolutions || []);
+const reviewBlock = computed(() => {
+  const row = settlementReview.value;
+  if (!row) return "";
+  if (writeBlock.value || row.deleted) return writeBlock.value || "结算单已删除";
+  if (props.settlementWork?.action === "submit")
+    return can("write") && row.draft && row.review?.action !== "submit" ? "" : "当前账号或结算状态无法提交";
+  return can("settlement.approve") && row.review?.action === "submit" ? "" : "当前账号或结算状态无法审核";
+});
+const reviewApproval = computed(() => approvalChoices.value.find(row => row.id === reviewDocument.value?.approval_version_id));
+const reviewScope = (scopeId?: string | null) => reviewApproval.value?.scopes.find(row => row.project_scope_id === scopeId);
+const reviewLineColumns: TableColumn[] = [
+  { key: "project_scope_id", label: "关联需求", minWidth: 180 },
+  { key: "quantity_scaled", label: "工作量" },
+  { key: "amount_fen", label: "结算金额" },
+  { key: "evidence", label: "依据", minWidth: 180 },
+];
+const reviewResolutionColumns: TableColumn[] = [
+  { key: "project_scope_id", label: "需求", minWidth: 180 },
+  { key: "resolved_quantity_scaled", label: "本次解决量" },
+  { key: "evidence", label: "依据", minWidth: 180 },
+];
 const formRef = ref();
 const scopePrecision = ref<Record<string, number>>({});
 const scopePrecisionError = ref("");
@@ -51,6 +97,7 @@ const invalidQuantity = ref<Record<string, boolean>>({});
 function markQuantityInvalid(path: string, invalid: boolean) {
   invalidQuantity.value = { ...invalidQuantity.value, [path]: invalid };
 }
+const focusedSection = ref<HTMLElement>();
 const focusedFact = ref<EditingFact | EditingFact[] | null>(null);
 const focusedLoading = ref(false);
 const focusedError = ref("");
@@ -61,9 +108,15 @@ const focusedCurrent = computed<EditingFact | null>(() => Array.isArray(focusedF
   : focusedFact.value);
 const focusedTitle = computed(() => {
   const f = props.focus;
-  if (!f) return "业务记录";
+  if (!f) return "结算单详情";
   return f.kind === "cost" ? "定位真实费用" : f.kind === "settlement" ? "定位独立结算单" : "定位正式费用核对";
 });
+async function inspectSettlement(row: BillFact) {
+  focusedFact.value = row;
+  focusedHistoryOpen.value = false;
+  await nextTick();
+  jumpToSection(focusedSection.value);
+}
 async function loadFocusedRecord() {
   const sequence = ++focusSequence, focus = props.focus;
   focusedHistoryOpen.value = false;
@@ -92,7 +145,11 @@ watch(() => [props.project.id, props.focus?.kind, props.focus?.id], () => {
   void loadFocusedRecord();
 }, { immediate: true });
 const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
-const emit = defineEmits(["changed"]);
+const emit = defineEmits<{
+  changed: [];
+  openSettlement: [id: string, action?: string];
+  closeSettlement: [];
+}>();
 const costs = ref<CostFact[]>([]),
   listLoading = ref(false),
   listError = ref(""),
@@ -277,9 +334,23 @@ async function load() {
   }
 }
 const draftGuard = useDialogDraftGuard(() => form.value);
-function closeEditor() { void draftGuard.confirmClose(() => { dialog.value = ""; }); }
+function confirmSettlementExit() { return !props.settlementWork || dialog.value !== "settlement" || draftGuard.canClose(); }
+onBeforeRouteLeave(confirmSettlementExit);
+onBeforeRouteUpdate((to, from) => to.path === from.path || confirmSettlementExit());
+function closeEditor() {
+  void draftGuard.confirmClose(() => {
+    if (props.settlementWork) {
+      draftGuard.capture();
+      emit("closeSettlement");
+    } else dialog.value = "";
+  });
+}
 function beforeEditorClose(done: () => void) { void draftGuard.confirmClose(done); }
 function edit(type: string, row?: EditingFact) {
+  if (type === "settlement" && !props.settlementWork) {
+    emit("openSettlement", row?.id || "new");
+    return;
+  }
   if (type === "settlement" && row?.review?.action === "submit") {
     ElMessage.warning("该结算正在审核，审核结束前不能修改；如需调整，请先由审核人员退回");
     return;
@@ -357,7 +428,7 @@ function edit(type: string, row?: EditingFact) {
   }
 }
 async function save() {
-  if (busy.value) return;
+  if (busy.value || writeBlock.value) return;
   if (dialog.value === "settlement") {
     if (approvalsLoading.value || approvalsError.value) {
       ElMessage.error(approvalsError.value || "正式批准历史正在读取，请稍后保存");
@@ -394,39 +465,25 @@ async function save() {
     if (dialog.value === "reconcile")
       await api("/reconciliations", "POST", form.value);
     ElMessage.success("费用或结算数据已保存，正在刷新列表");
-    await load();
+    if (!props.settlementWork) await load();
     emit("changed");
     dialog.value = "";
+    if (props.settlementWork) emit("closeSettlement");
   } catch (e) {
     ElMessage.error((e as Error).message);
   } finally {
     busy.value = false;
   }
 }
-async function action(row: BillFact, name: string) {
+async function action(row: BillFact, name: "submit" | "approve" | "return") {
+  if (busy.value || reviewBlock.value) return;
+  const reason = reviewReason.value.trim();
+  if (name === "return" && !reason) {
+    ElMessage.warning("请填写退回原因");
+    return;
+  }
+  busy.value = true;
   try {
-    let reason: string | undefined;
-    if (name === "return") {
-      const result = await ElMessageBox.prompt(
-        "请填写具体退回原因，编制人员将据此修改或按原版本重新提交。",
-        "退回结算",
-        {
-          inputType: "textarea",
-          inputPlaceholder: "填写需要补正的内容或退回依据",
-          inputValidator: (value: string) => !!value.trim() || "退回原因不能为空",
-          confirmButtonText: "确认退回",
-          cancelButtonText: "取消",
-        },
-      );
-      reason = result.value.trim();
-    } else {
-      await ElMessageBox.confirm(
-        name === "submit"
-          ? "确认将完整结算草稿正式提交审核？正式提交后，审核结束前不可再修订。"
-          : "确认批准当前正式结算版本？批准后任何内容变化均需生成新版本重新审核。",
-        "结算确认",
-      );
-    }
     await api(
       `/settlements/${row.id}/${name === "submit" ? "submit" : "review"}`,
       "POST",
@@ -435,15 +492,51 @@ async function action(row: BillFact, name: string) {
         expected_edit_version: row.draft?.edit_version || 0,
         expected_event_seq: row.review?.event_seq || 0,
         action: name,
-        reason,
+        reason: name === "return" ? reason : undefined,
       },
     );
-    await load();
+    ElMessage.success(name === "submit" ? "已提交结算审核" : name === "return" ? "结算已退回" : "结算已批准");
     emit("changed");
-  } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message);
+    emit("closeSettlement");
+  } catch (error) {
+    ElMessage.error((error as Error).message);
+  } finally {
+    busy.value = false;
   }
 }
+let settlementWorkRequest = 0;
+async function loadSettlementWork() {
+  const work = props.settlementWork;
+  if (!work) return;
+  const request = ++settlementWorkRequest;
+  settlementWorkLoading.value = true;
+  settlementWorkError.value = "";
+  reviewReason.value = "";
+  settlementReview.value = null;
+  try {
+    const row = work.id === "new" ? undefined
+      : await api<BillFact>(`/projects/${props.project.id}/settlements/${work.id}`);
+    if (request !== settlementWorkRequest) return;
+    if (work.action && !row) throw new Error("请选择要办理的结算单");
+    if (work.action && row) {
+      settlementReview.value = row;
+      return;
+    }
+    if (!can("write") || writeBlock.value || props.project.status !== "approved" ||
+        row?.review?.action === "submit" || row?.deleted)
+      throw new Error(writeBlock.value || "当前账号、项目或结算状态无法编制草稿");
+    const nodes = await api<CostCategoryNode[]>(`/projects/${props.project.id}/cost-tree`);
+    if (request !== settlementWorkRequest) return;
+    categoryNodes.value = nodes;
+    edit("settlement", row);
+  } catch (error) {
+    if (request === settlementWorkRequest) settlementWorkError.value = (error as Error).message;
+  } finally {
+    if (request === settlementWorkRequest) settlementWorkLoading.value = false;
+  }
+}
+watch([() => props.project.id, () => props.settlementWork?.id, () => props.settlementWork?.action],
+  loadSettlementWork, { immediate: true });
 async function resubmitBill(row: BillFact) {
   try {
     await ElMessageBox.confirm(
@@ -559,8 +652,10 @@ useListRoute({
   reconciliationsSort: computed({ get: () => financeSort.value.reconciliations, set: value => { financeSort.value.reconciliations = value; } }),
   reconciliationsDirection: computed({ get: () => financeDirection.value.reconciliations, set: value => { financeDirection.value.reconciliations = value; } }),
   reconciliationsFilters: computed({ get: () => financeFilters.value.reconciliations, set: value => { financeFilters.value.reconciliations = value; } }),
-}, load);
+}, load, () => !props.settlementWork);
+watch(() => props.refreshKey, () => { if (!props.settlementWork) void load(); });
 watch(() => props.project.id, () => {
+  if (props.settlementWork) return;
   ++reconcileCostSequence;
   ++reconcileBillSequence;
   reconcileCostChoices.value = [];
@@ -573,6 +668,7 @@ watch(() => props.project.id, () => {
 }, { immediate: true });
 </script>
 <template>
+  <template v-if="!settlementWork">
   <ElAlert v-if="writeBlock" :title="writeBlock" type="info" :closable="false" />
   <template v-if="evidence"
     ><ElButton @click="evidence = null">关闭附件区</ElButton
@@ -581,7 +677,7 @@ watch(() => props.project.id, () => {
       :owner-kind="evidence.ownerKind"
       :owner-id="evidence.ownerId"
   /></template>
-  <div v-if="focus" class="panel" v-loading="focusedLoading">
+  <div v-if="focus || focusedFact" ref="focusedSection" class="panel" v-loading="focusedLoading">
     <div class="toolbar">
       <h2>{{ focusedTitle }}</h2>
       <ElButton size="small" @click="loadFocusedRecord">重新读取</ElButton>
@@ -595,13 +691,13 @@ watch(() => props.project.id, () => {
         <ElDescriptionsItem label="正式版本">
           {{ focusedCurrent.version?.version_no || focusedCurrent.version_no || '查看完整历史' }}
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="focus.kind === 'cost'" label="实际金额">
+        <ElDescriptionsItem v-if="focus?.kind === 'cost'" label="实际金额">
           {{ focusedCurrent.amount_fen == null ? '未核定' : '¥' + money(focusedCurrent.amount_fen) }}
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="focus.kind === 'settlement'" label="结算业务">
+        <ElDescriptionsItem v-if="focus?.kind === 'settlement' || (!focus && focusedFact)" label="结算业务">
           {{ focusedCurrent.number }}
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="focus.kind === 'reconciliation'" label="核对金额">
+        <ElDescriptionsItem v-if="focus?.kind === 'reconciliation'" label="核对金额">
           {{ focusedCurrent.reconciled_settlement_fen == null ? '—' : '¥' + money(focusedCurrent.reconciled_settlement_fen) }}
         </ElDescriptionsItem>
       </ElDescriptions>
@@ -617,6 +713,11 @@ watch(() => props.project.id, () => {
     :title="listError" show-icon>
     <ElButton @click="load">重新读取费用数据</ElButton>
   </ElAlert>
+  <nav class="toolbar" aria-label="定位财务分区">
+    <ElButton size="small" @click="jumpToSection(actualSection)">实际费用</ElButton>
+    <ElButton size="small" @click="jumpToSection(settlementSection)">结算单</ElButton>
+    <ElButton size="small" @click="jumpToSection(reconciliationSection)">费用核对</ElButton>
+  </nav>
   <div v-if="!listError" class="metric-grid">
     <div class="metric">
       <span>正式参考价格</span>
@@ -644,7 +745,7 @@ watch(() => props.project.id, () => {
   <CostCategoryWorkspace :readonly="!!writeBlock" :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
   <ElAlert v-if="scopePrecisionError" type="error" :closable="false"
     :title="scopePrecisionError" class="panel" />
-  <div class="panel">
+  <div ref="actualSection" class="panel">
     <div class="toolbar">
       <h2>实际费用</h2>
       <ElCheckbox data-guide-action="finance.cost-show-deleted" v-model="showDeletedCosts" @change="costPage = 1; load()"
@@ -680,7 +781,7 @@ watch(() => props.project.id, () => {
     <ElPagination v-model:current-page="costPage" :total="costTotal" :page-size="30"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
-  <div class="panel">
+  <div ref="settlementSection" class="panel">
     <div class="toolbar">
       <h2>独立结算单</h2>
       <ElButton data-guide-action="finance.settlement-draft"
@@ -711,16 +812,17 @@ watch(() => props.project.id, () => {
           第 {{ row.version?.version_no || 0 }} 版 · {{ row.review?.action === 'submit' ? '待审核' : row.review?.action === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.review?.action || ""] || '待编制' }}
           <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
         </span>
+        <ElButton v-else-if="column.key === 'number'" link type="primary" class="cell-link"
+          @click="inspectSettlement(row)">{{ row.number }}</ElButton>
         <span v-else-if="column.key === 'amount'">¥{{ money((row.draft?.document.items || row.items || []).reduce((sum: number, item) => sum + item.amount_fen, 0)) }}</span>
         <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
         <RowActions :actions="[
-          ...(row.review?.action === 'submit' ? [
-            { label: '批准', guideActionId: 'finance.approve', primary: true, disabled: !!writeBlock || !can('settlement.approve'), run: () => action(row, 'approve') },
-            { label: '退回', disabled: !!writeBlock || !can('settlement.approve'), run: () => action(row, 'return') },
+          ...(row.review?.action === 'submit' && can('settlement.approve') ? [
+            { label: '审核结算', guideActionId: 'finance.approve', primary: true, disabled: !!writeBlock, run: () => emit('openSettlement', row.id, 'review') },
           ] : []),
-          ...(row.draft ? [{ label: '正式提交', guideActionId: 'finance.submit', primary: true, disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => action(row, 'submit') }] : []),
+          ...(row.draft && can('write') ? [{ label: '复核并提交', guideActionId: 'finance.submit', primary: true, disabled: !!writeBlock || row.review?.action === 'submit', run: () => emit('openSettlement', row.id, 'submit') }] : []),
           ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', primary: true, disabled: !!writeBlock || !can('write'), run: () => resubmitBill(row) }] : []),
           { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
           ...(row.draft ? [{ label: '撤回草稿', disabled: !!writeBlock || !can('write'), run: () => withdrawBillDraft(row) }] : []),
@@ -733,7 +835,7 @@ watch(() => props.project.id, () => {
     <ElPagination v-model:current-page="billPage" :total="billTotal" :page-size="30"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
-  <div class="panel">
+  <div ref="reconciliationSection" class="panel">
     <div class="toolbar">
       <h2>费用与结算核对</h2>
       <ElCheckbox data-guide-action="finance.reconcile-show-deleted" v-model="showDeletedReconciliations" @change="reconPage = 1; load()"
@@ -776,20 +878,69 @@ watch(() => props.project.id, () => {
       </template>
     </BusinessTable>
   </div>
-  <ElDialog append-to-body
-    :model-value="!!dialog"
+  </template>
+  <BusinessWorkSurface v-if="settlementWork && dialog !== 'settlement'" :title="settlementTitle" :subtitle="project.name" :busy="busy"
+    @back="emit('closeSettlement')">
+    <ElSkeleton v-if="settlementWorkLoading" :rows="5" animated />
+    <ElAlert v-else-if="settlementWorkError" :title="settlementWorkError" type="error" :closable="false">
+      <ElButton text @click="loadSettlementWork">重新读取</ElButton>
+    </ElAlert>
+    <template v-else-if="settlementReview">
+      <ElAlert v-if="reviewBlock" :title="reviewBlock" type="info" :closable="false" />
+      <ElDescriptions :column="2" border>
+        <ElDescriptionsItem label="结算编号">{{ settlementReview.number }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="业务日期">{{ reviewDocument?.settlement_on || '—' }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="结算金额">¥{{ money(reviewItems.reduce((total, item) => total + item.amount_fen, 0)) }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="采用批准范围">{{ reviewApproval ? '第 ' + reviewApproval.version_no + ' 版' : '—' }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="结算依据">{{ reviewDocument?.basis || '—' }}</ElDescriptionsItem>
+        <ElDescriptionsItem v-if="reviewDocument?.reason" label="修订依据">{{ reviewDocument.reason }}</ElDescriptionsItem>
+      </ElDescriptions>
+      <h2>结算明细</h2>
+      <BusinessTable table-key="finance:review-items" :rows="reviewItems" :columns="reviewLineColumns" sort-mode="off" filter-mode="off">
+        <template #cell="{ row, column, value }">
+          <template v-if="column.key === 'project_scope_id'">{{ reviewScope(row.project_scope_id)?.demand_no || '独立费用' }}</template>
+          <template v-else-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</template>
+          <template v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</template>
+          <template v-else>{{ value || '—' }}</template>
+        </template>
+      </BusinessTable>
+      <template v-if="reviewResolutions.length">
+        <h2>需求解决量</h2>
+        <BusinessTable table-key="finance:review-resolutions" :rows="reviewResolutions" :columns="reviewResolutionColumns" sort-mode="off" filter-mode="off">
+          <template #cell="{ row, column, value }">
+            <template v-if="column.key === 'project_scope_id'">{{ reviewScope(row.project_scope_id)?.demand_no || '—' }}</template>
+            <template v-else-if="column.key === 'resolved_quantity_scaled'">{{ quantity(row.resolved_quantity_scaled) }}</template>
+            <template v-else>{{ value || '—' }}</template>
+          </template>
+        </BusinessTable>
+      </template>
+      <ElForm v-if="settlementWork.action === 'review' && !reviewBlock" label-position="top" novalidate class="review-reason">
+        <ElFormItem label="退回原因（选择退回时必填）">
+          <ElInput v-model="reviewReason" type="textarea" :rows="3" />
+        </ElFormItem>
+      </ElForm>
+    </template>
+    <template v-if="settlementReview && !reviewBlock" #footer>
+      <ElButton :disabled="busy" @click="emit('closeSettlement')">取消</ElButton>
+      <template v-if="settlementWork.action === 'review'">
+        <ElButton :disabled="busy || !reviewReason.trim()" type="danger" plain @click="action(settlementReview, 'return')">确认退回</ElButton>
+        <ElButton data-guide-action="finance.approve" :loading="busy" type="primary" @click="action(settlementReview, 'approve')">确认批准结算</ElButton>
+      </template>
+      <ElButton v-else data-guide-action="finance.submit" :loading="busy" type="primary" @click="action(settlementReview, 'submit')">确认提交审核</ElButton>
+    </template>
+  </BusinessWorkSurface>
+  <BusinessEditorSurface :page="!!settlementWork" :open="!!dialog" :subtitle="project.name" :busy="busy"
     :title="
       {
         node: '费用科目版本',
         cost: '核定真实费用',
-        settlement: '结算草稿',
+        settlement: settlementTitle,
         reconcile: '正式费用核对',
-      }[dialog]
+      }[dialog] || ''
     "
-    width="1000px"
-    :close-on-click-modal="false"
+    width="min(1000px, 94vw)"
     :before-close="beforeEditorClose"
-    @close="dialog = ''"
+    @close="settlementWork ? closeEditor() : dialog = '' "
     ><ElForm ref="formRef" label-position="top" novalidate :model="form"
       ><div class="form-grid">
         <template v-if="dialog === 'cost'"
@@ -1008,8 +1159,7 @@ watch(() => props.project.id, () => {
         @click="save"
         >{{ dialog === "settlement" ? "保存草稿" : "保存" }}</ElButton
       ></template
-    ></ElDialog
-  >
+    ></BusinessEditorSurface>
   <ElDialog append-to-body
     :model-value="!!history"
     title="正式版本历史"
@@ -1020,6 +1170,7 @@ watch(() => props.project.id, () => {
   </ElDialog>
 </template>
 <style scoped>
+.review-reason { margin-top:20px }
 .finance-editor-line-heading {
   justify-content: space-between;
   min-height: 28px;

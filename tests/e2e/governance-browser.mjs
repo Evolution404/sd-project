@@ -41,9 +41,9 @@ try {
 
   // Formal change copies quantities and materials rather than clearing them.
   const detail = page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("tab", { name: "批准与变更", exact: true }).click();
-  await detail.getByRole("button", { name: "编制正式变更", exact: true }).click();
-  const editor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+  await detail.getByRole("tab", { name: "立项与变更", exact: true }).click();
+  await detail.getByRole("button", { name: "编制变更", exact: true }).click();
+  const editor = page.getByRole("region", { name: "编制项目变更" });
   await editor.getByText("已继承上一版正式批准", { exact: false }).waitFor();
   await editor.getByText("防鸟装置 · FN-01", { exact: false }).first().waitFor();
   const quantities = await editor.locator("input").evaluateAll(nodes => nodes.map(node => node.value));
@@ -77,7 +77,7 @@ try {
     .getByRole("button", { name: "关闭详情" }).click();
   await page.locator(".business-detail-dialog:visible").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
-  const demandEditor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+  const demandEditor = page.locator(".demand-editor:visible");
   const operationChoice = demandEditor.getByLabel("操作类型", { exact: true });
   await operationChoice.click();
   await page.getByRole("option", { name: "安装防鸟装置", exact: true }).last().click();

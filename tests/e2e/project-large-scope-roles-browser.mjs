@@ -1,3 +1,4 @@
+import { workPage, confirmProjectApproval } from "./work-page-helper.mjs";
 import assert from 'node:assert/strict';
 import {existsSync,mkdirSync} from 'node:fs';
 import {join} from 'node:path';
@@ -33,13 +34,13 @@ async function open(role){
   await page.goto('http://127.0.0.1:'+server.address().port+'/#/projects?project='+project.id+'&tab=approval');
   await page.getByLabel('用户名',{exact:true}).fill(role);await page.getByLabel('密码',{exact:true}).fill(passwords[role]);
   await page.getByRole('button',{name:'登录',exact:true}).click();
-  await page.getByRole('tab',{name:'批准与变更',exact:true}).click();
+  await page.getByRole('tab',{name:'立项与变更',exact:true}).click();
   return page;
 }
 try{
   const editor=await open('editor');
-  await editor.getByRole('button',{name:'编制正式变更',exact:true}).click();
-  const dialog=editor.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible');
+  await editor.getByRole('button',{name:'编制变更',exact:true}).click();
+  const dialog=workPage(editor);
   const rows=dialog.locator('.el-table__body-wrapper tr');
   await rows.first().waitFor();
   assert.equal(await rows.count(),20);
@@ -54,10 +55,8 @@ try{
   await picker.waitFor({state:'hidden'});
   assert.equal(await rows.count(),25,'candidate must include all five formal positions');
   await dialog.getByLabel('批准预算（元）',{exact:true}).fill('1100');
-  await dialog.getByRole('button',{name:'保存',exact:true}).click();
-  const difference=editor.locator('.el-message-box:visible');
-  await difference.getByText(/请核对本次正式变更/).waitFor();
-  await difference.getByRole('button',{name:'已核对，编制变更',exact:true}).click();
+  await dialog.getByText('保存草稿前请核对本次调整', {exact:true}).waitFor();
+  await dialog.getByRole('button',{name:'核对并保存变更草稿',exact:true}).click();
   await dialog.waitFor({state:'hidden'});
   let after=s.projects.get(project.id),draft=after.approvals.find(row=>row.status==='draft');
   assert.equal(draft.scopes[0].locations.length,20);
@@ -66,15 +65,20 @@ try{
   assert.equal(draft.pending_scopes[0].snapshot.work_locations.length,5);
   assert.equal(s.demands.get(candidate.id).binding,null,'draft candidate does not reserve ownership');
   assert.equal(after.approval.id,originalApproval);
-  assert.equal(await editor.getByRole('button',{name:'正式批准',exact:true}).isDisabled(),true);
-  assert.equal(await editor.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true,
+  const compare = editor.locator('.approval-comparison');
+  await compare.getByText('当前生效', {exact:true}).waitFor();
+  await compare.getByText('第 1 版 · ¥1,000.00', {exact:true}).waitFor();
+  await compare.getByText('第 2 版 · ¥1,100.00', {exact:true}).waitFor();
+  await compare.getByText('新增需求', {exact:true}).waitFor();
+  assert.equal(await editor.getByRole('button',{name:'审核变更',exact:true}).isDisabled(),true);
+  assert.equal(await editor.getByRole('button',{name:'编制变更',exact:true}).count(),0,
     'existing unapproved draft must prevent a second approval draft from UI');
   await editor.screenshot({path:join(out,'编辑编制变更.png'),fullPage:true});
   const verifier=await open('verifier');
-  assert.equal(await verifier.getByRole('button',{name:'正式批准',exact:true}).isEnabled(),true);
-  await verifier.getByRole('button',{name:'正式批准',exact:true}).click();
+  assert.equal(await verifier.getByRole('button',{name:'审核变更',exact:true}).isEnabled(),true);
+  await verifier.getByRole('button',{name:'审核变更',exact:true}).click();
   const approved=verifier.waitForResponse(response=>response.url().endsWith('/approve') && response.request().method()==='POST');
-  await verifier.locator('.el-message-box:visible .el-button--primary').click();
+  await confirmProjectApproval(verifier);
   assert.equal((await approved).status(),200);
   after=s.projects.get(project.id);
   assert.equal(after.approval.version_no,2);
@@ -85,39 +89,39 @@ try{
   assert.equal(after.approvals.find(row=>row.id===originalApproval).scopes[0].quantity_scaled,600000);
   await verifier.screenshot({path:join(out,'审核正式批准.png'),fullPage:true});
   const viewer=await open('viewer');
-  assert.equal(await viewer.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true);
+  assert.equal(await viewer.getByRole('button',{name:'编制变更',exact:true}).count(),0);
   const bypass=await viewer.evaluate(async id=>{const response=await fetch('/api/projects/'+id+'/approvals',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':'viewer-large-scope'},body:'{}'});return response.status;},project.id);
   assert.equal(bypass,403);
   await viewer.screenshot({path:join(out,'只读正式历史.png'),fullPage:true});
   const admin=await open('admin');
-  assert.equal(await admin.getByRole('button',{name:'编制正式变更',exact:true}).isEnabled(),true);
-  await admin.getByRole('button',{name:'更多管理操作',exact:true}).click();
-  assert.equal(await admin.getByRole('menuitem',{name:'删除项目',exact:true}).isDisabled(),true,
+  assert.equal(await admin.getByRole('button',{name:'编制变更',exact:true}).isEnabled(),true);
+  await admin.getByRole('tab',{name:'概览',exact:true}).click();
+  assert.equal(await admin.getByRole('button',{name:'删除项目',exact:true}).isDisabled(),true,
     'approved project must close before its record can be deleted');
-  await admin.locator('.business-detail-dialog:visible .detail-header').click();
-  await admin.getByRole('button',{name:'编制正式变更',exact:true}).click();
-  const adminDialog=admin.getByRole('dialog',{name:'编制完整批准范围'});
+  await admin.getByRole('tab',{name:'立项与变更',exact:true}).click();
+  await admin.getByRole('button',{name:'编制变更',exact:true}).click();
+  const adminDialog=admin.getByRole('region',{name:'编制项目变更'});
   await adminDialog.locator('label.el-checkbox').filter({hasText:candidate.demand_no}).click();
   assert.equal(await adminDialog.getByRole('checkbox',{name:candidate.demand_no,exact:true}).isChecked(),false);
-  await adminDialog.getByRole('button',{name:'保存',exact:true}).click();
-  await admin.locator('.el-message-box:visible').getByRole('button',{name:'已核对，编制变更',exact:true}).click();
+  await adminDialog.getByRole('button',{name:'核对并保存变更草稿',exact:true}).click();
   await adminDialog.waitFor({state:'hidden'});
+  await admin.locator('.approval-comparison').getByText('移出需求', {exact:true}).waitFor();
   assert.equal(s.demands.get(candidate.id).binding.project_id,project.id,'removal remains a proposal until approval');
   await verifier.reload();
-  await verifier.getByRole('tab',{name:'批准与变更',exact:true}).click();
-  await verifier.getByRole('button',{name:'正式批准',exact:true}).click();
+  await verifier.getByRole('tab',{name:'立项与变更',exact:true}).click();
+  await verifier.getByRole('button',{name:'审核变更',exact:true}).click();
   const removed=verifier.waitForResponse(response=>response.url().endsWith('/approve')&&response.request().method()==='POST');
-  await verifier.locator('.el-message-box:visible .el-button--primary').click();
+  await confirmProjectApproval(verifier);
   assert.equal((await removed).status(),200);
   after=s.projects.get(project.id);
   assert.equal(after.approval.version_no,3);
   assert.equal(s.demands.get(candidate.id).binding,null,'formal approval releases the removed complete demand');
   assert.equal(after.approvals.find(row=>row.version_no===2).scopes.length,2,'old approved scope remains complete');
   await viewer.reload();
-  await viewer.getByRole('tab',{name:'批准与变更',exact:true}).click();
-  assert.equal(await viewer.getByRole('button',{name:'编制正式变更',exact:true}).isDisabled(),true);
+  await viewer.getByRole('tab',{name:'立项与变更',exact:true}).click();
+  assert.equal(await viewer.getByRole('button',{name:'编制变更',exact:true}).count(),0);
   const historicalResponse=viewer.waitForResponse(response=>response.url().endsWith('/approval-history'));
-  await viewer.getByRole('tab',{name:'完整历史',exact:true}).click();
+  await viewer.getByRole('tab',{name:'历史记录',exact:true}).click();
   const historical=await historicalResponse;
   assert.equal(historical.status(),200);
   assert.deepEqual((await historical.json()).map(row=>row.scopes.length),[1,2,1]);

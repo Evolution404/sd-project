@@ -42,7 +42,7 @@ try {
   await dialog.getByText("资源不存在", { exact: true }).waitFor();
   assert.match(await dialog.innerText(), /2026-11-13 00:03:47/);
   assert.equal(new URL(page.url()).hash.includes("access-logs"), true);
-  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await dialog.getByRole("button", { name: "关闭详情", exact: true }).click();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(await logs.locator(".el-table__body-wrapper .el-scrollbar__wrap").evaluate(root => root.scrollLeft), scrollBefore, "closing details must preserve the table scroll position");
   const [download] = await Promise.all([page.waitForEvent("download"), logs.getByRole("button", { name: "下载筛选日志" }).click()]);

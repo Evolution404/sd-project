@@ -23,7 +23,7 @@ const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/span-metres");
 mkdirSync(output, { recursive: true });
-const detail = page.locator(".business-detail-overlay .el-overlay-dialog:visible");
+const detail = page.locator(".business-detail-dialog:visible");
 const editor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
 const label = "输电中心管辖长度（米）";
 try {

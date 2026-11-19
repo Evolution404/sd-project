@@ -59,7 +59,7 @@ const context = await browser.newContext({
 page.on("pageerror", (error) => failures.push(error.message));
 const output = join(process.cwd(), "test-results/dux/workbench");
 mkdirSync(output, { recursive: true });
-const editor = page.getByRole("dialog", { name: "新增专业需求", exact: true });
+const editor = page.getByRole("region", { name: "新增专业需求", exact: true });
 try {
   await page.goto("http://127.0.0.1:" + server.address().port + "/#/demands");
   await page.getByLabel("用户名", { exact: true }).fill("admin");

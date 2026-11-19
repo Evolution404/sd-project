@@ -11,18 +11,21 @@ export function useDialogDraftGuard(readDraft: () => unknown) {
   }
   function capture() { initial = fingerprint(); }
   function isChanged() { return initial !== "" && fingerprint() !== initial; }
-  async function confirmClose(done: () => void) {
-    if (!isChanged()) { done(); return; }
+  async function canClose() {
+    if (!isChanged()) return true;
     try {
       await ElMessageBox.confirm(
         "当前内容尚未保存，退出后本次修改将丢失。",
         "放弃未保存的修改？",
         { type: "warning", confirmButtonText: "放弃修改", cancelButtonText: "继续编辑" },
       );
-      done();
+      return true;
     } catch {
-      // The user chose to keep editing.
+      return false;
     }
   }
-  return { capture, isChanged, confirmClose };
+  async function confirmClose(done: () => void) {
+    if (await canClose()) done();
+  }
+  return { capture, isChanged, canClose, confirmClose };
 }

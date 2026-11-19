@@ -221,7 +221,7 @@ onMounted(load);
       ><ElButton @click="load">刷新</ElButton
       ><span class="muted">共 {{ total }} 项</span>
     </div>
-    <BusinessTable
+    <BusinessTable detail-column="name" @open-detail="detailDialog.open($event.id)"
       :rows="rows"
       :loading="loading"
       :columns="[

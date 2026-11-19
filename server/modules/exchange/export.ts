@@ -153,9 +153,16 @@ export function createExchangeExporter(system:System,lookups:()=>Record<string,u
     authorize(actor,"read");
     if(kind==="assets")throw new Error("设备导出由设备专用服务处理");
     if(kind==="demands"){
-      const items=usable(system.demands.list(),options,row=>row.binding?.project_id||null);
-      requireValue(items.length<=MAX_DOCUMENTS,"导出超过5000张，请收窄筛选条件");
-      const records=items.map(item=>system.demands.get(item.id));
+      const ids = [...new Set(options.ids || [])];
+      requireValue(ids.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
+      let records: DemandRecord[];
+      if (ids.length) {
+        records = usable(ids.map(id => system.demands.get(id)), options, row => row.binding?.project_id || null);
+      } else {
+        const listed = usable(system.demands.list(), options, row => row.binding?.project_id || null);
+        requireValue(listed.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
+        records = listed.map(item => system.demands.get(item.id));
+      }
       return options.report?reportDemand(system,records):exportDemands(system,records,lookups);
     }
     const records=usable(system.finance.allSettlements(),options,row=>row.project_id);

@@ -72,8 +72,8 @@ try {
   await detail.getByRole("button", { name: "进入承接项目" }).click();
   await page.waitForURL(url => url.hash.includes("#/projects") && url.hash.includes("focus=demand"));
   await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
-  await page.getByRole("tab", { name: "需求与范围" }).waitFor();
-  await page.getByRole("tab", { name: "需求与范围" }).click();
+  await page.getByRole("tab", { name: "承接需求" }).waitFor();
+  await page.getByRole("tab", { name: "承接需求" }).click();
   await detail.getByText("当前定位").waitFor();
   await page.screenshot({ path: join(output, "project-linked-scope.png") });
 

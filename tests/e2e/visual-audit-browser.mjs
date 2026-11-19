@@ -27,12 +27,12 @@ async function visit(path) {
   const isDetail = parts[0] === 'ledger' ? parts.length === 3 : parts.length === 2;
   const route = isDetail ? (parts[0] === 'ledger' ? parts.slice(0,2).join('/') : parts[0]) : path;
   await page.goto(`${base}/#/${route}`);
-  await page.locator('main h1').waitFor();
+  await page.locator('main h1:visible').waitFor();
   await page.waitForLoadState('networkidle');
   if (isDetail) {
     if (parts[0] === "finance") assert.ok(await page.getByRole("radio", { name: "按项目办理" }).isChecked());
     await page.locator('main').getByRole('button', { name: parts[0] === 'finance' ? '进入项目办理' : parts[0] === 'projects' ? '进入项目' : '查看', exact: true }).first().click();
-    await page.locator('.business-detail-dialog h1').waitFor();
+    await page.locator(parts[0] === "finance" ? ".business-detail-page h1" : ".business-detail-dialog h1").waitFor();
     await page.waitForLoadState('networkidle');
   }
 }
@@ -86,20 +86,23 @@ async function auditLayout(name, width) {
 async function auditDialog(name, button, width) {
   await page.setViewportSize({ width, height: 700 });
   await page.getByRole('button', { name: button, exact: true }).click();
-  const dialog = page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog');
+  const routed = button === "新增需求" || button === "新增结算草稿";
+  const dialog = routed ? page.getByRole("region", { name: button === "新增需求" ? "新增专业需求" : "编制结算草稿", exact: true })
+    : page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog');
   await dialog.waitFor();
   await settleLayout();
   const layout = await dialog.evaluate(element => {
     const rect = element.getBoundingClientRect();
-    const footer = element.querySelector('.el-dialog__footer')?.getBoundingClientRect();
+    const footer = element.querySelector('.el-dialog__footer, .work-footer')?.getBoundingClientRect();
     return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right,
       footerBottom: footer?.bottom, footerTop: footer?.top, width: innerWidth, height: innerHeight };
   });
-  assert.ok(layout.top >= 0 && layout.bottom <= layout.height + 1, `${name} ${width} ${JSON.stringify(layout)}`);
+  assert.ok(layout.top >= 0 && (routed || layout.bottom <= layout.height + 1), `${name} ${width} ${JSON.stringify(layout)}`);
   assert.ok(layout.left >= 0 && layout.right <= width + 1, name);
   if (layout.footerBottom) assert.ok(layout.footerBottom <= layout.height && layout.footerTop > 0, name);
   await page.screenshot({ path: join(output, `dialog-${name}-${width}.png`), fullPage: true });
-  await dialog.locator('.el-dialog__headerbtn').click();
+  if (routed) await dialog.getByRole("button", { name: "← 返回", exact: true }).click();
+  else await dialog.locator('.el-dialog__headerbtn').click();
   await dialog.waitFor({ state: 'hidden' });
 }
 try {
@@ -113,9 +116,9 @@ try {
       await page.getByRole('button', { name: '关闭详情', exact: true }).click();
       await page.locator('.business-detail-overlay:visible').waitFor({ state: 'hidden' });
     }
-    await page.getByRole('button', { name: '外观设置' }).click();
-    await page.locator('.el-radio-button').filter({ hasText: theme === 'dark' ? '深色' : '浅色' }).click();
-    await page.locator('main h1').click();
+    const currentDark = await page.locator("html").evaluate(element => element.classList.contains("dark"));
+    if (currentDark !== (theme === "dark")) await page.getByRole("button", { name: theme === "dark" ? "切换为深色" : "切换为浅色", exact: true }).click();
+    await page.locator('main h1:visible').click();
     for (const path of routes) {
       await visit(path);
       for (const width of widths) await auditLayout(`${theme}-${path}`, width);
@@ -127,7 +130,7 @@ try {
       for (const width of widths) {
         await auditLayout(`${theme}-${name}-detail`, width);
         if (name === 'project') {
-          await page.getByText('项目档案尚未完善', { exact: false }).waitFor();
+          await page.getByRole('heading', { name: '项目档案', exact: true }).waitFor();
         } else {
           const columns = await page.locator('.el-descriptions__body tr').first().locator('td').count();
           assert.equal(columns, width < 1100 ? 2 : 4, `${name} description columns ${width}`);
@@ -157,7 +160,7 @@ try {
   assert.equal(page.url(), location);
   assert.equal(s.catalog.get('physical', towers[0].id).deleted, false);
   assert.deepEqual(errors, []);
-  console.log('VISUAL_AUDIT_BROWSER_OK 12 modules + 3 details + 8 dialogs, 4 widths, light/dark, bounded footer, responsive facts and cancel');
+  console.log('VISUAL_AUDIT_BROWSER_OK 12 modules + 3 details + 8 editor surfaces, 4 widths, light/dark, bounded footer, responsive facts and cancel');
 } catch (error) {
   await page.screenshot({ path: join(output, 'failure.png'), fullPage: true });
   console.log('FAILURE_URL', page.url(), errors);

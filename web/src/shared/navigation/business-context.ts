@@ -27,7 +27,7 @@ export function createProjectForDemand(demandId: string): RouteLocationRaw {
 }
 
 /** Resume the originating task without inventing separate navigation protocols. */
-export function setupContext(route: RouteLocationNormalizedLoaded,
+export function setupContext(route: Pick<RouteLocationNormalizedLoaded, "fullPath">,
   target: "operations" | "objects" | "units" | "physical"): RouteLocationRaw {
   if (target === "units")
     return { name: "dictionaries", params: { kind: "units" },

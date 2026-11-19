@@ -22,22 +22,22 @@ const output = join(process.cwd(), "test-results/schema113");
 mkdirSync(output, { recursive: true });
 async function select(label, value) {
   await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel(label, { exact: true })
     .press("ArrowDown");
   await page.getByRole("option", { name: value, exact: true }).last().click();
 }
 async function save() {
   await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
     .click();
   try {
-    await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden", timeout: 8000 });
+    await page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden", timeout: 8000 });
   } catch (error) {
     console.error(
       "MASTER_SAVE_STILL_OPEN",
-      await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").innerText(),
+      await page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").innerText(),
     );
     console.error("MASTER_PAGE_ERRORS", errors);
     await page.screenshot({
@@ -68,7 +68,7 @@ try {
     .click();
   await page.getByRole("button", { name: "编辑", exact: true }).click();
   await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByLabel("名称", { exact: true })
     .fill("110千伏");
   await save();
@@ -115,7 +115,7 @@ try {
   await select("作业对象", "浏览器专用对象");
   await select("固定计量单位", "件");
   await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
+    .locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("tab", { name: "录入模板", exact: true })
     .click();
   await page.getByLabel("默认验收标准", { exact: true }).fill("安装牢固");
@@ -131,7 +131,7 @@ try {
   await chooseDemandLocations(page,["T15"]);
   await page.getByLabel("来源说明", { exact: true }).fill("浏览器现场记录");
   await page.getByRole("button", { name: "保存需求版本", exact: true }).click();
-  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+  await page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   const demand = s.demands
     .list()
     .find((row) => row.problem_description === "真实动态附加字段验收");

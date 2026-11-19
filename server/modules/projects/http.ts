@@ -1,3 +1,4 @@
+import { parseHandlingTargets } from "../../platform/http/handling-batch.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { projectActionHints } from "./actions.js";
 import { parseProjectFromDemand, parseProjectVersion, parseProjectLink, parseProjectLinkBatch, parseProjectRelease,
@@ -15,6 +16,19 @@ export async function handleProjects(context: RouteContext): Promise<{
     let result: unknown;
     switch (resource) {
         case "projects":
+            if (key === "stock-batch") {
+                requireValue(!read && method === "POST" && (!sub || sub === "preview"), "仅支持批量入库或预检", 405);
+                const targets = parseHandlingTargets(input.items);
+                result = sub === "preview"
+                    ? system.projects.previewStock(actor, targets)
+                    : mutate("project.stock", () => system.projects.stockMany(actor, targets));
+                break;
+            }
+            if (sub === "link-batch" && subKey === "preview") {
+                requireValue(!read && method === "POST", "仅支持预检批量关联", 405);
+                result = system.projects.previewLinkMany(actor, key, parseProjectLinkBatch(input));
+                break;
+            }
             if (key === "from-demand") {
                 requireValue(!read && method === "POST", "仅支持建立并承接子项目", 405);
                 result = mutate("write", () => system.projects.createFromDemand(actor, parseProjectFromDemand(input)));
@@ -35,6 +49,8 @@ export async function handleProjects(context: RouteContext): Promise<{
                     ? system.projects.search(parseListQuery(url.searchParams))
                     : sub === "actions"
                         ? projectActionHints(actor, system.projects.workspace(key, deleted), system.finance.closeBlockReason(key))
+                    : sub === "deletion-preview"
+                        ? system.projects.previewDeletion(actor, key)
                     : sub === "history"
                         ? system.projects.history(key)
                         : sub === "approval-candidates"

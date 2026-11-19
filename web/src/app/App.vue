@@ -10,7 +10,7 @@ import {
 } from "vue";
 import zhCn from "element-plus/es/locale/lang/zh-cn";
 import { ElMessage } from "element-plus";
-import { Fold, Expand, Sunny, Moon, Menu as MenuIcon } from "@element-plus/icons-vue";
+import { Fold, Expand, Sunny, Moon, ArrowDown, Menu as MenuIcon } from "@element-plus/icons-vue";
 import type { Actor } from "../../../server/shared/types/contracts";
 import { api } from "../shared/api/client";
 import { useRoute, useRouter } from "vue-router";
@@ -21,7 +21,11 @@ import { navigationItems } from "./navigation";
 import { referenceSelectorsKey } from "../shared/ui/reference-selectors";
 provide(referenceSelectorsKey, { organizations: defineAsyncComponent(() => import("../modules/dictionaries/components/OrganizationSelect.vue")) });
 const route = useRoute(), router = useRouter();
-const active = computed(() => String(route.name || "dashboard"));
+const moduleKey = computed(() => String(route.name || "dashboard"));
+const active = computed(() => moduleKey.value === "projects" &&
+  (route.params.work === "finance" || route.params.work === "settlements") &&
+  typeof route.query.returnTo === "string" && router.resolve(route.query.returnTo).name === "finance"
+  ? "finance" : moduleKey.value);
 const user = ref<Actor | null>(null),
   ready = ref(false),
   login = ref({ username: "", password: "" }),
@@ -42,6 +46,14 @@ const systemDark = ref(appearanceMedia.matches);
 const darkAppearance = computed(() =>
   appearance.value === "dark" || (appearance.value === "system" && systemDark.value),
 );
+const appearanceAction = computed(() => darkAppearance.value ? "切换为浅色" : "切换为深色");
+function toggleAppearance() {
+  appearance.value = darkAppearance.value ? "light" : "dark";
+}
+function accountCommand(command: "system" | "logout") {
+  if (command === "system") appearance.value = "system";
+  else void logout();
+}
 function systemAppearanceChanged(event: MediaQueryListEvent) {
   systemDark.value = event.matches;
 }
@@ -194,7 +206,7 @@ onMounted(async () => {
       :style="{ '--sidebar-width': sidebarSize }">
       <aside class="navigation" :class="{ 'is-collapsed': sidebarCollapsed }">
         <div class="navigation-top">
-          <div class="brand"><div class="brand-mark">电</div><div v-if="!sidebarCollapsed" class="brand-name">输电项目管理<small>全流程业务工作区</small></div></div>
+          <div class="brand"><div class="brand-mark">电</div><div v-if="!sidebarCollapsed" class="brand-name">输电项目管理</div></div>
           <ElTooltip :content="sidebarCollapsed ? '展开导航' : '折叠导航'" placement="right">
             <ElButton class="collapse-button" text circle :aria-label="sidebarCollapsed ? '展开导航' : '折叠导航'" @click="sidebarCollapsed = !sidebarCollapsed"><ElIcon><Expand v-if="sidebarCollapsed" /><Fold v-else /></ElIcon></ElButton>
           </ElTooltip>
@@ -212,27 +224,28 @@ onMounted(async () => {
         <header class="topbar">
           <div class="topbar-heading"><ElButton class="mobile-menu" text circle aria-label="打开导航" @click="mobileNavigation = true"><ElIcon><MenuIcon /></ElIcon></ElButton><p>{{ menu.find(item => item.key === active)?.title || "输电项目管理" }}</p></div>
           <div class="account-actions">
-            <ElPopover placement="bottom-end" trigger="click" :width="245">
-              <div class="appearance-heading">界面外观</div>
-              <ElRadioGroup v-model="appearance" size="small">
-                <ElRadioButton value="system">跟随系统</ElRadioButton>
-                <ElRadioButton value="light">浅色</ElRadioButton>
-                <ElRadioButton value="dark">深色</ElRadioButton>
-              </ElRadioGroup>
-              <template #reference>
-                <ElButton text circle aria-label="外观设置">
-                  <ElIcon><Moon v-if="darkAppearance" /><Sunny v-else /></ElIcon>
-                </ElButton>
-              </template>
-            </ElPopover>
+            <ElTooltip :content="appearanceAction" placement="bottom">
+              <ElButton text circle :aria-label="appearanceAction" @click="toggleAppearance">
+                <ElIcon><Sunny v-if="darkAppearance" /><Moon v-else /></ElIcon>
+              </ElButton>
+            </ElTooltip>
             <ElButton text aria-label="使用指引" data-guide-action="app.help"
               @click="guideOpen = true">使用指引</ElButton>
-            <ElTag type="info">{{ user.username }}</ElTag
-            ><ElButton text @click="logout">退出登录</ElButton>
+            <ElDropdown trigger="click" placement="bottom-end" @command="accountCommand">
+              <ElButton text :aria-label="'账号设置 · ' + user.username">
+                {{ user.username }}<ElIcon class="account-chevron"><ArrowDown /></ElIcon>
+              </ElButton>
+              <template #dropdown>
+                <ElDropdownMenu>
+                  <ElDropdownItem command="system" :disabled="appearance === 'system'">外观跟随系统</ElDropdownItem>
+                  <ElDropdownItem divided command="logout">退出登录</ElDropdownItem>
+                </ElDropdownMenu>
+              </template>
+            </ElDropdown>
           </div>
         </header>
         <RouterView v-if="active !== 'system' || user.role === 'admin'" v-slot="{ Component }">
-          <component :is="Component" :key="active" v-bind="active === 'demands' ? { user } : {}" />
+          <component :is="Component" :key="moduleKey" v-bind="moduleKey === 'demands' ? { user } : {}" />
         </RouterView>
       </main>
       <GuideHost v-model:open="guideOpen" :actor="user" :route-key="active" />

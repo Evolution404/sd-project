@@ -399,8 +399,7 @@ try {
   }
   await page.goto(`${base}/#/projects?project=${project.id}`);
   detail = page.locator(".business-detail-dialog:visible");
-  await detail.getByRole("button", { name: "更多管理操作", exact: true }).click();
-  await page.getByRole("menuitem", { name: "修订档案", exact: true }).click();
+  await detail.getByRole("button", { name: "编辑档案", exact: true }).click();
   const profileEditor = page.locator(
     ".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog",
   );
@@ -414,7 +413,8 @@ try {
   await page.setViewportSize({ width: 1100, height: 1050 });
   checkpoint("organization-viewer");
   await page.goto(base + "/#/dictionaries/organizations");
-  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page.getByRole("button", { name: /^账号设置/ }).click();
+  await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await login("tree-viewer", "Tree-viewer-password");
   await page.locator(".organization-workspace").waitFor();
   assert.equal(

@@ -146,7 +146,8 @@ try {
     .filter({ hasText: "浏览器单位新版" })
     .getByText("已删除", { exact: true })
     .waitFor();
-  await page.getByRole("button", { name: "退出登录", exact: true }).click();
+  await page.getByRole("button", { name: /^账号设置/ }).click();
+  await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await login("foundation-reader", "Foundation-reader-password");
   assert.equal(
     await page

@@ -26,9 +26,10 @@ const scenarios = [
 async function inspect(dialog, kind, width) {
   const details = await dialog.evaluate(element => {
     const visible = node => node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0;
-    const footer = element.querySelector(".el-dialog__footer");
-    const header = element.querySelector(".el-dialog__header");
-    const body = element.querySelector(".el-dialog__body");
+    const footer = element.querySelector(".el-dialog__footer, .work-footer");
+    const header = element.querySelector(".el-dialog__header, .page-heading");
+    const body = element.querySelector(".el-dialog__body, .work-body");
+    const workPage = element.classList.contains("business-work-surface");
     const labels = [...element.querySelectorAll(".el-form-item__label")].filter(visible);
     const buttons = [...footer.querySelectorAll(".el-button")].filter(visible);
     const firstField = [...element.querySelectorAll(".el-input__wrapper, .el-select__wrapper")]
@@ -55,7 +56,7 @@ async function inspect(dialog, kind, width) {
       border: parseFloat(getComputedStyle(footer).borderTopWidth),
       footerInBounds: foot.bottom <= innerHeight + 1 && foot.top >= bounds.top + 1,
       nonOverlapping: foot.top >= header.getBoundingClientRect().bottom &&
-        body.getBoundingClientRect().bottom <= foot.top + 2,
+        (workPage || body.getBoundingClientRect().bottom <= foot.top + 2),
       gapBetweenButtons, focusChanged, focusBefore, focusAfter, focusTarget,
       primaryLast: buttons[buttons.length-1]?.classList.contains("el-button--primary"),
       firstControlHeight: firstField?.getBoundingClientRect().height ?? 0,
@@ -80,10 +81,10 @@ try {
     await page.locator("main h1").waitFor();
     if (path === "finance") {
       await page.getByRole("button", { name: "进入项目办理", exact: true }).first().click();
-      await page.locator(".business-detail-dialog:visible").waitFor();
-      await page.locator(".business-detail-dialog:visible")
+      await page.locator(".business-detail-page:visible").waitFor();
+      await page.locator(".business-detail-page:visible")
         .getByRole("button", { name: "核定费用", exact: true }).waitFor();
-      const alignment = await page.evaluate(() => [...document.querySelectorAll(".business-detail-dialog .panel > .toolbar")]
+      const alignment = await page.evaluate(() => [...document.querySelectorAll(".business-detail-page .panel > .toolbar")]
         .filter(bar => bar.querySelector(":scope > h2") && bar.querySelector(":scope > .el-button"))
         .map(bar => {
           const title = bar.querySelector(":scope > h2").getBoundingClientRect();
@@ -93,7 +94,9 @@ try {
       assert.ok(alignment.every(diff => diff < 8), "panel headings and buttons must share a baseline " + alignment);
     }
     await page.getByRole("button", { name: button, exact: true }).click();
-    const dialog = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog").last();
+    const routed = kind === "demand" || kind === "settlement";
+    const dialog = routed ? page.getByRole("region", { name: kind === "demand" ? "新增专业需求" : "编制结算草稿", exact: true })
+      : page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible .el-dialog").last();
     await dialog.waitFor();
     // Capture neutral, fully animated form states before the focus test opens
     // any date-picker popover or triggers validation on required fields.
@@ -110,16 +113,12 @@ try {
       assert.equal(await dialog.getByText("费用明细 1", { exact: true }).count(), 1);
       assert.equal(await dialog.getByRole("button", { name: "移除此项", exact: true }).count(), 1);
     }
-    await dialog.locator(".el-dialog__headerbtn").click();
+    if (routed) await dialog.getByRole("button", { name: "← 返回", exact: true }).click();
+    else await dialog.locator(".el-dialog__headerbtn").click();
     await dialog.waitFor({state: "hidden"});
-    if (path === "finance") {
-      const detail = page.locator(".business-detail-dialog:visible");
-      await detail.getByRole("button", {name:"关闭详情",exact:true}).click();
-      await detail.waitFor({state:"hidden"});
-    }
   }
   assert.deepEqual(errors, []);
-  console.log("FORM_SPACING_BROWSER_OK 5 edit dialogs x 2 widths, labels, focus, footer, buttons, and finance headings");
+  console.log("FORM_SPACING_BROWSER_OK 5 edit surfaces x 2 widths, labels, focus, footer, buttons, and finance headings");
 } finally {
   await browser.close();
   await new Promise(done => server.close(done));

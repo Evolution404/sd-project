@@ -5,10 +5,8 @@ import { api, money, statusText } from "../../shared/api/client";
 import type { Page } from "../../../../server/shared/types/contracts";
 import type { FinanceListItem, FinanceRecordDetail } from "../../../../server/shared/types/finance";
 import { useListRoute } from "../../shared/composables/use-list-route";
-import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
-import FinancePanel from "./FinancePanel.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import RowActions from "../../shared/ui/RowActions.vue";
 import { projectContext, type BusinessFocus } from "../../shared/navigation/business-context";
@@ -74,10 +72,12 @@ function openProjectForRecord(record: FinanceListItem) {
 const rows = ref<FinanceListItem[]>([]), total = ref(0), page = ref(1), query = ref("");
 const sort = ref(""), direction = ref("desc"), filters = ref<Record<string, string>>({});
 const deleted = ref(false), loading = ref(false), error = ref("");
-type ProjectDetail = ReturnType<import("../../../../server/bootstrap").System["projects"]["get"]>;
-const project = ref<ProjectDetail | null>(null);
-const detailDialog = useEntityDialog(project, id => api("/projects/" + id + "?deleted=true"), () => {});
-const { isOpen, loading: detailLoading, error: detailError } = detailDialog;
+function openProjectFinance(projectId: string) {
+  void router.push({
+    name: "projects", params: { projectId, work: "finance" },
+    query: { returnTo: route.fullPath },
+  });
+}
 const settlementItemColumns: TableColumn[] = [
   { key: "amount_fen", label: "费用金额", minWidth: 150 },
   { key: "quantity_scaled", label: "本次解决数量", minWidth: 145 },
@@ -125,14 +125,6 @@ async function load() {
   } finally { if (current === sequence) loading.value = false; }
 }
 function reset() { page.value = 1; void load(); }
-async function refreshProject() {
-  const id = project.value?.id;
-  if (id) {
-    const value = await api<ProjectDetail>("/projects/" + id + "?deleted=true");
-    if (project.value?.id === id) project.value = value;
-  }
-  void load();
-}
 useListRoute({ page, q: query, sort, direction, filters, deleted }, load);
 watch(kind, () => {
   rows.value = []; error.value = ""; recordOpen.value = false; recordContent.value = null;
@@ -142,11 +134,7 @@ onMounted(() => { void load(); });
 </script>
 <template>
   <div class="page-heading">
-    <div>
-      <div class="section-caption">财务业务办理</div>
-      <h1>费用与结算</h1>
-      <p>优先按子项目办理费用、分次结算与核对；跨项目记录可直接查看正式详情。</p>
-    </div>
+    <div><h1>费用与结算</h1></div>
   </div>
   <div class="toolbar finance-work-mode">
     <ElRadioGroup v-model="mode">
@@ -169,10 +157,15 @@ onMounted(() => { void load(); });
       :sort-state="{ prop: sort, order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="value => { sort = value.key; direction = value.order === 'ascending' ? 'asc' : 'desc'; reset(); }"
       @filter-change="value => { filters = value; reset(); }">
-      <template #cell="{ row, column, value }"><ElTag v-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ row.amount_fen == null ? (kind === 'projects' ? '尚未批准' : '—') : money(row.amount_fen) }}</span><span v-else>{{ value ?? '—' }}</span></template>
+      <template #cell="{ row, column, value }">
+        <ElButton v-if="kind === 'projects' && column.key === 'project_name'" link type="primary" class="cell-link"
+          @click="openProjectFinance(row.project_id)">{{ row.project_name }}</ElButton>
+        <ElButton v-else-if="kind !== 'projects' && column.key === 'label'" link type="primary" class="cell-link"
+          @click="viewRecord(row)">{{ row.label }}</ElButton>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="column.key === 'amount_fen'">{{ row.amount_fen == null ? (kind === 'projects' ? '尚未批准' : '—') : money(row.amount_fen) }}</span><span v-else>{{ value ?? '—' }}</span></template>
       <template #actions="{ row }">
         <RowActions :actions="kind === 'projects'
-          ? [{ label: '进入项目办理', run: () => detailDialog.open(row.project_id) }]
+          ? [{ label: '进入项目办理', run: () => openProjectFinance(row.project_id) }]
           : [
             { label: '查看记录', run: () => viewRecord(row) },
             { label: '查看所属项目', run: () => openProjectForRecord(row) },
@@ -230,11 +223,6 @@ onMounted(() => { void load(); });
         <h2>版本与正式历史</h2>
         <BusinessHistory :value="recordVersions || recordContent" />
       </div>
-    </template>
-  </BusinessDetailDialog>
-  <BusinessDetailDialog :open="isOpen" title="费用与结算" :loading="detailLoading" :error="detailError" @close="detailDialog.close" @retry="detailDialog.reload">
-    <template v-if="project"><div class="detail-header"><h1>{{ project.name }}</h1><ElTag>{{ project.display_status }}</ElTag></div>
-      <ElTabs model-value="finance"><ElTabPane name="finance" label="费用与结算"><FinancePanel :project="project" @changed="refreshProject" /></ElTabPane></ElTabs>
     </template>
   </BusinessDetailDialog>
 </template>

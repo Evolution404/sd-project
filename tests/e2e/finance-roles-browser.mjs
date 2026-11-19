@@ -1,3 +1,4 @@
+import { approveSettlement } from "./work-page-helper.mjs";
 import assert from "node:assert/strict";
 import {existsSync,mkdirSync} from "node:fs";
 import {join} from "node:path";
@@ -73,26 +74,25 @@ try {
   assert.equal(await button(editor.detail,"新增正式核对").isDisabled(),true);
   await editor.detail.getByText("费用核定须由具备审核权限的人员办理").waitFor();
   await editor.detail.getByText("正式费用核对须由具备审核权限的人员办理").waitFor();
-  await editor.bill.getByRole("button",{name:"更多操作"}).click();
-  const editMenu=editor.page.getByRole("menu").filter({
-    has:editor.page.getByRole("menuitem",{name:"批准",exact:true}),
-  });
-  assert.equal(await editMenu.getByRole("menuitem",{name:"批准",exact:true}).isDisabled(),true);
-  assert.equal(await editMenu.getByRole("menuitem",{name:"退回",exact:true}).isDisabled(),true);
-  await editor.page.keyboard.press("Escape");
+  assert.equal(await button(editor.bill,"审核结算").count(),0);
+  const directReview = new URL(editor.page.url());
+  directReview.hash = `/projects/${project.id}/settlements/${draft.id}/review`;
+  await editor.page.goto(directReview.toString());
+  const editorReview = editor.page.getByRole("region", { name: "审核结算", exact: true });
+  await editorReview.getByText("当前账号或结算状态无法审核").waitFor();
+  assert.equal(await button(editorReview,"确认批准结算").count(),0);
   await editor.page.screenshot({path:join(output,"02-editor.png"),fullPage:true});
 
   const viewer=await as("viewer");
   for(const name of ["核定费用","新增结算草稿","新增正式核对"])
     assert.equal(await button(viewer.detail,name).isDisabled(),true);
   await viewer.detail.getByText("结算草稿须由具备编辑权限的人员编制").waitFor();
-  assert.equal(await button(viewer.bill,"批准").count(),0,
-    "disabled review is in the secondary actions, not an enabled primary button");
+  assert.equal(await button(viewer.bill,"审核结算").count(),0,
+    "read-only viewers have no review action");
   await viewer.bill.getByRole("button",{name:"更多操作"}).click();
   const viewMenu=viewer.page.getByRole("menu").filter({
     has:viewer.page.getByRole("menuitem",{name:"历史",exact:true}),
   });
-  assert.equal(await viewMenu.getByRole("menuitem",{name:"批准",exact:true}).isDisabled(),true);
   assert.equal(await viewMenu.getByRole("menuitem",{name:"历史",exact:true}).isEnabled(),true);
   assert.equal(await viewMenu.getByRole("menuitem",{name:"审核中（禁止修订）",exact:true}).isDisabled(),true);
   await viewer.page.keyboard.press("Escape");
@@ -104,8 +104,7 @@ try {
   assert.equal(await button(verifier.detail,"新增结算草稿").isDisabled(),true);
   await verifier.detail.getByText("结算草稿须由具备编辑权限的人员编制").waitFor();
   assert.equal(await button(verifier.detail,"新增正式核对").isEnabled(),true);
-  await button(verifier.bill,"批准").click();
-  await verifier.page.locator(".el-message-box:visible .el-button--primary").click();
+  await approveSettlement(verifier.page, verifier.bill);
   await verifier.bill.getByText(/第\s*\d+\s*版.*已审核/).waitFor();
   const reviewed=s.finance.settlement(draft.id);
   assert.equal(reviewed.review.action,"approve");
@@ -115,7 +114,7 @@ try {
 
   await viewer.page.reload();
   await viewer.bill.waitFor();
-  assert.equal(await button(viewer.bill,"批准").count(),0,
+  assert.equal(await button(viewer.bill,"审核结算").count(),0,
     "approved settlement must not expose a second approve action");
   assert.deepEqual(errors,[]);
   console.log("FINANCE_ROLES_BROWSER_OK admin all, editor drafts only, verifier cost+review, viewer history only, real settlement approval recorded and no duplicate approve");

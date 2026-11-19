@@ -80,7 +80,7 @@ try {
       pricingDefinitionFailures.push({status:res.status(),url:res.url()});
   });
   await editorDetail.getByRole("button",{name:"修订需求"}).click();
-  const editDialog=editor.getByRole("dialog",{name:"修订需求"});
+  const editDialog=editor.getByRole("region",{name:"修订需求"});
   await editDialog.getByLabel("问题描述",{exact:true}).fill("编辑人员核实现场事实并修订需求");
   await editDialog.getByRole("button",{name:"保存需求版本"}).click();
   await editDialog.waitFor({state:"hidden",timeout:12000});

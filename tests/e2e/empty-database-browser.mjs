@@ -109,9 +109,17 @@ try {
   for (const [path, title] of dialogs) {
     await visit(path);
     await page.getByRole("button", { name: title, exact: true }).click();
-    for (const width of [1500, 760]) await auditOpenDialog(path.replace("/", "-"), width);
-    await dialog.getByRole("button", { name: "取消", exact: true }).click();
-    await dialog.waitFor({ state: "hidden" });
+    if (path === "demands") {
+      const demandWork = page.getByRole("region", { name: "新增专业需求" });
+      await demandWork.getByText("尚未配置操作类型").waitFor();
+      for (const width of [1500, 760]) await audit("empty-demand-editor", width);
+      await demandWork.getByRole("button", { name: "← 返回", exact: true }).click();
+      await demandWork.waitFor({ state: "hidden" });
+    } else {
+      for (const width of [1500, 760]) await auditOpenDialog(path.replace("/", "-"), width);
+      await dialog.getByRole("button", { name: "取消", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+    }
   }
 
   await visit("dictionaries/units");

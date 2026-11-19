@@ -29,6 +29,11 @@ export async function handleExchange(context: RouteContext): Promise<{
                 return;
             }
             if (sub === "export") {
+                if (key === "projects") {
+                    requireValue(read, "仅支持查询子项目清单", 405);
+                    await workbook(res, exchange.projectReport(actor, url.searchParams.getAll("id")), "所选子项目清单");
+                    return;
+                }
                 await workbook(res, exchange.exportData(actor, kindValue(key), {
                     ids: url.searchParams.getAll("id"),
                     projectId: url.searchParams.get("project_id") || undefined,

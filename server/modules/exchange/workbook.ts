@@ -720,7 +720,7 @@ export async function makeBusinessReport(kind:WorkbookReportKind, records:Record
         ? "设备台账报表"
         : kind === "exchange"
           ? "导入结果"
-          : "结算业务报表",
+          : kind === "projects" ? "子项目清单" : "结算业务报表",
     records,
   );
   if (positions.length) addSheet("需求位置报表", positions);

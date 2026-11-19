@@ -42,6 +42,7 @@ export interface ApprovedMaterialSnapshot {
   project_scope_id: string;
   material_id: string;
   material_version_id: string;
+  material_name: string;
   project_material_id: string;
   approved_quantity_scaled: number;
   item_no: number;
@@ -65,6 +66,7 @@ interface ApprovedScopeRow {
   demand_no: string;
   unit_id: string;
   unit_version: number;
+  snapshot_json: string;
 }
 export interface ApprovedScope extends ApprovedScopeRow {
   materials: ApprovedMaterialSnapshot[];

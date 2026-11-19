@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { ElMessage } from "element-plus";
+import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import { formatBeijingDateTime } from "../../shared/utils/datetime";
 import { api, download } from "../../shared/api/client";
@@ -76,7 +77,7 @@ onMounted(load);
       <div class="log-actions"><ElButton type="primary" @click="apply">查询</ElButton><ElButton :loading="loading" @click="load">刷新</ElButton><ElButton :loading="exporting" @click="exportLogs">下载筛选日志</ElButton></div>
     </ElForm>
     <p class="log-policy">保留最近 {{ retention }} 个北京时间自然日，单文件上限 {{ (maxBytes / 1024 / 1024).toFixed(2) }} MB。下载文件为 UTF-8 JSONL。</p>
-    <BusinessTable :rows="rows" :columns="columns" :loading="loading" table-key="system:access-logs" :filter-state="filters"
+    <BusinessTable detail-column="path" @open-detail="detail = $event; dialog = true" :rows="rows" :columns="columns" :loading="loading" table-key="system:access-logs" :filter-state="filters"
       :sort-state="{ prop: sort, order: direction === 'asc' ? 'ascending' : 'descending' }"
       @sort-change="sortChanged" @filter-change="value => { filters = value; apply(); }">
       <template #cell="{ row, column }"><span>{{ logValue(row, column.key) }}</span></template>
@@ -84,12 +85,11 @@ onMounted(load);
     </BusinessTable>
     <ElPagination v-model:current-page="page" :page-size="30" :total="total" layout="prev,pager,next,total" @current-change="load" />
   </div>
-  <ElDialog v-model="dialog" title="访问请求详情" width="760px" append-to-body>
+  <BusinessDetailDialog :open="dialog" title="访问请求详情" size="min(760px, 94vw)" @close="dialog = false">
     <ElDescriptions v-if="detail" :column="1" border>
       <ElDescriptionsItem v-for="column in [...columns, { key: 'request_id', label: '请求关联ID' }, { key: 'error_type', label: '异常类型' }, { key: 'error_summary', label: '安全错误摘要' }]" :key="column.key" :label="column.label"><span class="log-detail-value">{{ logValue(detail, column.key) }}</span></ElDescriptionsItem>
     </ElDescriptions>
-    <template #footer><ElButton @click="dialog = false">关闭</ElButton></template>
-  </ElDialog>
+  </BusinessDetailDialog>
 </template>
 <style scoped>
 .log-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 0 16px; }

@@ -45,7 +45,7 @@ try{
   await drawer.waitFor({state:"hidden"});
   await page.locator(".el-tour__content:visible").waitFor();
   await page.getByText("不能自行等同审核",{exact:false}).last().waitFor();
-  assert.equal(await page.getByRole("dialog",{name:"新增专业需求"}).count(),0);
+  assert.equal(await page.getByRole("region",{name:"新增专业需求"}).count(),0);
   assert.deepEqual(writes,[],"Highlight is read-only and never clicks a business action");
   await page.screenshot({path:join(out,"demand-anchored-readonly-tour.png"),fullPage:true});
   await page.keyboard.press("Escape");

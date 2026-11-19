@@ -1,3 +1,4 @@
+import { parseHandlingTargets } from "../../platform/http/handling-batch.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
@@ -10,6 +11,14 @@ export async function handleDemands(context: RouteContext): Promise<{
     let result: unknown;
     switch (resource) {
         case "demands":
+            if (key === "confirm-batch") {
+                requireValue(!read && method === "POST" && (!sub || sub === "preview"), "仅支持批量确认或预检", 405);
+                const targets = parseHandlingTargets(input.items);
+                result = sub === "preview"
+                    ? system.demands.previewConfirmation(actor, targets)
+                    : mutate("demand.activate", () => system.demands.confirmMany(actor, targets));
+                break;
+            }
             if (read)
                 result = !key
                     ? system.demands.search(parseListQuery(url.searchParams))

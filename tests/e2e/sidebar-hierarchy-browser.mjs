@@ -57,10 +57,10 @@ try {
   await page.goto(`http://127.0.0.1:${server.address().port}/#/agreements`);
   await login();
   const initial = await geometry();
-  assert.ok(initial.groupFont >= 16 && initial.groupFont > initial.leafFont, JSON.stringify(initial));
+  assert.ok(initial.groupFont >= 15 && initial.groupFont > initial.leafFont, JSON.stringify(initial));
   assert.ok(initial.groupWeight > initial.leafWeight, JSON.stringify(initial));
   assert.ok(initial.indent >= 20, JSON.stringify(initial));
-  assert.ok(initial.groupHeight >= 50 && initial.leafHeight >= 46, JSON.stringify(initial));
+  assert.ok(initial.groupHeight >= 36 && initial.groupHeight <= 42 && initial.leafHeight >= 36 && initial.leafHeight <= 42, JSON.stringify(initial));
   assert.equal(await opened(), 5, "high viewport starts with multiple groups expanded");
   assert.equal(await page.locator(".navigation .nav-leaf-item.is-active .nav-leaf-label").innerText(), "执行协议");
   await page.screenshot({ path: join(evidence, "after-1500x1080.png") });
@@ -96,17 +96,17 @@ try {
   assert.equal(await opened(), 5, "collapse and restore do not wipe remembered groups");
 
   for (const width of [1500, 1280, 960, 768]) {
-    for (const height of [768, 900, 1080]) {
+    for (const height of [640, 768, 900, 1080]) {
       await page.setViewportSize({ width, height });
       await page.waitForTimeout(360);
       const result = await geometry();
       assert.ok(result.groupFont > result.leafFont && result.indent >= 20,
         JSON.stringify({ width, height, ...result }));
-      if (height === 768) {
+      if (height === 640) {
         assert.ok(result.scrollable, JSON.stringify({width,height,...result}));
         await page.locator(".navigation-menu-scroll").first().evaluate(element => {
           element.scrollTop = element.scrollHeight;
-          if (element.scrollTop < 80) throw new Error("menu cannot scroll");
+          if (element.scrollTop < 30) throw new Error("menu cannot scroll");
         });
         assert.ok(await page.locator(".navigation .nav-leaf-item").last().isVisible());
       }

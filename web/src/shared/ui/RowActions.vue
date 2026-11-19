@@ -54,7 +54,11 @@ async function invoke(action: RowAction) {
   <div class="row-actions">
     <ElButton v-if="primary" :data-guide-action="primary.guideActionId" size="small" :disabled="primary.disabled" :loading="busy"
       :type="primary.danger ? 'danger' : undefined" :title="primary.reason" @click="invoke(primary)">{{ primary.label }}</ElButton>
-    <ElDropdown v-if="secondary.length" ref="dropdown" trigger="click" placement="bottom-end"
+    <ElButton v-if="secondary.length === 1" text size="small"
+      :type="secondary[0].danger ? 'danger' : undefined" :title="secondary[0].reason"
+      :data-guide-action="secondary[0].guideActionId" :disabled="secondary[0].disabled || busy"
+      @click="invoke(secondary[0])">{{ secondary[0].label }}</ElButton>
+    <ElDropdown v-else-if="secondary.length > 1" ref="dropdown" trigger="click" placement="bottom-end"
       @command="invoke" @visible-change="menuVisibilityChanged">
       <ElButton text size="small" :disabled="busy" aria-label="更多操作">
         更多<ElIcon><MoreFilled /></ElIcon>

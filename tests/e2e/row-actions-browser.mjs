@@ -1,3 +1,4 @@
+import { workPage, submitSettlement } from "./work-page-helper.mjs";
 import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
@@ -43,10 +44,10 @@ try {
   await navigate("输电设备台账");
   const row = page.getByRole("row").filter({ hasText: "操作菜单验收线" });
   await row.getByRole("button", { name: "查看", exact: true }).waitFor();
-  assert.equal(await row.getByRole("button").count(), 2);
+  assert.equal(await row.getByRole("button", { name: "操作菜单验收线", exact: true }).count(), 1);
   for (const theme of ["light", "dark"]) {
-    await page.getByRole("button", { name: "外观设置" }).click();
-    await page.locator(".el-radio-button").filter({ hasText: theme === "dark" ? "深色" : "浅色" }).click();
+    const currentDark = await page.locator("html").evaluate(element => element.classList.contains("dark"));
+    if (currentDark !== (theme === "dark")) await page.getByRole("button", { name: theme === "dark" ? "切换为深色" : "切换为浅色", exact: true }).click();
     await page.getByRole("heading", { name: "输电设备台账", exact: true }).click();
     for (const width of [1500, 1280, 960, 760]) {
       await page.setViewportSize({ width, height: 1000 });
@@ -72,16 +73,17 @@ try {
   await navigate("费用与结算");
   await page.getByRole("button", { name: "进入项目办理" }).click();
   const billRow = page.getByRole("row").filter({ hasText: bill.number });
-  await billRow.getByRole("button", { name: "正式提交", exact: true }).click();
-  await page.getByRole("button", { name: "确定", exact: true }).click();
-  await billRow.getByRole("button", { name: "批准", exact: true }).waitFor();
-  await billRow.getByRole("button", { name: "更多操作" }).click();
-  await page.getByRole("menuitem", { name: "退回", exact: true }).waitFor();
+  await submitSettlement(page, billRow);
+  await billRow.getByRole("button", { name: "审核结算", exact: true }).click();
+  const reviewForm = page.getByRole("region", { name: "审核结算", exact: true });
+  assert.ok(await reviewForm.getByRole("button", { name: "确认退回", exact: true }).isDisabled());
+  await reviewForm.getByLabel("退回原因（选择退回时必填）").fill("补充结算凭据");
+  assert.ok(await reviewForm.getByRole("button", { name: "确认退回", exact: true }).isEnabled());
   await page.screenshot({ path: join(output, "settlement-pending.png"), fullPage: true });
-  await page.keyboard.press("Escape");
-  await page.getByRole("button", { name: "关闭详情", exact: true }).click();
-  await page.locator(".business-detail-overlay:visible").waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: "退出登录" }).click();
+  await reviewForm.getByRole("button", { name: "取消", exact: true }).click();
+  await workPage(page).getByRole("button", { name: "← 返回", exact: true }).click();
+  await page.getByRole("button", { name: /^账号设置/ }).click();
+  await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await login("reader", "Reader-test-password");
   await navigate("输电设备台账");
   await row.getByRole("button", { name: "更多操作" }).click();
@@ -92,7 +94,8 @@ try {
   await page.getByRole("button", { name: "进入项目办理" }).click();
   await billRow.getByRole("button", { name: "附件", exact: true }).waitFor();
   await billRow.getByRole("button", { name: "更多操作" }).click();
-  for (const label of ["批准", "退回", "审核中（禁止修订）", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
+  assert.equal(await billRow.getByRole("button", { name: "审核结算", exact: true }).count(), 0);
+  for (const label of ["审核中（禁止修订）", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
   assert.deepEqual(errors, []);
   console.log("ROW_ACTIONS_BROWSER_OK 8 layouts, cancel, state priority and viewer restrictions");
 } finally {

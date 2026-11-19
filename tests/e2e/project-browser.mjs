@@ -1,3 +1,4 @@
+import { workPage, confirmProjectApproval, submitSettlement, approveSettlement } from "./work-page-helper.mjs";
 import { selectFormChoice } from "./field-helper.mjs";
 import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
@@ -60,9 +61,9 @@ try {
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
   await page.locator(".business-detail-dialog:visible")
     .getByRole("heading", { name: "浏览器完整流程项目", exact: true }).waitFor();
-  assert.ok(await page.getByRole("tab", { name: "项目概览", exact: true }).isVisible(),
+  assert.ok(await page.getByRole("tab", { name: "概览", exact: true }).isVisible(),
     "creating a project opens its actual business workspace, not a list row");
-  await page.getByRole("button", { name: "关联专业需求", exact: true }).click();
+  await page.getByRole("button", { name: "关联需求", exact: true }).click();
   const picker=page.getByRole("dialog", {name:"关联专业需求"});
   await picker.getByLabel("选择需求：" + demand.demand_no).check();
   await picker.getByRole("button", {name:"查看需求详情：" + demand.demand_no}).click();
@@ -71,19 +72,17 @@ try {
   await preview.getByRole("button", {name:"返回需求选择"}).click();
   await picker.getByRole("button", {name:"关联已选需求（1）"}).click();
   await picker.waitFor({state:"hidden"});
+  await page.getByRole("tab", { name: "概览", exact: true }).click();
   await page.getByRole("button", { name: "确认入库", exact: true }).click();
   await confirm();
-  await page.getByRole("tab", { name: "批准与变更", exact: true }).click();
-  await page.getByRole("button", { name: "编制立项范围", exact: true }).click();
+  await page.getByRole("tab", { name: "立项与变更", exact: true }).click();
+  await page.getByRole("button", { name: "编制立项", exact: true }).click();
   await page.getByLabel("批准预算（元）", { exact: true }).fill("1200");
-  const approvalDialog=page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+  const approvalDialog=workPage(page);
   assert.equal(await approvalDialog.locator(".el-table__body-wrapper .el-checkbox").count(),0,
     "full-demand approval must not permit selecting individual locations");
-  await page
-    .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
-    .getByRole("button", { name: "保存", exact: true })
-    .click();
-  await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+  await approvalDialog.getByRole("button", { name: "保存批准草稿", exact: true }).click();
+  await approvalDialog.waitFor({ state: "hidden" });
   await page
     .getByRole("button", { name: "按承接范围核价", exact: true })
     .click();
@@ -92,8 +91,8 @@ try {
   await page.getByText("已保存正式参考报价", { exact: true }).waitFor();
   await page.getByRole("button", { name: "关闭报价", exact: true }).click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
-  await page.getByRole("button", { name: "正式批准", exact: true }).click();
-  await confirm();
+  await page.getByRole("button", { name: "审核立项", exact: true }).click();
+  await confirmProjectApproval(page);
   await page.getByRole("tab", { name: "费用与结算", exact: true }).click();
   await page.getByRole("button", { name: "新增科目", exact: true }).click();
   await page
@@ -128,26 +127,24 @@ try {
       .getByRole("button", { name: "添加解决需求", exact: true })
       .click();
     await select("项目需求", demand.demand_no);
-    await page
-      .locator(".el-form-item").filter({ hasText: "本次新增解决量" })
-      .locator("input").fill(String(resolved));
-    await page
-      .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
-      .getByRole("button", { name: "保存草稿", exact: true })
-      .click();
-    await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+    const resolution = workPage(page).getByLabel("本次新增解决量", { exact: true });
+    await resolution.fill(String(resolved));
+    await resolution.press("Tab");
+    assert.equal(await resolution.inputValue(), String(resolved));
+    await workPage(page).getByRole("button", { name: "保存草稿", exact: true }).click();
+    await workPage(page).waitFor({ state: "hidden" });
     const createdBill = s.finance
       .allSettlements()
       .find(
         (bill) =>
           bill.draft?.document.items[0].evidence === "本期结算依据" + index,
       );
+    assert.equal(createdBill.draft.document.resolutions[0].resolved_quantity_scaled, resolved * 10000,
+      "saving a routed editor preserves the user-entered resolved quantity");
     generatedBills.push(createdBill.number);
     const row = page.getByRole("row").filter({ hasText: createdBill.number });
-    await row.getByRole("button", { name: "正式提交", exact: true }).click();
-    await confirm();
-    await row.getByRole("button", { name: "批准", exact: true }).click();
-    await confirm();
+    await submitSettlement(page, row);
+    await approveSettlement(page, row);
   }
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await select("实际费用", "浏览器真实费用 ¥1,400.00");
@@ -208,12 +205,32 @@ try {
       fullPage: true,
     });
   }
-  await page.getByRole("button", { name: "其他办理操作", exact: true }).click();
-  await page.getByRole("menuitem", { name: "审核结项", exact: true }).click();
+  await page.getByRole("tab", { name: "概览", exact: true }).click();
+  await page.getByRole("button", { name: "结项核对", exact: true }).click();
   await page.getByRole("dialog", { name: "结项前业务核对" })
     .getByText("待核对费用").waitFor();
   await page.getByRole("button", { name: "已核对差异，正式结项", exact: true }).click();
   assert.equal(s.projects.get(project.id).status, "closed");
+  await page.getByRole("button", { name: "查看结项结果", exact: true }).click();
+  await page.getByRole("heading", { name: "结项结果", exact: true }).waitFor();
+  await page.getByText("未解决工作量", { exact: true }).waitFor();
+  const frozen = s.projects.get(project.id);
+  await page.getByRole("tab", { name: "概览", exact: true }).click();
+  await page.getByText("结项后档案已冻结", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "编辑档案", exact: true }).count(), 0);
+  const blocked = await page.evaluate(async ({ id, version }) => {
+    const result = await fetch("/api/projects/" + id, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+      body: JSON.stringify({ name: "结项后禁止写入档案", expected_version: version }),
+    });
+    return { status: result.status, message: (await result.json()).message };
+  }, { id: project.id, version: frozen.profile_version });
+  assert.deepEqual(blocked, { status: 409, message: "项目已结项，项目档案已冻结" });
+  const preserved = s.projects.get(project.id);
+  assert.equal(preserved.profile_version, frozen.profile_version);
+  assert.equal(preserved.approval.id, frozen.approval.id);
+  assert.deepEqual(preserved.funding, frozen.funding);
   assert.deepEqual(errors, []);
   console.log(
     "SCHEMA113_PROJECT_BROWSER_OK project creation, scope5, price300, budget1200, actual1400, 3 settlements, resolved5, financial-only third installment and close",

@@ -49,7 +49,7 @@ page.on("pageerror", err => errors.push(err.message));
 const out = join(process.cwd(), "test-results/schema113/ux-comprehensive");
 mkdirSync(out, { recursive: true });
 const base = "http://127.0.0.1:" + server.address().port;
-const editor = page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
+const editor = page.locator(".demand-editor:visible, .el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible");
 try {
   await page.goto(base);
   await page.getByLabel("用户名", { exact: true }).fill("admin");
@@ -154,8 +154,7 @@ try {
     "finance opens in project-first workflow mode");
   await page.getByRole("row").filter({ hasText: existingProject.name })
     .getByRole("button", { name: "进入项目办理" }).click();
-  const projectDetail = page.locator(".business-detail-dialog:visible");
-  await projectDetail.getByRole("tab", { name: "费用与结算" }).click();
+  const projectDetail = page.locator(".business-work-surface:visible");
   await projectDetail.getByRole("button", { name: "新增科目" }).click();
   await editor.getByLabel("名称", { exact: true }).fill("尚未保存的费用科目");
   await editor.getByRole("button", { name: "取消", exact: true }).click();

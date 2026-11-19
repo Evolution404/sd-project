@@ -16,6 +16,8 @@ export type TableColumn = {
 };
 const props = withDefaults(defineProps<{
   rows: TRow[]; columns: TableColumn[]; tableKey: string;
+  selectedIds?: readonly string[];
+  detailColumn?: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
   /** If omitted, only client-side tables and explicitly controlled remote tables show controls. */
@@ -26,6 +28,7 @@ const props = withDefaults(defineProps<{
   sortState?: { prop: string; order: "ascending" | "descending" | null };
 }>(), { selectable: false, loading: false, actionsWidth: 190 });
 const emit = defineEmits<{
+  (e: "open-detail", row: TRow): void;
   (e: "clear-search"): void;
   (e: "selection-change", rows: TRow[]): void;
   (e: "sort-change", value: { key: string; order: string }): void;
@@ -77,6 +80,17 @@ function clearFilters() {
   else if (!props.clientSide && filteringEnabled.value) emit("filter-change", {});
 }
 const table = ref<TableInstance>();
+watch([table, () => props.rows, () => props.selectedIds], () => {
+  if (!table.value || props.selectedIds === undefined) return;
+  const ids = new Set(props.selectedIds);
+  table.value.clearSelection();
+  for (const row of props.rows)
+    if (ids.has(String(valueAt(row, "id")))) table.value.toggleRowSelection(row, true);
+}, { flush: "post" });
+function selectionChanged(rows: Row[], fromUser: boolean) {
+  if ((props.selectedIds !== undefined) === fromUser) emit("selection-change", rows as TRow[]);
+}
+
 watch(() => props.filterState, value => { if (value) filters.value = { ...value }; }, { immediate: true, deep: true });
 watch(() => props.sortState, async value => {
   if (!sortingEnabled.value) return;
@@ -255,7 +269,8 @@ watch(() => props.tableKey, async () => {
     </div>
     <ElTable border allow-drag-last-column ref="table" :data="tableRows as Row[]" :default-sort="sortState?.order ? { prop: sortState.prop, order: sortState.order } : undefined" :row-key="(row: Row) => String(row.id || row.location_item_no || row.code || row.name || row.month || row.quarter || row.created_at || JSON.stringify(row))" v-loading="loading"
       :max-height="maxHeight" :size="compact ? 'small' : 'default'" table-layout="fixed" class="business-table-grid"
-      @selection-change="emit('selection-change', $event)"
+      @selection-change="selectionChanged($event, false)"
+      @select="selectionChanged($event, true)" @select-all="selectionChanged($event, true)"
       @sort-change="handleSort"
       @header-dragend="resize">
       <ElTableColumn v-if="selectable" type="selection" width="48" fixed="left" />
@@ -274,7 +289,13 @@ watch(() => props.tableKey, async () => {
             </ElPopover>
           </template>
         </template>
-        <template #default="{ row }"><slot name="cell" :row="row as TRow" :column="col" :value="formatVisibleDateTime(valueAt(row, col.key), col.key)">{{ formatVisibleDateTime(valueAt(row, col.key), col.key) ?? "—" }}</slot></template>
+        <template #default="{ row }">
+          <ElButton v-if="col.key === detailColumn && valueAt(row, col.key)" class="cell-link" link type="primary"
+            @click.stop="emit('open-detail', row as TRow)">{{ valueAt(row, col.key) }}</ElButton>
+          <slot v-else name="cell" :row="row as TRow" :column="col" :value="formatVisibleDateTime(valueAt(row, col.key), col.key)">
+            {{ formatVisibleDateTime(valueAt(row, col.key), col.key) ?? "—" }}
+          </slot>
+        </template>
       </ElTableColumn>
       <ElTableColumn v-if="$slots.actions" label="操作" fixed="right" :min-width="80"
         :width="pref.widths.__actions || actionsWidth" resizable>

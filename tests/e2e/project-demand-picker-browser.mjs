@@ -36,7 +36,7 @@ try{
   await page.getByRole("button",{name:"登录",exact:true}).click();
   const workspace=page.locator(".business-detail-dialog:visible");
   await workspace.waitFor();
-  await workspace.getByRole("tab",{name:"需求与范围",exact:true}).click();
+  await workspace.getByRole("tab",{name:"承接需求",exact:true}).click();
   await workspace.getByRole("button",{name:"关联需求",exact:true}).click();
   const picker=page.getByRole("dialog",{name:"关联专业需求"});
   await picker.getByText("符合条件 36 条").waitFor();

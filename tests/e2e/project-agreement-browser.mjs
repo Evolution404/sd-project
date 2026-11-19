@@ -50,8 +50,7 @@ try {
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.waitFor();
   async function openProfileEditor() {
-    await detail.getByRole("button", { name: "更多管理操作" }).click();
-    await page.getByRole("menuitem", { name: "修订档案" }).click();
+    await detail.getByRole("button", { name: "编辑档案", exact: true }).click();
     await editor.getByLabel("执行协议（选填）", { exact: true }).waitFor();
   }
   assert.equal(await detail.getByRole("button", { name: "资金归属" }).count(), 0,

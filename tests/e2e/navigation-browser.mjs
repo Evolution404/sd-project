@@ -20,7 +20,7 @@ const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/navigation");
 mkdirSync(output, { recursive: true });
-const detail = page.locator('.business-detail-overlay .el-overlay-dialog:visible');
+const detail = page.locator('.business-detail-dialog:visible');
 async function login(name, password) {
   await page.getByLabel("用户名", { exact: true }).fill(name);
   await page.getByLabel("密码", { exact: true }).fill(password);
@@ -125,10 +125,12 @@ try {
     "finance opens in project-first workflow mode");
   const financeUrl = page.url();
   await page.getByRole('button', { name: '进入项目办理', exact: true }).click();
-  await detail.getByRole('heading', { name: '独立结算单', exact: true }).waitFor();
-  assert.equal(page.url(), financeUrl);
-  await page.screenshot({ path: join(output, 'project-modal.png'), fullPage: true });
-  await closeDetail();
+  const financeWork = page.getByRole("region", { name: "费用与结算", exact: true });
+  await financeWork.getByRole('heading', { name: '独立结算单', exact: true }).waitFor();
+  assert.match(page.url(), /\/projects\/[^/]+\/finance/);
+  await page.screenshot({ path: join(output, 'project-finance-work.png'), fullPage: true });
+  await financeWork.getByRole("button", { name: "← 返回", exact: true }).click();
+  await page.waitForURL(financeUrl);
   await page.reload();
   assert.equal(await detail.count(), 0);
   // Validation awaits must still reserve a save before a second click.
@@ -148,7 +150,8 @@ try {
   assert.equal(s.projects.list().filter(row => row.name === '防重复保存项目').length, 1);
   await page.goto(`${base}/#/unknown/path`);
   await page.getByText('页面不存在', { exact: true }).waitFor();
-  await page.getByRole('button', { name: '退出登录', exact: true }).click();
+  await page.getByRole("button", { name: /^账号设置/ }).click();
+  await page.getByRole("menuitem", { name: "退出登录", exact: true }).click();
   await page.goto(`${base}/#/ledger`);
   await login('route-reader', 'Route-reader-password');
   await page.getByRole('row').filter({ hasText: '路由验收34线' }).getByRole('button', { name: '查看', exact: true }).click();

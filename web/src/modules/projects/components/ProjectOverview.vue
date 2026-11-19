@@ -1,33 +1,34 @@
 <script setup lang="ts">
-import { computed } from "vue";
 import { money } from "../../../shared/api/client";
-import type { ProjectSection } from "../../../shared/navigation/business-context";
 
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./types";
-const props = defineProps<{
+defineProps<{
   project: ProjectOverviewFacts;
   summary: ProjectFinanceSnapshot | null;
   framework: ProjectReference | null;
   agreement: ProjectReference | null;
   loading: boolean;
   canWrite: boolean;
+  canAdmin: boolean;
+  deleteReason: string;
+  closeReason?: string;
   descriptionColumns: number;
 }>();
 const emit = defineEmits<{
-  section: [section: ProjectSection];
   fund: [kind: "frameworks" | "agreements", id: string];
   edit: [];
+  remove: [];
+  close: [];
 }>();
-const hasProfile = computed(() => Boolean(props.project.category_name ||
-  props.project.managing_unit_name || props.project.owner_username ||
-  props.project.manager_username || props.project.planned_start_on ||
-  props.project.planned_end_on || props.project.preliminary_estimate_fen));
 </script>
 
 <template>
   <div class="panel" v-loading="loading">
-    <div class="toolbar"><h2>当前正式业务事实</h2></div>
-    <div class="project-overview-metrics">
+    <div class="toolbar" v-if="project.approval"><h2>当前批准与费用</h2></div>
+    <div class="toolbar" v-else><h2>项目档案</h2>
+      <ElButton v-if="canWrite && !project.deleted && project.status !== 'closed'" data-guide-action="projects.edit-project" @click="emit('edit')">编辑档案</ElButton>
+    </div>
+    <div v-if="project.approval" class="project-overview-metrics">
       <div><span>当前关联需求</span><strong>{{ project.scopes.filter(scope => !!scope.binding).length }} 项</strong></div>
       <div><span>当前批准范围</span><strong>{{ project.approval ? '第' + project.approval.version_no + '版' : '尚未批准' }}</strong></div>
       <div><span>批准预算</span><strong>{{ project.approval ? '¥' + money(project.approval.approved_budget_fen) : '未批准' }}</strong></div>
@@ -49,13 +50,17 @@ const hasProfile = computed(() => Boolean(props.project.category_name ||
       </ElDescriptionsItem>
       <ElDescriptionsItem label="计划结束日期">{{ project.planned_end_on || '未指定' }}</ElDescriptionsItem>
     </ElDescriptions>
-    <div class="toolbar" style="margin-top:14px">
-      <ElButton @click="emit('section', 'scope')">查看需求与范围</ElButton>
-      <ElButton data-guide-action="projects.approval-navigation" @click="emit('section', 'approval')">查看批准与变更</ElButton>
-      <ElButton @click="emit('section', 'finance')">查看财务办理</ElButton>
+    <div v-if="project.status === 'approved' && closeReason !== undefined" class="toolbar project-section-actions">
+      <ElButton data-guide-action="projects.close" :disabled="!!closeReason" @click="emit('close')">结项核对</ElButton>
+      <span v-if="closeReason" class="muted">{{ closeReason }}</span>
     </div>
   </div>
-  <div v-if="hasProfile" class="panel">
+  <div class="panel">
+    <div class="toolbar" v-if="project.approval">
+      <h2>项目档案</h2>
+      <span v-if="project.status === 'closed'" class="muted">结项后档案已冻结</span>
+      <ElButton v-if="canWrite && !project.deleted && project.status !== 'closed'" data-guide-action="projects.edit-project" @click="emit('edit')">编辑档案</ElButton>
+    </div>
     <ElDescriptions :column="descriptionColumns" border>
       <ElDescriptionsItem label="项目类别">{{ project.category_name || "未指定" }}</ElDescriptionsItem>
       <ElDescriptionsItem label="归口单位">{{ project.managing_unit_name || "未指定" }}</ElDescriptionsItem>
@@ -66,11 +71,9 @@ const hasProfile = computed(() => Boolean(props.project.category_name ||
       </ElDescriptionsItem>
       <ElDescriptionsItem label="初步估算">{{ money(project.preliminary_estimate_fen) }}</ElDescriptionsItem>
     </ElDescriptions>
-  </div>
-  <div v-else class="panel">
-    <div class="toolbar" style="flex-wrap:wrap">
-      <span class="muted">项目档案尚未完善，可补充项目类别、归口单位、负责人和计划期间。</span>
-      <ElButton :disabled="!canWrite || project.deleted" @click="emit('edit')">完善档案</ElButton>
+    <div v-if="canAdmin && !project.deleted" class="toolbar project-section-actions">
+      <ElButton data-guide-action="projects.delete" plain type="danger" :disabled="!!deleteReason" @click="emit('remove')">删除项目</ElButton>
+      <span v-if="deleteReason" class="muted">{{ deleteReason }}</span>
     </div>
   </div>
 </template>
@@ -80,7 +83,7 @@ const hasProfile = computed(() => Boolean(props.project.category_name ||
 .project-overview-metrics > div {border:1px solid var(--edge);border-radius:12px;padding:14px;min-width:0}
 .project-overview-metrics span {display:block;font-size:12px;color:var(--muted);margin-bottom:8px}
 .project-overview-metrics strong {display:block;font-size:18px;font-weight:650;overflow-wrap:anywhere}
-.project-context-descriptions {margin-top:14px}
+.project-context-descriptions,.project-section-actions {margin-top:14px}
 @media(max-width:800px){.project-overview-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:480px){.project-overview-metrics{grid-template-columns:1fr}}
 </style>

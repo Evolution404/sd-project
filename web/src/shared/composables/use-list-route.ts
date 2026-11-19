@@ -3,11 +3,12 @@ import { useRoute, useRouter, type LocationQueryRaw } from "vue-router";
 
 type QueryState = Record<string, Ref<string | number | boolean | Record<string, string>>>;
 // URL query holds view state only. Mutation forms remain local until saved.
-export function useListRoute(state: QueryState, refresh: () => unknown) {
+export function useListRoute(state: QueryState, refresh: () => unknown, enabled = () => true) {
   const route = useRoute(), router = useRouter();
   const defaults = Object.fromEntries(Object.entries(state).map(([key, value]) => [key, value.value]));
   let restoring = false;
   function restore() {
+    if (!enabled()) return false;
     let changed = false;
     restoring = true;
     for (const [key, target] of Object.entries(state)) {
@@ -35,7 +36,7 @@ export function useListRoute(state: QueryState, refresh: () => unknown) {
   restore();
   watch(() => route.query, () => { if (restore()) void refresh(); }, { flush: "sync" });
   watch(Object.values(state), () => {
-    if (restoring) return;
+    if (restoring || !enabled()) return;
     const query: LocationQueryRaw = { ...route.query };
     for (const [key, value] of Object.entries(state)) {
       const serialized = typeof value.value === "object" ? JSON.stringify(value.value) : String(value.value);

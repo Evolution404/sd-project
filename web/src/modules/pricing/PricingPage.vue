@@ -301,7 +301,7 @@ onMounted(async () => {
       type="error"
       :closable="false"
     />
-    <BusinessTable
+    <BusinessTable detail-column="title" @open-detail="detailDialog.open($event.id)"
       :rows="rows"
       :columns="columns"
       :table-key="'catalog:' + kind"

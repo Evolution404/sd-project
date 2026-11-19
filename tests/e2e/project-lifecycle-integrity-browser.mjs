@@ -1,3 +1,4 @@
+import { confirmProjectApproval } from "./work-page-helper.mjs";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -22,10 +23,6 @@ const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const out = join(process.cwd(), "test-results/schema113/project-lifecycle-integrity");
 mkdirSync(out, { recursive: true });
-async function confirm() {
-  await page.locator(".el-message-box:visible .el-button--primary").click();
-  await page.locator(".el-message-box:visible").waitFor({ state: "hidden" });
-}
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}/#/projects?project=${f.project.id}&tab=scope`);
   await page.getByLabel("用户名", { exact: true }).fill("admin");
@@ -33,11 +30,11 @@ try {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   const workspace = page.locator(".business-detail-dialog:visible");
   await workspace.waitFor();
-  await workspace.getByRole("tab", { name: "需求与范围", exact: true }).click();
+  await workspace.getByRole("tab", { name: "承接需求", exact: true }).click();
   assert.equal(await workspace.getByRole("button", { name: "关联需求", exact: true }).isDisabled(), true);
-  await workspace.getByRole("tab", { name: "批准与变更", exact: true }).click();
-  await workspace.getByRole("button", { name: "编制正式变更", exact: true }).click();
-  const editor = page.getByRole("dialog", { name: "编制完整批准范围" });
+  await workspace.getByRole("tab", { name: "立项与变更", exact: true }).click();
+  await workspace.getByRole("button", { name: "编制变更", exact: true }).click();
+  const editor = page.getByRole("region", { name: "编制项目变更" });
   await editor.getByRole("button", { name: "新增候选需求", exact: true }).click();
   const picker = page.getByRole("dialog", { name: "选择变更新增需求" });
   await picker.getByLabel("选择需求：" + candidate.demand_no).check();
@@ -45,14 +42,13 @@ try {
   await picker.waitFor({ state: "hidden" });
   await editor.locator("label.el-checkbox").filter({ hasText: f.demand.demand_no }).click();
   assert.equal(await editor.getByRole("checkbox", { name: f.demand.demand_no, exact: true }).isChecked(), false);
-  await editor.getByRole("button", { name: "保存", exact: true }).click();
-  await confirm();
+  await editor.getByRole("button", { name: "核对并保存变更草稿", exact: true }).click();
   await editor.waitFor({ state: "hidden" });
   assert.equal(f.s.demands.get(candidate.id).binding, null);
   assert.equal(f.s.projects.get(f.project.id).approval.id, f.approval.id);
   await workspace.getByRole("heading", { name: "新增候选需求", exact: true }).waitFor();
-  await workspace.getByRole("button", { name: "正式批准", exact: true }).click();
-  await confirm();
+  await workspace.getByRole("button", { name: "审核变更", exact: true }).click();
+  await confirmProjectApproval(page);
   await page.getByText("确认正式批准成功，正在刷新业务状态", { exact: true }).waitFor();
   assert.equal(f.s.demands.get(candidate.id).binding.project_id, f.project.id);
   assert.equal(f.s.demands.get(f.demand.id).binding, null);

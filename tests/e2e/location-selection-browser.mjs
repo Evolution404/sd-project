@@ -28,7 +28,7 @@ page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/dux/location-selection");
 mkdirSync(output, { recursive: true });
 const base = "http://127.0.0.1:" + server.address().port;
-const editor = page.getByRole("dialog", { name: "新增专业需求", exact: true });
+const editor = page.getByRole("region", { name: "新增专业需求", exact: true });
 const picker = page.getByRole("dialog", { name: "添加作业位置", exact: true });
 async function expectCount(count) {
   await picker.getByText("已选择 " + count + " 处，可切换线路继续选择。", { exact: true }).waitFor();

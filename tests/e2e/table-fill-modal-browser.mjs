@@ -26,8 +26,8 @@ try {
   await page.getByRole('button', { name: '登录', exact: true }).click();
   await page.getByRole('row').filter({ hasText: '500kV' }).waitFor();
   for (const theme of ['light', 'dark']) {
-    await page.getByRole('button', { name: '外观设置' }).click();
-    await page.locator('.el-radio-button').filter({ hasText: theme === 'dark' ? '深色' : '浅色' }).click();
+    const currentDark = await page.locator("html").evaluate(element => element.classList.contains("dark"));
+    if (currentDark !== (theme === "dark")) await page.getByRole("button", { name: theme === "dark" ? "切换为深色" : "切换为浅色", exact: true }).click();
     await page.waitForTimeout(250);
     await page.locator('main h1').click();
     await page.locator('.el-popover:visible').waitFor({ state: 'hidden' });

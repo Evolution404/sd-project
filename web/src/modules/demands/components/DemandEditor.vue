@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BusinessWorkSurface from "../../../shared/ui/BusinessWorkSurface.vue";
 import { newClientId } from "../../../shared/utils/id";
 import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
@@ -40,6 +41,10 @@ const emit = defineEmits<{
   saved: [id: string];
   configure: [];
 }>();
+interface StoredDemandDraft {
+  basedOnVersion: number | null;
+  form: DemandDraft;
+}
 const reviewStandard = ref(false);
 const can = useAccess(),
   formRef = ref<FormInstance>(),
@@ -59,6 +64,8 @@ const draft = ref<DemandDraft>(empty()),
   operation = ref<OperationRecord | null>(null),
   latestOperation = ref<OperationRecord | null>(null),
   loading = ref(false),
+  preparing = ref(false),
+  resumable = ref<StoredDemandDraft | null>(null),
   loadError = ref(""),
   precision = ref<number>(),
   errors = ref<Record<string, unknown>>({}),
@@ -75,12 +82,17 @@ let sequence = 0;
 const draftKey = computed(
   () => "sd-demand-draft:" + (props.editing?.id || "new"),
 );
-let initialized = false;
+let initialized = false, preparationRequest = 0;
+const currentVersion = computed(() => props.editing?.current_version ?? null);
+const storedDraftStale = computed(() => !!resumable.value && resumable.value.basedOnVersion !== currentVersion.value);
+function rememberDraft(form: DemandDraft) {
+  sessionStorage.setItem(draftKey.value, JSON.stringify({ basedOnVersion: currentVersion.value, form }));
+}
 watch(
   draft,
   (value) => {
     if (initialized && props.open)
-      sessionStorage.setItem(draftKey.value, JSON.stringify(value));
+      rememberDraft(value);
   },
   { deep: true },
 );
@@ -104,8 +116,11 @@ async function adopt(row: OperationRecord) {
 watch(
   () => props.open,
   async (open) => {
-    if (!open) return;
+    const request = ++preparationRequest;
     initialized = false;
+    if (!open) { ++sequence; return; }
+    preparing.value = true;
+    resumable.value = null;
     duplicateReviewOpen.value = false;
     duplicateCandidates.value = [];
     errors.value = {};
@@ -115,9 +130,9 @@ watch(
     loadError.value = "";
     draft.value = props.restored ? JSON.parse(JSON.stringify(props.restored)) as DemandDraft : empty();
     try {
-      setupMissing.value = !(
-        await api<{ total: number }>("/catalog/operations?page_size=1")
-      ).total;
+      const available = await api<{ total: number }>("/catalog/operations?page_size=1");
+      if (request !== preparationRequest) return;
+      setupMissing.value = !available.total;
       const item = props.editing;
       if (item) {
         draft.value = {
@@ -151,6 +166,7 @@ watch(
           } catch (failure) {
             error = (failure as Error).message;
           }
+          if (request !== preparationRequest) return;
           draft.value.materials.push({
             id: newClientId(),
             material_id: material.material_id,
@@ -170,48 +186,64 @@ watch(
       );
       if (props.restored)
         draft.value = props.restored as unknown as DemandDraft;
-      if (stored && !props.restored) {
-        try {
-          await ElMessageBox.confirm(
-            "发现尚未保存的需求草稿，是否恢复？",
-            "恢复草稿",
-            {
-              confirmButtonText: "恢复草稿",
-              cancelButtonText: "使用当前正式内容",
-            },
-          );
-          draft.value = stored as DemandDraft;
-        } catch {}
-      }
-      if (draft.value.operation_id) {
-        const current = await api<OperationRecord>(
-          "/catalog/operations/" + draft.value.operation_id + "?deleted=true",
-        );
-        latestOperation.value = current;
-        if (
-          draft.value.operation_version &&
-          draft.value.operation_version !== current.version
-        ) {
-          const history = await api<{ versions: OperationVersion[] }>(
-            "/catalog/operations/" + current.id + "?history=true",
-          );
-          const frozen = history.versions.find(
-            (version) => version.version === draft.value.operation_version,
-          );
-          if (!frozen) throw Error("采用的操作类型正式版本不存在");
-          await adopt({ ...current, ...frozen, id: current.id });
-        } else await adopt(current);
-      }
-      await nextTick();
-      if (scroll.value) scroll.value.scrollTop = 0;
-      syncSectionFromScroll();
-      guard.capture();
-      initialized = true;
+      if (stored?.form && !props.restored) resumable.value = stored as StoredDemandDraft;
+      await initializeOperation(request);
     } catch (failure) {
-      loadError.value = (failure as Error).message;
+      if (request === preparationRequest) loadError.value = (failure as Error).message;
+    } finally {
+      if (request === preparationRequest) preparing.value = false;
     }
   },
+  { immediate: true },
 );
+async function initializeOperation(request: number) {
+  if (draft.value.operation_id) {
+    const current = await api<OperationRecord>(
+      "/catalog/operations/" + draft.value.operation_id + "?deleted=true",
+    );
+    if (request !== preparationRequest) return;
+    latestOperation.value = current;
+    if (
+      draft.value.operation_version &&
+      draft.value.operation_version !== current.version
+    ) {
+      const history = await api<{ versions: OperationVersion[] }>(
+        "/catalog/operations/" + current.id + "?history=true",
+      );
+      if (request !== preparationRequest) return;
+      const frozen = history.versions.find(
+        (version) => version.version === draft.value.operation_version,
+      );
+      if (!frozen) throw Error("采用的操作类型正式版本不存在");
+      await adopt({ ...current, ...frozen, id: current.id });
+    } else await adopt(current);
+  }
+  await nextTick();
+  if (request !== preparationRequest) return;
+  if (scroll.value) scroll.value.scrollTop = 0;
+  syncSectionFromScroll();
+  guard.capture();
+  initialized = true;
+}
+async function restoreDraft() {
+  if (!resumable.value || storedDraftStale.value) return;
+  const request = ++preparationRequest;
+  preparing.value = true;
+  initialized = false;
+  draft.value = resumable.value.form;
+  resumable.value = null;
+  try {
+    await initializeOperation(request);
+  } catch (failure) {
+    if (request === preparationRequest) loadError.value = (failure as Error).message;
+  } finally {
+    if (request === preparationRequest) preparing.value = false;
+  }
+}
+function discardStoredDraft() {
+  sessionStorage.removeItem(draftKey.value);
+  resumable.value = null;
+}
 const sectionIds = ["basic", "locations", "materials", "sources"] as const;
 watch(scroll, (root, _previous, cleanup) => {
   if (!root) return;
@@ -245,19 +277,23 @@ function navigate(value: string) {
   const offset = target.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop - 16;
   root.scrollTo({ top: Math.max(0, offset), behavior: "smooth" });
 }
-function close(done?: () => void) {
+function close() {
+  if (loading.value) return;
+  if (resumable.value) {
+    emit("update:open", false);
+    return;
+  }
   void guard.confirmClose(() => {
     initialized = false;
     duplicateReviewOpen.value = false;
     sessionStorage.removeItem(draftKey.value);
     emit("update:open", false);
-    done?.();
   });
 }
 // Explicit parking is different from cancel/discard: the draft remains
 // recoverable on this browser tab, and no formal demand is created.
 function parkDraft() {
-  sessionStorage.setItem(draftKey.value, JSON.stringify(draft.value));
+  rememberDraft(draft.value);
   initialized = false;
   duplicateReviewOpen.value = false;
   emit("update:open", false);
@@ -368,7 +404,6 @@ function configure() {
     form: JSON.parse(JSON.stringify(draft.value)),
     lineIds: [],
   });
-  emit("update:open", false);
   emit("configure");
 }
 function addLocations(rows: LocationDraft[]) {
@@ -387,7 +422,8 @@ function addLocations(rows: LocationDraft[]) {
   );
 }
 async function save(duplicate?: string[], duplicateReason?: string, tokens?: Record<string, string>) {
-  if (loading.value) return;
+  if (loading.value || preparing.value || resumable.value || !can("write")) return;
+  loading.value = true;
   errors.value = {};
   try {
     if (!(await formRef.value?.validate().catch(() => false))) {
@@ -420,7 +456,6 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
         ),
         "work_locations." + index + ".attributes",
       );
-    loading.value = true;
     const input: DemandWriteInput = {
       ...draft.value,
       expected_version: props.editing?.current_version,
@@ -447,8 +482,7 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
     sessionStorage.removeItem(draftKey.value);
     initialized = false;
     duplicateReviewOpen.value = false;
-    emit("update:open", false);
-    emit("saved", saved.id);
+      emit("saved", saved.id);
   } catch (failure) {
     const problem = failure as Error & { fields?: Record<string, unknown> };
     errors.value = Object.fromEntries(
@@ -491,17 +525,18 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
 }
 </script>
 <template>
-  <ElDialog
-    :model-value="open"
+  <BusinessWorkSurface v-if="open" :busy="loading"
+    :subtitle="editing ? editing.demand_no + ' · 当前版本 ' + editing.current_version : undefined"
     :title="editing ? '修订需求' : '新增专业需求'"
-    width="min(1160px,96vw)"
-    append-to-body
     class="demand-editor"
-    :close-on-click-modal="false"
-    :before-close="close"
-    @update:model-value="emit('update:open', $event)"
+    @back="duplicateReviewOpen ? duplicateReviewOpen = false : close()"
   >
-    <ElTabs
+    <ElAlert v-if="resumable" :type="storedDraftStale ? 'warning' : 'info'" :closable="false"
+      :title="storedDraftStale ? '正式需求已产生新版本，请按最新内容继续修订' : '发现尚未保存的需求草稿'">
+      <ElButton v-if="!storedDraftStale" type="primary" size="small" @click="restoreDraft">恢复草稿</ElButton>
+      <ElButton size="small" @click="discardStoredDraft">{{ editing ? '使用当前正式内容' : '新建空白需求' }}</ElButton>
+    </ElAlert>
+    <ElTabs v-show="!duplicateReviewOpen"
       :model-value="section"
       @update:model-value="navigate(String($event))"
       ><ElTabPane label="基本信息" name="basic" /><ElTabPane
@@ -510,8 +545,9 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
         label="预计物资"
         name="materials" /><ElTabPane label="来源及其他信息" name="sources"
     /></ElTabs>
-    <div ref="scroll" class="editor-content" @scroll.passive="syncSectionFromScroll">
-      <ElForm ref="formRef" :model="draft" label-position="top" novalidate>
+    <div v-show="!duplicateReviewOpen" ref="scroll" class="editor-content" @scroll.passive="syncSectionFromScroll">
+      <ElForm ref="formRef" :model="draft" label-position="top" novalidate
+        :disabled="preparing || !!resumable" v-loading="preparing">
         <ElAlert
           v-if="loadError"
           :title="loadError"
@@ -687,31 +723,31 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
         </section>
       </ElForm>
     </div>
-    <template #footer
+    <DemandDuplicateReview
+      :open="duplicateReviewOpen"
+      :candidates="duplicateCandidates"
+      :draft="draft"
+      :operation-name="operation?.name || ''"
+      :unit="operation?.default_unit_id_label || ''"
+      :submitting="loading"
+      @close="duplicateReviewOpen = false"
+      @park="parkDraft"
+      @confirm="confirmIndependent"
+    />
+    <template v-if="!duplicateReviewOpen" #footer
       ><span class="muted demand-draft-note">草稿自动保留在当前浏览器会话</span
-      ><ElButton @click="parkDraft">暂存草稿并关闭</ElButton
-      ><ElButton @click="close()">取消</ElButton
+      ><ElButton @click="parkDraft">暂存并返回</ElButton
+      ><ElButton :disabled="loading" @click="close()">取消</ElButton
       ><ElButton data-guide-action="demands.save"
         data-action="save-demand"
         type="primary"
         :loading="loading"
-        :disabled="!can('write')"
+        :disabled="!can('write') || preparing || !!resumable"
         @click="save()"
         >保存需求版本</ElButton
       ></template
     >
-  </ElDialog>
-  <DemandDuplicateReview
-    :open="duplicateReviewOpen"
-    :candidates="duplicateCandidates"
-    :draft="draft"
-    :operation-name="operation?.name || ''"
-    :unit="operation?.default_unit_id_label || ''"
-    :submitting="loading"
-    @close="duplicateReviewOpen = false"
-    @park="parkDraft"
-    @confirm="confirmIndependent"
-  />
+  </BusinessWorkSurface>
   <DemandLocationPicker
     v-if="operation"
     v-model:open="picker"
@@ -726,6 +762,9 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
   overflow: auto;
   padding: 2px 10px 16px 2px;
   scroll-padding-top: 16px;
+}
+.business-work-surface .editor-content {
+  height: min(64dvh, 800px);
 }
 .editor-content section {
   margin-bottom: 30px;

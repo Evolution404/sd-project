@@ -1,7 +1,7 @@
 import type { OperationAttribute } from "./operation-attributes.js";
 /** Excel exchange contracts: user-visible fields and server-owned identities are distinct. */
 export type WorkbookKind = "assets" | "demands" | "settlements";
-export type WorkbookReportKind = WorkbookKind | "exchange";
+export type WorkbookReportKind = WorkbookKind | "exchange" | "projects";
 export type WorkbookRowAction = "upsert" | "delete";
 export type WorkbookPrimitive = string | number | boolean | null;
 

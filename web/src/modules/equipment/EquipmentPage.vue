@@ -308,7 +308,7 @@ onMounted(async () => {
       ><ElButton @click="load">刷新</ElButton
       ><span class="muted">共 {{ total }} 项</span>
     </div>
-    <BusinessTable
+    <BusinessTable :detail-column="kind === 'physical' ? 'asset_no' : kind === 'towers' ? 'tower_no' : kind === 'spans' ? 'start_tower_no' : 'name'" @open-detail="detailDialog.open($event.id)"
       :rows="rows"
       :columns="columns"
       :table-key="'catalog:' + kind"

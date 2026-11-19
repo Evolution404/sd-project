@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import HandlingReviewDialog from "../../shared/ui/HandlingReviewDialog.vue";
+import { useHandlingReview } from "../../shared/composables/use-handling-review";
+import { usePageSelection } from "../../shared/composables/use-page-selection";
+import type { HandlingTarget } from "../../../../server/shared/types/handling-batch";
 import { ordinaryLinkReason } from "../../../../server/shared/project-lifecycle";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
@@ -17,8 +21,10 @@ import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.v
 import PricingQuoteDialog from "../pricing/PricingQuoteDialog.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
-import { api, quantity, statusText } from "../../shared/api/client";
+import { api, download, quantity, statusText } from "../../shared/api/client";
 import DemandEditor from "./components/DemandEditor.vue";
+import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
+import { useWorkRoute } from "../../shared/navigation/use-work-route";
 import { demandDisplayStatus } from "../../../../server/shared/demand-display-status";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { DemandRecord, DemandListItem, SourceRow, DemandStatus } from "../../../../server/shared/types/demands";
@@ -27,6 +33,10 @@ import type { Actor, Page } from "../../../../server/shared/types/contracts";
 interface ProjectCandidate { id:string; name:string; code:string; status:string; display_status:string; }
 const props = defineProps<{ user: Actor }>();
 const route = useRoute(), router = useRouter();
+const workRoute = useWorkRoute();
+const editorRoute = computed(() => route.name === "demands" ? String(route.params.editMode || "") : "");
+const editorError = ref("");
+let editorRequest = 0;
 const projectPickerOpen = ref(false), projectSearch = ref(""), projectPage = ref(1);
 const projectCandidates = ref<ProjectCandidate[]>([]), projectTotal = ref(0);
 const projectLoading = ref(false), linking = ref(false), selectedProjectId = ref("");
@@ -52,6 +62,7 @@ async function loadProjectCandidates() {
 }
 function openProjectPicker() {
   if (!detail.value || detail.value.deleted || detail.value.status !== "active" || detail.value.binding) return;
+  batchLinkItems.value = null;
   projectSearch.value = "";
   projectPage.value = 1;
   selectedProjectId.value = "";
@@ -133,13 +144,65 @@ const rows = ref<DemandListItem[]>([]),
   sortKey = ref(""),
   sortDirection = ref("desc"),
   columnFilters = ref<Record<string, string>>({}),
-  selected = ref<DemandListItem[]>([]),
   detail = ref<DemandRecord | null>(null),
   dialog = ref(false),
   editing = ref<DemandRecord | null>(null),
   history = ref<unknown>(null),
   quoteOpen = ref(false),
   showDeleted = ref(false);
+
+const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]));
+const { selected, selectedIds, eligibleIds } = selection;
+const handling = useHandlingReview();
+const exportingSelection = ref(false);
+
+async function exportSelected() {
+  const ids = eligibleIds.value;
+  if (!ids.length || ids.length > 100 || exportingSelection.value) return;
+  const query = new URLSearchParams();
+  for (const id of ids) query.append("id", id);
+  exportingSelection.value = true;
+  try { await download("/exchange/demands/export?" + query); }
+  catch (failure) { ElMessage.error((failure as Error).message); }
+  finally { exportingSelection.value = false; }
+}
+
+const batchLinkItems = ref<HandlingTarget[] | null>(null);
+function selectedTargets() {
+  return selected.value.map(row => ({ id: row.id, expected_version: row.current_version }));
+}
+async function finishBatch() {
+  selection.clear();
+  projectPickerOpen.value = false;
+  batchLinkItems.value = null;
+  await load();
+}
+function confirmSelectedDemands() {
+  void handling.review({
+    title: "核对批量确认", description: "确认需求成立。只有下方标为可办理的记录会提交。",
+    targets: selectedTargets(), previewPath: "/demands/confirm-batch/preview",
+    commitPath: "/demands/confirm-batch", complete: finishBatch,
+  });
+}
+function openBatchProjectPicker() {
+  batchLinkItems.value = selectedTargets();
+  projectSearch.value = "";
+  projectPage.value = 1;
+  projectPickerOpen.value = true;
+  void loadProjectCandidates();
+}
+function reviewBatchLink() {
+  const targets = batchLinkItems.value;
+  const project = projectCandidates.value.find(row => row.id === selectedProjectId.value && !ordinaryLinkReason(row));
+  if (!targets || !project || projectLoading.value) return;
+  const path = "/projects/" + encodeURIComponent(project.id) + "/link-batch";
+  void handling.review({
+    title: "核对批量关联", description: "目标项目：" + project.name + "。每条可办理需求均按全部位置和工作量承接。",
+    targets, previewPath: path + "/preview", commitPath: path,
+    payload: items => ({ links: items.map(row => ({ demand_id: row.id, expected_version: row.expected_version })) }),
+    complete: finishBatch,
+  });
+}
 const restoredDraft = ref<Record<string, unknown> | null>(null);
 const detailAttributes = ref<OperationAttribute[]>([]);
 const demandStatuses = ["待确认", "已退回", "待承接", "已承接", "已取消"] as const;
@@ -185,14 +248,15 @@ function attributeSummary(values: Record<string, unknown>) {
   }).join(" / ") || "—";
 }
 function configureMissingOperation() {
-  void router.push(setupContext(route,"operations"));
+  const listUrl = router.resolve({ name: "demands", params: { editMode: "", demandId: "" }, query: route.query }).fullPath;
+  void router.push(setupContext({ fullPath: listUrl }, "operations"));
 }
 async function resumeDemandDraft() {
   if (route.query.resume !== "demand") return;
   const parked=takeDemandDraft();
   const {resume,...rest}=route.query;void resume;
   await router.replace({query:rest});
-  if (parked) {restoredDraft.value=parked.form;editing.value=null;dialog.value=true;}
+  if (parked) { restoredDraft.value = parked.form; await openEditorRoute(); }
 }
 const demandLocationColumns: TableColumn[] = [
   { key: "location_snapshot_json", label: "位置", minWidth: 230, sortable: false, filterable: false },
@@ -216,15 +280,15 @@ function resetListPage() {
   void load();
 }
 const demandColumns: TableColumn[] = [
-  { key: "demand_no", label: "需求编号", minWidth: 150 },
-  { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
-  { key: "problem_description", label: "问题描述", minWidth: 200 },
+  { key: "problem_description", label: "问题描述", minWidth: 230 },
+  { key: "line_summary", label: "涉及线路", minWidth: 180 },
+  { key: "display_status", label: "需求状态", minWidth: 130 },
   { key: "expected_on", label: "预计解决时间", minWidth: 155 },
   { key: "quantity_scaled", label: "工作量" },
   { key: "unit_snapshot", label: "计量单位" },
-  { key: "line_summary", label: "涉及线路", minWidth: 180 },
   { key: "location_count", label: "位置数量" },
-  { key: "display_status", label: "需求状态", minWidth: 150 },
+  { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
+  { key: "demand_no", label: "需求编号", minWidth: 150 },
   { key: "project_name", label: "承接项目", minWidth: 170 },
   { key: "last_handled_at", label: "最近办理时间", minWidth: 200 },
 ];
@@ -261,13 +325,42 @@ async function load() {
     if (sequence === loadSequence) listLoading.value = false;
   }
 }
-async function edit(row?: {id:string}) {
-  restoredDraft.value=null;
-  editing.value=row ? await api<DemandRecord>("/demands/"+row.id) : null;
-  dialog.value=true;
+function openEditorRoute(row?: {id:string}) {
+  return workRoute.enter({
+    name: "demands",
+    params: { editMode: row ? "edit" : "new", demandId: row?.id || "" },
+    query: route.query,
+  });
+}
+function edit(row?: {id:string}) {
+  restoredDraft.value = null;
+  return openEditorRoute(row);
+}
+async function readEditor() {
+  const request = ++editorRequest;
+  editorError.value = "";
+  dialog.value = false;
+  if (!editorRoute.value) return;
+  try {
+    const id = route.params.demandId;
+    if (editorRoute.value === "edit" && typeof id !== "string") throw new Error("缺少需求编号");
+    const record = editorRoute.value === "edit" ? await api<DemandRecord>("/demands/" + id) : null;
+    if (request !== editorRequest) return;
+    if (!can("write") || record?.deleted) throw new Error("当前账号或需求状态无法办理修订");
+    editing.value = record;
+    dialog.value = true;
+  } catch (error) {
+    if (request === editorRequest) editorError.value = (error as Error).message;
+  }
+}
+function leaveEditor() {
+  return workRoute.exit({
+    name: "demands", params: { editMode: "", demandId: "" }, query: route.query,
+  });
 }
 async function saved(id:string) {
-  ElMessage.success("需求版本已保存，可继续确认或承接");
+  await leaveEditor();
+  ElMessage.success("需求版本已保存");
   await load();
   await detailDialog.open(id);
 }
@@ -324,29 +417,29 @@ async function remove(row: DemandListItem | DemandRecord) {
     if (e instanceof Error) ElMessage.error(e.message);
   }
 }
-useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
+useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "demands" && !editorRoute.value);
 const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = null; quoteOpen.value = false; });
 watch(() => route.query.demand, demandId => {
-  if (typeof demandId === "string" && demandId && demandId !== detail.value?.id)
+  if (!editorRoute.value && typeof demandId === "string" && demandId && demandId !== detail.value?.id)
     void detailDialog.open(demandId);
 }, { immediate: true });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
+watch([editorRoute, () => route.params.demandId], readEditor, { immediate: true });
 onMounted(async () => {
   await load();
   await resumeDemandDraft();
 });
 </script>
 <template>
+  <div v-show="!editorRoute">
   <div class="page-heading">
       <div>
-        <div class="section-caption">专业需求管理</div>
         <h1>专业需求</h1>
-        <p>一种操作，多处作业位置。数量、现场条件与来源分别留存。</p>
       </div>
       <div class="page-heading-actions">
         <ExchangePanel
           kind="demands"
-          :selected-ids="selected.map((x) => x.id)"
+          :selected-ids="eligibleIds"
           :query="query"
           @changed="load" @inspect="detailDialog.open($event)"
         /><ElButton data-guide-action="demands.create" :disabled="!can('write')" type="primary" @click="edit()"
@@ -369,11 +462,22 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         ><ElButton @click="load">刷新</ElButton>
       </div>
+      <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="专业需求批量操作">
+        <span role="status">已选 {{ selected.length }} 条</span>
+        <ElButton :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
+        <ElButton v-if="processing === '待确认' && can('demand.activate')" type="primary" :disabled="selected.length > 100" @click="confirmSelectedDemands">批量确认</ElButton>
+        <ElButton v-if="processing === '待承接' && can('write')" type="primary" :disabled="selected.length > 100" @click="openBatchProjectPicker">批量关联子项目</ElButton>
+        <ElButton link @click="selection.clear">清空选择</ElButton>
+        <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
+        <span v-else-if="eligibleIds.length !== selected.length" class="muted">导出前请取消勾选已删除记录</span>
+      </div>
       <BusinessTable :search-active="!!query" @clear-search="query = ''; columnFilters = {}; page = 1; load()" :loading="listLoading" :rows="rows" :columns="demandColumns" table-key="demand:list" selectable :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
-        @selection-change="selected = $event" @sort-change="sortTable" @filter-change="filterTable">
+        @selection-change="selection.updatePage" :selected-ids="selectedIds" @sort-change="sortTable" @filter-change="filterTable">
         <template #cell="{ row, column }">
-          <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+          <ElButton v-if="column.key === 'problem_description'" link type="primary" class="cell-link"
+            @click="detailDialog.open(row.id)">{{ row.problem_description }}</ElButton>
+          <span v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
           <span v-else-if="column.key === 'work_locations'">{{ row.work_locations?.length || 0 }} 处</span>
           <span v-else-if="column.key === 'binding'">{{ row.binding ? '已关联子项目' : '未关联' }}</span>
           <template v-else-if="column.key === 'display_status'">
@@ -394,7 +498,8 @@ onMounted(async () => {
         @current-change="load"
       /></div
   >
-  <BusinessDetailDialog :open="detailOpen" title="需求详情" :loading="detailLoading" :error="detailError"
+  </div>
+  <BusinessDetailDialog :open="detailOpen && !editorRoute" title="需求详情" :loading="detailLoading" :error="detailError"
     @close="detailDialog.close" @retry="detailDialog.reload">
     <template v-if="detail"><div class="detail-header">
       <div>
@@ -529,15 +634,23 @@ onMounted(async () => {
       :owner-id="detail.id"
   /></template>
   </BusinessDetailDialog>
-  <DemandEditor v-model:open="dialog" :editing="editing" :restored="restoredDraft" @saved="saved" @configure="configureMissingOperation" />
+  <BusinessWorkSurface v-if="editorRoute && !dialog" title="专业需求办理" @back="leaveEditor">
+    <ElAlert v-if="editorError" :title="editorError" type="error" :closable="false">
+      <ElButton text @click="readEditor">重新读取</ElButton>
+    </ElAlert>
+    <ElSkeleton v-else :rows="5" animated />
+  </BusinessWorkSurface>
+  <DemandEditor :open="dialog && !!editorRoute" :editing="editing" :restored="restoredDraft"
+    @update:open="!$event && leaveEditor()" @saved="saved" @configure="configureMissingOperation" />
   <ElDialog v-model="projectPickerOpen" append-to-body title="选择子项目承接需求"
     width="min(840px, 94vw)" :close-on-click-modal="false">
-    <p v-if="detail" class="muted">待承接：{{ detail.operation_snapshot }} · {{ detail.problem_description }}</p>
+    <p v-if="batchLinkItems">已选 {{ batchLinkItems.length }} 条需求，请选择承接项目。</p>
+    <p v-else-if="detail" class="muted">待承接：{{ detail.operation_snapshot }} · {{ detail.problem_description }}</p>
     <div class="toolbar">
       <ElInput v-model="projectSearch" clearable placeholder="搜索子项目名称或编号"
         @change="projectPage = 1; loadProjectCandidates()" @keyup.enter="projectPage = 1; loadProjectCandidates()" />
       <ElButton @click="projectPage = 1; loadProjectCandidates()">查找</ElButton>
-      <ElButton data-guide-action="demands.project-create" :disabled="!can('write')" @click="createProjectAndLink">创建子项目并承接</ElButton>
+      <ElButton v-if="!batchLinkItems" data-guide-action="demands.project-create" :disabled="!can('write')" @click="createProjectAndLink">创建子项目并承接</ElButton>
     </div>
     <BusinessTable :rows="projectCandidates" :columns="projectPickerColumns"
       table-key="demand:project-picker" client-side :loading="projectLoading"
@@ -561,9 +674,10 @@ onMounted(async () => {
     <template #footer>
       <ElButton @click="projectPickerOpen = false">取消</ElButton>
       <ElButton data-guide-action="demands.link-submit" type="primary" :loading="linking" :disabled="!selectedProjectId || !can('write') || linking || projectLoading"
-        @click="linkSelectedProject">承接该需求</ElButton>
+        @click="batchLinkItems ? reviewBatchLink() : linkSelectedProject()">{{ batchLinkItems ? "核对承接清单" : "承接该需求" }}</ElButton>
     </template>
   </ElDialog>
+  <HandlingReviewDialog :workflow="handling" />
   <PricingQuoteDialog
     v-if="detail"
     v-model="quoteOpen"

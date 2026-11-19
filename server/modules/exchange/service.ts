@@ -670,6 +670,7 @@ export function createExchange(system:System) {
     preview,
     commit,
     exportData,
+    projectReport: (actor: Actor, ids: string[]) => makeBusinessReport("projects", system.projects.selectedProjectReport(actor, ids)),
     template(actor:Actor,kind:WorkbookKind,projectId?:string|null) {
       authorize(actor, "read");
       if (kind === "assets") return makeWorkbook("assets");
