@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { settlementStatusLabels, type SettlementListStatus } from "../../../../server/shared/types/finance-workflows";
 import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, money, statusText } from "../../shared/api/client";
@@ -74,9 +75,12 @@ const deleted = ref(false), loading = ref(false), error = ref("");
 function openProjectFinance(projectId: string) {
   void router.push(projectFinanceContext(projectId, route.fullPath));
 }
+function recordStatus(status: string) {
+  return (kind.value === "settlements" ? settlementStatusLabels[status as SettlementListStatus] : statusText[status]) || status;
+}
 const settlementItemColumns: TableColumn[] = [
   { key: "amount_fen", label: "费用金额", minWidth: 150 },
-  { key: "quantity_scaled", label: "本次解决数量", minWidth: 145 },
+  { key: "quantity_scaled", label: "费用计量数量", minWidth: 145 },
   { key: "evidence", label: "结算依据", minWidth: 200 },
 ];
 const columns = computed<TableColumn[]>(() => [
@@ -172,7 +176,7 @@ onMounted(() => { void load(); });
           @click="openProjectFinance(row.project_id)">{{ row.project_name }}</ElButton>
         <ElButton v-else-if="kind !== 'projects' && column.key === 'label'" link type="primary" class="cell-link"
           @click="viewRecord(row)">{{ row.label }}</ElButton>
-        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : statusText[row.status] || row.status }}</ElTag><span v-else-if="['amount_fen', 'effective_amount_fen'].includes(column.key)">{{ value == null ? (kind === 'projects' ? '尚未批准' : '—') : money(Number(value)) }}</span><span v-else>{{ value ?? '—' }}</span></template>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : recordStatus(row.status) }}</ElTag><span v-else-if="['amount_fen', 'effective_amount_fen'].includes(column.key)">{{ value == null ? (kind === 'projects' ? '尚未批准' : '—') : money(Number(value)) }}</span><span v-else>{{ value ?? '—' }}</span></template>
     </BusinessTable>
     <ElPagination v-model:current-page="page" :total="total" :page-size="30" layout="prev,pager,next,total" @current-change="load" />
   </div>
@@ -183,7 +187,7 @@ onMounted(() => { void load(); });
     <template v-if="selectedRecord && recordContent">
       <div class="detail-header">
         <h1>{{ selectedRecord.label }}</h1>
-        <ElTag effect="plain">{{ statusText[selectedRecord.status] || selectedRecord.status }}</ElTag>
+        <ElTag effect="plain">{{ recordStatus(selectedRecord.status) }}</ElTag>
       </div>
       <div class="toolbar">
         <ElButton type="primary" plain @click="openProjectForRecord(selectedRecord)">
@@ -195,7 +199,7 @@ onMounted(() => { void load(); });
         <ElDescriptions :column="2" border>
           <ElDescriptionsItem label="所属子项目">{{ selectedRecord.project_name }}</ElDescriptionsItem>
           <ElDescriptionsItem label="记录事项">{{ selectedRecord.label }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="业务状态">{{ statusText[selectedRecord.status] || selectedRecord.status }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="业务状态">{{ recordStatus(selectedRecord.status) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="业务日期">{{ selectedRecord.occurred_on || "—" }}</ElDescriptionsItem>
           <ElDescriptionsItem :label="kind === 'costs' ? '真实费用' : kind === 'settlements' ? '本次结算金额' : '核定结算金额'">
             {{ selectedRecord.amount_fen == null ? '未核定' : '¥' + money(selectedRecord.amount_fen) }}
@@ -221,6 +225,17 @@ onMounted(() => { void load(); });
             <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
             <span v-else-if="column.key === 'quantity_scaled'">{{ row.quantity_scaled == null ? '—' : row.quantity_scaled / 10000 }}</span>
             <span v-else>{{ column.key === 'evidence' ? (row.evidence || '—') : '—' }}</span>
+          </template>
+        </BusinessTable>
+      </div>
+      <div v-if="kind === 'settlements' && currentRecord?.resolutions?.length" class="panel">
+        <h2>最近提交的需求解决量</h2>
+        <BusinessTable :rows="currentRecord.resolutions" :columns="[
+          { key: 'resolved_quantity_scaled', label: '本次解决数量', minWidth: 150 },
+          { key: 'evidence', label: '解决依据', minWidth: 200 },
+        ]" table-key="finance:cross:settlement-resolutions" client-side>
+          <template #cell="{ row, column }">
+            {{ column.key === 'resolved_quantity_scaled' ? row.resolved_quantity_scaled / 10000 : (row.evidence || '—') }}
           </template>
         </BusinessTable>
       </div>

@@ -24,7 +24,14 @@ function records(dir) {
 }
 
 test("actual HTTP access logs cover authentication, denials, errors, concurrency and safe export", async t => {
-  const { s, user, dir } = fixture(t), app = await start(s);
+  const { s, user, dir } = fixture(t);
+  let failDashboard = false;
+  const dashboard = s.dashboard;
+  s.dashboard = actor => {
+    if (failDashboard) throw new Error("private-error Authorization=NeverLogThisToken");
+    return dashboard(actor);
+  };
+  const app = await start(s);
   t.after(app.stop);
   const { base } = app;
   const signed = await login(base);
@@ -37,12 +44,11 @@ test("actual HTTP access logs cover authentication, denials, errors, concurrency
   for (const path of ["/api/access-logs", "/api/access-logs/export", "/api/users"])
     assert.equal((await fetch(base + path, { headers: viewer.headers })).status, 403);
   assert.equal((await fetch(base + "/api/missing", { headers: signed.headers })).status, 404);
-  const oldDashboard = s.dashboard;
-  s.dashboard = () => { throw new Error("private-error Authorization=NeverLogThisToken"); };
+  failDashboard = true;
   const failure = await fetch(base + "/api/dashboard", { headers: signed.headers });
   assert.equal(failure.status, 500);
   assert.doesNotMatch(await failure.text(), /private-error/);
-  s.dashboard = oldDashboard;
+  failDashboard = false;
   const policy = await fetch(base + "/api/access-policy", { method: "POST", headers: {
     ...signed.headers, "Content-Type": "application/json", "Idempotency-Key": "access-log-conflict" },
     body: JSON.stringify({ expected_version: 99, ip_restriction_enabled: false }) });

@@ -2,7 +2,7 @@ import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type {
   ProjectManagementInput, ProjectFromDemandInput, ProjectVersionAction,
-  ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput, ProjectFundingInput,
+  ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
   ProjectApprovalInput, ProjectApprovalScopeInput,
   ProjectApprovedMaterialInput, ProjectApprovedLocationInput,
 } from "../../shared/types/projects.js";
@@ -75,12 +75,6 @@ export function parseProjectRelease(input:Record<string,unknown>):ProjectRelease
   return {
     expected_event_seq:numberValue(input.expected_event_seq,"关联版本"),
     reason:optionalText(input.reason,"说明") ?? undefined,
-  };
-}
-export function parseProjectFunding(input:Record<string,unknown>):ProjectFundingInput {
-  return {
-    ...parseProjectVersion(input),
-    agreement_id:optionalText(input.agreement_id,"执行协议"),
   };
 }
 function parseLocation(input:unknown, index:number):ProjectApprovedLocationInput {

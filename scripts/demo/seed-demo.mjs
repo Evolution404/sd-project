@@ -539,9 +539,7 @@ export function ensureDemoDatabase(dataDir, options = {}) {
   const system = createSystem(directory);
   try {
     const result = populate(system, options.password || DEMO_PASSWORD);
-    const database=system.database.connection;
-    if (database.prepare("PRAGMA foreign_key_check").all().length ||
-        database.prepare("PRAGMA integrity_check").get()?.integrity_check !== "ok")
+    if (!system.database.verifyIntegrity())
       throw Error("演示数据完整性检查未通过");
     const metadata = {
       purpose: "local-demo", version: SEED_VERSION,

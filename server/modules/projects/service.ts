@@ -580,6 +580,14 @@ export function createProjects(
       options: eligibleAgreementOptions(project.framework_id, selectedId),
     };
   }
+  function search(query: ListQuery) {
+    const result = repo.searchProjects(query);
+    return { ...result, items: result.items.map(({ approval_json, scopes_json, funding_json, ...row }) => ({
+      ...row, approval: approval_json ? JSON.parse(approval_json) as Pick<ProjectApprovalVersion, "id" | "version_no" | "approved_budget_fen"> : null,
+      scopes: JSON.parse(scopes_json || "[]") as ProjectScopeListItem[], funding: funding_json ? JSON.parse(funding_json) as Pick<ProjectFundingVersion, "id" | "version_no" | "agreement_id"> : null,
+      deleted: Boolean(row.deleted),
+    })) };
+  }
   return {
     get,
     save,
@@ -590,12 +598,17 @@ export function createProjects(
       return { framework_id: frameworkId,
         options: eligibleAgreementOptions(frameworkId, selectedId) };
     },
-    search(query: ListQuery) {
-      const result = repo.searchProjects(query);
-      return { ...result, items: result.items.map(({ approval_json, scopes_json, funding_json, ...row }) => ({
-        ...row, approval: approval_json ? JSON.parse(approval_json) as Pick<ProjectApprovalVersion, "id" | "version_no" | "approved_budget_fen"> : null,
-        scopes: JSON.parse(scopes_json || "[]") as ProjectScopeListItem[], funding: funding_json ? JSON.parse(funding_json) as Pick<ProjectFundingVersion, "id" | "version_no" | "agreement_id"> : null,
-        deleted: Boolean(row.deleted),
+    search,
+    handlingQueue(actor: Actor, kind: "compile" | "initial" | "change", query: ListQuery) {
+      authorize(actor, kind === "compile" ? "write" : kind === "initial" ? "project.approve" : "change.approve");
+      const state = kind === "compile" ? "已入库" : kind === "initial" ? "立项中" : "变更中";
+      const page = search({ ...query, deleted: false, filters: { ...query.filters, display_status: state } });
+      return { ...page, items: page.items.map(row => ({
+        id: row.id,
+        name: row.name,
+        reason: kind === "compile"
+          ? row.scopes.some(scope => scope.binding && scope.demand_status === "active") ? "" : "请先关联已确认需求"
+          : approvalBlockReason(get(row.id, false, true)),
       })) };
     },
     selectedProjectReport(actor: Actor, ids: string[]) {

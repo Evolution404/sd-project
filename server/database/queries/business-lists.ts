@@ -1,3 +1,4 @@
+import { settlementStatusFilter } from "../../shared/types/finance-workflows.js";
 import { settlementStatusSql } from "./settlement-status-sql.js";
 import type { FinanceListItem, FinanceListKind } from "../../shared/types/finance.js";
 import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
@@ -162,7 +163,11 @@ export function searchPage<T>(store: QueryStore, entity: string, source: ListSou
 export function businessLists(store: QueryStore) {
   return {
     finance: (kind: FinanceListKind, query: ListQuery): Page<FinanceListItem> => {
-      const result = searchPage<FinanceListItem>(store, kind, financeSources[kind], query);
+      const status = query.filters.status;
+      const applied = kind === "settlements" && status
+        ? { ...query, filters: { ...query.filters, status: settlementStatusFilter(status) } }
+        : query;
+      const result = searchPage<FinanceListItem>(store, kind, financeSources[kind], applied);
       return { ...result, items: result.items.map(row => ({ ...row, deleted: Boolean(row.deleted) })) };
     },
     demands: (query: ListQuery) => searchPage<DemandListRecord>(store, "demands", demandSource, query),

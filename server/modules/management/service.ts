@@ -121,6 +121,10 @@ export function createManagement({ repository, identity, auth, audit, database }
     }
     return repository.auditEvents(includeDeleted);
   }
+  function searchAuditEvents(actor: Actor, query: Parameters<ManagementRepository["searchAuditEvents"]>[0]) {
+    authorize(actor, "admin");
+    return repository.searchAuditEvents(query);
+  }
   function annotateAudit(actor: Actor, input: Input, key?: string, method?: string) {
     authorize(actor, "admin");
     return database.transaction(() => {
@@ -143,6 +147,6 @@ export function createManagement({ repository, identity, auth, audit, database }
     authorize(actor, "admin");
     return repository.permissionCatalog();
   }
-  return { actors, users, saveUser, accessPolicy, setAccessPolicy, ips, saveIp, audits, annotateAudit, permissions };
+  return { actors, users, saveUser, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, annotateAudit, permissions };
 }
 export type ManagementService = ReturnType<typeof createManagement>;

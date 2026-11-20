@@ -57,7 +57,7 @@ try {
   assert.ok(await release.isDisabled(),"approved bound demand must have disabled release action");
   assert.match((await release.getAttribute("title"))||"",/正式批准范围/);
   await page.screenshot({path:join(out,"approved-scope-release-disabled.png"),fullPage:true});
-  s.finance.close(user,project.id,{preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version:project.version});
+  s.projectClosure.commit(user,project.id,{preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version:project.version});
   await page.reload();
   await page.getByRole("tab",{name:"已结项",exact:true}).click();
   await page.getByRole("row").filter({hasText:"测试子项目"}).locator(".cell-link:visible").first().click();

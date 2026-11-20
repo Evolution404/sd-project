@@ -180,3 +180,34 @@ test("project total workbook can round-trip without detail sheets or an artifici
   assert.deepEqual(preview.issues, []);
   assert.equal(preview.documents[0].action, "unchanged");
 });
+
+test("settlement report distinguishes current approval from a revision and exports frozen units by demand", async t => {
+  const { s, user, project, scope, approval, node, demand } = approvedFixture(t);
+  const exchange = createExchange(s);
+  let bill = s.finance.saveDraft(user, project.id, {
+    mode: "project_total", approval_version_id: approval.id, amount_fen: 10000,
+    settlement_on: "2026-11-10", basis: "旧批准依据",
+    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 20000, evidence: "现场核实" }],
+  });
+  bill = s.finance.submit(user, bill.id, { expected_version: 0, expected_edit_version: bill.draft.edit_version });
+  bill = s.finance.review(user, bill.id, { expected_version: 1, expected_event_seq: 1, action: "approve" });
+  bill = s.finance.saveDraft(user, project.id, {
+    mode: "itemized", approval_version_id: approval.id, change_type: "revision",
+    expected_version: 1, expected_edit_version: 0, settlement_on: "2026-11-11", basis: "草稿依据",
+    items: [{ cost_node_id: node.id, project_scope_id: scope.id, amount_fen: 12000, quantity_scaled: 10000 }],
+  }, bill.id);
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await exchange.exportData(user, "settlements", { ids: [bill.id], report: true }));
+  const cell = (sheetName, heading) => {
+    const sheet = workbook.getWorksheet(sheetName);
+    return sheet.getRow(2).getCell(sheet.getRow(1).values.indexOf(heading)).value;
+  };
+  const main = "结算业务报表";
+  assert.equal(cell(main, "当前生效结算方式"), "按项目总额");
+  assert.equal(cell(main, "当前生效结算依据"), "旧批准依据");
+  assert.equal(cell(main, "草稿结算方式"), "按子费用");
+  assert.equal(cell(main, "草稿结算依据"), "草稿依据");
+  assert.equal(cell("生效需求解决量", "需求编号"), demand.demand_no);
+  assert.equal(cell("生效需求解决量", "解决量"), "2.0000");
+  assert.equal(cell("生效需求解决量", "计量单位"), "套");
+});

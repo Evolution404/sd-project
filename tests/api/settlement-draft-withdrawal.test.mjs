@@ -47,7 +47,7 @@ test("withdrawing an initial draft hides its identity and permits formal closure
   assert.equal(f.s.finance.settlements(f.project.id).length, 0);
   assert.equal(f.s.finance.allSettlements(true).find(b => b.id === bill.id).deleted, true);
   assert.ok(inspect(f.s).find("settlements", "id", bill.id));
-  f.s.finance.close(f.user, f.project.id, { preview_hash: f.s.finance.closePreview(f.user, f.project.id).preview_hash, expected_version: f.project.version });
+  f.s.projectClosure.commit(f.user, f.project.id, { preview_hash: f.s.projectClosure.preview(f.user, f.project.id).preview_hash, expected_version: f.project.version });
   assert.equal(f.s.projects.get(f.project.id).status, "closed");
 });
 

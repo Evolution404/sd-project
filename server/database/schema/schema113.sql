@@ -2913,6 +2913,10 @@ BEGIN
  SELECT CASE WHEN NEW.version_no<>(SELECT COALESCE(MAX(v.version_no),0)+1
  FROM cost_versions v WHERE v.entry_id=NEW.entry_id)
  THEN RAISE(ABORT,'同一笔费用确认版本必须从1连续增加') END;
+ SELECT CASE WHEN NEW.status='active' AND NEW.amount_fen < COALESCE((
+  SELECT SUM(applied.reconciled_cost_fen) FROM v_effective_cost_reconciliations applied
+  WHERE applied.entry_id=NEW.entry_id),0)
+ THEN RAISE(ABORT,'更正后金额低于已核对金额，请先调整关联核对记录') END;
  SELECT CASE WHEN NEW.confirmed_at<
  (SELECT e.created_at FROM cost_entries e WHERE e.id=NEW.entry_id)
  OR NEW.confirmed_at<

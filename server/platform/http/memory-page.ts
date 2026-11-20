@@ -7,7 +7,11 @@ export function memoryPage<T extends object>(rows: T[], search: URLSearchParams)
   const direction = query.direction === "asc" ? 1 : -1;
   const filtered = rows.filter(row => !query.q || JSON.stringify(row).includes(query.q))
     .filter(row => Object.entries(query.filters).every(([key, value]) =>
-      String(Reflect.get(row, key) ?? "").toLocaleLowerCase("zh-CN").includes(value.toLocaleLowerCase("zh-CN"))))
+      {
+        const field = String(Reflect.get(row, key) ?? "").toLocaleLowerCase("zh-CN");
+        const expected = value.toLocaleLowerCase("zh-CN");
+        return key === "status" || key === "display_status" ? field === expected : field.includes(expected);
+      }))
     .sort((a, b) => String(Reflect.get(a, query.sort) ?? "")
       .localeCompare(String(Reflect.get(b, query.sort) ?? ""), "zh-CN", { numeric: true }) * direction);
   return { items: filtered.slice((query.page - 1) * query.page_size, query.page * query.page_size),

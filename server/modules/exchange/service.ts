@@ -12,7 +12,7 @@ import { createReferences } from "./references.js";
 import { cleanRow as clean, detailIdentity as identity, mergeDetails, differences } from "./details.js";
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
-import type {System} from "../../bootstrap.js";
+import type { ExchangePorts } from "./ports.js";
 import type {Actor} from "../../shared/types/contracts.js";
 import type {DemandRecord} from "../../shared/types/demands.js";
 import type {ParsedWorkbook,ParsedWorkbookRow,WorkbookKind,WorkbookIssue,ExchangeCommitResult,
@@ -21,9 +21,9 @@ import type {ParsedWorkbook,ParsedWorkbookRow,WorkbookKind,WorkbookIssue,Exchang
 import {BusinessError} from "../../shared/errors/business-error.js";
 import {isObject} from "../../shared/types/contracts.js";
 import type {DetailKind} from "./details.js";
-import {financeSettlementDraft} from "../finance/requests.js";
+import {financeSettlementDraft} from "../finance/draft-input.js";
 import {createExchangeExporter} from "./export.js";
-export function createExchange(system:System) {
+export function createExchange(system:ExchangePorts) {
   const { exchangePersistence, catalog, demands, finance } = system;
   const assets = createAssetExchange(system);
   let references = createReferences(system);
@@ -551,6 +551,8 @@ export function createExchange(system:System) {
       created_at: now(),
       updated_at: now(),
     });
+    if (kind === "demands") system.training.record(actor.id,
+      prepared.issues.length ? "excel_invalid_preview" : "excel_valid_preview", token);
     return {
       token,
       ...prepared,
@@ -584,7 +586,7 @@ export function createExchange(system:System) {
   }
   function commit(actor:Actor,token:string,input:ExchangeCommitInput) {
     authorize(actor, "write");
-    return system.idempotent(
+    const committed = system.idempotent(
       actor,
       input.request_key,
       { token, atomic: Boolean(input.atomic) },
@@ -613,7 +615,7 @@ export function createExchange(system:System) {
         const execute = () => {
           for (const document of prepared.documents) {
             try {
-              const result = system.database.transaction(() => {
+              const result = exchangePersistence.withDocumentSavepoint(() => {
                 if (document.action === "unchanged")
                   return { id: document.id, unchanged: true };
                 if ("kind" in document) return assets.execute(actor, document);
@@ -668,6 +670,10 @@ export function createExchange(system:System) {
         return result;
       },
     );
+    if (committed.kind === "demands" && committed.results.some(result =>
+      result.action === "create" || result.action === "update"))
+      system.training.record(actor.id, "excel_commit", token);
+    return committed;
   }
   function lookupRows():Record<string,unknown>[] {
     type LookupRecord={id:string;label:string;status:string;model?:string;specification?:string};

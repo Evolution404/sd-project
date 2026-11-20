@@ -8,7 +8,7 @@ import { requireValue } from "../../shared/errors/business-error.js";
  * equipment and settlement mutations remain in their own domain services.
  * Application code never supplies SQL table or column identifiers.
  */
-type Store = Pick<ReturnType<typeof createStore>, "get" | "run">;
+type Store = Pick<ReturnType<typeof createStore>, "get" | "run" | "transaction">;
 
 export interface ExchangeBatchDraft {
   id: string;
@@ -26,6 +26,7 @@ export interface ExchangeBatchSubmission {
 
 export function exchangePersistenceRepository(store: Store) {
   return {
+    withDocumentSavepoint: store.transaction,
     demandNumberExists(number: string): boolean {
       return Boolean(store.get("SELECT 1 AS value FROM demands WHERE demand_no=? LIMIT 1", number));
     },

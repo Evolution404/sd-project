@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { approvedFixture } from "../helpers.mjs";
+import { inspect } from "../inspector.mjs";
 
 const query = { page: 1, page_size: 30, q: "", filters: {}, sort: "created_at", direction: "desc", deleted: false };
 
@@ -27,13 +29,13 @@ test("concurrent cost changes invalidate a close preview and leave no closure", 
     mode: "project_total", amount_fen: 5000, approval_version_id: approval.id,
   });
   review(s, user, submit(s, user, bill), "approve");
-  const reviewed = s.finance.closePreview(user, project.id);
+  const reviewed = s.projectClosure.preview(user, project.id);
   assert.equal(reviewed.summary.settlement_progress_percent, 50);
   s.finance.cost(user, project.id, { ...expense, title: "并发核定费用" });
-  assert.throws(() => s.finance.close(user, project.id, reviewed), { status: 409 });
+  assert.throws(() => s.projectClosure.commit(user, project.id, reviewed), { status: 409 });
   assert.equal(s.projects.history(project.id).closures.length, 0);
-  const fresh = s.finance.closePreview(user, project.id);
-  s.finance.close(user, project.id, fresh);
+  const fresh = s.projectClosure.preview(user, project.id);
+  s.projectClosure.commit(user, project.id, fresh);
   assert.equal(JSON.parse(s.projects.history(project.id).closures.at(-1).close_snapshot_json)
     .settlement_progress_percent, 25);
 });
@@ -64,14 +66,35 @@ test("effective statement lines survive return, cost corrections cannot over-app
   assert.throws(() => s.finance.cost(user, project.id,
     { ...expense, expected_version: 1, amount_fen: 8000 }, cost.entry_id), { status: 409 });
   assert.equal(s.finance.summary(project.id).unreconciled_cost_fen, 0);
+  assert.throws(() => inspect(s).insert("cost_versions", {
+    ...cost, id: randomUUID(), request_key: randomUUID(), version_no: 2, amount_fen: 8000,
+  }), /更正后金额低于已核对金额/);
   bill = s.finance.saveDraft(user, project.id, {
     approval_version_id: approval.id, expected_version: 2, expected_edit_version: 0,
     change_type: "void", reason: "测试正式注销",
   }, bill.id);
   bill = review(s, user, submit(s, user, bill), "approve");
   assert.equal(bill.status, "voided");
-  const filters = { ...query, filters: { status: "voided" } };
+  const filters = { ...query, filters: { status: "已注销" } };
   assert.equal(s.finance.search("settlements", filters).total, 1);
   assert.equal(s.finance.searchSettlements(project.id, filters).total, 1);
   assert.equal(s.finance.searchReconciliationItems(user, project.id, query).total, 0);
+});
+
+test("an unfinished project change is reported before close and cannot create a closure", t => {
+  const { s, user, project, approval, scope, demand } = approvedFixture(t);
+  const change = s.projects.approvalDraft(user, project.id, {
+    expected_version: project.version, expected_approval_version_id: approval.id,
+    approved_budget_fen: 121000, confirm_changes: true,
+    scopes: [{ project_scope_id: scope.id, demand_version: demand.current_version,
+      locations: demand.work_locations.map(location => ({
+        location_item_no: location.item_no, approved_quantity_scaled: location.quantity_scaled,
+      })) }],
+  });
+  const queue = s.projects.handlingQueue(user, "change", query);
+  assert.equal(queue.items.find(row => row.id === project.id)?.reason, "");
+  const preview = s.projectClosure.preview(user, project.id);
+  assert.match(preview.reason, /尚有未完成/);
+  assert.throws(() => s.projectClosure.commit(user, change.id, preview), { status: 409 });
+  assert.equal(s.projects.history(project.id).closures.length, 0);
 });

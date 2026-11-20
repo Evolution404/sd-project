@@ -288,3 +288,22 @@ test("conflicting physical-attribute revisions from two shared logical circuits 
   assert.equal(s.catalog.get("towers", sibling.id).physical_tower_id, physical.id);
   assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
+
+test("maintenance of an unrelated tower field preserves the adopted inactive material", async t => {
+  const { s, user } = fixture(t);
+  const exchange = createExchange(s);
+  const material = s.catalog.get("tower_materials", "angle");
+  const physical = s.catalog.save(user, "physical", { tower_material: material.id, model: "原型号" });
+  s.catalog.save(user, "tower_materials", { status: "inactive", expected_version: material.version }, material.id);
+  const book = new ExcelJS.Workbook();
+  await book.xlsx.load(await exchange.exportData(user, "assets", { assetKind: "physical", ids: [physical.id] }));
+  const sheet = book.getWorksheet("物理杆塔");
+  sheet.getRow(2).getCell(headerIndex(sheet, "model")).value = "新型号";
+  const preview = await exchange.preview(user, "assets", Buffer.from(await book.xlsx.writeBuffer()), { mode: "update" });
+  assert.equal(preview.issues.length, 0, JSON.stringify(preview.issues));
+  const result = exchange.commit(user, preview.token, { request_key: "existing-disabled-material-2026", atomic: true });
+  assert.equal(result.results.length, 1);
+  const current = s.equipment.get("physical", physical.id);
+  assert.equal(current.model, "新型号");
+  assert.equal(current.tower_material, material.id);
+});

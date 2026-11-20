@@ -24,15 +24,14 @@ import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precisio
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
-import type { System } from "../../../../server/bootstrap";
+import type { ProjectDetail } from "../../../../server/shared/types/project-api";
 import type { ActualCostVersion, SettlementWorkflow, ReconciliationVersion, SettlementItemInput,
   SettlementResolutionInput, ReconciliationSettlementChoice, ActualCostInput, SettlementDraftInput, ReconciliationInput } from "../../../../server/shared/types/finance-workflows";
 import type { CategoryCost } from "../../../../server/shared/types/trees";
-import type { FinanceSummary } from "../../../../server/modules/finance/summary";
-type ProjectDetail = ReturnType<System["projects"]["get"]>;
+import type { FinanceSummary } from "../../../../server/shared/types/finance-api";
 type CostFact = ActualCostVersion & CategoryCost;
 type BillFact = SettlementWorkflow & {deleted?: boolean};
-type ReconciliationFact = ReconciliationVersion & {deleted?:boolean};
+type ReconciliationFact = ReconciliationVersion & {deleted?:boolean; effective?:boolean};
 type EditingFact = Partial<Omit<CostFact & Omit<BillFact, "status"> & ReconciliationFact, "status">> & {
   status?: CostFact["status"] | BillFact["status"];
 };
@@ -248,7 +247,7 @@ const financeColumns: Record<string, TableColumn[]> = {
     { key: "amount_fen", label: "本次金额", minWidth: 135 },
     { key: "effective_amount_fen", label: "当前生效", minWidth: 135, sortable: false, filterable: false },
     { key: "number", label: "结算编号", minWidth: 175 },
-    { key: "review", label: "正式版本与状态", minWidth: 180, sortable: false, filterable: false },
+    { key: "status", label: "正式版本与状态", minWidth: 180, sortable: false },
   ],
   reconciliations: [
     { key: "reconciled_cost_fen", label: "实际费用份额", minWidth: 165 },
@@ -477,11 +476,26 @@ watch([itemized, () => props.project.id, dialog], ([active, , current]) => {
   }
 });
 const settlementConflict = ref("");
+let comparedSettlement: BillFact | null = null;
+function continueSettlementEdit() {
+  const latest = comparedSettlement;
+  if (!latest || latest.id !== editing.value?.id) return;
+  if (latest.review?.action === "submit") {
+    ElMessage.warning("当前版本正在审核，退回后可继续编辑");
+    return;
+  }
+  form.value.expected_version = latest.version?.version_no ?? 0;
+  form.value.expected_edit_version = latest.draft?.edit_version ?? 0;
+  if (latest.version && form.value.change_type === "initial") form.value.change_type = "revision";
+  settlementConflict.value = "";
+  comparedSettlement = null;
+}
 watch(() => props.settlementWork?.id, () => { settlementConflict.value = ""; });
 async function compareSettlement() {
   const id = editing.value?.id;
   if (!id) return [];
   const row = await api<BillFact>(`/projects/${props.project.id}/settlements/${id}`);
+  comparedSettlement = row;
   const document = row.draft?.document || row.version;
   const amount = itemized.value ? itemizedTotal.value : form.value.amount_fen;
   const shownAmount = (value: number | undefined) => value === undefined ? "未填写" : "¥" + money(value);
@@ -885,7 +899,7 @@ watch(() => props.project.id, () => {
       <template #cell="{ row, column }">
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.draft?.document.amount_fen ?? row.version?.amount_fen) }}</span>
         <span v-else-if="column.key === 'effective_amount_fen'">{{ row.effective_amount_fen == null ? '—' : '¥' + money(row.effective_amount_fen) }}</span>
-        <span v-else-if="column.key === 'review'">
+        <span v-else-if="column.key === 'status'">
           第 {{ row.version?.version_no || 0 }} 版 · {{ row.status === 'voided' ? '已注销' : row.status === 'submit' ? '待审核' : row.status === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.status] || '待编制' }}
           <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
         </span>
@@ -930,7 +944,7 @@ watch(() => props.project.id, () => {
       @filter-change="financeTableFilter('reconciliations', $event)">
       <template #cell="{ row, column }">
         <span v-if="column.key === 'reconciled_cost_fen' || column.key === 'reconciled_settlement_fen'">¥{{ money(Number(row[column.key as keyof typeof row])) }}</span>
-        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已撤销' : '有效' }}</ElTag>
+        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已撤销' : row.effective === false ? '待重新核对' : '有效' }}</ElTag>
         <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
       <template #actions="{ row }">
@@ -963,6 +977,9 @@ watch(() => props.project.id, () => {
     </ElAlert>
     <template v-else-if="settlementReview">
       <ElAlert v-if="reviewBlock" :title="reviewBlock" type="info" :closable="false" />
+      <ElAlert v-if="settlementReview.reconciliation_impact?.count" type="warning" :closable="false"
+        title="批准新版会影响原有核对记录"
+        :description="`涉及 ${settlementReview.reconciliation_impact.count} 条有效核对，已核对费用 ¥${money(settlementReview.reconciliation_impact.cost_fen)}。批准后请按生效明细重新核对，原记录保留历史。`" />
       <ElDescriptions :column="2" border>
         <ElDescriptionsItem label="结算编号">{{ settlementReview.number }}</ElDescriptionsItem>
         <ElDescriptionsItem label="业务日期">{{ reviewDocument?.settlement_on || '—' }}</ElDescriptionsItem>
@@ -1021,7 +1038,7 @@ watch(() => props.project.id, () => {
     :before-close="beforeEditorClose"
     @close="settlementWork ? closeEditor() : dialog = '' "
     >
-    <VersionConflictNotice v-if="dialog === 'settlement'" :message="settlementConflict" :read-current="compareSettlement" />
+    <VersionConflictNotice v-if="dialog === 'settlement'" :message="settlementConflict" :read-current="compareSettlement" :apply-current="continueSettlementEdit" />
     <ElForm ref="formRef" label-position="top" novalidate :model="form"
       ><div class="form-grid">
         <template v-if="dialog === 'cost'"

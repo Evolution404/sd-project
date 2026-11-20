@@ -38,6 +38,7 @@ export interface Database {
   connection: DatabaseSync;
   transaction<T>(action: () => T): T;
   backupTo(destination: string): Promise<string>;
+  verifyIntegrity(): boolean;
   close(): void;
 }
 
@@ -107,6 +108,10 @@ export function openDatabase(
       const objects = join(directory, "objects");
       if (existsSync(objects)) cpSync(objects, join(target, "objects"), { recursive: true });
       return target;
+    },
+    verifyIntegrity() {
+      return connection.prepare("PRAGMA foreign_key_check").all().length === 0 &&
+        connection.prepare("PRAGMA integrity_check").get()?.integrity_check === "ok";
     },
     close() { connection.close(); },
   };

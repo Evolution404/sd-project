@@ -1,5 +1,5 @@
 import type {Actor} from "../../shared/types/contracts.js";
-import type {System} from "../../bootstrap.js";
+import type { ExchangePorts } from "./ports.js";
 import type {WorkbookKind,WorkbookRow,ExchangeExportOptions} from "../../shared/types/exchange.js";
 import type {DemandRecord} from "../../shared/types/demands.js";
 import type {SettlementWorkflow} from "../../shared/types/finance-workflows.js";
@@ -18,13 +18,13 @@ function emptyRows():WorksheetRows {
   return {documents:[],work_locations:[],materials:[],sources:[],items:[],
     resolutions:[]};
 }
-function scopeDescription(system:System,scopeId:string|null|undefined):string|undefined {
+function scopeDescription(system:ExchangePorts,scopeId:string|null|undefined):string|undefined {
   if (!scopeId) return undefined;
   const demandId=system.exchangePersistence.scopeDemandId(scopeId);
   requireValue(demandId,"结算已采用需求范围不存在",404);
   return system.demands.get(demandId,true).problem_description;
 }
-function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
+function reportDemand(system:ExchangePorts,records:DemandRecord[]):Promise<Buffer> {
   return makeBusinessReport("demands",
     records.map(record=>({
       需求编号:record.demand_no,操作类型:record.operation_snapshot,
@@ -48,7 +48,7 @@ function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
     }))),
   );
 }
-function reportSettlement(system:System,records:SettlementWorkflow[]):Promise<Buffer> {
+function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[]):Promise<Buffer> {
   const statuses = {draft:"未提交", submit:"待审核", approve:"已批准", return:"已退回", reject:"已驳回", voided:"已注销"};
   const projects = system.projects.dashboardPortfolio([...new Set(records.map(record => record.project_id))]);
   const projectById = new Map(projects.map(project => [project.id, project]));
@@ -94,7 +94,7 @@ function reportSettlement(system:System,records:SettlementWorkflow[]):Promise<Bu
     解决依据:row.evidence,
   })));
 }
-function exportDemands(system:System,records:DemandRecord[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
+function exportDemands(system:ExchangePorts,records:DemandRecord[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();
   const schemas=new Map<string,OperationAttribute>();
   const cells=(values: Record<string,unknown>)=>Object.fromEntries(Object.entries(values).map(([key,value])=>[attributeColumn(key),value]));
@@ -118,7 +118,7 @@ function exportDemands(system:System,records:DemandRecord[],lookups:()=>Record<s
   }
   return makeWorkbook("demands",rows,{lookups:lookups(),attributes:[...schemas.values()]});
 }
-function exportSettlements(system:System,records:SettlementWorkflow[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
+function exportSettlements(system:ExchangePorts,records:SettlementWorkflow[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();
   const refs=createReferences(system);
   for(const record of records){
@@ -158,7 +158,7 @@ function exportSettlements(system:System,records:SettlementWorkflow[],lookups:()
   }
   return makeWorkbook("settlements",rows,{lookups:lookups()});
 }
-export function createExchangeExporter(system:System,lookups:()=>Record<string,unknown>[]) {
+export function createExchangeExporter(system:ExchangePorts,lookups:()=>Record<string,unknown>[]) {
   return async (actor:Actor,kind:WorkbookKind,options:ExchangeExportOptions={}):Promise<Buffer>=>{
     authorize(actor,"read");
     if(kind==="assets")throw new Error("设备导出由设备专用服务处理");

@@ -1,11 +1,14 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { System } from "../../bootstrap.js";
 import type { Actor, Page } from "../../shared/types/contracts.js";
-import type { createEvidence } from "../files/service.js";
-import type { createExchange } from "../../modules/exchange/service.js";
+
+export type RouteServices = Pick<System, "auth" | "catalog" | "dashboard" | "demands" |
+  "dictionaries" | "equipment" | "finance" | "funding" | "management" | "materials" |
+  "organizations" | "priceRules" | "pricing" | "projectClosure" | "projects" | "sources" | "standards">;
+export type HttpServices = RouteServices & Pick<System, "dataDirectory" | "evidence" | "exchange" | "training" | "idempotent">;
 
 export interface RouteContext {
-  system: System;
+  system: RouteServices;
   actor: Actor;
   resource: string;
   key: string;
@@ -19,8 +22,8 @@ export interface RouteContext {
   url: URL;
   req: IncomingMessage;
   res: ServerResponse;
-  evidence: ReturnType<typeof createEvidence>;
-  exchange: ReturnType<typeof createExchange>;
+  evidence: HttpServices["evidence"];
+  exchange: HttpServices["exchange"];
   mutate<T>(permission: string, action: () => T): T;
   workbook(response: ServerResponse, promise: Promise<unknown>, filename: string): Promise<void>;
   page<T extends object>(rows: T[], search: URLSearchParams): Page<T>;

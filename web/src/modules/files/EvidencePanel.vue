@@ -4,7 +4,7 @@ import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 import { ref, watch } from "vue";
 import { ElMessage, ElMessageBox, type UploadFile } from "element-plus";
-import type { EvidenceRecord } from "../../../../server/database/repositories/evidence";
+import type { EvidenceRecord } from "../../../../server/shared/types/evidence";
 import { api, download } from "../../shared/api/client";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 const props = defineProps<{ ownerKind: string; ownerId: string }>();

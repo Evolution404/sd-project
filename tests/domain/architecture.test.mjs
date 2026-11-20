@@ -22,7 +22,12 @@ test("architecture gate rejects cycles, shared-to-business imports and type supp
   source("web/src/modules/projects/Bad.vue", '<script setup lang="ts">const project: any = {};</script>');
   source("web/src/modules/finance/Bad.vue", '<script setup lang="ts">const settlement: any = {};</script>');
   source("web/src/shared/api/client.ts", 'export type Row = Record<string, any>;');
+  source("server/bootstrap.ts", "export interface PublicShape { name: string }");
+  source("server/modules/exchange/Bad.ts", 'import type { PublicShape } from "../../bootstrap.js";');
+  source("web/src/modules/projects/Direct.vue", '<script setup lang="ts">import type { PublicShape } from "../../../../server/bootstrap";</script>');
   const issues = inspectArchitecture(root);
+  assert.ok(issues.some(issue => issue.includes("application composition root")));
+  assert.ok(issues.some(issue => issue.includes("instead of a public contract")));
   assert.ok(issues.some(issue => issue.includes("dependency cycle")));
   assert.ok(issues.some(issue => issue.includes("explicit any")));
   assert.ok(issues.some(issue => issue.includes("suppresses type checking")));

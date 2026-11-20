@@ -1,3 +1,4 @@
+import { parseListQuery } from "../../platform/http/list-query.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { requireValue } from '../../shared/errors/business-error.js';
@@ -33,7 +34,7 @@ export async function handleManagement(context: RouteContext): Promise<{
             result = read
                 ? key
                     ? system.management.audits(actor, deleted, key)
-                    : page(system.management.audits(actor, deleted), url.searchParams)
+                    : system.management.searchAuditEvents(actor, parseListQuery(url.searchParams))
                 : mutate("admin", () => system.management.annotateAudit(actor, input, key, method));
             break;
         case "permissions":

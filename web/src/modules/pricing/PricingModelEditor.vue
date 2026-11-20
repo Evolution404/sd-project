@@ -2,7 +2,7 @@
 import { ref, watch } from "vue";
 import FormulaParameters from "./FormulaParameters.vue";
 import { statusText } from "../../shared/api/client";
-import type { PricingParameters } from "../../../../server/modules/pricing/model";
+import type { PricingParameters } from "../../../../server/shared/types/pricing-api";
 type FormulaDraft = {
   [K in keyof PricingParameters]?: PricingParameters[K] | null;
 };

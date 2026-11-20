@@ -1,4 +1,6 @@
 import type { createStore } from "./store.js";
+import { searchPage } from "../queries/business-lists.js";
+import type { ListQuery } from "../../shared/types/contracts.js";
 import type { AuditRecord } from "../../shared/types/contracts.js";
 
 type Store = Pick<ReturnType<typeof createStore>,
@@ -61,6 +63,14 @@ export function managementRepository(store: Store) {
     removeIp(key: string): void { store.remove("allowed_ips", "id", key); },
     auditRecord(key: string): AuditRecord | undefined {
       return store.get("SELECT * FROM audit_events WHERE id=?", key) as AuditRecord | undefined;
+    },
+    searchAuditEvents(query: ListQuery) {
+      return searchPage<AuditRecord & { actor_username: string }>(store, "audit", {
+        sql: `SELECT a.*, COALESCE(u.username,'历史账户') AS actor_username
+          FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id`,
+        columns: ["id", "created_at", "actor_username", "entity", "entity_id", "action"],
+        search: ["actor_username", "entity", "entity_id", "action", "before_json", "after_json"],
+      }, query);
     },
     auditEvents(includeDeleted: boolean): (AuditRecord & { actor_username: string })[] {
       return store.query(`SELECT a.*, COALESCE(u.username,'历史账户') AS actor_username

@@ -6,7 +6,7 @@ import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.v
 import { formatBeijingDateTime } from "../../shared/utils/datetime";
 import { api, download } from "../../shared/api/client";
 import { useListRoute } from "../../shared/composables/use-list-route";
-import type { AccessRecord } from "../../../../server/platform/access-logs/service";
+import type { AccessRecord } from "../../../../server/shared/types/access-logs-api";
 const page = ref(1), sort = ref("time"), direction = ref("desc"), filters = ref<Record<string, string>>({});
 const from = ref(""), to = ref(""), ip = ref(""), username = ref(""), method = ref(""), status = ref(""), q = ref("");
 const fields = { from, to, ip, username, method, status, q };

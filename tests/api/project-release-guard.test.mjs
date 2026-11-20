@@ -54,7 +54,7 @@ test("approval draft containing a linked demand blocks release before formal app
 
 test("closed project retains approved binding through service, HTTP and database enforcement", async t => {
   const { s, user, project, scope, demand } = approvedFixture(t);
-  s.finance.close(user, project.id, { preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version: project.version });
+  s.projectClosure.commit(user, project.id, { preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version: project.version });
   assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }),
     error => error.status === 409 && /已结项.*正式批准范围/.test(error.message));
   const { inspect } = await import("../inspector.mjs");

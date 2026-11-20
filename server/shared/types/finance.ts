@@ -11,6 +11,7 @@ export interface FinanceRecordDetail {
   reconciled_cost_fen?: number | null;
   review?: { action: string } | null;
   items?: FinanceSettlementLine[];
+  resolutions?: { resolved_quantity_scaled: number; evidence: string }[];
 }
 
 export interface FinanceListItem {

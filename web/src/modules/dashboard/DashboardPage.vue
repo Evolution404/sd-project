@@ -6,8 +6,7 @@ import { useRouter } from "vue-router";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import { useAccess } from "../../shared/composables/use-access";
 import { api, money } from "../../shared/api/client";
-import type { ReportingService } from "../../../../server/modules/reporting/service";
-type Dashboard = ReturnType<ReportingService["dashboard"]>;
+import type { Dashboard } from "../../../../server/shared/types/reporting";
 type DashboardRow = Dashboard["portfolio"][number] | Dashboard["alerts"][number] |
   Dashboard["frameworks"][number] | Dashboard["months"][number] | Dashboard["quarters"][number];
 
@@ -49,14 +48,13 @@ async function loadQueue() {
           id: row.id, projectId: row.project_id, label: row.project_name + " · " + row.label,
         })) }] as const;
       }
-      const result = await api<{ total: number; items: Array<{ id: string; name?: string; demand_no?: string; problem_description?: string;
-        scopes?: Array<{ binding: unknown; demand_status: string; expected_on?: string | null }> }> }>(task.path + "?" + parameters);
-      const records = result.items.map(row => {
-        const active = row.scopes?.filter(scope => scope.binding && scope.demand_status === "active") || [];
-        const reason = task.path !== "/projects" ? "" : !active.length ? "请先关联已确认需求"
-          : active.some(scope => !scope.expected_on) ? "请补填预计解决时间" : "";
-        return { id: row.id, label: row.name || row.problem_description || row.demand_no || row.id, reason };
-      });
+      const endpoint = task.path === "/projects" ? "/projects/handling" : task.path;
+      if (task.path === "/projects") parameters.set("task", task.key);
+      const result = await api<{ total: number; items: Array<{ id: string; name?: string; reason?: string;
+        demand_no?: string; problem_description?: string }> }>(endpoint + "?" + parameters);
+      const records = result.items.map(row => ({
+        id: row.id, label: row.name || row.problem_description || row.demand_no || row.id, reason: row.reason,
+      }));
       return [task.key, { total: result.total, records }] as const;
     } catch (error) {
       queueErrors.value[task.key] = (error as Error).message;
@@ -203,7 +201,7 @@ onMounted(refreshDashboard);
         <BusinessTable v-if="(dashboard.portfolio || []).length" client-side table-key="dashboard:portfolio" :loading="loading"
           :rows="dashboard.portfolio || []" :columns="portfolioColumns">
           <template #cell="{ row, column }">
-            <ElTag v-if="column.key === 'status'" effect="plain">{{ display(row, column) }}</ElTag>
+            <ElTag v-if="column.key === 'display_status'" effect="plain">{{ display(row, column) }}</ElTag>
             <span v-else>{{ display(row, column) }}</span>
           </template>
           <template #actions="{ row }">

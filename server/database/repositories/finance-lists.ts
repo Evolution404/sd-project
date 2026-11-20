@@ -1,3 +1,4 @@
+import { settlementStatusFilter } from "../../shared/types/finance-workflows.js";
 import { settlementStatusSql } from "../queries/settlement-status-sql.js";
 import type { Store } from "./store.js";
 import { searchPage, type ListSource } from "../queries/business-lists.js";
@@ -46,7 +47,9 @@ export function financeListRepository(store: Store) {
         parameters: [projectId ?? null, projectId ?? null, selectedIds ? JSON.stringify(selectedIds) : null, selectedIds ? JSON.stringify(selectedIds) : null],
         columns: ["id", "number", "created_at", "amount_fen", "status"], search: ["number", "status"],
       };
-      const page = searchPage<SettlementListRoot>(store, "settlements", source, query);
+      const status = query.filters.status;
+      const applied = status ? { ...query, filters: { ...query.filters, status: settlementStatusFilter(status) } } : query;
+      const page = searchPage<SettlementListRoot>(store, "settlements", source, applied);
       if (!page.items.length) return { ...page, items: [] as SettlementWorkflow[] };
       const ids = JSON.stringify(page.items.map(row => row.id));
       const versions = store.query<SettlementVersion>(`SELECT v.* FROM settlement_versions v
@@ -115,7 +118,9 @@ export function financeListRepository(store: Store) {
     },
     searchReconciliationVersions(projectId: string | undefined, query: ListQuery) {
       const source: ListSource = {
-        sql: `SELECT reconciliation.* FROM v_cost_reconciliation_current reconciliation
+        sql: `SELECT reconciliation.*,
+          EXISTS(SELECT 1 FROM v_effective_cost_reconciliations applied WHERE applied.id=reconciliation.id) AS effective
+          FROM v_cost_reconciliation_current reconciliation
           JOIN cost_versions cost ON cost.id=reconciliation.cost_version_id
           JOIN cost_entries entry ON entry.id=cost.entry_id${projectId ? " WHERE entry.project_id=?" : ""}`,
         parameters: projectId ? [projectId] : [], deletionKey: "record_id",
@@ -123,8 +128,8 @@ export function financeListRepository(store: Store) {
           "reconciled_settlement_fen", "created_at"],
         search: ["evidence"],
       };
-      const page = searchPage<ReconciliationVersion & { deleted: boolean }>(store, "reconciliations", source, query);
-      return { ...page, items: page.items.map(row => ({ ...row, deleted: Boolean(row.deleted) })) };
+      const page = searchPage<ReconciliationVersion & { deleted: boolean; effective: number }>(store, "reconciliations", source, query);
+      return { ...page, items: page.items.map(row => ({ ...row, deleted: Boolean(row.deleted), effective: Boolean(row.effective) })) };
     },
   };
 }

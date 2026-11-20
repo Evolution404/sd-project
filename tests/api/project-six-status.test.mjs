@@ -85,7 +85,7 @@ test("six visible project states follow real draft lifecycle without a second st
   change=s.projects.approve(user,approved.id,nextDraft.id,{expected_version:change.version});
   assert.equal(change.display_status,"已批准","formal change approval restores approved view");
   assert.equal(change.approval.version_no,2);
-  change=s.finance.close(user,change.id,{preview_hash: s.finance.closePreview(user, change.id).preview_hash, expected_version:change.version});
+  change=s.projectClosure.commit(user,change.id,{preview_hash: s.projectClosure.preview(user, change.id).preview_hash, expected_version:change.version});
   assert.equal(change.status,"closed");
   assert.equal(s.projects.get(change.id).display_status,"已结项");
   checkList(s,approved.name,"已结项");

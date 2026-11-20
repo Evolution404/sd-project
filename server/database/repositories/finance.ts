@@ -18,6 +18,42 @@ export interface FinanceDemandTotal {
 }
 
 export function financeReadRepository(store: Store) {
+  function portfolioFinanceTotals(projectIds: string[]): (FinanceTotals & { project_id: string })[] {
+    if (!projectIds.length) return [];
+    return store.query(`WITH selected(id) AS (SELECT value FROM json_each(?))
+      SELECT p.id AS project_id,
+      COALESCE(actual.amount_fen,0) AS actual_cost_fen,
+      COALESCE(settled.amount_fen,0) AS settlement_fen,
+      COALESCE(settled.project_total_fen,0) AS project_total_settlement_fen,
+      COALESCE(reconciled.amount_fen,0) AS reconciled_cost_fen
+      FROM projects p
+      LEFT JOIN (SELECT project_id,SUM(amount_fen) AS amount_fen
+        FROM v_cost_current WHERE status='active' AND project_id IN (SELECT id FROM selected) GROUP BY project_id) actual
+        ON actual.project_id=p.id
+      LEFT JOIN (SELECT v.project_id,SUM(v.amount_fen) AS amount_fen,
+        SUM(CASE WHEN v.mode='project_total' THEN v.amount_fen ELSE 0 END) AS project_total_fen
+        FROM v_settlement_effective_versions v
+        WHERE v.change_type<>'void' AND v.project_id IN (SELECT id FROM selected) GROUP BY v.project_id) settled
+        ON settled.project_id=p.id
+      LEFT JOIN (SELECT project_id,SUM(reconciled_cost_fen) AS amount_fen
+        FROM v_effective_cost_reconciliations WHERE project_id IN (SELECT id FROM selected) GROUP BY project_id) reconciled
+        ON reconciled.project_id=p.id
+      WHERE p.id IN (SELECT id FROM selected)`,
+      JSON.stringify(projectIds)) as (FinanceTotals & { project_id: string })[];
+  }
+  function portfolioFinanceDemands(approvalIds: string[]): (FinanceDemandTotal & { approval_version_id: string })[] {
+    if (!approvalIds.length) return [];
+    return store.query(`SELECT sc.approval_version_id,sc.project_scope_id,sc.demand_id,
+      d.demand_no,sc.quantity_scaled AS approved_quantity_scaled,
+      COALESCE(SUM(r.resolved_quantity_scaled),0) AS resolved_quantity_scaled
+      FROM project_approval_scope_versions sc
+      JOIN demands d ON d.id=sc.demand_id
+      LEFT JOIN v_effective_demand_resolutions r
+        ON r.project_scope_id=sc.project_scope_id
+      WHERE sc.approval_version_id IN (SELECT value FROM json_each(?))
+      GROUP BY sc.id ORDER BY sc.approval_version_id,sc.rowid`,
+      JSON.stringify(approvalIds)) as (FinanceDemandTotal & { approval_version_id: string })[];
+  }
   return {
     projectStage(projectId: string): string | undefined {
       return store.get<{status:string}>("SELECT status FROM projects WHERE id=?", projectId)?.status;
@@ -37,6 +73,13 @@ export function financeReadRepository(store: Store) {
         WHERE result.settlement_id IN (SELECT value FROM json_each(?))
         ORDER BY result.settlement_id,demand.demand_no`, values);
       return { versions: new Map(versions.map(version => [version.settlement_id, version])), resolutions };
+    },
+    settlementReconciliationImpact(settlementId: string) {
+      return store.get<{count: number; cost_fen: number}>(`
+        SELECT COUNT(*) AS count, COALESCE(SUM(applied.reconciled_cost_fen),0) AS cost_fen
+        FROM v_effective_cost_reconciliations applied JOIN v_effective_settlement_items line
+          ON line.settlement_item_version_id=applied.settlement_item_version_id
+        WHERE line.settlement_id=?`, settlementId) ?? { count: 0, cost_fen: 0 };
     },
     activeCostReconciliation(entryId: string) {
       return store.get<{amount: number; count: number}>(`SELECT
@@ -129,65 +172,15 @@ export function financeReadRepository(store: Store) {
         events: eventGroups.get(version.id) || [],
       }));
     },
-    portfolioFinanceTotals(projectIds: string[]): (FinanceTotals & { project_id: string })[] {
-      if (!projectIds.length) return [];
-      return store.query(`SELECT p.id AS project_id,
-        COALESCE(actual.amount_fen,0) AS actual_cost_fen,
-        COALESCE(settled.amount_fen,0) AS settlement_fen,
-        COALESCE(settled.project_total_fen,0) AS project_total_settlement_fen,
-        COALESCE(reconciled.amount_fen,0) AS reconciled_cost_fen
-        FROM projects p
-        LEFT JOIN (SELECT project_id,SUM(amount_fen) AS amount_fen
-          FROM v_cost_current WHERE status='active' GROUP BY project_id) actual
-          ON actual.project_id=p.id
-        LEFT JOIN (SELECT v.project_id,SUM(v.amount_fen) AS amount_fen,
-          SUM(CASE WHEN v.mode='project_total' THEN v.amount_fen ELSE 0 END) AS project_total_fen
-          FROM v_settlement_effective_versions v
-          WHERE v.change_type<>'void' GROUP BY v.project_id) settled
-          ON settled.project_id=p.id
-        LEFT JOIN (SELECT project_id,SUM(reconciled_cost_fen) AS amount_fen
-          FROM v_effective_cost_reconciliations GROUP BY project_id) reconciled
-          ON reconciled.project_id=p.id
-        WHERE p.id IN (SELECT value FROM json_each(?))`,
-        JSON.stringify(projectIds)) as (FinanceTotals & { project_id: string })[];
-    },
-    portfolioFinanceDemands(approvalIds: string[]): (FinanceDemandTotal & { approval_version_id: string })[] {
-      if (!approvalIds.length) return [];
-      return store.query(`SELECT sc.approval_version_id,sc.project_scope_id,sc.demand_id,
-        d.demand_no,sc.quantity_scaled AS approved_quantity_scaled,
-        COALESCE(SUM(r.resolved_quantity_scaled),0) AS resolved_quantity_scaled
-        FROM project_approval_scope_versions sc
-        JOIN demands d ON d.id=sc.demand_id
-        LEFT JOIN v_effective_demand_resolutions r
-          ON r.project_scope_id=sc.project_scope_id
-        WHERE sc.approval_version_id IN (SELECT value FROM json_each(?))
-        GROUP BY sc.id ORDER BY sc.approval_version_id,sc.rowid`,
-        JSON.stringify(approvalIds)) as (FinanceDemandTotal & { approval_version_id: string })[];
-    },
+    portfolioFinanceTotals,
+    portfolioFinanceDemands,
     projectFinanceTotals(projectId: string): FinanceTotals {
-      const row = store.get(`SELECT
-        (SELECT COALESCE(SUM(c.amount_fen),0) FROM v_cost_current c
-         WHERE c.project_id=? AND c.status='active') AS actual_cost_fen,
-        (SELECT COALESCE(SUM(v.amount_fen),0) FROM v_settlement_effective_versions v
-         WHERE v.project_id=? AND v.change_type<>'void') AS settlement_fen,
-        (SELECT COALESCE(SUM(v.amount_fen),0) FROM v_settlement_effective_versions v
-         WHERE v.project_id=? AND v.change_type<>'void' AND v.mode='project_total') AS project_total_settlement_fen,
-        (SELECT COALESCE(SUM(r.reconciled_cost_fen),0)
-         FROM v_effective_cost_reconciliations r
-         WHERE r.project_id=?) AS reconciled_cost_fen`,
-        projectId, projectId, projectId, projectId) as FinanceTotals;
-      return row;
+      const result = portfolioFinanceTotals([projectId])[0];
+      if (!result) throw Error("找不到项目财务汇总");
+      return result;
     },
     projectFinanceDemands(approvalId: string): FinanceDemandTotal[] {
-      return store.query(`SELECT sc.project_scope_id,sc.demand_id,d.demand_no,
-        sc.quantity_scaled AS approved_quantity_scaled,
-        COALESCE(SUM(r.resolved_quantity_scaled),0) AS resolved_quantity_scaled
-        FROM project_approval_scope_versions sc
-        JOIN demands d ON d.id=sc.demand_id
-        LEFT JOIN v_effective_demand_resolutions r
-          ON r.project_scope_id=sc.project_scope_id
-        WHERE sc.approval_version_id=?
-        GROUP BY sc.id ORDER BY sc.rowid`, approvalId) as FinanceDemandTotal[];
+      return portfolioFinanceDemands([approvalId]);
     },
   };
 }

@@ -22,7 +22,6 @@ const can = useAccess();
 import { ref, onMounted, computed, watch } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { demandContext, fundContext, projectContext } from "../../shared/navigation/business-context";
-import type { ProjectAction } from "../../../../server/modules/projects/actions";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import { readAdoptedQuantityPrecision, readCurrentMaterialPrecision }
@@ -39,14 +38,11 @@ import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
 import { ApiError, api, download, money, quantity } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
-import type { System } from "../../../../server/bootstrap";
-import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate } from "../../../../server/database/repositories/projects";
+import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate, ProjectAction, ProjectDetail,
+  ProjectListItem, ProjectHistory, ProjectDeletionImpact } from "../../../../server/shared/types/project-api";
 import type { ProjectManagementInput, ProjectAgreementOption } from "../../../../server/shared/types/projects";
 
-type ProjectDetail = ReturnType<System["projects"]["get"]>;
-type ProjectListItem = ReturnType<System["projects"]["search"]>["items"][number];
 type ApprovalDetail = ProjectDetail["approvals"][number];
-type ProjectHistory = ReturnType<System["projects"]["history"]>;
 type ReferenceCharge = ApprovalDetail["reference"]["charges"][number];
 interface ApprovalEditorRow {
   project_scope_id: string;
@@ -594,11 +590,27 @@ async function openDialog(type: string) {
   if (request === approvalRequest && dialog.value === type && detail.value?.id === project.id) draftGuard.capture();
 }
 const projectConflict = ref("");
+let comparedProject: ProjectDetail | null = null;
+function continueProjectEdit() {
+  const latest = comparedProject;
+  if (!latest || latest.id !== (editing.value || detail.value)?.id) return;
+  if (dialog.value === "approval") {
+    form.value.expected_version = latest.version;
+    form.value.expected_approval_version_id = latest.approval?.id ?? null;
+    detail.value = latest;
+  } else {
+    form.value.expected_version = latest.profile_version;
+    form.value.expected_funding_version = latest.funding?.version_no ?? 0;
+  }
+  projectConflict.value = "";
+  comparedProject = null;
+}
 watch([dialog, () => detail.value?.id], () => { projectConflict.value = ""; });
 async function compareProject() {
   const project = editing.value || detail.value;
   if (!project) return [];
   const latest = await api<ProjectDetail>(`/projects/${project.id}`);
+  comparedProject = latest;
   if (dialog.value === "approval") {
     return [
       { label: "项目办理版本", draft: String(form.value.expected_version || project.version), current: String(latest.version) },
@@ -838,7 +850,7 @@ async function removeProject() {
   const project = detail.value;
   if (!project || project.deleted || !can("admin") || deleteReason.value) return;
   try {
-    const impact = await api<ReturnType<System["projects"]["previewDeletion"]>>(`/projects/${project.id}/deletion-preview`);
+    const impact = await api<ProjectDeletionImpact>(`/projects/${project.id}/deletion-preview`);
     if (impact.reason) { ElMessage.warning(impact.reason); return; }
     if (detail.value?.id !== project.id) return;
     const linked = impact.linked_demands.length;
@@ -910,6 +922,7 @@ const missingExpected = computed(() => [...new Map([
     .map(row => [row.demand_id, { id: row.demand_id, number: row.snapshot.demand_no }] as const),
 ]).values()]);
 const hasActiveScope = computed(() => !!detail.value?.scopes.some(row => row.binding && row.demand_status === "active"));
+const approvalAction = computed(() => projectActions.value.find(row => row.key === "approve"));
 const closeAction = computed(() => !overviewLoading.value && projectActions.value.find(row => row.key === "close") || undefined);
 const deleteReason = computed(() => detail.value ? projectDeleteReason(detail.value) : "");
 const overviewStep = computed(() => {
@@ -1211,7 +1224,7 @@ onMounted(async () => {
           <h2>{{ approval.status === "draft" ? "待审核草稿" : "当前正式批准" }} · 第 {{ approval.version_no }} 版</h2>
           <ElButton data-guide-action="projects.approve"
             :disabled="
-              detail.deleted || missingExpected.length > 0 || !can(
+              detail.deleted || missingExpected.length > 0 || approvalAction?.enabled === false || !can(
                 approval.version_no === 1
                   ? 'project.approve'
                   : 'change.approve',
@@ -1228,7 +1241,8 @@ onMounted(async () => {
             @click="action('discard', approval)"
             >撤回草稿</ElButton
           >
-          <span v-if="approval.status === 'draft' && !can(approval.version_no === 1 ? 'project.approve' : 'change.approve')" class="muted">由具备审核权限的人员办理</span>
+          <span v-if="approval.status === 'draft' && approvalAction?.reason" class="muted">{{ approvalAction.reason }}</span>
+          <span v-if="approval.status === 'draft' && !approvalAction?.reason && !can(approval.version_no === 1 ? 'project.approve' : 'change.approve')" class="muted">由具备审核权限的人员办理</span>
           <ElButton v-if="approval.status === 'draft' && !detail.deleted && can('write')" @click="openDialog('charge')">增加批次 / 项目参考费用</ElButton>
         </div>
         <ElDescriptions :column="descriptionColumns" border
@@ -1332,7 +1346,7 @@ onMounted(async () => {
   </template>
     <template v-if="approvalReviewPage && approvalDraft && detail && !detail.deleted && can(approvalDraft.version_no === 1 ? 'project.approve' : 'change.approve')" #footer>
       <ElButton @click="returnFromProjectWork">取消</ElButton>
-      <ElButton type="primary" data-guide-action="projects.approve" :loading="busy" :disabled="missingExpected.length > 0"
+      <ElButton type="primary" data-guide-action="projects.approve" :loading="busy" :disabled="missingExpected.length > 0 || approvalAction?.enabled === false || overviewLoading"
         @click="action('approve', approvalDraft, true)">确认正式批准</ElButton>
     </template>
   </BusinessDetailDialog>
@@ -1370,7 +1384,7 @@ onMounted(async () => {
     ><ElAlert v-if="dialog === 'approval' && approvalLoadError" type="error" :closable="false" :title="'批准范围读取失败：' + approvalLoadError">
       <ElButton @click="openDialog('approval')">重新读取</ElButton>
       </ElAlert>
-      <VersionConflictNotice :message="projectConflict" :read-current="compareProject" />
+      <VersionConflictNotice :message="projectConflict" :read-current="compareProject" :apply-current="continueProjectEdit" />
     <ElForm ref="formRef" :model="form" label-position="top" novalidate
         v-loading="dialog === 'approval' && approvalLoading"
         :disabled="dialog === 'approval' && (approvalLoading || !!approvalLoadError)">

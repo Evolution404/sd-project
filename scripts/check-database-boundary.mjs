@@ -30,6 +30,7 @@ for (const source of sources) {
       /\b(?:(?:db|connection)\.(?:prepare|exec)|new DatabaseSync)\s*\(/g,
       "raw driver",
     ],
+    [/\bdatabase\.connection\b/g, "raw database connection outside database module"],
     [
       /\b(?:repo|store|database)\.(?:query|get|run)\s*\(/g,
       "embedded SQL through repository",

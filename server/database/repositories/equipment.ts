@@ -84,7 +84,10 @@ export function equipmentRepository(store: ReturnType<typeof createStore>) {
           lines: counts("SELECT count(*) AS total FROM transmission_lines WHERE parent_line_id=?", key),
           towers: counts("SELECT count(*) AS total FROM logical_towers WHERE line_id=?", key),
           spans: counts("SELECT count(*) AS total FROM line_spans WHERE line_id=?", key),
-          locations: counts("SELECT count(*) AS total FROM demands WHERE context_line_id=?", key),
+          locations: counts(`SELECT count(*) AS total FROM demand_version_work_locations location
+            LEFT JOIN logical_towers tower ON tower.id=location.logical_tower_id
+            LEFT JOIN line_spans span ON span.id=location.span_id
+            WHERE COALESCE(json_extract(location.location_snapshot_json,'$.line_id'),tower.line_id,span.line_id)=?`, key),
         };
       const field = kind === "physical" ? "physical_tower_id" : kind === "towers" ? "logical_tower_id" : "span_id";
       return {

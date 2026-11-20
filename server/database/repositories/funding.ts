@@ -1,3 +1,4 @@
+import { financeReadRepository } from "./finance.js";
 import type { createStore } from "./store.js";
 import { searchPage, type ListSource } from "../queries/business-lists.js";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
@@ -78,28 +79,23 @@ export function fundingRepository(store: Store) {
     /** One indexed set query for the current funding and approved/actual facts. */
     linkedProjects(kind: FundingKind, key: string): FundingProject[] {
       const scope = kind === "frameworks" ? "p.framework_id" : "fund.agreement_id";
-      return store.query(`SELECT p.id,p.code,m.name,p.status,
+      const projects = store.query(`SELECT p.id,p.code,m.name,p.status,
         ${PROJECT_DISPLAY_STATUS_SQL} AS display_status,p.framework_id,
-        fund.agreement_id,approval.approved_budget_fen,
-        COALESCE(cost.amount_fen,0) AS actual_cost_fen,
-        COALESCE(settled.amount_fen,0) AS settlement_fen
+        fund.agreement_id,approval.approved_budget_fen
         FROM projects p
         JOIN v_project_management_current m ON m.project_id=p.id
         JOIN v_project_funding_current fund ON fund.project_id=p.id
         LEFT JOIN v_project_current_approval approval ON approval.project_id=p.id
-        LEFT JOIN (
-          SELECT project_id,SUM(amount_fen) AS amount_fen
-          FROM v_cost_current WHERE status='active' GROUP BY project_id
-        ) cost ON cost.project_id=p.id
-        LEFT JOIN (
-          SELECT v.project_id,SUM(v.amount_fen) AS amount_fen
-          FROM v_settlement_effective_versions v
-          WHERE v.change_type<>'void' GROUP BY v.project_id
-        ) settled ON settled.project_id=p.id
         WHERE ${scope}=?
-        AND NOT EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='projects'
-          AND a.entity_id=p.id AND a.action='delete')
-        ORDER BY p.created_at DESC`, key) as FundingProject[];
+        AND NOT EXISTS(SELECT 1 FROM audit_events a
+          WHERE a.entity='projects' AND a.entity_id=p.id AND a.action='delete')
+        ORDER BY p.created_at DESC`, key) as Omit<FundingProject, "actual_cost_fen" | "settlement_fen">[];
+      const totals = new Map(financeReadRepository(store).portfolioFinanceTotals(projects.map(row => row.id))
+        .map(row => [row.project_id, row]));
+      return projects.map(row => ({
+        ...row, actual_cost_fen: totals.get(row.id)?.actual_cost_fen ?? 0,
+        settlement_fen: totals.get(row.id)?.settlement_fen ?? 0,
+      }));
     },
   };
 }

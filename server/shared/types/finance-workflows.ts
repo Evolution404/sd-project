@@ -146,8 +146,15 @@ export interface ReconciliationSettlementChoice {
   demand_no: string | null;
 }
 
+export const settlementStatusLabels: Record<SettlementListStatus, string> = {
+  draft: "草稿", submit: "待审核", approve: "已批准", return: "已退回", reject: "已驳回", voided: "已注销",
+};
+export function settlementStatusFilter(status: string) {
+  return Object.entries(settlementStatusLabels).find(([, label]) => label === status)?.[0] ?? status;
+}
 export interface SettlementWorkflow {
   status: SettlementListStatus;
+  reconciliation_impact?: {count: number; cost_fen: number};
   effective_amount_fen: number | null;
   id: string;
   project_id: string;

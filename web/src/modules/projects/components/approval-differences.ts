@@ -1,4 +1,4 @@
-import type { ApprovedScope, ProjectApprovalHistory } from "../../../../../server/database/repositories/projects";
+import type { ApprovedScope, ProjectApprovalHistory } from "../../../../../server/shared/types/project-api";
 
 import type { DemandRecord } from "../../../../../server/shared/types/demands";
 

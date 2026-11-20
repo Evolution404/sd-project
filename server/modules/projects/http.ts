@@ -1,13 +1,14 @@
+import { financeSettlementDraft } from "../finance/draft-input.js";
 import { parseHandlingTargets } from "../../platform/http/handling-batch.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { projectActionHints } from "./actions.js";
 import { parseProjectFromDemand, parseProjectVersion, parseProjectLink, parseProjectLinkBatch, parseProjectRelease,
-  parseProjectFunding, parseProjectApproval, parseProjectManagement } from "./requests.js";
+  parseProjectApproval, parseProjectManagement } from "./requests.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
 import { financeDeleteNode, financeVersion, financeCostNode,
-  financeActualCost, financeSettlementDraft } from "../finance/requests.js";
+  financeActualCost } from "../finance/requests.js";
 export async function handleProjects(context: RouteContext): Promise<{
     result: unknown;
 } | undefined> {
@@ -39,10 +40,15 @@ export async function handleProjects(context: RouteContext): Promise<{
                 result = subKey ? system.finance.categoryDetail(actor, key, subKey, parseListQuery(url.searchParams).page) : system.finance.costTree(actor, key);
                 break;
             }
+            if (read && key === "handling" && !sub) {
+                const kind = url.searchParams.get("task");
+                requireValue(kind === "compile" || kind === "initial" || kind === "change", "未知项目待办类型", 404);
+                return { result: system.projects.handlingQueue(actor, kind, parseListQuery(url.searchParams)) };
+            }
             if (read && sub === "actions") {
                 const project = system.projects.workspace(key, deleted);
-                return { result: projectActionHints(actor, project, system.finance.closeBlockReason(key),
-                    system.finance.closeSettlementBlockers(key), system.projects.approvalBlockReason(project)) };
+                return { result: projectActionHints(actor, project, system.projectClosure.blockReason(key),
+                    system.projectClosure.settlementBlockers(key), system.projects.approvalBlockReason(project)) };
             }
             if (read)
                 result = key === "eligible-agreements"
@@ -63,7 +69,7 @@ export async function handleProjects(context: RouteContext): Promise<{
                         : sub === "agreements"
                             ? system.projects.agreementOptions(key)
                             : sub === "close-preview"
-                        ? system.finance.closePreview(actor, key)
+                        ? system.projectClosure.preview(actor, key)
                     : sub === "summary"
                                 ? system.finance.summary(key)
                                 : sub === "reconciliation-items"
@@ -89,8 +95,6 @@ export async function handleProjects(context: RouteContext): Promise<{
                 result = mutate("write", () => system.projects.link(actor, key, parseProjectLink(input)));
             else if (sub === "release")
                 result = mutate("write", () => system.projects.release(actor, key, subKey, parseProjectRelease(input)));
-            else if (sub === "funding")
-                result = mutate("write", () => system.projects.fund(actor, key, parseProjectFunding(input)));
             else if (sub === "approvals" && method === "DELETE")
                 result = mutate("write", () => system.projects.discardApproval(actor, key, subKey));
             else if (sub === "approvals" && action === "approve")
@@ -113,10 +117,12 @@ export async function handleProjects(context: RouteContext): Promise<{
                 result = mutate("project.close", () => {
                     requireValue(typeof input.preview_hash === "string" && input.preview_hash.length === 64,
                         "请先读取结项核对内容");
-                    return system.finance.close(actor, key, { ...parseProjectVersion(input), preview_hash: input.preview_hash });
+                    return system.projectClosure.commit(actor, key, { ...parseProjectVersion(input), preview_hash: input.preview_hash });
                 });
-            else
+            else if (!sub && method === "POST")
                 result = mutate("write", () => system.projects.save(actor, parseProjectManagement(input), key));
+            else
+                requireValue(false, "项目办理入口不存在", 404);
             break;
     }
     return { result };

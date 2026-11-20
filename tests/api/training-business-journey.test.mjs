@@ -112,7 +112,7 @@ test("P10 L01-L12 real isolated training course checkpoints use the full busines
     settlement_item_version_id:bills[0].items[0].id,reconciled_cost_fen:40000,
     reconciled_settlement_fen:40000,is_final:true,evidence:"训练核对差异"});
   assert.equal(done("L10"),false,"Reconciliation without formal project closure is insufficient");
-  const closed=s.finance.close(user,project.id,{preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version:project.version});
+  const closed=s.projectClosure.commit(user,project.id,{preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version:project.version});
   assert.equal(closed.status,"closed");
   assert.equal(done("L10"),true);
   const server=httpServer(s);

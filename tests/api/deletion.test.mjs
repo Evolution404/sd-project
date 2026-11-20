@@ -71,7 +71,7 @@ test("logical master deletion cannot be bypassed and formal settlement deletion 
     0,
   );
   assert.equal(
-    s.finance.close(user, project.id, { preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version: 3 }).status,
+    s.projectClosure.commit(user, project.id, { preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version: 3 }).status,
     "closed",
   );
 });

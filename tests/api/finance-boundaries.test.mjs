@@ -114,7 +114,7 @@ test("settled amounts, independently reported work, over-completion and reconcil
     /不可|禁止/,
   );
   assert.equal(
-    s.finance.close(user, project.id, { preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version: 3 }).status,
+    s.projectClosure.commit(user, project.id, { preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version: 3 }).status,
     "closed",
   );
   const closed = s.projects.get(project.id);
@@ -220,9 +220,9 @@ test("project totals and itemized installments share one effective ledger and pr
   });
   let bill = s.finance.saveDraft(user, project.id, request);
   assert.equal(bill.draft.document.mode, "project_total");
-  assert.match(s.finance.closeBlockReason(project.id), /未提交/);
+  assert.match(s.projectClosure.blockReason(project.id), /未提交/);
   bill = submit(bill);
-  assert.match(s.finance.closeBlockReason(project.id), /待审核/);
+  assert.match(s.projectClosure.blockReason(project.id), /待审核/);
   assert.equal(s.finance.summary(project.id).settlement_fen, 0);
   bill = approve(bill);
   let summary = s.finance.summary(project.id);
@@ -250,7 +250,7 @@ test("project totals and itemized installments share one effective ledger and pr
     change_type: "revision", expected_version: 1, expected_edit_version: 0 }, bill.id));
   assert.equal(bill.effective_amount_fen, 5000);
   bill = s.finance.review(user, bill.id, { expected_version: 2, expected_event_seq: 1, action: "return", reason: "回查凭据" });
-  assert.match(s.finance.closeBlockReason(project.id), /已退回待处理/);
+  assert.match(s.projectClosure.blockReason(project.id), /已退回待处理/);
   assert.equal(s.finance.summary(project.id).settlement_fen, 9000);
   bill = s.finance.resubmit(user, bill.id, { expected_version: 2, expected_event_seq: 2 });
   assert.equal(bill.version.version_no, 2);
@@ -260,7 +260,7 @@ test("project totals and itemized installments share one effective ledger and pr
   const funded = s.funding.details("frameworks", framework.id).summary;
   assert.equal(funded.settlement_progress_percent, 87.5);
   assert.equal(funded.projects_without_cost_basis, 0);
-  assert.equal(s.finance.closeBlockReason(project.id), "");
-  const closed = s.finance.close(user, project.id, { preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version: project.version, reason: "确认实际差额" });
+  assert.equal(s.projectClosure.blockReason(project.id), "");
+  const closed = s.projectClosure.commit(user, project.id, { preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version: project.version, reason: "确认实际差额" });
   assert.equal(closed.status, "closed");
 });

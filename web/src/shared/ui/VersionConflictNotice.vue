@@ -4,6 +4,7 @@ type Comparison = { label: string; draft: string; current: string };
 const props = defineProps<{
   message: string;
   readCurrent: () => Promise<Comparison[]>;
+  applyCurrent?: () => void;
 }>();
 const comparison = ref<Comparison[]>([]);
 const loading = ref(false);
@@ -44,6 +45,9 @@ async function compare() {
         <div>当前记录 · {{ field.current }}</div>
       </ElDescriptionsItem>
     </ElDescriptions>
+    <ElButton v-if="comparison.length && applyCurrent" :disabled="loading || !!error" @click="applyCurrent">
+      以此版本继续编辑
+    </ElButton>
   </div>
 </template>
 

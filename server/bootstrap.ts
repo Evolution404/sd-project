@@ -1,3 +1,7 @@
+import { projectClosureRepository } from "./database/repositories/project-closure.js";
+import { createProjectClosure } from "./modules/projects/closure.js";
+import { createEvidence } from "./platform/files/service.js";
+import { createExchange } from "./modules/exchange/service.js";
 import { priceRuleRepository } from "./database/repositories/price-rules.js";
 import { createPriceRules } from "./modules/pricing/rules.js";
 import { workStandardRepository } from "./database/repositories/work-standards.js";
@@ -77,11 +81,14 @@ export function createSystem(dataDir?: string) {
   const projects = createProjects(projectPort, catalog, demands, pricing, quantityUnits, funding);
   const hierarchies = hierarchyRepository(store);
   const finance = createFinance(financePort, catalog, projects, pricing, hierarchies, quantityUnits);
+  const projectClosure = createProjectClosure(projectClosureRepository(store), projects, finance);
   const organizations = createOrganizations(hierarchies, dictionaries, database);
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
-  return {
-    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth:seededAuth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, organizations,
+  const system = {
+    dataDirectory: database.directory,
+    evidence: createEvidence({ database, audit, evidenceStore }),
+    database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth:seededAuth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, projectClosure, organizations,
     training: createTrainingService(trainingRepository(store), database.directory),
     management: createManagement({ repository: managementRepository(store), identity, auth:seededAuth, audit, database }),
     sources: createSources(demandRecords, catalog, database),
@@ -104,5 +111,6 @@ export function createSystem(dataDir?: string) {
     dashboard: reporting.dashboard,
     close() { database.close(); },
   };
+  return { ...system, exchange: createExchange(system) };
 }
 export type System = ReturnType<typeof createSystem>;

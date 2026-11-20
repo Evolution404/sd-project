@@ -174,7 +174,7 @@ test("approved project cannot acquire an undated demand through the old single-l
 
 test("closed project cannot revise a linked demand using ordinary demand edit",t=>{
   const {s,user,project,demand}=approvedFixture(t);
-  s.finance.close(user,project.id,{preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version:project.version});
+  s.projectClosure.commit(user,project.id,{preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version:project.version});
   assert.throws(()=>s.demands.save(user,{
     expected_version:1,expected_on:"2027-02-25",
   },demand.id),/已结项/);

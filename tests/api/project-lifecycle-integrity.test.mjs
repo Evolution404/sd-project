@@ -36,7 +36,7 @@ test("approved ordinary links and closed financial writes fail through HTTP with
     assert.equal(result.status,409);assert.match(result.data.message,/正式变更/);
   }
   assert.equal(f.s.demands.get(newDemand.demand_id).binding,null);
-  f.s.finance.close(f.user,f.project.id,{preview_hash: f.s.finance.closePreview(f.user, f.project.id).preview_hash, expected_version:f.project.version});
+  f.s.projectClosure.commit(f.user,f.project.id,{preview_hash: f.s.projectClosure.preview(f.user, f.project.id).preview_hash, expected_version:f.project.version});
   const before=inspect(f.s).list("cost_versions").length;
   for(const [path,input] of [["nodes",{name:"不得创建的费用科目"}],
     ["costs",{cost_node_id:f.node.id,title:"不得确认的费用",amount_fen:12345,occurred_on:"2026-11-16",evidence:"回归"}]]){
@@ -96,9 +96,9 @@ test("unsubmitted revision of an approved settlement blocks closure in service a
   bill=f.s.finance.submit(f.user,bill.id,{expected_version:0,expected_edit_version:1});
   bill=f.s.finance.review(f.user,bill.id,{expected_version:1,expected_event_seq:1,action:"approve"});
   f.s.finance.saveDraft(f.user,f.project.id,{...input,expected_version:1,expected_edit_version:0},bill.id);
-  assert.throws(()=>f.s.finance.close(f.user,f.project.id,{preview_hash: f.s.finance.closePreview(f.user, f.project.id).preview_hash, expected_version:f.project.version}),e=>e.status===409&&/修订草稿/.test(e.message));
+  assert.throws(()=>f.s.projectClosure.commit(f.user,f.project.id,{preview_hash: f.s.projectClosure.preview(f.user, f.project.id).preview_hash, expected_version:f.project.version}),e=>e.status===409&&/修订草稿/.test(e.message));
   assert.equal(f.s.projects.get(f.project.id).status,"approved");
-  const action=projectActionHints(f.user,f.s.projects.get(f.project.id),f.s.finance.closeBlockReason(f.project.id)).find(item=>item.key==="close");
+  const action=projectActionHints(f.user,f.s.projects.get(f.project.id),f.s.projectClosure.blockReason(f.project.id)).find(item=>item.key==="close");
   assert.equal(action.enabled,false);
   assert.match(action.reason,/修订草稿/);
   assert.equal(inspect(f.s).list("project_closures").length,0);
@@ -111,7 +111,7 @@ test("unsubmitted revision of an approved settlement blocks closure in service a
   }),/修订草稿/);
   assert.equal(db.list("project_closures").length,0);
   f.s.finance.discardDraft(f.user,bill.id,{expected_version:1,expected_edit_version:1});
-  assert.equal(f.s.finance.close(f.user,f.project.id,{preview_hash: f.s.finance.closePreview(f.user, f.project.id).preview_hash, expected_version:f.project.version}).status,"closed");
+  assert.equal(f.s.projectClosure.commit(f.user,f.project.id,{preview_hash: f.s.projectClosure.preview(f.user, f.project.id).preview_hash, expected_version:f.project.version}).status,"closed");
 });
 
 test("unpriced change candidates keep every reference-price summary incomplete",t=>{

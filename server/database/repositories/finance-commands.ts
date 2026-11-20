@@ -29,10 +29,6 @@ export interface SettlementResultWrite {
   id:string; settlement_version_id:string; project_scope_id:string;
   approval_scope_version_id:string; resolved_quantity_scaled:number; evidence:string;
 }
-export interface ProjectClosureWrite {
-  id:string; project_id:string; approval_version_id:string; reason:string;
-  close_snapshot_json:string; closed_by:string; closed_at:string;
-}
 export interface ApprovalReference { id:string; project_id:string; }
 export interface SettlementItemRef { id:string; settlement_item_id:string; }
 export interface ReconciliationOwnership {cost_project_id:string;settlement_project_id:string;}
@@ -151,9 +147,6 @@ export function financeCommandRepository(store:Store) {
     },
     appendReconciliation(row:ReconciliationVersion):void {
       store.insert("cost_reconciliation_versions",row);
-    },
-    createClosure(row:ProjectClosureWrite):void {
-      store.insert("project_closures",row);
     },
     effectiveSettlement(id:string):SettlementVersion|undefined {
       return store.where<SettlementVersion>("v_settlement_effective_versions",{settlement_id:id})[0];

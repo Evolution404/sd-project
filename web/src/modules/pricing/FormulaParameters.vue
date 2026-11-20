@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { watch } from "vue";
 import FieldControl from "../../shared/ui/FieldControl.vue";
-import type { PricingParameters } from "../../../../server/modules/pricing/model";
+import type { PricingParameters } from "../../../../server/shared/types/pricing-api";
 type FormulaDraft = {
   [K in keyof PricingParameters]?: PricingParameters[K] | null;
 };

@@ -18,7 +18,7 @@ import type {
   QuoteResult,
   QuoteLine,
 } from "../../../../server/shared/types/pricing";
-import type { PricingTrace } from "../../../../server/modules/pricing/model";
+import type { PricingTrace } from "../../../../server/shared/types/pricing-api";
 const props = defineProps<{
   modelValue: boolean;
   demandId: string;

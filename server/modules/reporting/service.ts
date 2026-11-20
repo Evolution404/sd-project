@@ -55,7 +55,6 @@ export function createReporting(
       group.push(item);
       projectsByFramework.set(item.framework_id, group);
     }
-    const costByFramework = new Map<string, bigint>();
     const monthly = new Map<string, bigint>();
     const quarterCosts = new Map<string, bigint>();
     for (const cost of costs) {
@@ -63,14 +62,13 @@ export function createReporting(
       add(monthly, month, cost.amount_fen);
       const frameworkId = frameworkByProject.get(cost.project_id);
       if (!frameworkId) continue;
-      add(costByFramework, frameworkId, cost.amount_fen);
       const year = Number(cost.occurred_on.slice(0, 4));
       const quarter = Math.ceil(Number(cost.occurred_on.slice(5, 7)) / 3);
       add(quarterCosts, frameworkId + "/" + year + "/" + quarter, cost.amount_fen);
     }
     const frameworks = repository.dashboardFrameworks().map(framework => {
       const children = projectsByFramework.get(framework.id) || [];
-      const actual = safeAmount(costByFramework.get(framework.id) || 0n);
+      const actual = safeAmount(children.reduce((sum, item) => sum + BigInt(item.actual_cost_fen), 0n));
       return {
         ...framework,
         approved_budget_fen: safeAmount(children.reduce(

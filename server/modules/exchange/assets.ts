@@ -1,7 +1,7 @@
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
 import { createReferences } from "./references.js";
-import type { System } from "../../bootstrap.js";
+import type { ExchangePorts } from "./ports.js";
 import type { Actor } from "../../shared/types/contracts.js";
 import type { EquipmentRecord } from "../../shared/types/equipment.js";
 import type { EquipmentCatalogKind } from "../../shared/types/equipment.js";
@@ -15,7 +15,7 @@ import {
   MAX_DOCUMENTS,
 } from "./workbook.js";
 
-export function createAssetExchange(system: System) {
+export function createAssetExchange(system: ExchangePorts) {
   const { catalog, exchangePersistence, equipment } = system;
   const physicalKeys = catalog.definitions.physical.fields
     .map((field) => field.key as keyof EquipmentRecord)

@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse, OutgoingHttpHeaders } from "node:http";
-import type { System } from "../../bootstrap.js";
+import type { HttpServices, RouteServices } from "./context.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { memoryPage as page } from "./memory-page.js";
 import { readBody as body } from "./request.js";
@@ -16,8 +16,6 @@ import { readFile, stat } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { authorize } from "../auth/service.js";
 import { requireValue } from "../../shared/errors/business-error.js";
-import { createEvidence } from "../files/service.js";
-import { createExchange } from "../../modules/exchange/service.js";
 const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -27,13 +25,15 @@ const mime: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 export function httpServer(
-  system: System,
+  system: HttpServices,
   { staticDirectory = webDirectory, accessLog = {} }: { staticDirectory?: string; accessLog?: AccessLogOptions } = {},
 ) {
-  const logs = createAccessLogs(system.database.directory, accessLog);
-  const exchange = createExchange(system),
-    evidence = createEvidence(system),
-    attempts = new Map<string, { count: number; until: number }>();
+  const { auth, catalog, dashboard, demands, dictionaries, equipment, finance, funding, management,
+    materials, organizations, priceRules, pricing, projectClosure, projects, sources, standards, exchange, evidence } = system;
+  const routeServices: RouteServices = { auth, catalog, dashboard, demands, dictionaries, equipment, finance,
+    funding, management, materials, organizations, priceRules, pricing, projectClosure, projects, sources, standards };
+  const logs = createAccessLogs(system.dataDirectory, accessLog);
+  const attempts = new Map<string, { count: number; until: number }>();
   const token = (req: IncomingMessage) =>
     req.headers.cookie
       ?.split(";")
@@ -207,22 +207,9 @@ export function httpServer(
           operation,
         );
       }
-      const outcome = await dispatchRoute({ system, actor, resource, read, key, sub, subKey, action,
+      const outcome = await dispatchRoute({ system: routeServices, actor, resource, read, key, sub, subKey, action,
         method, input, deleted, url, req, res, mutate, workbook, page, exchange, evidence });
       if (outcome) json(res, 200, outcome.result);
-      if (system.training.enabled && resource==="exchange" &&
-          outcome && isObject(outcome.result)) {
-        const result=outcome.result;
-        if (sub==="preview" && key==="demands" && typeof result.token==="string" && isObject(result.summary)) {
-          const hasIssues=Array.isArray(result.issues) && result.issues.length>0;
-          system.training.record(actor.id,
-            hasIssues?"excel_invalid_preview":"excel_valid_preview",result.token);
-        }
-        if (sub==="commit" && result.kind==="demands" && Array.isArray(result.results) &&
-            result.results.some(entry=>isObject(entry) &&
-              (entry.action==="create"||entry.action==="update")))
-          system.training.record(actor.id,"excel_commit",key);
-      }
     } catch (error) {
       const failure = errorResponse(error);
       if (failure.status === 429) logOutcome = "登录限流";
