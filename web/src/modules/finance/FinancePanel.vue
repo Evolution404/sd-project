@@ -3,6 +3,9 @@ import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { closedWriteReason } from "../../../../server/shared/project-lifecycle";
 import CostCategoryWorkspace from "./components/CostCategoryWorkspace.vue";
+import ActualCostFields from "./components/ActualCostFields.vue";
+import SettlementEntryFields from "./components/SettlementEntryFields.vue";
+import ReconciliationFields from "./components/ReconciliationFields.vue";
 import CostCategorySelect from "./components/CostCategorySelect.vue";
 import type { CostCategoryNode } from "../../../../server/shared/types/trees";
 const categoryNodes = ref<CostCategoryNode[]>([]);
@@ -1041,132 +1044,18 @@ watch(() => props.project.id, () => {
     <VersionConflictNotice v-if="dialog === 'settlement'" :message="settlementConflict" :read-current="compareSettlement" :apply-current="continueSettlementEdit" />
     <ElForm ref="formRef" label-position="top" novalidate :model="form"
       ><div class="form-grid">
-        <template v-if="dialog === 'cost'"
-          ><ElFormItem
-            label="费用事项"
-            prop="title"
-            :rules="[{ required: true, message: '请填写费用事项' }]"
-            required
-            ><ElInput v-model="form.title" /></ElFormItem
-          ><ElFormItem
-            label="末级费用科目"
-            prop="cost_node_id"
-            :rules="[{ required: true, message: '请填写末级费用科目' }]"
-            required
-            > <CostCategorySelect v-model="form.cost_node_id" :project-id="project.id" :nodes="categoryNodes" :disabled="!!editing" :historical-label="editing?.cost_node_name" :historical-version-id="editing?.cost_node_version_id" /></ElFormItem
-          ><ElFormItem
-            label="实际金额（元）"
-            prop="amount_fen"
-            :rules="[{ required: true, message: '请填写实际金额（元）' }]"
-            required
-            ><FieldControl
-              v-model="form.amount_fen"
-              :field="{ type: 'money' }" /></ElFormItem
-          ><ElFormItem
-            label="发生日期"
-            prop="occurred_on"
-            :rules="[{ required: true, message: '请填写发生日期' }]"
-            required
-            ><ElDatePicker
-              v-model="form.occurred_on"
-              value-format="YYYY-MM-DD" /></ElFormItem
-          ><ElFormItem
-            label="费用凭据"
-            prop="evidence"
-            :rules="[{ required: true, message: '请填写费用凭据' }]"
-            required
-            class="full-width"
-            ><ElInput v-model="form.evidence" type="textarea" /></ElFormItem
-        ></template>
-        <template v-if="dialog === 'settlement'"
-          ><ElAlert v-if="approvalsError" :title="'批准历史读取失败：' + approvalsError" type="error" :closable="false">
-            <ElButton :loading="approvalsLoading" @click="loadApprovalChoices">重新读取批准历史</ElButton>
-          </ElAlert>
-          <ElFormItem label="结算日期"
-            ><ElDatePicker
-              v-model="form.settlement_on"
-              value-format="YYYY-MM-DD" /></ElFormItem
-          ><ElFormItem v-if="form.change_type !== 'void'" label="结算方式">
-            <ElRadioGroup v-model="form.mode">
-              <ElRadioButton value="project_total">按项目总额</ElRadioButton>
-              <ElRadioButton value="itemized">按子费用</ElRadioButton>
-            </ElRadioGroup>
-          </ElFormItem>
-          <ElFormItem v-if="!itemized && form.change_type !== 'void'" label="本次金额（元）" prop="amount_fen"
-            :rules="[{ required: true, type: 'number', min: 1, message: '请输入大于零的本次结算金额' }]" required>
-            <FieldControl v-model="form.amount_fen" :field="{ type: 'money' }" />
-          </ElFormItem>
-          <ElFormItem
-            label="采用批准版本"
-            prop="approval_version_id"
-            :rules="[{ required: true, message: '请填写采用批准版本' }]"
-            required
-            ><ElSelect v-model="form.approval_version_id" :loading="approvalsLoading" :disabled="approvalsLoading || !!approvalsError"
-              ><ElOption
-                v-for="ap in approvalChoices"
-                :key="ap.id"
-                :value="ap.id"
-                :label="'批准第' + ap.version_no" /></ElSelect></ElFormItem
-          ><ElFormItem label="结算依据"
-            ><ElInput v-model="form.basis" /></ElFormItem
-          ><ElFormItem v-if="editing?.version" label="修订动作"
-            ><ElSelect v-model="form.change_type"
-              ><ElOption label="完整修订" value="revision" /><ElOption
-                label="正式注销"
-                value="void" /></ElSelect></ElFormItem
-        ></template>
-        <template v-if="dialog === 'reconcile'"
-          ><div class="full-width muted" role="note" style="margin-bottom:12px">从整个子项目检索费用和已批准结算明细，不受主列表分页限制；未显示的历史记录可输入事项或编号搜索。</div>
-          <ElFormItem
-            label="实际费用"
-            prop="cost_version_id"
-            :rules="[{ required: true, message: '请填写实际费用' }]"
-            required
-            ><ElSelect v-model="form.cost_version_id" filterable remote
-              :remote-method="term => loadReconciliationChoices('costs', term)"
-              :loading="reconcileCostsLoading" placeholder="搜索费用事项后选择"
-              no-match-text="未找到匹配费用，请更换关键词"
-              ><ElOption
-                v-for="cost in reconcileCostChoices"
-                :key="cost.id"
-                :value="cost.id"
-                :label="
-                  cost.title + ' ¥' + money(cost.amount_fen)
-                " /></ElSelect></ElFormItem
-          ><ElFormItem
-            label="已批准结算明细"
-            prop="settlement_item_version_id"
-            :rules="[{ required: true, message: '请填写已批准结算明细' }]"
-            required
-            ><ElSelect v-model="form.settlement_item_version_id" filterable remote
-              :remote-method="term => loadReconciliationChoices('bills', term)"
-              :loading="reconcileBillsLoading" placeholder="搜索已批准结算编号后选择"
-              no-match-text="未找到已批准结算，请更换编号"
-              ><ElOption
-                v-for="item in reconcileBillChoices" :key="item.id" :value="item.id"
-                :label="item.number + ' ¥' + money(item.amount_fen) + ' · ' + item.cost_node_name +
-                  (item.demand_no ? ' · ' + item.demand_no : '')" /></ElSelect></ElFormItem
-          ><ElFormItem
-            label="费用份额（元）"
-            prop="reconciled_cost_fen"
-            :rules="[{ required: true, message: '请填写费用份额（元）' }]"
-            required
-            ><FieldControl
-              v-model="form.reconciled_cost_fen"
-              :field="{ type: 'money' }" /></ElFormItem
-          ><ElFormItem
-            label="核定结算额（元）"
-            prop="reconciled_settlement_fen"
-            :rules="[{ required: true, message: '请填写核定结算额（元）' }]"
-            required
-            ><FieldControl
-              v-model="form.reconciled_settlement_fen"
-              :field="{ type: 'money' }" /></ElFormItem
-          ><ElFormItem label="核对依据"
-            ><ElInput v-model="form.evidence" /></ElFormItem
-          ><ElFormItem label="最终核对"
-            ><ElSwitch v-model="form.is_final" /></ElFormItem
-        ></template>
+        <ActualCostFields v-if="dialog === 'cost'" :model-value="form" :project-id="project.id"
+          :nodes="categoryNodes" :editing="!!editing" :historical-label="editing?.cost_node_name"
+          :historical-version-id="editing?.cost_node_version_id" />
+        <SettlementEntryFields v-if="dialog === 'settlement'" :model-value="form"
+          :approval-choices="approvalChoices" :approvals-loading="approvalsLoading"
+          :approvals-error="approvalsError" :itemized="itemized" :editing-version="!!editing?.version"
+          @retry="loadApprovalChoices" />
+        <ReconciliationFields v-if="dialog === 'reconcile'" :model-value="form"
+          :cost-choices="reconcileCostChoices" :bill-choices="reconcileBillChoices"
+          :costs-loading="reconcileCostsLoading" :bills-loading="reconcileBillsLoading"
+          @search-costs="term => loadReconciliationChoices('costs', term)"
+          @search-bills="term => loadReconciliationChoices('bills', term)" />
       </div>
       <template v-if="dialog === 'settlement' && form.change_type !== 'void'"
         ><template v-if="itemized">

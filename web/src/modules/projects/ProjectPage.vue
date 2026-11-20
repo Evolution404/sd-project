@@ -34,6 +34,8 @@ import { approvalDifferences } from "./components/approval-differences";
 import ProjectWorkflowHeader from "./components/ProjectWorkflowHeader.vue";
 import ProjectOverview from "./components/ProjectOverview.vue";
 import ProjectCloseReviewDialog from "./components/ProjectCloseReviewDialog.vue";
+import ProjectArchiveFields from "./components/ProjectArchiveFields.vue";
+import ProjectApprovalFields from "./components/ProjectApprovalFields.vue";
 import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
 import { ApiError, api, download, money, quantity } from "../../shared/api/client";
@@ -1391,104 +1393,12 @@ onMounted(async () => {
       <ElAlert v-if="dialog === 'project' && handoffDemand" type="info" :closable="false"
         :title="'本次创建成功后将同时承接需求 ' + handoffDemand.demand_no + ' · ' + handoffDemand.problem_description" />
       <div class="form-grid">
-        <template v-if="dialog === 'project'"
-          ><ElFormItem
-            label="项目名称"
-            prop="name"
-            :rules="[{ required: true, message: '请填写项目名称' }]"
-            required
-            ><ElInput v-model="form.name" /></ElFormItem
-          ><ElFormItem
-            label="年度框架"
-            prop="framework_id"
-            :rules="[{ required: true, message: '请填写年度框架' }]"
-            required
-            ><FieldControl
-              v-model="form.framework_id"
-              :field="{ type: 'ref', reference: 'frameworks' }"
-              :disabled="!!editing && editing.status !== 'reserve'"
-              @update:model-value="changeProjectFramework" /></ElFormItem
-          ><ElFormItem label="执行协议（选填）">
-            <ElSelect v-model="form.agreement_id" clearable filterable
-              placeholder="直接归属年度框架（无需执行协议）"
-              :disabled="!form.framework_id || agreementLoading || editing?.status === 'closed'"
-              :loading="agreementLoading">
-              <ElOption v-for="item in agreementChoices" :key="item.id"
-                :value="item.id" :label="item.name + ' · ' + item.code"
-                :disabled="!item.eligible" />
-            </ElSelect>
-            <p class="muted" style="font-size:12px;margin:6px 0 0">
-              不选择执行协议，即直接归属所选年度框架；这是完整的项目归属方式，无需以后补选。
-            </p>
-          </ElFormItem>
-          <ElAlert v-if="agreementError" class="full-width" type="error" :closable="false"
-            :title="'执行协议读取失败：' + agreementError">
-            <ElButton size="small" @click="loadProjectAgreements(String(form.framework_id || ''), String(form.agreement_id || '') || null)">重试</ElButton>
-          </ElAlert>
-          <ElAlert v-else-if="form.framework_id && !agreementLoading && !agreementChoices.some((item) => item.eligible)"
-            class="full-width" type="info" :closable="false"
-            title="该框架下没有有效执行协议。子项目可以直接归属年度框架，无需创建或补选协议。" />
-          <ElAlert v-else-if="projectAgreementInvalid" class="full-width" type="warning" :closable="false"
-            title="所选执行协议已失效，请选择有效协议或清空关联。" />
-          <ElFormItem label="项目类别"
-            ><FieldControl
-              v-model="form.category_id"
-              :field="{ type: 'ref', reference: 'categories' }" /></ElFormItem
-          ><ElFormItem label="归口单位"
-            ><FieldControl
-              v-model="form.managing_unit_id"
-              :field="{
-                type: 'ref',
-                reference: 'organizations', adoptedLabel: form.managing_unit_name || undefined, adoptedVersionId: form.managing_unit_version_id || undefined,
-              }" /></ElFormItem
-          ><ElFormItem label="初步估算（元）"
-            ><FieldControl
-              v-model="form.preliminary_estimate_fen"
-              :field="{ type: 'money' }" /></ElFormItem
-          ><ElFormItem label="计划开始"
-            ><ElDatePicker
-              v-model="form.planned_start_on"
-              value-format="YYYY-MM-DD" /></ElFormItem
-          ><ElFormItem label="计划结束"
-            ><ElDatePicker
-              v-model="form.planned_end_on"
-              value-format="YYYY-MM-DD" /></ElFormItem
-          ><ElFormItem label="责任人"
-            ><ElSelect
-              v-model="form.owner_id"
-              clearable
-              filterable
-              @clear="form.owner_id = null"
-              ><ElOption
-                v-for="actor in actors"
-                :key="actor.id"
-                :value="actor.id"
-                :label="actor.username" /></ElSelect></ElFormItem
-          ><ElFormItem label="管理人员"
-            ><ElSelect
-              v-model="form.manager_id"
-              clearable
-              filterable
-              @clear="form.manager_id = null"
-              ><ElOption
-                v-for="actor in actors"
-                :key="actor.id"
-                :value="actor.id"
-                :label="actor.username" /></ElSelect></ElFormItem
-        ></template>
-
-        <template v-if="dialog === 'approval'"
-          ><ElFormItem
-            label="批准预算（元）"
-            prop="approved_budget_fen"
-            :rules="[{ required: true, message: '请填写批准预算（元）' }]"
-            required
-            ><FieldControl
-              v-model="form.approved_budget_fen"
-              :field="{ type: 'money' }" /></ElFormItem
-          ><ElFormItem label="批准依据"
-            ><ElInput v-model="form.basis" /></ElFormItem
-        ></template>
+        <ProjectArchiveFields v-if="dialog === 'project'" :model-value="form" :editing-status="editing?.status"
+          :actors="actors" :agreement-choices="agreementChoices" :agreement-loading="agreementLoading"
+          :agreement-error="agreementError" :project-agreement-invalid="projectAgreementInvalid"
+          @framework="changeProjectFramework"
+          @retry="loadProjectAgreements(String(form.framework_id || ''), String(form.agreement_id || '') || null)" />
+        <ProjectApprovalFields v-if="dialog === 'approval'" :model-value="form" />
         <template v-if="dialog === 'charge'"
           ><ElFormItem
             label="正式价格规则"

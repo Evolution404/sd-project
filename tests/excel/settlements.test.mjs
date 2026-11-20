@@ -194,7 +194,7 @@ test("settlement report distinguishes current approval from a revision and expor
   bill = s.finance.saveDraft(user, project.id, {
     mode: "itemized", approval_version_id: approval.id, change_type: "revision",
     expected_version: 1, expected_edit_version: 0, settlement_on: "2026-11-11", basis: "草稿依据",
-    items: [{ cost_node_id: node.id, project_scope_id: scope.id, amount_fen: 12000, quantity_scaled: 10000 }],
+    items: [{ cost_node_id: node.id, project_scope_id: scope.id, amount_fen: 12000, quantity_scaled: 10000, evidence: "草稿明细依据" }],
   }, bill.id);
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(await exchange.exportData(user, "settlements", { ids: [bill.id], report: true }));
