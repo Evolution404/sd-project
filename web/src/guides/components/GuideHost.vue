@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, ref, watch, type CSSProperties } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { navigationItems } from "../../app/navigation";
-import { ElMessageBox } from "element-plus";
+import { ElMessageBox, useZIndex } from "element-plus";
 import type { Actor } from "../../../../server/shared/types/contracts";
 import { api } from "../../shared/api/client";
 import { guideModules, guideModuleForRoute } from "../registry/modules";
@@ -19,6 +19,21 @@ const tab = ref("current"), query=ref(""), tourOpen=ref(false), tourStep=ref(0);
 const feedback = ref("");
 const feedbackRegion = ref<HTMLElement>();
 let pendingTour = false;
+const { nextZIndex } = useZIndex();
+const tourZIndex = ref<number>();
+// Keep tutorial controls reachable even when the highlighted surface is larger than the viewport.
+const tourCardStyle: CSSProperties = {
+  position: "fixed",
+  top: "auto",
+  left: "auto",
+  right: "12px",
+  bottom: "12px",
+  transform: "none",
+  width: "min(520px, calc(100vw - 24px))",
+  maxWidth: "calc(100vw - 24px)",
+  maxHeight: "calc(100dvh - 24px)",
+  overflowY: "auto",
+};
 const selectedCourse = ref<GuideCourse|null>(null);
 const courseStep = ref(0);
 const selectedModule = ref<GuideModule|null>(null);
@@ -99,6 +114,7 @@ function queueTour() {
 function launchPendingTour() {
   if (!pendingTour || open.value) return;
   pendingTour = false;
+  tourZIndex.value = nextZIndex();
   tourOpen.value = true;
 }
 function startTour(module: GuideModule) {
@@ -318,7 +334,8 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
     </ElTabs>
   </ElDrawer>
   <ElTour v-model="tourOpen" v-model:current="tourStep" :mask="true"
-    :content-style="{ maxWidth: 'calc(100vw - 24px)' }"
+    :z-index="tourZIndex" :content-style="tourCardStyle" :show-arrow="false"
+    :scroll-into-view-options="{ block: 'center', inline: 'nearest', behavior: 'instant' }"
     :target-area-clickable="false" :close-on-press-escape="true"
     @close="closeTour">
     <ElTourStep v-for="step in tourSteps" :key="step.id"

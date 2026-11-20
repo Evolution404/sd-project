@@ -87,10 +87,17 @@ try{
   ({drawer,item}=await searchAction("excel.template","Excel 批量处理",true));
   await item.getByRole("button",{name:"定位当前按钮"}).click();
   await drawer.waitFor({state:"hidden"});
-  await page.locator(".el-tour__content:visible").waitFor();
+  const excelTour=page.locator(".el-tour__content:visible");
+  const finish=excelTour.getByRole("button",{name:"结束导览",exact:true});
+  await finish.waitFor();
+  assert.equal(await finish.evaluate(button=>{
+    const rect=button.getBoundingClientRect();
+    return button.contains(document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2));
+  }),true,"A business dialog must not cover the guide controls");
+  await finish.click();
+  await excelTour.waitFor({state:"hidden"});
+  assert.ok(await page.locator('[data-guide-action="excel.template"]').isVisible());
   assert.deepEqual(writes,[],"An Excel dialog help target must never perform an API write");
-  await page.keyboard.press("Escape");
-  await page.locator(".el-tour__content:visible").waitFor({state:"hidden"});
   await page.locator(".el-dialog__headerbtn").last().click();
 
   // The workbench locates a single queue, without selecting any of its rows.

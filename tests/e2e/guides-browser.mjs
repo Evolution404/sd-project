@@ -5,9 +5,11 @@ import { tmpdir } from "node:os";
 import { chromium } from "playwright";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { httpServer } from "../../dist/server/platform/http/server.js";
+import { ensureDemoDatabase, DEMO_ACCOUNT, DEMO_PASSWORD } from "../../scripts/demo/seed-demo.mjs";
 const dir=mkdtempSync(join(tmpdir(),"sd-project-p10-guides-"));
-const system=createSystem(join(dir,"data"));
-system.auth.initialize("admin","P10-Guides-Test-Password");
+const data=join(dir,"data");
+ensureDemoDatabase(data);
+const system=createSystem(data);
 const before={
   demands:system.demands.list().length,projects:system.projects.list().length,
   frameworks:system.catalog.list("frameworks").length,
@@ -32,10 +34,25 @@ async function openGuide(){
   await page.getByRole("dialog",{name:"使用指引"}).waitFor();
   return page.getByRole("dialog",{name:"使用指引"});
 }
+async function assertReachable(control, step) {
+  await control.waitFor({state:"visible"});
+  const geometry = await control.evaluate(button => {
+    const box = button.getBoundingClientRect();
+    const card = button.closest(".el-tour__content").getBoundingClientRect();
+    const width = document.documentElement.clientWidth;
+    const height = document.documentElement.clientHeight;
+    return {
+      cardFits: card.top >= 0 && card.left >= 0 && card.bottom <= height && card.right <= width,
+      buttonFits: box.top >= 0 && box.left >= 0 && box.bottom <= height && box.right <= width,
+      clickable: button.contains(document.elementFromPoint(box.x + box.width/2, box.y + box.height/2)),
+    };
+  });
+  assert.deepEqual(geometry,{cardFits:true,buttonFits:true,clickable:true},step);
+}
 try {
   await page.goto(base+"/#/demands");
-  await page.getByLabel("用户名",{exact:true}).fill("admin");
-  await page.getByLabel("密码",{exact:true}).fill("P10-Guides-Test-Password");
+  await page.getByLabel("用户名",{exact:true}).fill(DEMO_ACCOUNT);
+  await page.getByLabel("密码",{exact:true}).fill(DEMO_PASSWORD);
   await page.getByRole("button",{name:"登录",exact:true}).click();
   await page.getByRole("heading",{name:"专业需求",exact:true}).waitFor();
   let drawer=await openGuide();
@@ -70,23 +87,61 @@ try {
   }
   await drawer.locator(".el-drawer__close-btn").click();
   await drawer.waitFor({state:"hidden"});
-  drawer=await openGuide();
-  await drawer.getByRole("tab",{name:"当前页面"}).click();
-  await drawer.getByRole("button",{name:"开始当前页面导览"}).click();
-  await page.getByText("本页面用于什么",{exact:true}).waitFor();
-  await drawer.waitFor({state:"hidden"});
-  const tour=page.locator(".el-tour__content:visible");
-  await tour.getByRole("button",{name:"下一步",exact:true}).click();
-  await tour.getByText("业务功能区域",{exact:true}).waitFor();
-  await tour.getByRole("button",{name:"上一步",exact:true}).click();
-  await tour.getByText("本页面用于什么",{exact:true}).waitFor();
-  for(const title of ["业务功能区域","从主要操作开始","查询、筛选与查看","正式历史与风险"]){
-    await tour.getByRole("button",{name:"下一步",exact:true}).click();
-    await tour.getByText(title,{exact:true}).waitFor();
+  await page.getByText("本页 24 条",{exact:true}).waitFor();
+  assert.equal(await page.locator("main .panel").first().evaluate(panel => panel.clientHeight > innerHeight),true,
+    "Use a populated list long enough to reproduce the original out-of-viewport tour");
+  const steps=["本页面用于什么","业务功能区域","从主要操作开始","查询、筛选与查看","正式历史与风险"];
+  for (const width of [1512, 360]) {
+    await page.setViewportSize({width,height:866});
+    drawer=await openGuide();
+    await drawer.getByRole("tab",{name:"当前页面"}).click();
+    await drawer.getByRole("button",{name:"开始当前页面导览"}).click();
+    await drawer.waitFor({state:"hidden"});
+    const tour=page.locator(".el-tour__content:visible");
+    for (const [index,title] of steps.entries()) {
+      await tour.getByText(title,{exact:true}).waitFor();
+      const label=index === steps.length-1 ? "结束导览" : "下一步";
+      const next=tour.getByRole("button",{name:label,exact:true});
+      const close=tour.getByRole("button",{name:"关闭此对话框",exact:true});
+      await assertReachable(close,width+" "+title+" 退出");
+      await assertReachable(next,width+" "+title+" "+label);
+      if(index===3) await page.screenshot({path:join(out,"guide-long-list-"+width+".png")});
+      if(index===1){
+        const previous=tour.getByRole("button",{name:"上一步",exact:true});
+        await assertReachable(previous,width+" "+title+" 上一步");
+        await previous.click();
+        await tour.getByText(steps[0],{exact:true}).waitFor();
+        await assertReachable(next,width+" 返回首步");
+        await next.click();
+        await tour.getByText(title,{exact:true}).waitFor();
+      }
+      await next.click();
+    }
+    await tour.waitFor({state:"hidden"});
+    // Closing the tour must release the overlay for the original table.
+    await page.getByRole("tab",{name:"待承接",exact:true}).click();
+    await page.getByRole("tab",{name:"全部需求",exact:true}).click();
+    await page.getByText("本页 24 条",{exact:true}).waitFor();
   }
-  await page.screenshot({path:join(out,"guide-last-step-760.png"),fullPage:true});
-  await tour.getByRole("button",{name:"结束导览",exact:true}).click();
-  await tour.waitFor({state:"hidden"});
+
+  await page.setViewportSize({width:1512,height:866});
+  await page.getByRole("button",{name:/青峰线15.*导线局部损伤/}).click();
+  const detail=page.getByRole("dialog",{name:"需求详情",exact:true});
+  await detail.getByRole("button",{name:"使用指引",exact:true}).click();
+  drawer=page.getByRole("dialog",{name:"使用指引",exact:true});
+  await drawer.getByRole("button",{name:"开始当前页面导览",exact:true}).click();
+  await drawer.waitFor({state:"hidden"});
+  const detailTour=page.locator(".el-tour__content:visible");
+  for (const title of steps) {
+    await detailTour.getByText(title,{exact:true}).waitFor();
+    const label=title===steps.at(-1)?"结束导览":"下一步";
+    const next=detailTour.getByRole("button",{name:label,exact:true});
+    await assertReachable(next,"需求详情 "+title);
+    await next.click();
+  }
+  await detailTour.waitFor({state:"hidden"});
+  await detail.getByRole("button",{name:"关闭详情",exact:true}).click();
+  await detail.waitFor({state:"hidden"});
 
   drawer=await openGuide();
   await drawer.getByRole("tab",{name:"业务课程"}).click();
@@ -114,7 +169,7 @@ try {
   assert.equal(system.demands.list().length,before.demands);
   assert.equal(system.projects.list().length,before.projects);
   assert.equal(system.catalog.list("frameworks").length,before.frameworks);
-  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, all five tour steps, 4 widths, zero business writes");
+  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, five reachable tour steps on a populated long list at desktop and phone sizes, zero business writes");
 } catch(error){
   console.error("P10_GUIDES_BROWSER_FAILURE",error.message,errors,writes);
   await page.screenshot({path:join(out,"failure.png"),fullPage:true});

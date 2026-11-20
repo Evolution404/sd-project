@@ -9,15 +9,11 @@ export function resolveGuideTarget(selector:string): HTMLElement|null {
   if (!/^[.#\[\]\w\-="': >]+$/.test(selector) || selector.length > 180)
     return null;
   try {
-    const elements=document.querySelectorAll<HTMLElement>(selector);
-    const activeDialog=Array.from(document.querySelectorAll<HTMLElement>(overlaySelector))
-      .reverse().find(node=>visible(node));
-    const candidates=Array.from(elements);
-    if (activeDialog) {
-      const inDialog=candidates.find(node => activeDialog.contains(node) && visible(node));
-      if (inDialog) return inDialog;
-    }
-    return candidates.find(visible) ?? null;
+    const activeDialog = Array.from(document.querySelectorAll<HTMLElement>(overlaySelector)).filter(visible).at(-1);
+    const main = document.querySelector("main.workspace");
+    const activeWork = Array.from(main?.querySelectorAll<HTMLElement>(".business-work-surface") ?? []).find(visible);
+    const root = activeDialog ?? activeWork ?? main;
+    return Array.from(root?.querySelectorAll<HTMLElement>(selector) ?? []).find(visible) ?? null;
   } catch { return null; }
 }
 function visible(node:HTMLElement) {
