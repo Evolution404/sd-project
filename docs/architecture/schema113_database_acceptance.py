@@ -790,16 +790,25 @@ ok("historical cost version retains the original agreement identity",
         "WHERE cv.id='audit_cv'")["agreement_id"]=="ag"
     and row("SELECT amount_fen FROM cost_versions WHERE id='audit_cv'")["amount_fen"]==10000)
 
+# Correct only the amount guard with a valid historic scope and funding fact.
+audit_cost_node = row("SELECT cost_node_version_id FROM cost_versions WHERE id='audit_cv'")["cost_node_version_id"]
+cost_revision_insert = (
+    "INSERT INTO cost_versions(id,entry_id,cost_node_version_id,funding_version_id,"
+    "version_no,status,title,occurred_on,amount_fen,evidence,reason,confirmed_by,"
+    "confirmed_at,request_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+blocked("actual cost correction below its applied reconciliation is rejected",
+    cost_revision_insert,
+    ("audit_cv_low","audit_ce",audit_cost_node,"fund2",2,"active","金额下调",
+     "2026-11-07",9500,"依据","更正","u","2026-11-07T16:00:00.000Z","audit_cv_low"))
+
 # Existing cost's historical funding identity may not be silently nulled.
 blocked("funded actual expense correction cannot erase historical agreement",
-    "INSERT INTO cost_versions(id,entry_id,version_no,status,"
-    "title,occurred_on,amount_fen,evidence,reason,"
-    "confirmed_by,confirmed_at,request_key) VALUES('audit_cv_bad2','audit_ce',"
-    "2,'active','费用复核','2026-11-07',9500,'依据','更正',"
-    "'u','2026-11-07T16:00:00.000Z','audit_cv_bad2')")
+    cost_revision_insert,
+    ("audit_cv_bad2","audit_ce",audit_cost_node,None,2,"active","费用复核",
+     "2026-11-07",10500,"依据","更正","u","2026-11-07T16:00:00.000Z","audit_cv_bad2"))
 add("cost_versions",id="audit_cv2",entry_id="audit_ce",
     version_no=2,funding_version_id="fund2",status="active",
-    title="真实费用更正",occurred_on="2026-11-07",amount_fen=9500,
+    title="真实费用更正",occurred_on="2026-11-07",amount_fen=10500,
     evidence="新核对凭据",reason="实际成本复核",confirmed_by="u",
     confirmed_at="2026-11-07T16:00:00.000Z",request_key="audit_cv2")
 ok("historical reconciliation still references original actual cost version",
@@ -2981,9 +2990,21 @@ try:
     ok('new formally approved statement amount is separately reconciled',
         effective_applied('fee_material_cost')==4500
         and 5500-effective_applied('fee_material_cost')==1000)
-    # A later true-cost reduction may be smaller than the already reviewed
-    # portions. Recording the correction is valid; automatic deletion or
-    # reinterpretation of historical approved settlements is NOT.
+    # Review affected reconciliation before applying the lower actual amount.
+    cost_node = row("SELECT cost_node_version_id FROM cost_versions WHERE id='fee_material_cost_v2'")["cost_node_version_id"]
+    blocked('cost reduction must first correct already applied reconciliation',
+        cost_revision_insert,
+        ('blocked_fee_material_cost_v3','fee_material_cost',cost_node,'fund2',
+         3,'active','材料费用核减','2026-11-08',4000,'核减单','实际费用更正','u',t,
+         'blocked_fee_material_cost_v3'))
+    add('cost_reconciliation_versions',id='revised_fee_doc_3_recon_v2',
+        record_id='revised_fee_doc_3_recon',version_no=2,status='active',
+        cost_version_id='fee_material_cost_v2',
+        settlement_item_id='fee_doc_3_fee_material',
+        settlement_item_version_id='fee_doc_3_fee_material_v2',
+        reconciled_cost_fen=1000,reconciled_settlement_fen=1500,
+        is_final=0,evidence='核减前调整实际费用份额',actor_id='u',
+        created_at=t,request_key='revised_fee_doc_3_recon_v2')
     add('cost_versions',id='fee_material_cost_v3',
         entry_id='fee_material_cost',version_no=3,
         funding_version_id='fund2',status='active',
@@ -2991,13 +3012,14 @@ try:
         amount_fen=4000,evidence='实际材料费用正式核减1500分',
         reason='更正应结金额',confirmed_by='u',
         confirmed_at=t,request_key='fee_material_cost_v3')
-    ok('downward cost correction retains authentic over-reconciled exception',
+    ok('downward cost correction keeps historical facts after reconciliation is adjusted',
         row('SELECT amount_fen FROM v_cost_current '
             "WHERE entry_id='fee_material_cost'")['amount_fen']==4000
-        and effective_applied('fee_material_cost')==4500
+        and effective_applied('fee_material_cost')==4000
+        and row("SELECT COUNT(*) n FROM cost_reconciliation_versions WHERE record_id='revised_fee_doc_3_recon'")['n']==2
         and row('SELECT COUNT(*) n FROM v_cost_reconciliation_current '
             "WHERE record_id='fee_doc_1_fee_material_recon'")['n']==1)
-    blocked('cannot add more active reconciliation to an already over-matched cost',
+    blocked('cannot add more active reconciliation to a fully matched corrected cost',
         'INSERT INTO cost_reconciliation_versions(id,record_id,version_no,'
         'status,cost_version_id,settlement_item_id,settlement_item_version_id,'
         'reconciled_cost_fen,reconciled_settlement_fen,is_final,evidence,'
