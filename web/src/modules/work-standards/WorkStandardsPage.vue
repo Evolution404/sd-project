@@ -280,7 +280,6 @@ onMounted(async () => {
   <div v-show="!editorMode">
   <div class="page-heading">
     <div>
-      <div class="section-caption">作业定义管理</div>
       <h1>作业标准</h1>
       <p>维护固定单位、作业对象和录入模板，正式定义变更保留历史。</p>
     </div>

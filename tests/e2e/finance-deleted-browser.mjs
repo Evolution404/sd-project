@@ -33,8 +33,12 @@ try {
   await page.locator(".cell-link:visible").first().click();
   const detail = page.locator(".business-work-surface:visible");
   await detail.waitFor();
-  await detail.getByText("包含已删除科目", { exact: true }).click();
   const treeWorkspace = detail.locator('.cost-category-workspace');
+  await treeWorkspace.getByRole("button", { name: "筛选科目", exact: true }).click();
+  const deletedCategories = page.getByRole("checkbox", { name: "包含已删除科目", exact: true });
+  await page.getByText("包含已删除科目", { exact: true }).click();
+  assert.equal(await deletedCategories.isChecked(), true);
+  await treeWorkspace.getByRole("button", { name: "筛选科目", exact: true }).click();
   await treeWorkspace.locator('.tree-node-label').filter({ hasText: /^人工费$/ }).click();
   const deletedNode = treeWorkspace.locator('.tree-facts');
   await deletedNode.locator(".subheading").getByText("已删除", { exact: true }).waitFor();

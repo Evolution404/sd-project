@@ -80,7 +80,7 @@ try {
   });
   await selectFormChoice(page, "计量单位", unit.name, materialEditor);
   await materialEditor
-    .getByLabel("名称", { exact: true })
+    .getByLabel("物资名称", { exact: true })
     .fill("新版物资浏览器");
   await materialEditor.getByLabel("型号", { exact: true }).fill("A-1");
   await materialEditor.getByLabel("规格", { exact: true }).fill("耐候型");

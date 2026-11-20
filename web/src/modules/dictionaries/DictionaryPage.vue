@@ -178,7 +178,6 @@ onMounted(load);
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">基础配置</div>
       <h1>基础数据</h1>
       <p>{{ title }}与正式版本</p>
     </div>

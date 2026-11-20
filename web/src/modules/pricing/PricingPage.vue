@@ -260,7 +260,6 @@ onMounted(async () => {
   <div v-show="!editorMode">
   <div class="page-heading">
     <div>
-      <div class="section-caption">参考计价管理</div>
       <h1>参考价格</h1>
       <p>维护版本化参考价格及额外现场特征，正式报价记录具体规则和计算依据。</p>
     </div>

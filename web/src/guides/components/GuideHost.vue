@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
-import { ElMessage, ElMessageBox } from "element-plus";
+import { computed, nextTick, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { navigationItems } from "../../app/navigation";
+import { ElMessageBox } from "element-plus";
 import type { Actor } from "../../../../server/shared/types/contracts";
 import { api } from "../../shared/api/client";
 import { guideModules, guideModuleForRoute } from "../registry/modules";
 import { guideActions } from "../registry/actions";
 import { guideCourses } from "../registry/journeys";
 import { clearProgress, readProgress, writeProgress, GUIDE_COURSE_VERSION, type LearningProgress } from "../core/progress";
-import { resolveGuideTarget, resolveGuideActionTarget } from "../core/target-resolver";
+import { hasActiveGuideWorkspace, resolveGuideTarget, resolveGuideActionTarget } from "../core/target-resolver";
 import type { GuideAction, GuideModule, GuideCourse } from "../core/types";
 const props = defineProps<{open:boolean; actor:Actor; routeKey:string}>();
 const emit = defineEmits<{ "update:open":[boolean] }>();
 const open = computed({ get:()=>props.open, set:v=>emit("update:open",v) });
+const route = useRoute(), router = useRouter();
 const tab = ref("current"), query=ref(""), tourOpen=ref(false), tourStep=ref(0);
+const feedback = ref("");
+const feedbackRegion = ref<HTMLElement>();
+let pendingTour = false;
 const selectedCourse = ref<GuideCourse|null>(null);
 const courseStep = ref(0);
 const selectedModule = ref<GuideModule|null>(null);
@@ -20,7 +26,7 @@ const selectedAction = ref<GuideAction|null>(null);
 const tourSteps = computed(() => selectedAction.value ? [{
   id:selectedAction.value.id,
   title:selectedAction.value.title,
-  target:'[data-guide-action="'+selectedAction.value.id+'"]',
+  target:"",
   description:selectedAction.value.purpose+"；操作前："+selectedAction.value.prerequisite+
     "；正式结果："+selectedAction.value.result+"；风险："+selectedAction.value.risk,
 }] : (tourModule.value?.steps??[]));
@@ -60,45 +66,92 @@ const roleLabel:Readonly<Record<string,string>>={
 };
 watch(()=>props.actor.id,()=>{
   progress.value=readProgress(props.actor.id);selectedCourse.value=null;
-  courseStep.value=0;tourOpen.value=false;
-  trainingRequest++;trainingChecks.value=null;trainingError.value="";
+  courseStep.value=0;closeTour();
+  trainingRequest++;trainingChecks.value=null;trainingError.value="";trainingLoading.value=false;
 },{immediate:true});
-watch(()=>props.routeKey,()=>{
-  tourOpen.value=false;selectedModule.value=null;selectedAction.value=null;tourStep.value=0;
+watch(() => route.fullPath, () => {
+  closeTour();
+  tourStep.value = 0;
+  feedback.value = "";
+});
+watch([open, tab], ([visible, activeTab]) => {
+  feedback.value = "";
+  if (visible && activeTab === "training" && !trainingChecks.value && !trainingLoading.value)
+    void refreshTraining();
 });
 watch(()=>props.open,(value)=>{
   // Starting a tour intentionally closes the drawer. Do not close the tour
   // from this drawer-close watcher; only route/logout/ElTour close may do so.
-  if(value) progress.value=readProgress(props.actor.id);
-  else trainingRequest++;
+  if (value) {
+    pendingTour = false;
+    feedback.value = "";
+    progress.value = readProgress(props.actor.id);
+  } else {
+    trainingRequest++;
+    trainingLoading.value = false;
+  }
 });
-function startTour(module:GuideModule) {
-  selectedAction.value=null;selectedModule.value=module;
-  tourStep.value=0;
-  open.value=false;
-  tourOpen.value=true;
+function queueTour() {
+  tourStep.value = 0;
+  pendingTour = true;
+  open.value = false;
 }
-function closeTour() {tourOpen.value=false;selectedModule.value=null;selectedAction.value=null;}
-function locateAction(action:GuideAction) {
+function launchPendingTour() {
+  if (!pendingTour || open.value) return;
+  pendingTour = false;
+  tourOpen.value = true;
+}
+function startTour(module: GuideModule) {
+  selectedAction.value = null;
+  selectedModule.value = module;
+  queueTour();
+}
+function closeTour() {
+  pendingTour = false;
+  tourOpen.value = false;
+  selectedModule.value = null;
+  selectedAction.value = null;
+}
+function showFeedback(message: string) {
+  feedback.value = message;
+  void nextTick(() => feedbackRegion.value?.scrollIntoView({ block: "nearest" }));
+}
+function locateAction(action: GuideAction) {
   if (!resolveGuideActionTarget(action.id)) {
-    ElMessage.warning("当前没有唯一可定位的“"+action.title+"”控件。请进入所属业务模块，切换对应页签或打开具体单据后重试；不会自动办理任何业务。");
+    showFeedback(`当前没有唯一可定位的「${action.title}」控件。请核对权限、页签及单据状态，或打开具体记录后重试。`);
     return;
   }
-  selectedModule.value=null;
-  selectedAction.value=action;
-  tourStep.value=0;
-  open.value=false;
-  tourOpen.value=true;
+  selectedModule.value = null;
+  selectedAction.value = action;
+  queueTour();
 }
-function finishTour() {
-  closeTour();
-  ElMessage.info("已阅读页面说明。实际业务操作和训练完成需要分别验证。");
+function moduleDestination(key: string) {
+  const item = navigationItems.find(entry => entry.key === key);
+  return item && (!item.adminOnly || props.actor.role === "admin") ? item : undefined;
+}
+async function goToModule(key: string) {
+  if (!moduleDestination(key)) return;
+  feedback.value = "";
+  if (hasActiveGuideWorkspace()) {
+    showFeedback("请先关闭指引，保存或退出当前详情及办理，再前往其他模块。");
+    return;
+  }
+  try {
+    if (key !== props.routeKey && await router.push({ name: key })) {
+      showFeedback("未离开当前页面。请处理当前业务提示后重试。");
+      return;
+    }
+    open.value = false;
+  } catch {
+    showFeedback("无法打开业务页面，请重试。");
+  }
 }
 function openCourse(course:GuideCourse) {
   selectedCourse.value=course;
-  courseStep.value=progress.value[course.id]?.stepIndex??0;
+  const previous = progress.value[course.id];
+  courseStep.value = previous?.state === "reading" ? previous.stepIndex : 0;
   tab.value="training";
-  void refreshTraining();
+  if (!trainingChecks.value && !trainingLoading.value) void refreshTraining();
 }
 function saveReading(isFinal:boolean) {
   const course=selectedCourse.value;
@@ -115,7 +168,6 @@ function nextReading() {
   if(!course) return;
   if(courseStep.value+1>=course.instructions.length) {
     saveReading(true);
-    ElMessage.success("仅记录为“已阅读”；训练成功仍需服务端核验。");
     return;
   }
   courseStep.value++;saveReading(false);
@@ -126,18 +178,24 @@ async function resetProgress() {
     clearProgress(props.actor.id); progress.value={};courseStep.value=0;
   } catch { /* user cancelled */ }
 }
-function showCourseRoute(course:GuideCourse) {
-  // Avoid route navigation that could bypass an unsaved business editor's draft guard.
-  const target=guideModules.find(m=>m.id===course.routeName);
-  return target?.title??"专业需求 / Excel专题";
-}
+const currentCourseRead = computed(() =>
+  selectedCourse.value && courseStep.value === selectedCourse.value.instructions.length - 1 &&
+  progress.value[selectedCourse.value.id]?.state === "read");
+const courseDestination = computed(() => {
+  const course = selectedCourse.value;
+  if (!course) return undefined;
+  return moduleDestination(course.routeName === "excel" ? "demands" : course.routeName);
+});
 function hasRole(roles:readonly string[]) {return roles.includes(props.actor.role);}
 function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
 </script>
 <template>
   <ElDrawer v-model="open" title="使用指引" class="sd-guide-center" size="min(580px,96vw)"
-    :close-on-click-modal="true" :destroy-on-close="false">
+    :close-on-click-modal="true" :destroy-on-close="false" @closed="launchPendingTour">
     <p class="guide-intro">了解每项业务操作的前置条件、正式结果与风险。阅读说明不会自动修改业务数据。</p>
+    <div v-if="feedback" ref="feedbackRegion" class="guide-feedback">
+      <ElAlert :title="feedback" type="info" :closable="false" />
+    </div>
     <ElTabs v-model="tab" class="guide-tabs">
       <ElTabPane label="当前页面" name="current">
         <template v-if="currentModule">
@@ -169,9 +227,11 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
         <div class="guide-result-count">共 {{ filteredActions.length }} 条操作解释</div>
         <ElCollapse>
           <ElCollapseItem v-for="action in filteredActions" :key="action.id"
-            :title="action.title+' · '+action.module" :name="action.id">
+            :title="action.title + ' · ' + (guideModuleForRoute(action.module)?.title ?? 'Excel 批量处理')" :name="action.id">
             <p>{{ action.purpose }}</p>
-            <ElButton size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
+            <ElButton v-if="action.module !== routeKey && moduleDestination(action.module)" size="small" text type="primary"
+              @click="goToModule(action.module)">前往{{ moduleDestination(action.module)?.title }}</ElButton>
+            <ElButton v-else size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
             <p><strong>前置条件：</strong>{{ action.prerequisite }}</p>
             <p><strong>业务结果：</strong>{{ action.result }}</p>
             <p><strong>风险：</strong>{{ action.risk }}</p>
@@ -187,7 +247,9 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
             <p>{{ module.summary }}</p>
             <ElButton v-if="module.id===routeKey" text type="primary"
               @click="startTour(module)">开始短导览</ElButton>
-            <span v-else class="guide-subtle">先通过原导航进入该模块，再启动导览</span>
+            <ElButton v-else-if="moduleDestination(module.id)" text type="primary"
+              @click="goToModule(module.id)">前往{{ module.title }}</ElButton>
+            <span v-else class="guide-subtle">当前账号无权访问</span>
           </article>
         </div>
         <article class="guide-module-item">
@@ -225,24 +287,29 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
           <ElButton text @click="closeCourse">返回全部课程</ElButton>
           <h3>{{selectedCourse.id}} {{selectedCourse.title}}</h3>
           <p>{{selectedCourse.purpose}}</p>
-          <ElAlert type="info" :closable="false"
-            :title="'前往业务模块：'+showCourseRoute(selectedCourse)+'（需用户主动通过原导航进入）'" />
+          <ElButton v-if="courseDestination" text type="primary" @click="goToModule(courseDestination.key)">
+            前往{{ courseDestination.title }}
+          </ElButton>
           <ElSteps :active="courseStep" direction="vertical" class="guide-course-steps">
             <ElStep v-for="(instruction,index) in selectedCourse.instructions" :key="index"
               :title="instruction" :status="index<courseStep?'finish':index===courseStep?'process':'wait'" />
           </ElSteps>
           <p><strong>实际完成检查：</strong>{{selectedCourse.checkpoint}}</p>
-          <ElAlert v-if="!trainingChecks?.training" type="warning" :closable="false"
-            title="正式环境没有训练验收：仅可阅读与使用导览。请在独立训练实例中完成练习。" />
+          <ElAlert v-if="trainingError" :title="trainingError" type="warning" :closable="false" />
+          <p v-else-if="trainingLoading" class="guide-subtle" role="status">正在读取实操验收状态</p>
+          <ElAlert v-else-if="trainingChecks && !trainingChecks.training" type="info" :closable="false"
+            title="当前环境可阅读指引。课程实操由独立训练实例核验。" />
           <ElAlert v-else-if="checkpoint(selectedCourse.id)?.completed"
             type="success" :closable="false"
             :title="'真实业务检查通过：'+checkpoint(selectedCourse.id)?.details" />
-          <ElAlert v-else type="info" :closable="false"
+          <ElAlert v-else-if="trainingChecks?.training" type="info" :closable="false"
             :title="'尚未取得真实业务完成证据：'+(checkpoint(selectedCourse.id)?.details||selectedCourse.checkpoint)" />
-          <ElButton :loading="trainingLoading" @click="refreshTraining">重新核验课程完成状态</ElButton>
+          <ElButton v-if="trainingChecks?.training || trainingError" :loading="trainingLoading"
+            @click="refreshTraining">重新核验课程完成状态</ElButton>
           <div class="guide-course-actions">
             <ElButton :disabled="courseStep===0" @click="courseStep--;saveReading(false)">上一步</ElButton>
-            <ElButton type="primary" @click="nextReading">
+            <ElTag v-if="currentCourseRead" type="success">已阅读</ElTag>
+            <ElButton v-else type="primary" @click="nextReading">
               {{courseStep+1===selectedCourse.instructions.length?"标记已阅读":"下一步"}}
             </ElButton>
           </div>
@@ -250,9 +317,10 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
       </ElTabPane>
     </ElTabs>
   </ElDrawer>
-  <ElTour v-model="tourOpen" :current="tourStep" :mask="true"
+  <ElTour v-model="tourOpen" v-model:current="tourStep" :mask="true"
+    :content-style="{ maxWidth: 'calc(100vw - 24px)' }"
     :target-area-clickable="false" :close-on-press-escape="true"
-    @change="tourStep=$event" @close="closeTour" @finish="finishTour">
+    @close="closeTour">
     <ElTourStep v-for="step in tourSteps" :key="step.id"
       :target="()=>selectedAction ? resolveGuideActionTarget(selectedAction.id) : resolveGuideTarget(step.target)"
       :title="step.title"
@@ -260,6 +328,7 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
   </ElTour>
 </template>
 <style scoped>
+.guide-feedback { margin-bottom: 12px }
 .guide-intro,.guide-subtle {font-size:13px;color:var(--muted)}
 .guide-section-title {font-size:17px;font-weight:650;margin:3px 0 10px}
 .guide-result-count{font-size:12px;color:var(--muted);margin:9px 0}

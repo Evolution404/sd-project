@@ -21,7 +21,7 @@ try {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   const row = page.getByRole("row").filter({ hasText: "跨项目检索验收费用" });
   await row.waitFor();
-  await row.getByText("1,400.00", { exact: true }).waitFor();
+  await row.getByText("¥1,400.00", { exact: true }).waitFor();
   const search = page.getByPlaceholder("搜索子项目、编号或费用事项");
   await search.fill("跨项目检索验收费用");
   await search.press("Enter");

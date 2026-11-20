@@ -253,14 +253,8 @@ const projectDialog = useEntityDialog(
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">基础配置</div>
       <h1>基础数据</h1>
       <p>归口单位与正式组织关系</p>
-    </div>
-    <div class="page-heading-actions">
-      <ElButton data-guide-action="dictionaries.organization" type="primary" :disabled="!can('admin')" @click="edit()"
-        >新增根单位</ElButton
-      >
     </div>
   </div>
   <slot name="tabs" />
@@ -268,9 +262,18 @@ const projectDialog = useEntityDialog(
     ><ElButton @click="load">重试</ElButton></ElAlert
   >
   <div class="panel organization-workspace">
-    <div class="toolbar">
-      <ElCheckbox data-guide-action="dictionaries.show-deleted" v-model="includeDeleted">包含已删除单位</ElCheckbox
-      ><ElButton text @click="load">刷新组织</ElButton>
+    <div class="unified-list-tools">
+      <div class="toolbar">
+        <ElPopover trigger="click" placement="bottom-start" :width="200">
+          <template #reference><ElButton>筛选</ElButton></template>
+          <ElCheckbox data-guide-action="dictionaries.show-deleted" v-model="includeDeleted">包含已删除单位</ElCheckbox>
+        </ElPopover>
+        <ElTag v-if="includeDeleted" effect="plain">包含已删除单位</ElTag>
+      </div>
+      <div class="toolbar page-heading-actions">
+        <ElButton :loading="loading" @click="load">刷新组织</ElButton>
+        <ElButton v-if="can('admin')" data-guide-action="dictionaries.organization" type="primary" @click="edit()">新增根单位</ElButton>
+      </div>
     </div>
     <div class="mobile-tree-switch" role="group" aria-label="单位视图切换">
       <ElButton :type="mobilePane === 'list' ? 'primary' : 'default'" @click="mobilePane = 'list'">单位列表</ElButton>

@@ -79,7 +79,7 @@ try {
   await visit("materials");
   await page.getByRole("button", { name: "新增物资", exact: true }).click();
   await choice("计量单位", "套");
-  await editor.getByLabel("名称", { exact: true }).fill("A2防鸟装置");
+  await editor.getByLabel("物资名称", { exact: true }).fill("A2防鸟装置");
   await editor.getByLabel("型号", { exact: true }).fill("A2-BIRD");
   await editor.getByLabel("规格", { exact: true }).fill("测试规格");
   await save();

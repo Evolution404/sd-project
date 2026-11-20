@@ -344,7 +344,17 @@ watch(() => props.tableKey, async () => {
 .business-table-grid :deep(.el-table__header-wrapper th .cell .business-filter-button) {flex:none}
 .business-filter-button{padding:2px 5px;margin-left:4px;vertical-align:middle;color:var(--muted);border-radius:6px}
 .business-filter-button.is-active-filter{color:var(--brand-primary);background:var(--brand-soft)}
-.business-table-grid :deep(.el-table__body tr:hover > td.el-table__cell){transition:background-color .12s ease}
+.business-table-grid {
+  border-radius: 7px 7px 0 0;
+  font-variant-numeric: tabular-nums;
+}
+.business-table-grid :deep(.el-table__body td.el-table__cell) { border-right-color: transparent }
+.business-table-grid :deep(.el-table__header th.el-table__cell) {
+  border-right-color: color-mix(in srgb, var(--edge) 65%, transparent);
+}
+.business-table-grid :deep(.el-table__body tr:hover > td.el-table__cell) { transition: background-color .12s ease }
+.business-table-grid :deep(.cell-link.el-button) { font-weight: 550 }
+.business-table-grid :deep(.cell-link:hover) { text-decoration: underline; text-underline-offset: 3px }
 .column-settings-list{max-height:55vh;overflow:auto}
 .column-setting-item{display:flex;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--edge)}
 .column-setting-actions{display:flex;margin-left:auto}

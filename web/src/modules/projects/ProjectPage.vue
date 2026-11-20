@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { projectStatusTag } from "../../shared/utils/project-status";
 import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import HandlingReviewDialog from "../../shared/ui/HandlingReviewDialog.vue";
@@ -1082,7 +1083,7 @@ onMounted(async () => {
         <template #cell="{ row, column }">
           <ElButton v-if="column.key === 'name'" link type="primary" class="cell-link" @click="open(row)">{{ row.name }}</ElButton>
           <ElTag v-else-if="column.key === 'display_status'" effect="plain"
-            :type="row.display_status === '已批准' ? 'success' : row.display_status === '已结项' ? 'info' : ['立项中','变更中'].includes(row.display_status) ? 'warning' : undefined">{{ row.display_status }}</ElTag>
+            :type="projectStatusTag(row.display_status)">{{ row.display_status }}</ElTag>
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x) => x.binding).length || 0 }}</span>
           <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
@@ -1105,7 +1106,7 @@ onMounted(async () => {
     @close="projectWork ? returnFromProjectWork() : detailDialog.close()" @retry="detailDialog.reload">
     <template v-if="detail"><div v-if="!projectWork" class="detail-header">
       <h1>{{ detail.name }}</h1>
-      <ElTag :type="detail.display_status === '已批准' ? 'success' : ['变更中','立项中'].includes(detail.display_status) ? 'warning' : undefined">{{ detail.display_status }}</ElTag
+      <ElTag :type="projectStatusTag(detail.display_status)">{{ detail.display_status }}</ElTag
       ><ElTooltip :content="detail.code" placement="top">
          <span class="muted project-code">{{ detail.code }}</span>
        </ElTooltip>

@@ -205,7 +205,6 @@ onMounted(() => {
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">系统管理</div>
       <h1>系统管理</h1>
       <p>账号角色、内网访问、操作审计与访问日志。</p>
     </div>

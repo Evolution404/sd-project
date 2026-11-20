@@ -6,7 +6,9 @@ import {fixture} from "../helpers.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
 
 const cleanup=[];
-const {s}=fixture({after:fn=>cleanup.push(fn)});
+const {s,save}=fixture({after:fn=>cleanup.push(fn)});
+for (const name of ["指引测试框架一","指引测试框架二"])
+  save("frameworks",{name,fiscal_year:2026,limit_fen:100000});
 const server=httpServer(s);
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await chromium.launch(existsSync(chromium.executablePath())?
@@ -30,7 +32,8 @@ async function searchAction(text,expected,insideDialog=false){
   await drawer.getByRole("tab",{name:"操作搜索"}).click();
   await drawer.getByRole("textbox",{name:"搜索业务操作说明"}).fill(text);
   const item=drawer.locator(".el-collapse-item").filter({hasText:expected}).first();
-  await item.locator(".el-collapse-item__header").click();
+  const header=item.locator(".el-collapse-item__header");
+  if(await header.getAttribute("aria-expanded")!=="true") await header.click();
   return {drawer,item};
 }
 try{
@@ -40,7 +43,7 @@ try{
   await page.getByRole("button",{name:"登录",exact:true}).click();
   await page.getByRole("heading",{name:"专业需求",exact:true}).waitFor();
   assert.equal(await page.locator('[data-guide-action="demands.create"]').count(),1);
-  let {drawer,item}=await searchAction("新增需求","新增需求 · demands");
+  let {drawer,item}=await searchAction("新增需求","新增需求 · 专业需求");
   await item.getByRole("button",{name:"定位当前按钮"}).click();
   await drawer.waitFor({state:"hidden"});
   await page.locator(".el-tour__content:visible").waitFor();
@@ -51,19 +54,15 @@ try{
   await page.keyboard.press("Escape");
   await page.locator(".el-tour__content:visible").waitFor({state:"hidden"});
 
-  ({drawer,item}=await searchAction("参考价格","新增参考价格规则 · pricing"));
-  await item.getByRole("button",{name:"定位当前按钮"}).click();
-  await page.getByText(/当前没有唯一可定位/).first().waitFor();
-  assert.equal(await drawer.isVisible(),true);
-  await drawer.getByRole("button",{name:"Close"}).click().catch(async()=>{
-    await page.keyboard.press("Escape");
-  });
+  ({drawer,item}=await searchAction("参考价格","新增参考价格规则 · 参考价格"));
+  await item.getByRole("button",{name:"前往参考价格",exact:true}).click();
+  await page.getByRole("heading",{name:"参考价格",exact:true}).waitFor();
   await drawer.waitFor({state:"hidden"});
 
   await page.goto(base+"/#/dictionaries/tower_materials");
   await page.getByRole("tab",{name:"杆塔材质"}).waitFor();
   assert.equal(await page.locator('[data-guide-action="dictionaries.tower-material"]').count(),1);
-  ({drawer,item}=await searchAction("杆塔材质","杆塔材质 · dictionaries"));
+  ({drawer,item}=await searchAction("杆塔材质","杆塔材质 · 基础数据"));
   await item.getByRole("button",{name:"定位当前按钮"}).click();
   await drawer.waitFor({state:"hidden"});
   await page.locator(".el-tour__content:visible").waitFor();
@@ -77,7 +76,15 @@ try{
   await page.locator('[data-guide-action="excel.import"]').click();
   await page.locator('[data-guide-action="excel.template"]').waitFor();
   assert.equal(await page.locator('[data-guide-action="excel.preview"]').count(),1);
-  ({drawer,item}=await searchAction("excel.template","excel",true));
+  ({drawer,item}=await searchAction("参考价格","新增参考价格规则 · 参考价格",true));
+  const origin=page.url();
+  await item.getByRole("button",{name:"前往参考价格",exact:true}).click();
+  await drawer.getByText(/请先关闭指引，保存或退出/).waitFor();
+  assert.equal(page.url(),origin);
+  assert.ok(await page.locator('[data-guide-action="excel.template"]').isVisible());
+  await drawer.getByRole("button",{name:"关闭此对话框",exact:true}).click();
+  await drawer.waitFor({state:"hidden"});
+  ({drawer,item}=await searchAction("excel.template","Excel 批量处理",true));
   await item.getByRole("button",{name:"定位当前按钮"}).click();
   await drawer.waitFor({state:"hidden"});
   await page.locator(".el-tour__content:visible").waitFor();
@@ -86,14 +93,25 @@ try{
   await page.locator(".el-tour__content:visible").waitFor({state:"hidden"});
   await page.locator(".el-dialog__headerbtn").last().click();
 
-  // Dashboard exposes multiple equivalent clickable rows; refusing to pick
-  // an arbitrary row protects the user's navigation and chosen business data.
+  // The workbench locates a single queue, without selecting any of its rows.
   await page.goto(base+"/#/dashboard");
-  await page.locator('[data-guide-action="dashboard.open"]').first().waitFor();
-  assert.ok(await page.locator('[data-guide-action="dashboard.open"]').count()>1);
-  ({drawer,item}=await searchAction("dashboard.open","dashboard"));
+  const queue=page.locator('[data-guide-action="dashboard.open"]');
+  await queue.waitFor();
+  assert.equal(await queue.count(),1);
+  ({drawer,item}=await searchAction("dashboard.open","查看待办 · 工作台"));
   await item.getByRole("button",{name:"定位当前按钮"}).click();
-  await page.getByText(/当前没有唯一可定位/).first().waitFor();
+  await drawer.waitFor({state:"hidden"});
+  await page.locator(".el-tour__content:visible").getByText("查看待办",{exact:true}).waitFor();
+  await page.keyboard.press("Escape");
+  await page.locator(".el-tour__content:visible").waitFor({state:"hidden"});
+
+  // Several framework rows share an action. Never choose an arbitrary row.
+  await page.goto(base+"/#/frameworks");
+  await page.getByRole("button",{name:"指引测试框架二",exact:true}).waitFor();
+  assert.equal(await page.locator('[data-guide-action="frameworks.detail"]').count(),2);
+  ({drawer,item}=await searchAction("frameworks.detail","查看资金概览 · 年度框架"));
+  await item.getByRole("button",{name:"定位当前按钮"}).click();
+  await drawer.getByText(/当前没有唯一可定位/).waitFor();
   assert.equal(await drawer.isVisible(),true);
   assert.deepEqual(writes,[],"Duplicate action IDs cannot cause automatic selection");
   await page.keyboard.press("Escape");

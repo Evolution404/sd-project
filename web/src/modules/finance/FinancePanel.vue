@@ -805,34 +805,37 @@ watch(() => props.project.id, () => {
     <ElButton size="small" @click="jumpToSection(settlementSection)">结算单</ElButton>
     <ElButton size="small" @click="jumpToSection(reconciliationSection)">费用核对</ElButton>
   </nav>
-  <div v-if="!listError" class="metric-grid">
-    <div class="metric">
-      <span>正式参考价格</span>
-      <strong>{{ summary.reference_total_fen == null ? '未完整计价' : '¥' + money(summary.reference_total_fen) }}</strong>
+  <section v-if="!listError" class="panel finance-summary" v-loading="listLoading" aria-label="项目结算总览">
+    <div class="finance-summary-main">
+      <div class="settlement-progress">
+        <h2>结算进度</h2>
+        <strong :class="{ 'without-basis': summary.settlement_progress_percent == null }">
+          {{ settlementProgressText(summary.settlement_progress_percent) }}
+        </strong>
+        <ElProgress v-if="summary.settlement_progress_percent != null" :percentage="Math.min(100, summary.settlement_progress_percent)"
+          :show-text="false" :status="summary.excess_settlement_fen ? 'warning' : undefined" :stroke-width="6"
+          :aria-label="'结算进度 ' + settlementProgressText(summary.settlement_progress_percent)" />
+      </div>
+      <dl class="finance-totals">
+        <div><dt>核定实际费用</dt><dd>¥{{ money(summary.actual_cost_fen) }}</dd></div>
+        <div><dt>已批准结算</dt><dd>¥{{ money(summary.settlement_fen) }}</dd></div>
+        <div><dt>其中按项目总额</dt><dd>¥{{ money(summary.project_total_settlement_fen) }}</dd></div>
+        <div v-if="summary.excess_settlement_fen" class="settlement-excess">
+          <dt>超结算</dt><dd>¥{{ money(summary.excess_settlement_fen) }}</dd>
+        </div>
+        <div v-else-if="summary.settlement_progress_percent != null">
+          <dt>待结算</dt><dd>¥{{ money(summary.unsettled_cost_fen) }}</dd>
+        </div>
+      </dl>
     </div>
-    <div class="metric">
-      <span>批准预算</span>
-      <strong>{{ summary.approved_budget_fen == null ? '尚未批准' : '¥' + money(summary.approved_budget_fen) }}</strong>
-    </div>
-    <div class="metric">
-      <span>真实费用</span><strong>¥{{ money(summary.actual_cost_fen) }}</strong>
-    </div>
-    <div class="metric">
-      <span>已批准结算</span><strong>¥{{ money(summary.settlement_fen) }}</strong>
-    </div>
-    <div class="metric"><span>结算进度</span><strong>{{ settlementProgressText(summary.settlement_progress_percent) }}</strong></div>
-    <div class="metric"><span>其中按项目总额</span><strong>¥{{ money(summary.project_total_settlement_fen) }}</strong></div>
-    <div v-if="summary.excess_settlement_fen" class="metric"><span>超结算</span><strong>¥{{ money(summary.excess_settlement_fen) }}</strong></div>
-    <div v-if="summary.unsettled_cost_fen" class="metric"><span>待结算</span><strong>¥{{ money(summary.unsettled_cost_fen) }}</strong></div>
-  </div>
-  <div class="panel">
-    <div class="toolbar" style="flex-wrap:wrap">
-      <span>参考价与批准预算差额：<strong>{{ summary.reference_budget_difference_fen == null ? '未具备比较条件' : '¥' + money(summary.reference_budget_difference_fen) }}</strong></span>
-      <span>实际费用与参考价差额：<strong>{{ summary.actual_reference_difference_fen == null ? '未具备比较条件' : '¥' + money(summary.actual_reference_difference_fen) }}</strong></span>
-      <span>待核对费用：<strong>¥{{ money(summary.unreconciled_cost_fen) }}</strong></span>
-    </div>
-    <p class="muted">参考价格、批准预算、真实费用和分期结算是不同业务事实，不要求相等。缺少任何需求报价时不显示完整参考总价。</p>
-  </div>
+    <dl class="finance-summary-context">
+      <div><dt>批准预算</dt><dd>{{ summary.approved_budget_fen == null ? '尚未批准' : '¥' + money(summary.approved_budget_fen) }}</dd></div>
+      <div><dt>正式参考价格</dt><dd>{{ summary.reference_total_fen == null ? '未完整计价' : '¥' + money(summary.reference_total_fen) }}</dd></div>
+      <div><dt>参考价与批准预算差额</dt><dd>{{ summary.reference_budget_difference_fen == null ? '未具备比较条件' : '¥' + money(summary.reference_budget_difference_fen) }}</dd></div>
+      <div><dt>实际费用与参考价差额</dt><dd>{{ summary.actual_reference_difference_fen == null ? '未具备比较条件' : '¥' + money(summary.actual_reference_difference_fen) }}</dd></div>
+      <div><dt>待核对费用</dt><dd>¥{{ money(summary.unreconciled_cost_fen) }}</dd></div>
+    </dl>
+  </section>
   <CostCategoryWorkspace :readonly="!!writeBlock" :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
   <ElAlert v-if="scopePrecisionError" type="error" :closable="false"
     :title="scopePrecisionError" class="panel" />
@@ -994,7 +997,7 @@ watch(() => props.project.id, () => {
         <ElDescriptionsItem label="结算依据">{{ reviewDocument?.basis || '—' }}</ElDescriptionsItem>
         <ElDescriptionsItem v-if="reviewDocument?.reason" label="修订依据">{{ reviewDocument.reason }}</ElDescriptionsItem>
       </ElDescriptions>
-      <h2>结算明细</h2>
+      <h2 v-if="reviewItems.length">结算明细</h2>
       <BusinessTable v-if="reviewItems.length" table-key="finance:review-items" :rows="reviewItems" :columns="reviewLineColumns" sort-mode="off" filter-mode="off">
         <template #cell="{ row, column, value }">
           <template v-if="column.key === 'project_scope_id'">{{ reviewScope(row.project_scope_id)?.demand_no || '独立费用' }}</template>
@@ -1161,6 +1164,54 @@ watch(() => props.project.id, () => {
   </ElDialog>
 </template>
 <style scoped>
+.finance-summary { padding: 0; overflow: hidden }
+.finance-summary-main {
+  display: grid;
+  grid-template-columns: minmax(170px, 1fr) minmax(0, 4fr);
+  align-items: center;
+  padding: 16px;
+  gap: 18px;
+}
+.settlement-progress {
+  align-self: stretch;
+  background: var(--brand-soft);
+  border-radius: 8px;
+  padding: 12px;
+}
+.settlement-progress h2 { margin: 0; color: var(--muted); font-size: 13px }
+.settlement-progress strong {
+  display: block;
+  margin: 3px 0 9px;
+  color: var(--brand-primary);
+  font-size: 26px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.settlement-progress strong.without-basis { margin-bottom: 0; font-size: 16px }
+.settlement-progress :deep(.el-progress-bar__outer) { background: var(--surface) }
+.finance-totals, .finance-summary-context {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  margin: 0;
+}
+.finance-totals > div { flex: 1 1 104px }
+.finance-summary dt { font-size: 12px; color: var(--muted) }
+.finance-summary dd { margin: 5px 0 0; font-weight: 620; font-variant-numeric: tabular-nums }
+.finance-totals dd { font-size: clamp(16px, 1.55vw, 22px); overflow-wrap: anywhere }
+.settlement-excess dd { color: var(--el-color-warning) }
+.finance-summary-context {
+  padding: 12px 16px;
+  border-top: 1px solid var(--edge);
+  background: var(--surface-subtle);
+}
+.finance-summary-context > div { flex: 1 1 132px }
+.finance-summary-context dd { font-size: 13px }
+@media (max-width: 760px) {
+  .finance-summary-main { grid-template-columns: minmax(0, 1fr) }
+  .finance-totals > div { min-width: 0 }
+}
 .review-reason { margin-top:20px }
 .finance-editor-line-heading {
   justify-content: space-between;

@@ -264,9 +264,6 @@ onMounted(async () => {
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">
-        {{ voltage ? "基础配置" : "设备与物资" }}
-      </div>
       <h1>{{ voltage ? "基础数据" : "输电设备台账" }}</h1>
       <p>
         {{
@@ -348,9 +345,7 @@ onMounted(async () => {
           <div class="toolbar page-heading-actions">
       <ElButton :loading="loading" @click="load">刷新</ElButton>
       <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-      <ElButton :data-guide-action="kind === 'physical' ? 'ledger.physical' : kind === 'towers' ? 'ledger.logical' : kind === 'spans' ? 'ledger.span' : voltage ? 'dictionaries.voltage' : 'ledger.line'" v-if="can('admin') && definitions[kind]" type="primary" @click="edit()"
-        >新增{{ definitions[kind]?.title }}</ElButton
-      ><ExchangePanel
+      <ExchangePanel
         v-if="!voltage"
         kind="assets"
         :applied-query="appliedQuery"
@@ -358,6 +353,9 @@ onMounted(async () => {
         :selected-ids="selectedIds"
         @changed="load" @inspect="inspectImport"
       />
+      <ElButton :data-guide-action="kind === 'physical' ? 'ledger.physical' : kind === 'towers' ? 'ledger.logical' : kind === 'spans' ? 'ledger.span' : voltage ? 'dictionaries.voltage' : 'ledger.line'" v-if="can('admin') && definitions[kind]" type="primary" @click="edit()"
+        >新增{{ definitions[kind]?.title }}</ElButton
+      >
     </div>
         </div>
       </template>

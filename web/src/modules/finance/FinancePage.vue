@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { projectStatusTag } from "../../shared/utils/project-status";
 import { settlementStatusLabels, type SettlementListStatus } from "../../../../server/shared/types/finance-workflows";
 import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -84,11 +85,11 @@ const settlementItemColumns: TableColumn[] = [
   { key: "evidence", label: "结算依据", minWidth: 200 },
 ];
 const columns = computed<TableColumn[]>(() => [
-  { key: "project_name", label: "子项目", minWidth: 210 },
+  { key: "project_name", label: "子项目", minWidth: 245 },
   { key: "label", label: kind.value === "projects" ? "项目编号" : kind.value === "settlements" ? "结算编号" : "费用事项", minWidth: 190 },
   { key: "amount_fen", label: kind.value === "projects" ? "批准预算" : kind.value === "costs" ? "实际金额" : kind.value === "settlements" ? "本次金额" : "核对结算金额", minWidth: 140, sortable: kind.value !== "projects", filterable: kind.value !== "projects" },
   ...(kind.value === "settlements" ? [{ key: "effective_amount_fen", label: "当前生效", minWidth: 130, sortable: false, filterable: false }] : []),
-  { key: "status", label: "状态", minWidth: 110 },
+  { key: "status", label: kind.value === "projects" ? "项目状态" : "状态", minWidth: 110 },
   ...(kind.value === "projects" ? [] : [{ key: "occurred_on", label: "业务日期", minWidth: 130 }]),
 ]);
 let sequence = 0;
@@ -176,7 +177,13 @@ onMounted(() => { void load(); });
           @click="openProjectFinance(row.project_id)">{{ row.project_name }}</ElButton>
         <ElButton v-else-if="kind !== 'projects' && column.key === 'label'" link type="primary" class="cell-link"
           @click="viewRecord(row)">{{ row.label }}</ElButton>
-        <ElTag v-else-if="column.key === 'status'" effect="plain">{{ row.deleted ? '已删除' : recordStatus(row.status) }}</ElTag><span v-else-if="['amount_fen', 'effective_amount_fen'].includes(column.key)">{{ value == null ? (kind === 'projects' ? '尚未批准' : '—') : money(Number(value)) }}</span><span v-else>{{ value ?? '—' }}</span></template>
+        <ElTag v-else-if="column.key === 'status'" effect="plain" :type="row.deleted ? 'danger'
+          : kind === 'projects' ? projectStatusTag(row.status) : undefined">{{ row.deleted ? '已删除' : recordStatus(row.status) }}</ElTag>
+        <span v-else-if="['amount_fen', 'effective_amount_fen'].includes(column.key)">
+          {{ value == null ? (kind === 'projects' ? '尚未批准' : '—') : '¥' + money(Number(value)) }}
+        </span>
+        <span v-else>{{ value ?? '—' }}</span>
+      </template>
     </BusinessTable>
     <ElPagination v-model:current-page="page" :total="total" :page-size="30" layout="prev,pager,next,total" @current-change="load" />
   </div>

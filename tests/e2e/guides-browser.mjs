@@ -45,7 +45,7 @@ try {
   await page.screenshot({path:join(out,"guide-current-1500.png"),fullPage:true});
   await drawer.getByRole("tab",{name:"操作搜索"}).click();
   await drawer.getByRole("textbox",{name:"搜索业务操作说明"}).fill("正式批准");
-  await drawer.locator(".el-collapse-item").filter({hasText:"正式批准 · projects"})
+  await drawer.locator(".el-collapse-item").filter({hasText:"正式批准 · 子项目管理"})
     .locator(".el-collapse-item__header").click();
   await drawer.getByText("预算、数量与范围变化",{exact:false}).waitFor();
   assert.ok(await drawer.getByText("审核人员",{exact:false}).count()>0);
@@ -74,15 +74,47 @@ try {
   await drawer.getByRole("tab",{name:"当前页面"}).click();
   await drawer.getByRole("button",{name:"开始当前页面导览"}).click();
   await page.getByText("本页面用于什么",{exact:true}).waitFor();
-  await page.getByText("了解每项业务操作",{exact:false}).waitFor({state:"hidden"});
-  await page.keyboard.press("Escape");
-  await page.getByText("本页面用于什么",{exact:true}).waitFor({state:"hidden"});
+  await drawer.waitFor({state:"hidden"});
+  const tour=page.locator(".el-tour__content:visible");
+  await tour.getByRole("button",{name:"下一步",exact:true}).click();
+  await tour.getByText("业务功能区域",{exact:true}).waitFor();
+  await tour.getByRole("button",{name:"上一步",exact:true}).click();
+  await tour.getByText("本页面用于什么",{exact:true}).waitFor();
+  for(const title of ["业务功能区域","从主要操作开始","查询、筛选与查看","正式历史与风险"]){
+    await tour.getByRole("button",{name:"下一步",exact:true}).click();
+    await tour.getByText(title,{exact:true}).waitFor();
+  }
+  await page.screenshot({path:join(out,"guide-last-step-760.png"),fullPage:true});
+  await tour.getByRole("button",{name:"结束导览",exact:true}).click();
+  await tour.waitFor({state:"hidden"});
+
+  drawer=await openGuide();
+  await drawer.getByRole("tab",{name:"业务课程"}).click();
+  await drawer.getByRole("button",{name:"阅读",exact:true}).first().click();
+  await drawer.getByRole("button",{name:"前往基础数据",exact:true}).click();
+  await page.getByRole("heading",{name:"基础数据",exact:true}).waitFor();
+  await drawer.waitFor({state:"hidden"});
+  drawer=await openGuide();
+  await drawer.getByRole("heading",{name:"L01 基础配置"}).waitFor();
+  assert.ok(await drawer.getByRole("button",{name:"上一步",exact:true}).isEnabled());
+  await drawer.getByRole("button",{name:"下一步",exact:true}).click();
+  await drawer.getByRole("button",{name:"下一步",exact:true}).click();
+  await drawer.getByRole("button",{name:"标记已阅读",exact:true}).click();
+  await drawer.getByText("已阅读",{exact:true}).waitFor();
+  await drawer.getByRole("button",{name:"返回全部课程",exact:true}).click();
+  await drawer.getByRole("button",{name:"重学",exact:true}).click();
+  assert.ok(await drawer.getByRole("button",{name:"上一步",exact:true}).isDisabled());
+  await drawer.getByRole("button",{name:"返回全部课程",exact:true}).click();
+  await drawer.getByRole("tab",{name:"模块导览"}).click();
+  await drawer.getByRole("button",{name:"前往专业需求",exact:true}).click();
+  await page.getByRole("heading",{name:"专业需求",exact:true}).waitFor();
+  await drawer.waitFor({state:"hidden"});
   assert.deepEqual(writes,[],"opening/searching/touring/reading cannot write formal business data");
   assert.deepEqual(errors,[],"guide interactions must not emit runtime errors");
   assert.equal(system.demands.list().length,before.demands);
   assert.equal(system.projects.list().length,before.projects);
   assert.equal(system.catalog.list("frameworks").length,before.frameworks);
-  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, ElTour, 4 widths, zero business writes");
+  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, all five tour steps, 4 widths, zero business writes");
 } catch(error){
   console.error("P10_GUIDES_BROWSER_FAILURE",error.message,errors,writes);
   await page.screenshot({path:join(out,"failure.png"),fullPage:true});

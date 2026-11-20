@@ -245,7 +245,6 @@ onMounted(() => void load());
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">资金业务</div>
       <h1>{{ title }}</h1>
       <p>{{ introduction }}</p>
     </div>

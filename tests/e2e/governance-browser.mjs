@@ -35,7 +35,7 @@ try {
   await page.goto(base + "/#/dashboard");
   const projectName = "【演示】青峰线防鸟装置整治";
   await page.getByRole("row").filter({ hasText: projectName })
-    .getByRole("button", { name: "进入办理" }).click();
+    .getByRole("button", { name: projectName, exact: true }).click();
   await page.waitForURL(/#\/projects\?project=/);
   await page.locator(".business-detail-dialog:visible").getByText(projectName, { exact: true }).first().waitFor();
 

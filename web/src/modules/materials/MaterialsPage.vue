@@ -30,6 +30,7 @@ interface MaterialForm {
   status: DefinitionStatus;
 }
 const fields: (CatalogField & { key: keyof MaterialForm })[] = [
+  { key: "name", label: "物资名称", type: "text", required: true },
   {
     key: "unit_id",
     label: "计量单位",
@@ -37,7 +38,6 @@ const fields: (CatalogField & { key: keyof MaterialForm })[] = [
     reference: "units",
     required: true,
   },
-  { key: "name", label: "名称", type: "text", required: true },
   {
     key: "status",
     label: "状态",
@@ -200,7 +200,6 @@ onMounted(load);
 <template>
   <div class="page-heading">
     <div>
-      <div class="section-caption">设备与物资</div>
       <h1>物资管理</h1>
       <p>物资名称、型号规格与正式版本</p>
     </div>

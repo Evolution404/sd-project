@@ -1,5 +1,9 @@
 /** Explanatory targets only. Never call click(), submit() or mutate business UI. */
 const overlaySelector = ".el-dialog, .business-detail-dialog";
+const workspaceSelector = overlaySelector + ", .business-work-surface";
+export function hasActiveGuideWorkspace(): boolean {
+  return Array.from(document.querySelectorAll<HTMLElement>(workspaceSelector)).some(visible);
+}
 export function resolveGuideTarget(selector:string): HTMLElement|null {
   if (!selector) return null;
   if (!/^[.#\[\]\w\-="': >]+$/.test(selector) || selector.length > 180)

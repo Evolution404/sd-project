@@ -230,9 +230,13 @@ async function viewCost(entryId: string) {
   <section class="panel cost-category-workspace">
     <div class="toolbar">
       <h2>费用科目</h2>
-      <ElButton data-guide-action="finance.category-create" type="primary" :disabled="readonly || !can('write')" @click="edit()">新增科目</ElButton
-      ><ElCheckbox data-guide-action="finance.category-show-deleted" v-model="includeDeleted">包含已删除科目</ElCheckbox
-      ><ElButton text @click="load">刷新科目</ElButton>
+      <ElPopover trigger="click" placement="bottom-end" :width="190">
+        <template #reference><ElButton>筛选科目</ElButton></template>
+        <ElCheckbox data-guide-action="finance.category-show-deleted" v-model="includeDeleted">包含已删除科目</ElCheckbox>
+      </ElPopover>
+      <ElTag v-if="includeDeleted" effect="plain">包含已删除科目</ElTag>
+      <ElButton :loading="loading" @click="load">刷新科目</ElButton>
+      <ElButton v-if="can('write')" data-guide-action="finance.category-create" type="primary" :disabled="readonly" @click="edit()">新增科目</ElButton>
     </div>
     <ElAlert v-if="error" :title="error" type="error" :closable="false"
       ><ElButton text @click="load">重试</ElButton></ElAlert
