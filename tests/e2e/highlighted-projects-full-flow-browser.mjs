@@ -371,7 +371,9 @@ async function submitBill(bill, returned = false) {
 async function reconcile(record, cost, bill, suffix) {
   await detail.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await choose("实际费用", cost.title + " ¥" + displayAmount(cost.amount_fen));
-  await choose("已批准结算明细", bill.number + " ¥" + displayAmount(bill.items[0].amount_fen));
+  const choice = editor.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});
+  await choice.locator(".el-select__wrapper").click();
+  await page.getByRole("option", {name: new RegExp(bill.number + " ¥" + displayAmount(bill.items[0].amount_fen))}).click();
   await editor.getByLabel("费用份额（元）", { exact: true }).fill(amountInput(cost.amount_fen));
   await editor.getByLabel("核定结算额（元）", { exact: true }).fill(amountInput(bill.items[0].amount_fen));
   await editor.getByLabel("核对依据", { exact: true }).fill("模拟双金额核对" + suffix);

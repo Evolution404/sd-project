@@ -135,7 +135,19 @@ export interface SettlementReviewEvent {
   effective_on?: string | null;
   reason?: string;
 }
+export type SettlementListStatus = "draft" | "submit" | "approve" | "return" | "reject" | "voided";
+
+export interface ReconciliationSettlementChoice {
+  id: string;
+  settlement_id: string;
+  number: string;
+  amount_fen: number;
+  cost_node_name: string;
+  demand_no: string | null;
+}
+
 export interface SettlementWorkflow {
+  status: SettlementListStatus;
   effective_amount_fen: number | null;
   id: string;
   project_id: string;

@@ -39,6 +39,11 @@ export async function handleProjects(context: RouteContext): Promise<{
                 result = subKey ? system.finance.categoryDetail(actor, key, subKey, parseListQuery(url.searchParams).page) : system.finance.costTree(actor, key);
                 break;
             }
+            if (read && sub === "actions") {
+                const project = system.projects.workspace(key, deleted);
+                return { result: projectActionHints(actor, project, system.finance.closeBlockReason(key),
+                    system.finance.closeSettlementBlockers(key), system.projects.approvalBlockReason(project)) };
+            }
             if (read)
                 result = key === "eligible-agreements"
                     ? system.projects.availableAgreements(
@@ -47,8 +52,6 @@ export async function handleProjects(context: RouteContext): Promise<{
                       )
                     : !key
                     ? system.projects.search(parseListQuery(url.searchParams))
-                    : sub === "actions"
-                        ? projectActionHints(actor, system.projects.workspace(key, deleted), system.finance.closeBlockReason(key), system.finance.closeSettlementBlockers(key))
                     : sub === "deletion-preview"
                         ? system.projects.previewDeletion(actor, key)
                     : sub === "history"
@@ -59,8 +62,12 @@ export async function handleProjects(context: RouteContext): Promise<{
                             ? system.projects.approvalHistory(key)
                         : sub === "agreements"
                             ? system.projects.agreementOptions(key)
-                            : sub === "summary"
+                            : sub === "close-preview"
+                        ? system.finance.closePreview(actor, key)
+                    : sub === "summary"
                                 ? system.finance.summary(key)
+                                : sub === "reconciliation-items"
+                                    ? system.finance.searchReconciliationItems(actor, key, parseListQuery(url.searchParams))
                                 : sub === "costs" && subKey
                                     ? system.finance.costHistory(key, subKey)
                                     : sub === "costs"
@@ -103,7 +110,11 @@ export async function handleProjects(context: RouteContext): Promise<{
             else if (sub === "settlements")
                 result = mutate("write", () => system.finance.saveDraft(actor, key, financeSettlementDraft(input), subKey));
             else if (sub === "close")
-                result = mutate("project.close", () => system.finance.close(actor, key, parseProjectVersion(input)));
+                result = mutate("project.close", () => {
+                    requireValue(typeof input.preview_hash === "string" && input.preview_hash.length === 64,
+                        "请先读取结项核对内容");
+                    return system.finance.close(actor, key, { ...parseProjectVersion(input), preview_hash: input.preview_hash });
+                });
             else
                 result = mutate("write", () => system.projects.save(actor, parseProjectManagement(input), key));
             break;

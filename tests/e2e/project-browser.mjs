@@ -150,7 +150,9 @@ try {
   }
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await select("实际费用", "浏览器真实费用 ¥1,400.00");
-  await select("已批准结算明细", generatedBills[0] + " ¥400.00");
+  const choice = page.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});
+  await choice.locator(".el-select__wrapper").click();
+  await page.getByRole("option", {name: new RegExp(generatedBills[0] + " ¥400.00")}).click();
   await page.getByLabel("费用份额（元）", { exact: true }).fill("300");
   await page.getByLabel("核定结算额（元）", { exact: true }).fill("400");
   await page.getByLabel("核对依据", { exact: true }).fill("浏览器核对原始依据");

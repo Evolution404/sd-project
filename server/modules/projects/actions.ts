@@ -32,14 +32,17 @@ function offer(actor: Actor, key: ProjectActionKey, label: string,
   };
 }
 export function projectActionHints(actor: Actor, project: ProjectActionFacts, closeBlockReason = "",
-  settlementBlockers: NonNullable<ProjectAction["settlement_blockers"]> = []): ProjectAction[] {
+  settlementBlockers: NonNullable<ProjectAction["settlement_blockers"]> = [], approvalBlockReason = ""): ProjectAction[] {
   if (project.deleted || project.status === "closed")
     return [{ key: "history", label: "查看正式历史", section: "history", enabled: true }];
   const activeScopes = project.scopes.filter(s => s.binding && s.demand_status === "active");
   const draft = project.approvals.find(approval => approval.status === "draft");
   if (ordinaryLinkReason(project) && draft) return [
-    offer(actor, "approve", draft.version_no === 1 ? "正式批准立项" : "正式批准变更", "approval",
-      draft.version_no === 1 ? "project.approve" : "change.approve", draft.id),
+    {
+      ...offer(actor, "approve", draft.version_no === 1 ? "正式批准立项" : "正式批准变更", "approval",
+        draft.version_no === 1 ? "project.approve" : "change.approve", draft.id),
+      ...(approvalBlockReason ? { enabled: false, reason: approvalBlockReason } : {}),
+    },
     offer(actor, "approval", "核对批准草稿", "approval", "write"),
   ];
   if (project.status === "reserve")

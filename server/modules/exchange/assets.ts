@@ -20,21 +20,22 @@ export function createAssetExchange(system: System) {
   const physicalKeys = catalog.definitions.physical.fields
     .map((field) => field.key as keyof EquipmentRecord)
     .filter((key) => key !== "status");
-  function towerDictionaryId(field:"tower_material"|"tower_nature",fact:unknown):string|null {
+  function towerDictionaryId(field:"tower_material"|"tower_nature",fact:unknown,previous?:unknown):string|null {
     if(fact===undefined || fact===null || fact==="")return null;
     requireValue(typeof fact==="string",field==="tower_material"?"杆塔材质必须选择基础数据":"杆塔性质必须选择基础数据");
     const kind=field==="tower_material"?"tower_materials":"tower_natures";
     const matching=catalog.list(kind,true).filter(row=>
       row.id===fact || row.code===fact || row.name===fact);
-    requireValue(matching.length===1,field==="tower_material"?"杆塔材质在基础数据中不存在或不唯一":"杆塔性质在基础数据中不存在或不唯一");
-    const selected=matching[0];
-    requireValue(selected.status==="active",field==="tower_material"?"杆塔材质已停用":"杆塔性质已停用");
+    const adopted = matching.find(row => row.id === previous);
+    requireValue(adopted || matching.length===1,field==="tower_material"?"杆塔材质在基础数据中不存在或不唯一":"杆塔性质在基础数据中不存在或不唯一");
+    const selected=adopted ?? matching[0];
+    requireValue(selected.id === previous || selected.status==="active",field==="tower_material"?"杆塔材质已停用":"杆塔性质已停用");
     return selected.id;
   }
-  function normalizedTowerFields(row:WorkbookRow):WorkbookRow {
+  function normalizedTowerFields(row:WorkbookRow, existing:EquipmentRecord|null):WorkbookRow {
     const result={...row};
     for(const key of ["tower_material","tower_nature"] as const)
-      if(result[key]!==undefined) result[key]=towerDictionaryId(key,result[key]);
+      if(result[key]!==undefined) result[key]=towerDictionaryId(key,result[key],existing?.[key]);
     return result;
   }
   function resolveEquipment(kind:EquipmentCatalogKind, key:string|null|undefined, includeDeleted=false):EquipmentRecord {
@@ -343,7 +344,8 @@ export function createAssetExchange(system: System) {
             );
         }
         const payload:WorkbookRow = kind==="physical" || kind==="towers"
-          ? normalizedTowerFields(row) : { ...row };
+          ? normalizedTowerFields(row, kind === "towers" && existing?.physical_tower_id
+            ? equipment.get("physical", existing.physical_tower_id, true) : existing) : { ...row };
         delete payload._sheet;
         delete payload._row;
         let changes:AssetPreviewChange[] = [];

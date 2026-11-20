@@ -440,6 +440,38 @@ export function createProjects(
     }
     return candidates;
   }
+  function checkApproval(project: ReturnType<typeof get>, approval: ReturnType<typeof get>["approvals"][number]) {
+    requireValue(approval.status === "draft", "仅能批准仍有效的草稿", 409);
+    const key = project.id;
+    const candidates = approval.pending_scopes;
+    for (const candidate of candidates) {
+      const demand = demands.get(candidate.demand_id);
+      expectedVersion(demand.current_version, candidate.demand_version);
+      requireValue(!demand.binding && demand.status === "active", "候选需求已由其他项目关联或状态变化，请重新编制变更", 409);
+      requireValue(demand.expected_on, "新增候选需求须填写预计解决时间", 422);
+    }
+    const missingDates = repo.missingExpectedResolutionDates(key);
+    requireValue(!missingDates.length,
+      "正式批准前必须填写本项目所有当前关联需求的预计解决时间：" +
+        missingDates.map(row=>row.demand_no).join("、"),
+      422,{expected_on:missingDates.map(row=>row.demand_no)});
+    const staleDemands = repo.staleApprovalDemands(approval.id);
+    requireValue(!staleDemands.length,
+      "需求正式版本已变化，请重新编制草稿并核对最新位置、数量和预计解决时间：" + staleDemands.map(scope => scope.demand_no).join("、"),
+      409, { expected_on: staleDemands.map(scope => scope.demand_no) });
+    return candidates;
+  }
+  function approvalBlockReason(project: ReturnType<typeof get>) {
+    const approval = project.approvals.find(row => row.status === "draft");
+    if (!approval) return "";
+    try {
+      checkApproval(project, approval);
+      return "";
+    } catch (error) {
+      if (!(error instanceof BusinessError)) throw error;
+      return error.message;
+    }
+  }
   function approvalDraft(actor: Actor, key: string, input: ProjectApprovalInput) {
     authorize(actor, "write");
     return repo.transaction(() => {
@@ -552,6 +584,7 @@ export function createProjects(
     get,
     save,
     approvalDraft,
+    approvalBlockReason,
     agreementOptions,
     availableAgreements(frameworkId: string, selectedId: string | null = null) {
       return { framework_id: frameworkId,
@@ -752,22 +785,7 @@ export function createProjects(
           actor,
           approval.version_no === 1 ? "project.approve" : "change.approve",
         );
-        const candidates = approval.pending_scopes;
-        for (const candidate of candidates) {
-          const demand = demands.get(candidate.demand_id);
-          expectedVersion(demand.current_version, candidate.demand_version);
-          requireValue(!demand.binding && demand.status === "active", "候选需求已由其他项目关联或状态变化，请重新编制变更", 409);
-          requireValue(demand.expected_on, "新增候选需求须填写预计解决时间", 422);
-        }
-        const missingDates = repo.missingExpectedResolutionDates(key);
-        requireValue(!missingDates.length,
-          "正式批准前必须填写本项目所有当前关联需求的预计解决时间：" +
-            missingDates.map(row=>row.demand_no).join("、"),
-          422,{expected_on:missingDates.map(row=>row.demand_no)});
-        const staleDemands = repo.staleApprovalDemands(approvalId);
-        requireValue(!staleDemands.length,
-          "需求正式版本已变化，请重新编制草稿并核对最新位置、数量和预计解决时间：" + staleDemands.map(scope => scope.demand_no).join("、"),
-          409, { expected_on: staleDemands.map(scope => scope.demand_no) });
+        const candidates = checkApproval(project, approval);
         if (approval.change_order_id)
           repo.decideChange(approval.change_order_id, {
             status: "approved",

@@ -1,3 +1,4 @@
+import { settlementStatusSql } from "../queries/settlement-status-sql.js";
 import type { Store } from "./store.js";
 import { searchPage, type ListSource } from "../queries/business-lists.js";
 import type { ListQuery } from "../../shared/types/contracts.js";
@@ -5,11 +6,11 @@ import type { CategoryCost } from "../../shared/types/trees.js";
 import type {
   ActualCostVersion, NormalizedSettlementDraft, ReconciliationVersion,
   SettlementDraftRow, SettlementItemFact, SettlementResolutionInput, SettlementReviewEvent,
-  SettlementRoot, SettlementVersion, SettlementWorkflow,
+  SettlementRoot, SettlementVersion, SettlementWorkflow, SettlementListStatus, ReconciliationSettlementChoice,
 } from "../../shared/types/finance-workflows.js";
 
 type CostRow = ActualCostVersion & CategoryCost;
-type SettlementListRoot = SettlementRoot & { deleted: boolean; effective_amount_fen: number | null };
+type SettlementListRoot = SettlementRoot & { deleted: boolean; effective_amount_fen: number | null; status: SettlementListStatus };
 
 /** SQL pagination keeps full workflow facts limited to the selected page. */
 export function financeListRepository(store: Store) {
@@ -29,20 +30,20 @@ export function financeListRepository(store: Store) {
       const page = searchPage<CostRow>(store, "costs", source, query);
       return { ...page, items: page.items.map(row => ({ ...row, deleted: Boolean(row.deleted) })) };
     },
-    searchSettlementWorkflows(projectId: string | undefined, query: ListQuery) {
+    searchSettlementWorkflows(projectId: string | undefined, query: ListQuery, selectedIds?: string[]) {
       const source: ListSource = {
         sql: `SELECT s.*,effective.amount_fen AS effective_amount_fen,
           COALESCE(json_extract(draft.draft_json,'$.amount_fen'), latest.amount_fen) AS amount_fen,
-          CASE WHEN draft.settlement_id IS NOT NULL THEN 'draft'
-            ELSE COALESCE(review.last_action,'draft') END AS status
+          ${settlementStatusSql("draft", "latest", "review")} AS status
           FROM settlements s
           LEFT JOIN settlement_drafts draft ON draft.settlement_id=s.id
           LEFT JOIN settlement_versions latest ON latest.id=(SELECT id FROM settlement_versions
              WHERE settlement_id=s.id ORDER BY version_no DESC LIMIT 1)
           LEFT JOIN v_settlement_review_status review ON review.settlement_version_id=latest.id
           LEFT JOIN v_settlement_effective_versions effective ON effective.settlement_id=s.id
-          ${projectId ? " WHERE s.project_id=?" : ""}`,
-        parameters: projectId ? [projectId] : [],
+          WHERE (? IS NULL OR s.project_id=?)
+          AND (? IS NULL OR s.id IN (SELECT value FROM json_each(?)))`,
+        parameters: [projectId ?? null, projectId ?? null, selectedIds ? JSON.stringify(selectedIds) : null, selectedIds ? JSON.stringify(selectedIds) : null],
         columns: ["id", "number", "created_at", "amount_fen", "status"], search: ["number", "status"],
       };
       const page = searchPage<SettlementListRoot>(store, "settlements", source, query);
@@ -93,6 +94,24 @@ export function financeListRepository(store: Store) {
           resolutions: version ? resolutionMap.get(version.id) || [] : [],
         };
       }) };
+    },
+    searchReconciliationItems(projectId: string, query: ListQuery) {
+      return searchPage<ReconciliationSettlementChoice>(store, "settlements", {
+        sql: `SELECT line.settlement_item_version_id AS id, bill.id AS settlement_id,
+          bill.number, bill.created_at, line.amount_fen, adopted.name AS cost_node_name,
+          demand.demand_no
+          FROM v_effective_settlement_items line
+          JOIN settlements bill ON bill.id=line.settlement_id
+          JOIN settlement_item_versions item ON item.id=line.settlement_item_version_id
+          JOIN project_cost_node_versions adopted ON adopted.id=item.cost_node_version_id
+          LEFT JOIN project_demand_scopes scope ON scope.id=line.project_scope_id
+          LEFT JOIN demands demand ON demand.id=scope.demand_id
+          WHERE line.project_id=?`,
+        parameters: [projectId],
+        deletionKey: "settlement_id",
+        columns: ["id", "number", "created_at", "amount_fen", "cost_node_name", "demand_no"],
+        search: ["id", "number", "cost_node_name", "demand_no"],
+      }, { ...query, deleted: false });
     },
     searchReconciliationVersions(projectId: string | undefined, query: ListQuery) {
       const source: ListSource = {

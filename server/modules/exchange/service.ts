@@ -509,11 +509,12 @@ export function createExchange(system:System) {
     const parsedAt = performance.now();
     const numberKey = kind === "demands" ? "import_ref" : "number";
     if (kind === "settlements") {
+      const documentsByRow = new Map(parsed.rows.documents.map(root => [root._row, root]));
       for (const root of parsed.rows.documents) root[numberKey] ||= "row-" + root._row;
       for (const [sheet, rows] of Object.entries(parsed.rows))
         if (sheet !== "documents") for (const row of rows) {
           if (row[numberKey]) continue;
-          const root = row.document_row ? parsed.rows.documents.find(root => root._row === Number(row.document_row))
+          const root = row.document_row ? documentsByRow.get(Number(row.document_row))
             : parsed.rows.documents.length === 1 ? parsed.rows.documents[0] : null;
           if (root) row[numberKey] = root[numberKey];
           else parsed.issues.push(issue(row._sheet,row._row,"document_row",row.document_row,"多结算单明细须明确归属"));

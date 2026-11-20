@@ -114,6 +114,37 @@ const overviewFramework = ref<ProjectReference | null>(null);
 const overviewAgreement = ref<ProjectReference | null>(null);
 const overviewLoading = ref(false);
 const closeReviewOpen = ref(false);
+interface ClosePreview {
+  expected_version: number;
+  approval_version: number;
+  summary: ProjectFinanceSnapshot;
+  reason: string;
+  preview_hash: string;
+}
+const closePreview = ref<ClosePreview | null>(null);
+const closePreviewError = ref("");
+const closePreviewLoading = ref(false);
+let closePreviewSequence = 0;
+async function loadClosePreview() {
+  const id = detail.value?.id;
+  if (!id) return;
+  const sequence = ++closePreviewSequence;
+  closePreview.value = null;
+  closePreviewError.value = "";
+  closePreviewLoading.value = true;
+  try {
+    const result = await api<ClosePreview>(`/projects/${id}/close-preview`);
+    if (sequence === closePreviewSequence && detail.value?.id === id) closePreview.value = result;
+  } catch (error) {
+    if (sequence === closePreviewSequence) closePreviewError.value = (error as Error).message;
+  } finally {
+    if (sequence === closePreviewSequence) closePreviewLoading.value = false;
+  }
+}
+function openCloseReview() {
+  closeReviewOpen.value = true;
+  void loadClosePreview();
+}
 const financeRevision = ref(0);
 const handoffDemand = ref<DemandRecord | null>(null);
 const focusedDemandId = computed(() => route.query.focus === "demand" && typeof route.query.record === "string"
@@ -703,10 +734,16 @@ async function action(name: string, approval?: ApprovalDetail, reviewed = false)
       { type: name === "close" || name === "discard" ? "warning" : "info",
         confirmButtonText: titles[name] || "确认" },
     );
-    if (name === "stock" || name === "close")
-      await api(`/projects/${project.id}/${name}`, "POST", {
-        expected_version: project.version,
+    if (name === "stock")
+      await api(`/projects/${project.id}/stock`, "POST", { expected_version: project.version });
+    if (name === "close") {
+      const preview = closePreview.value;
+      if (!preview) return;
+      await api(`/projects/${project.id}/close`, "POST", {
+        expected_version: preview.expected_version,
+        preview_hash: preview.preview_hash,
       });
+    }
     if (name === "approve")
       await api(
         `/projects/${project.id}/approvals/${approval!.id}/approve`,
@@ -724,7 +761,10 @@ async function action(name: string, approval?: ApprovalDetail, reviewed = false)
     await load();
     if (name === "approve" && approvalReviewPage.value) await returnFromProjectWork();
   } catch (e) {
-    if (e instanceof Error) ElMessage.error(e.message);
+    if (name === "close" && e instanceof ApiError && e.status === 409) {
+      closePreview.value = null;
+      closePreviewError.value = e.message;
+    } else if (e instanceof Error) ElMessage.error(e.message);
   } finally {
     busy.value = false;
   }
@@ -1072,7 +1112,7 @@ onMounted(async () => {
         :description-columns="descriptionColumns" :settlement-blockers="closeAction?.settlement_blockers"
         @settlement="(id) => goToProjectWork('finance', id, '', 'settlement')"
         @fund="(kind, id) => router.push(fundContext(kind, id))"
-        @edit="editProject(detail || undefined)" @remove="removeProject" @close="closeReviewOpen = true" />
+        @edit="editProject(detail || undefined)" @remove="removeProject" @close="openCloseReview" />
     </template>
     <template v-if="tab === 'scope'"
       ><div class="panel">
@@ -1307,8 +1347,10 @@ onMounted(async () => {
     </BusinessWorkSurface>
   </template>
   <ProjectCloseReviewDialog v-model:open="closeReviewOpen"
-    :approved-version="detail?.approval?.version_no" :summary="overviewSummary"
-    :can-close="!!closeAction?.enabled"
+    :approved-version="closePreview?.approval_version" :summary="closePreview?.summary ?? null"
+    :can-close="!!closePreview && !closePreview.reason && !busy"
+    :error="closePreviewError" :reason="closePreview?.reason"
+    :loading="closePreviewLoading" @retry="loadClosePreview"
     @confirm="action('close', undefined, true)" />
   <BusinessWorkSurface v-if="approvalEditorPage && dialog !== 'approval'" :title="approvalEditorTitle" :subtitle="detail?.name" @back="returnFromProjectWork">
     <ElSkeleton v-if="detailLoading" :rows="5" animated />

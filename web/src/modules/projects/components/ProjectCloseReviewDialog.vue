@@ -18,8 +18,11 @@ const props = defineProps<{
   approvedVersion?: number | null;
   summary: ProjectFinanceSnapshot | null;
   canClose: boolean;
+  loading: boolean;
+  error?: string;
+  reason?: string;
 }>();
-const emit = defineEmits<{ "update:open": [open: boolean]; confirm: [] }>();
+const emit = defineEmits<{ "update:open": [open: boolean]; confirm: []; retry: [] }>();
 const model = computed({
   get: () => props.open,
   set: (next: boolean) => emit("update:open", next),
@@ -35,6 +38,10 @@ const columns: TableColumn[] = [
 <template>
   <ElDialog v-model="model" append-to-body title="结项前业务核对" width="min(820px, 94vw)"
     :close-on-click-modal="false">
+    <ElAlert v-if="error" :title="error" type="error" :closable="false">
+      <ElButton link type="primary" @click="emit('retry')">重新读取结项核对</ElButton>
+    </ElAlert>
+    <ElAlert v-if="reason" :title="reason" type="warning" :closable="false" />
     <template v-if="summary">
       <ElAlert type="warning" :closable="false"
         title="正式结项将保留当时全部差异事实及审核依据。存在差异不代表自动禁止结项，必须核对后作出正式决定。" />
@@ -62,7 +69,7 @@ const columns: TableColumn[] = [
         </template>
       </BusinessTable>
     </template>
-    <ElSkeleton v-else :rows="5" animated />
+    <ElSkeleton v-else-if="loading" :rows="5" animated />
     <template #footer>
       <ElButton data-guide-action="projects.close-review" @click="model = false">继续核对</ElButton>
       <ElButton data-guide-action="projects.close" type="primary" :disabled="!canClose || !summary || !approvedVersion"

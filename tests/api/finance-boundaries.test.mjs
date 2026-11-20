@@ -114,7 +114,7 @@ test("settled amounts, independently reported work, over-completion and reconcil
     /不可|禁止/,
   );
   assert.equal(
-    s.finance.close(user, project.id, { expected_version: 3 }).status,
+    s.finance.close(user, project.id, { preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version: 3 }).status,
     "closed",
   );
   const closed = s.projects.get(project.id);
@@ -261,6 +261,6 @@ test("project totals and itemized installments share one effective ledger and pr
   assert.equal(funded.settlement_progress_percent, 87.5);
   assert.equal(funded.projects_without_cost_basis, 0);
   assert.equal(s.finance.closeBlockReason(project.id), "");
-  const closed = s.finance.close(user, project.id, { expected_version: project.version, reason: "确认实际差额" });
+  const closed = s.finance.close(user, project.id, { preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version: project.version, reason: "确认实际差额" });
   assert.equal(closed.status, "closed");
 });

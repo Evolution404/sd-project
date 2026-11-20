@@ -5,7 +5,7 @@ import { ElMessage } from "element-plus";
 import { useRouter } from "vue-router";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import { useAccess } from "../../shared/composables/use-access";
-import { api, money, statusText } from "../../shared/api/client";
+import { api, money } from "../../shared/api/client";
 import type { ReportingService } from "../../../../server/modules/reporting/service";
 type Dashboard = ReturnType<ReportingService["dashboard"]>;
 type DashboardRow = Dashboard["portfolio"][number] | Dashboard["alerts"][number] |
@@ -103,7 +103,7 @@ async function refreshDashboard() {
 const portfolioColumns: TableColumn[] = [
   { key: "code", label: "项目编号", minWidth: 150 },
   { key: "name", label: "子项目", minWidth: 180 },
-  { key: "status", label: "阶段", minWidth: 110 },
+  { key: "display_status", label: "项目状态", minWidth: 110 },
   { key: "approved_budget_fen", label: "批准预算", minWidth: 135 },
   { key: "actual_cost_fen", label: "真实费用", minWidth: 135 },
   { key: "settlement_fen", label: "已批准结算", minWidth: 140 },
@@ -143,7 +143,6 @@ function display(row: DashboardRow, col: TableColumn): string {
   const value: unknown = Object.entries(row).find(([name]) => name === col.key)?.[1];
   if (col.key === "settlement_progress_percent") return settlementProgressText(typeof value === "number" ? value : null);
   if (value === undefined || value === null || value === "") return "—";
-  if (col.key === "status") return statusText[String(value)] || String(value);
   if (col.key.endsWith("_fen") && typeof value === "number") return "¥" + money(value);
   if (col.key === "target_percent" && typeof value === "number") return value + "%";
   return String(value);

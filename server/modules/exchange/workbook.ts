@@ -726,6 +726,6 @@ export async function makeBusinessReport(kind:WorkbookReportKind, records:Record
           : kind === "projects" ? "子项目清单" : "结算业务报表",
     records,
   );
-  if (positions.length) addSheet("需求位置报表", positions);
+  if (positions.length) addSheet(kind === "settlements" ? "生效需求解决量" : "需求位置报表", positions);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }

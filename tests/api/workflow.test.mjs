@@ -118,7 +118,7 @@ test("Schema113 full-demand adoption, exclusive binding, three installments and 
   assert.equal(summary.settlement_fen, 120000);
   assert.equal(summary.demands[0].resolved_quantity_scaled, 50000);
   assert.equal(
-    s.finance.close(user, p.id, { expected_version: 3 }).status,
+    s.finance.close(user, p.id, { preview_hash: s.finance.closePreview(user, p.id).preview_hash, expected_version: 3 }).status,
     "closed",
   );
   assert.throws(() => s.projects.release(user, p.id, scope.id, { expected_event_seq: 1 }), /已结项.*正式批准范围/);

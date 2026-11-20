@@ -1,3 +1,4 @@
+import type { SettlementVersion } from "../../shared/types/finance-workflows.js";
 import type { createStore } from "./store.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
@@ -20,6 +21,43 @@ export function financeReadRepository(store: Store) {
   return {
     projectStage(projectId: string): string | undefined {
       return store.get<{status:string}>("SELECT status FROM projects WHERE id=?", projectId)?.status;
+    },
+    effectiveSettlementReport(ids: string[]) {
+      const values = JSON.stringify(ids);
+      const versions = store.query<SettlementVersion>(`SELECT * FROM v_settlement_effective_versions
+        WHERE settlement_id IN (SELECT value FROM json_each(?))`, values);
+      const resolutions = store.query<{settlement_id:string; demand_no:string; unit:string; resolved_quantity_scaled:number; evidence:string}>(`
+        SELECT result.settlement_id, demand.demand_no,
+          json_extract(original.snapshot_json,'$.unit_snapshot') AS unit,
+          result.resolved_quantity_scaled,result.evidence
+        FROM v_effective_demand_resolutions result
+        JOIN project_approval_scope_versions scope ON scope.id=result.approval_scope_version_id
+        JOIN demand_versions original ON original.demand_id=scope.demand_id AND original.version=scope.demand_version
+        JOIN demands demand ON demand.id=scope.demand_id
+        WHERE result.settlement_id IN (SELECT value FROM json_each(?))
+        ORDER BY result.settlement_id,demand.demand_no`, values);
+      return { versions: new Map(versions.map(version => [version.settlement_id, version])), resolutions };
+    },
+    activeCostReconciliation(entryId: string) {
+      return store.get<{amount: number; count: number}>(`SELECT
+        COALESCE(SUM(reconciled_cost_fen),0) AS amount,COUNT(*) AS count
+        FROM v_effective_cost_reconciliations WHERE entry_id=?`, entryId) ?? { amount: 0, count: 0 };
+    },
+    closeApprovalBlockers(projectId: string): string[] {
+      const rows = store.query<{reason: string}>(`SELECT '尚有未完成的立项或变更草稿' AS reason
+        WHERE EXISTS(SELECT 1 FROM project_approval_versions WHERE project_id=? AND status='draft')
+        UNION ALL SELECT '尚有未完成或未落实的项目变更'
+        WHERE EXISTS(SELECT 1 FROM project_change_orders ch WHERE ch.project_id=? AND
+          (ch.status IN ('draft','submitted') OR (ch.status='approved' AND NOT EXISTS(
+            SELECT 1 FROM project_approval_versions ap WHERE ap.change_order_id=ch.id AND ap.status='approved'))))`,
+        projectId, projectId);
+      return rows.map(row => row.reason);
+    },
+    closeFinanceVersions(projectId: string): string[] {
+      return store.query<{id: string}>(`SELECT id FROM v_cost_current WHERE project_id=? AND status='active'
+        UNION ALL SELECT id FROM v_settlement_effective_versions WHERE project_id=?
+        UNION ALL SELECT id FROM v_effective_cost_reconciliations WHERE project_id=? ORDER BY id`,
+        projectId, projectId, projectId).map(row => row.id);
     },
     unfinishedSettlements(projectId: string): Array<{id: string; number: string; status: string}> {
       return store.query(`SELECT s.id,s.number,CASE

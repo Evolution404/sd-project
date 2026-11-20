@@ -1,3 +1,4 @@
+import { settlementStatusSql } from "./settlement-status-sql.js";
 import type { FinanceListItem, FinanceListKind } from "../../shared/types/finance.js";
 import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
@@ -13,7 +14,7 @@ export interface ListSource {
   search: readonly string[];
   defaultSort?: string;
   parameters?: SQLInputValue[];
-  deletionKey?: "id" | "entry_id" | "record_id";
+  deletionKey?: "id" | "entry_id" | "record_id" | "settlement_id";
 }
 export interface DemandListRecord {
   id: string;
@@ -108,9 +109,7 @@ const financeSources: Record<FinanceListKind, ListSource> = {
       COALESCE(json_extract(draft.draft_json,'$.amount_fen'), v.amount_fen) AS amount_fen,
       effective.amount_fen AS effective_amount_fen,
       v.settlement_on AS occurred_on, v.version_no, s.created_at,
-      CASE WHEN draft.settlement_id IS NOT NULL THEN 'draft'
-        WHEN v.change_type='void' AND r.last_action='approve' THEN 'voided'
-        ELSE COALESCE(r.last_action,'draft') END AS status
+      ${settlementStatusSql("draft", "v", "r")} AS status
       FROM settlements s JOIN projects root ON root.id=s.project_id
       JOIN v_project_management_current p ON p.project_id=s.project_id
       LEFT JOIN settlement_versions v ON v.settlement_id=s.id AND v.version_no=(

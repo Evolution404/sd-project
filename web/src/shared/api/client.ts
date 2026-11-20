@@ -13,23 +13,45 @@ export class ApiError extends Error {
     this.status = status;
   }
 }
+// Keep an unacknowledged submission available for the user's next Save.
+const uncertainWrites = new Map<string, string>();
+
 export async function api<T = unknown>(
   path: string,
   method = "GET",
   body?: unknown,
   signal?: AbortSignal,
 ): Promise<T> {
-  const response = await fetch("/api" + path, {
-    signal,
-    method,
-    credentials: "same-origin",
-    headers: {
-      "Content-Type": "application/json",
-      ...(method !== "GET" ? { "Idempotency-Key": newClientId() } : {}),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const result = await response.json();
+  const serialized = body === undefined ? undefined : JSON.stringify(body);
+  const write = !["GET", "HEAD"].includes(method);
+  const retryable = write && path !== "/login" && path !== "/logout";
+  const submission = JSON.stringify([method, path, serialized]);
+  const key = write ? uncertainWrites.get(submission) || newClientId() : undefined;
+  let response: Response;
+  let result;
+  try {
+    response = await fetch("/api" + path, {
+      signal,
+      method,
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        ...(key ? { "Idempotency-Key": key } : {}),
+      },
+      ...(serialized === undefined ? {} : { body: serialized }),
+    });
+    result = await response.json();
+  } catch (failure) {
+    if (retryable && key) {
+      uncertainWrites.set(submission, key);
+      throw new ApiError("尚未收到保存结果。可保留原内容重试，系统会核对上一次提交。", {}, "WRITE_RESULT_UNKNOWN");
+    }
+    throw failure;
+  }
+  if (retryable && key) {
+    if (response.status >= 500) uncertainWrites.set(submission, key);
+    else if (uncertainWrites.get(submission) === key) uncertainWrites.delete(submission);
+  }
   if (!response.ok) {
     if (response.status === 401 && path !== "/login")
       window.dispatchEvent(new Event("session-expired"));

@@ -1,6 +1,6 @@
 import { safeAmount } from "../pricing/calculation.js";
 import { closedWriteReason } from "../../shared/project-lifecycle.js";
-import { authorize, documentCode, id, now, today } from "../../platform/auth/service.js";
+import { authorize, digest, documentCode, id, now, today } from "../../platform/auth/service.js";
 import {
   requireValue,
   expectedVersion,
@@ -137,6 +137,15 @@ export function createFinance(
       );
       if ((input.status || "active") === "active")
         activeLeaf(project, nodeRow.id);
+      const amount = integer(input.amount_fen, "实际金额", 1);
+      if (previous && key && (input.status || "active") === "active") {
+        const impact = repo.activeCostReconciliation(key);
+        requireValue(amount >= impact.amount,
+          "更正后金额低于已核对金额，请先调整关联核对记录", 409, {
+            amount_fen: "涉及 " + impact.count + " 条有效核对，累计已核对 " +
+              (impact.amount / 100).toFixed(2) + " 元",
+          });
+      }
       const entryId = key || id();
       if (!previous)
         repo.createCostEntry({
@@ -155,7 +164,7 @@ export function createFinance(
         status: input.status || "active",
         title: text(input.title, "费用事项"),
         occurred_on: input.occurred_on,
-        amount_fen: integer(input.amount_fen, "实际金额", 1),
+        amount_fen: amount,
         invoice_number: input.invoice_number || null,
         evidence: text(input.evidence, "费用凭据"),
         confirmed_by: actor.id,
@@ -176,8 +185,11 @@ export function createFinance(
     const resolutions = version
       ? repo.settlementResults(version.id)
       : [];
+    const review = version ? repo.latestReview(version.id) || null : null;
     return {
       ...root,
+      status: draft ? "draft" : version?.change_type === "void" && review?.action === "approve"
+        ? "voided" : review?.action ?? "draft",
       effective_amount_fen: repo.effectiveSettlement(key)?.amount_fen ?? null,
       version: version || null,
       items,
@@ -185,9 +197,7 @@ export function createFinance(
       draft: draft
         ? { ...draft, document: JSON.parse(draft.draft_json) as NormalizedSettlementDraft }
         : null,
-      review: version
-        ? repo.latestReview(version.id) || null
-        : null,
+      review,
     };
   }
   function validateDraft(projectId: string, input: SettlementDraftInput): NormalizedSettlementDraft {
@@ -459,10 +469,27 @@ export function createFinance(
   function closeBlockReason(projectId: string): string {
     const unfinished = repo.unfinishedSettlements(projectId);
     const labels: Record<string, string> = { draft: "尚有未提交的结算草稿或修订草稿", submit: "结算待审核", return: "结算已退回待处理" };
-    return Object.entries(labels).flatMap(([status, label]) => {
+    const settlements = Object.entries(labels).flatMap(([status, label]) => {
       const records = unfinished.filter(row => row.status === status);
       return records.length ? [label + "：" + records.map(row => row.number).join("、")] : [];
-    }).join("。");
+    });
+    return [...settlements, ...repo.closeApprovalBlockers(projectId)].join("。");
+  }
+  function closePreview(actor: Actor, key: string) {
+    authorize(actor, "project.close");
+    const project = projects.workspace(key);
+    requireValue(project.status === "approved" && project.approval, "仅已批准项目可以审核结项", 409);
+    const snapshot = summary(key);
+    const reason = closeBlockReason(key);
+    return {
+      expected_version: project.version,
+      approval_version: project.approval.version_no,
+      summary: snapshot,
+      reason,
+      preview_hash: digest(JSON.stringify([
+        actor.id, key, project.version, project.approval.id, snapshot, reason, repo.closeFinanceVersions(key),
+      ])),
+    };
   }
   function summariesForPortfolio(portfolio: ProjectDashboardBase[]) {
     if (!portfolio.length) return new Map();
@@ -486,15 +513,20 @@ export function createFinance(
     )]));
   }
   return {
-    effectiveSettlementExport(key:string) {
-      const version=repo.effectiveSettlement(key);
-      if(!version||version.change_type==="void") return {amount_fen:0,items:[],resolutions:[]};
-      return {amount_fen:version.amount_fen,items:repo.settlementVersionItems(version.id),
-        resolutions:repo.settlementResults(version.id)};
+    effectiveSettlementReport: repo.effectiveSettlementReport,
+    selectedSettlements(ids: string[], query: ListQuery) {
+      return repo.searchSettlementWorkflows(undefined, {
+        ...query, page: 1, page_size: ids.length, q: "", filters: {}, deleted: true,
+      }, ids).items;
     },
     search: (kind: FinanceListKind, query: ListQuery) => repo.searchFinance(kind, query),
     searchProjectCosts: (projectId: string, query: ListQuery) => repo.searchProjectCosts(projectId, query),
     searchSettlements: (projectId: string | undefined, query: ListQuery) => repo.searchSettlementWorkflows(projectId, query),
+    searchReconciliationItems(actor: Actor, projectId: string, query: ListQuery) {
+      authorize(actor, "cost.confirm");
+      projects.workspace(projectId);
+      return repo.searchReconciliationItems(projectId, query);
+    },
     searchReconciliations: (projectId: string | undefined, query: ListQuery) => repo.searchReconciliationVersions(projectId, query),
     summariesForPortfolio,
     node,
@@ -634,20 +666,23 @@ export function createFinance(
         return row;
       });
     },
-    close(actor: Actor, key: string, input: {expected_version:number;reason?:string}) {
+    closePreview,
+    close(actor: Actor, key: string, input: {expected_version:number;preview_hash:string;reason?:string}) {
       authorize(actor, "project.close");
       return repo.transaction(() => {
         const project = projects.get(key);
         expectedVersion(project.version, input.expected_version);
         requireValue(project.approval, "缺少批准版本");
-        const blocked = closeBlockReason(key);
-        requireValue(!blocked, blocked, 409);
+        const preview = closePreview(actor, key);
+        requireValue(!preview.reason, preview.reason, 409);
+        requireValue(preview.preview_hash === input.preview_hash,
+          "结项核对内容已变化，请重新读取并确认", 409);
         repo.createClosure({
           id: id(),
           project_id: key,
           approval_version_id: project.approval.id,
           reason: input.reason || "",
-          close_snapshot_json: JSON.stringify(summary(key)),
+          close_snapshot_json: JSON.stringify(preview.summary),
           closed_by: actor.id,
           closed_at: now(),
         });

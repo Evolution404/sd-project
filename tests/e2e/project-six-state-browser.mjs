@@ -75,7 +75,7 @@ try {
   let revised=s.projects.discardApproval(user,project.id,draft.id);
   await refresh();
   await selectStatus("已批准",project.name);
-  revised=s.finance.close(user,project.id,{expected_version:revised.version});
+  revised=s.finance.close(user,project.id,{preview_hash: s.finance.closePreview(user, project.id).preview_hash, expected_version:revised.version});
   await refresh();
   await selectStatus("已结项",project.name);
   assert.equal(revised.display_status,"已结项");

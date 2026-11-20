@@ -54,7 +54,7 @@ try {
   assert.equal(f.s.demands.get(f.demand.id).binding, null);
   const approved = f.s.projects.get(f.project.id);
   assert.equal(approved.approvals.find(ap => ap.id === f.approval.id).scopes.length, 1);
-  f.s.finance.close(f.user, approved.id, { expected_version: approved.version });
+  f.s.finance.close(f.user, approved.id, { preview_hash: f.s.finance.closePreview(f.user, approved.id).preview_hash, expected_version: approved.version });
   await page.reload();
   await workspace.waitFor();
   await workspace.getByRole("tab", { name: "费用与结算", exact: true }).click();

@@ -26,14 +26,16 @@ import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
 import type { System } from "../../../../server/bootstrap";
 import type { ActualCostVersion, SettlementWorkflow, ReconciliationVersion, SettlementItemInput,
-  SettlementResolutionInput, ActualCostInput, SettlementDraftInput, ReconciliationInput } from "../../../../server/shared/types/finance-workflows";
+  SettlementResolutionInput, ReconciliationSettlementChoice, ActualCostInput, SettlementDraftInput, ReconciliationInput } from "../../../../server/shared/types/finance-workflows";
 import type { CategoryCost } from "../../../../server/shared/types/trees";
 import type { FinanceSummary } from "../../../../server/modules/finance/summary";
 type ProjectDetail = ReturnType<System["projects"]["get"]>;
 type CostFact = ActualCostVersion & CategoryCost;
 type BillFact = SettlementWorkflow & {deleted?: boolean};
 type ReconciliationFact = ReconciliationVersion & {deleted?:boolean};
-type EditingFact = Partial<CostFact & BillFact & ReconciliationFact>;
+type EditingFact = Partial<Omit<CostFact & Omit<BillFact, "status"> & ReconciliationFact, "status">> & {
+  status?: CostFact["status"] | BillFact["status"];
+};
 interface FinanceForm extends Partial<ActualCostInput>, Omit<SettlementDraftInput, "items" | "resolutions">, ReconciliationInput {
   items: Array<Partial<SettlementItemInput> & {cost_node_name?:string; cost_node_version_id?:string}>;
   resolutions: Array<Partial<SettlementResolutionInput>>;
@@ -284,7 +286,7 @@ function financeTableFilter(table: "costs" | "bills" | "reconciliations", value:
 // Search the project's full eligible records on demand; current selected
 // immutable IDs remain available when the search keyword changes.
 const reconcileCostChoices = ref<CostFact[]>([]);
-const reconcileBillChoices = ref<BillFact[]>([]);
+const reconcileBillChoices = ref<ReconciliationSettlementChoice[]>([]);
 const reconcileCostsLoading = ref(false);
 const reconcileBillsLoading = ref(false);
 let reconcileCostSequence = 0;
@@ -294,9 +296,9 @@ async function loadReconciliationChoices(kind: "costs" | "bills", term = "") {
   if (kind === "costs") reconcileCostsLoading.value = true;
   else reconcileBillsLoading.value = true;
   const projectId = props.project.id;
-  const resource = kind === "costs" ? "costs" : "settlements";
+  const resource = kind === "costs" ? "costs" : "reconciliation-items";
   try {
-    const page = await api<{items: Array<CostFact | BillFact>}>(`/projects/${projectId}/${resource}?page=1&page_size=200&q=${encodeURIComponent(term.trim())}`);
+    const page = await api<{items: Array<CostFact | ReconciliationSettlementChoice>}>(`/projects/${projectId}/${resource}?page=1&page_size=200&q=${encodeURIComponent(term.trim())}`);
     if (projectId !== props.project.id || sequence !== (kind === "costs" ? reconcileCostSequence : reconcileBillSequence)) return;
     if (kind === "costs") {
       const currentId = form.value.cost_version_id;
@@ -306,9 +308,8 @@ async function loadReconciliationChoices(kind: "costs" | "bills", term = "") {
         ? [selected, ...candidates] : candidates;
     } else {
       const currentId = form.value.settlement_item_version_id;
-      const selected = reconcileBillChoices.value.find(row =>
-        (row.items || []).some((item) => item.id === currentId));
-      const candidates = (page.items as BillFact[]).filter(row => row.review?.action === "approve" && !row.deleted);
+      const selected = reconcileBillChoices.value.find(row => row.id === currentId);
+      const candidates = page.items as ReconciliationSettlementChoice[];
       reconcileBillChoices.value = selected && !candidates.some(row => row.id === selected.id)
         ? [selected, ...candidates] : candidates;
     }
@@ -397,6 +398,7 @@ function edit(type: string, row?: EditingFact) {
       ? {
           ...emptyForm(),
           ...row,
+          status: row.status === "voided" ? "voided" : "active",
           is_final: undefined,
           request_key: undefined,
           cost_node_id: row.cost_node_id || props.project.cost_nodes.find(
@@ -442,6 +444,7 @@ function edit(type: string, row?: EditingFact) {
       ? {
           ...emptyForm(),
           ...row,
+          status: "active",
           request_key: undefined,
           expected_version: row.version_no,
           is_final: !!row.is_final,
@@ -883,7 +886,7 @@ watch(() => props.project.id, () => {
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.draft?.document.amount_fen ?? row.version?.amount_fen) }}</span>
         <span v-else-if="column.key === 'effective_amount_fen'">{{ row.effective_amount_fen == null ? '—' : '¥' + money(row.effective_amount_fen) }}</span>
         <span v-else-if="column.key === 'review'">
-          第 {{ row.version?.version_no || 0 }} 版 · {{ row.review?.action === 'submit' ? '待审核' : row.review?.action === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.review?.action || ""] || '待编制' }}
+          第 {{ row.version?.version_no || 0 }} 版 · {{ row.status === 'voided' ? '已注销' : row.status === 'submit' ? '待审核' : row.status === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.status] || '待编制' }}
           <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
         </span>
         <ElButton v-else-if="column.key === 'number'" link type="primary" class="cell-link"
@@ -1122,16 +1125,10 @@ watch(() => props.project.id, () => {
               :remote-method="term => loadReconciliationChoices('bills', term)"
               :loading="reconcileBillsLoading" placeholder="搜索已批准结算编号后选择"
               no-match-text="未找到已批准结算，请更换编号"
-              ><template
-                v-for="bill in reconcileBillChoices"
-                :key="bill.id"
-                ><ElOption
-                  v-for="item in bill.items"
-                  :key="item.id"
-                  :value="item.id"
-                  :label="
-                    bill.number + ' ¥' + money(item.amount_fen)
-                  " /></template></ElSelect></ElFormItem
+              ><ElOption
+                v-for="item in reconcileBillChoices" :key="item.id" :value="item.id"
+                :label="item.number + ' ¥' + money(item.amount_fen) + ' · ' + item.cost_node_name +
+                  (item.demand_no ? ' · ' + item.demand_no : '')" /></ElSelect></ElFormItem
           ><ElFormItem
             label="费用份额（元）"
             prop="reconciled_cost_fen"

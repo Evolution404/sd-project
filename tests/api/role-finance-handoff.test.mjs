@@ -65,8 +65,8 @@ test("all four roles cooperate on real costs and settlements without permission 
   assert.equal(s.finance.summary(project.id).settlement_fen,12500);
   assert.equal(s.finance.summary(project.id).actual_cost_fen,14500);
 
-  assert.throws(()=>s.finance.close(editor,project.id,{expected_version:3}),/权限/);
-  assert.throws(()=>s.finance.close(viewer,project.id,{expected_version:3}),/权限/);
+  assert.throws(()=>s.finance.close(editor,project.id,{preview_hash: "", expected_version:3}),/权限/);
+  assert.throws(()=>s.finance.close(viewer,project.id,{preview_hash: "", expected_version:3}),/权限/);
   assert.equal(s.projects.get(project.id).status,"approved");
   assert.equal(inspect(s).integrity().foreignKeys.length,0);
 });

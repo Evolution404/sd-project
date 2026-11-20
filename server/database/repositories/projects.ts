@@ -1,3 +1,4 @@
+import { PROJECT_DISPLAY_STATUS_SQL } from "../queries/project-status-sql.js";
 import type { createStore } from "./store.js";
 import type { ProjectIdentity, ProjectProfileVersion, ProjectFundingVersion,
   ProjectApprovalVersion, ProjectApprovalCandidateProposal } from "../../shared/types/projects.js";
@@ -116,6 +117,7 @@ interface ApprovalCandidateRow {
   full_definition_json: string;
 }
 export interface ProjectDashboardBase {
+  display_status: string;
   id: string;
   code: string;
   name: string;
@@ -323,7 +325,7 @@ export function projectReadRepository(store: Store) {
       });
     },
     projectDashboardPortfolio(ids?: string[]): ProjectDashboardBase[] {
-      return store.query(`SELECT p.id,p.code,m.name,p.status,p.framework_id,
+      return store.query(`SELECT p.id,p.code,m.name,p.status,${PROJECT_DISPLAY_STATUS_SQL} AS display_status,p.framework_id,
         m.planned_end_on,approved.approval_version_id,approved.approved_budget_fen
         FROM projects p
         JOIN v_project_management_current m ON m.project_id=p.id

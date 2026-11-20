@@ -18,23 +18,11 @@ function emptyRows():WorksheetRows {
   return {documents:[],work_locations:[],materials:[],sources:[],items:[],
     resolutions:[]};
 }
-function sumScaled(rows:readonly unknown[],field:string):bigint {
-  return rows.reduce<bigint>((sum,row)=>{
-    requireValue(isObject(row),"正式结算费用明细结构无效");
-    const value=row[field]??0;
-    requireValue(typeof value==="number"&&Number.isSafeInteger(value),
-      "结算正式金额或工作量必须是安全整数");
-    return sum+BigInt(value);
-  },0n);
-}
 function scopeDescription(system:System,scopeId:string|null|undefined):string|undefined {
   if (!scopeId) return undefined;
   const demandId=system.exchangePersistence.scopeDemandId(scopeId);
   requireValue(demandId,"结算已采用需求范围不存在",404);
   return system.demands.get(demandId,true).problem_description;
-}
-function effectiveVersion(system:System,key:string):{amount_fen:number;resolutions:unknown[]} {
-  return system.finance.effectiveSettlementExport(key);
 }
 function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
   return makeBusinessReport("demands",
@@ -61,32 +49,50 @@ function reportDemand(system:System,records:DemandRecord[]):Promise<Buffer> {
   );
 }
 function reportSettlement(system:System,records:SettlementWorkflow[]):Promise<Buffer> {
-  const statuses:Record<string,string>={submit:"待审核",approve:"已批准",return:"已退回",reject:"已驳回"};
+  const statuses = {draft:"未提交", submit:"待审核", approve:"已批准", return:"已退回", reject:"已驳回", voided:"已注销"};
   const projects = system.projects.dashboardPortfolio([...new Set(records.map(record => record.project_id))]);
+  const projectById = new Map(projects.map(project => [project.id, project]));
   const summaries = system.finance.summariesForPortfolio(projects);
+  const {versions, resolutions} = system.finance.effectiveSettlementReport(records.map(record => record.id));
+  const recordsById = new Map(records.map(record => [record.id, record]));
+  const modeLabel = (mode: string | undefined) => !mode ? "" : mode === "project_total" ? "按项目总额" : "按子费用";
   return makeBusinessReport("settlements",records.map(record=>{
-    const project=system.projects.get(record.project_id);
-    const adopted=effectiveVersion(system,record.id);
+    const project=projectById.get(record.project_id);
+    requireValue(project,"结算所属项目不存在或已删除",409);
+    const adopted=versions.get(record.id);
     const summary = summaries.get(record.project_id);
     return {
       结算编号:record.number,子项目编号:project.code,子项目当前名称:project.name,
       最新正式版本:record.version?.version_no||0,
-      最新审核状态:statuses[record.review?.action||""]||"未提交",
+      结算状态:statuses[record.status],
       草稿状态:record.draft?"有草稿":"无草稿",
       "本次草稿金额（元）":record.draft?
         decimalText(record.draft.document.amount_fen,2):"",
       "最近提交金额（元）":record.version ? decimalText(record.version.amount_fen,2) : "",
-      "当前已批准金额（元）":decimalText(adopted.amount_fen,2),
-      结算方式:(record.draft?.document.mode || record.version?.mode) === "project_total" ? "按项目总额" : "按子费用",
+      "当前已批准金额（元）":decimalText(adopted?.amount_fen ?? 0,2),
+      当前生效版本:adopted?.version_no ?? "",
+      当前生效结算方式:modeLabel(adopted?.mode),
+      当前生效结算日期:adopted?.settlement_on ?? "",
+      当前生效结算依据:adopted?.basis ?? "",
+      最近提交方式:modeLabel(record.version?.mode),
+      最近提交日期:record.version?.settlement_on ?? "",
+      最近提交依据:record.version?.basis ?? "",
+      草稿结算方式:modeLabel(record.draft?.document.mode),
+      草稿结算日期:record.draft?.document.settlement_on ?? "",
+      草稿结算依据:record.draft?.document.basis ?? "",
       "项目核定实际费用（元）": summary ? decimalText(summary.actual_cost_fen, 2) : "",
       "项目累计生效结算（元）": summary ? decimalText(summary.settlement_fen, 2) : "",
       项目结算进度: summary?.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent + "%",
       "项目超结算（元）": summary?.excess_settlement_fen == null ? "" : decimalText(summary.excess_settlement_fen, 2),
-      当前新增解决量:decimalText(sumScaled(adopted.resolutions,"resolved_quantity_scaled"),4),
-      结算日期:record.version?.settlement_on||record.draft?.document.settlement_on||"",
-      结算依据:record.version?.basis||record.draft?.document.basis||"",
     };
-  }));
+  }), resolutions.map(row => ({
+    结算编号:recordsById.get(row.settlement_id)?.number,
+    生效结算版本:versions.get(row.settlement_id)?.version_no,
+    需求编号:row.demand_no,
+    解决量:decimalText(row.resolved_quantity_scaled,4),
+    计量单位:row.unit,
+    解决依据:row.evidence,
+  })));
 }
 function exportDemands(system:System,records:DemandRecord[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();
@@ -171,8 +177,9 @@ export function createExchangeExporter(system:System,lookups:()=>Record<string,u
       return options.report ? reportDemand(system, records) : exportDemands(system, records, lookups);
     }
     const records = ids.length
-      ? ids.map(id => system.finance.settlement(id))
+      ? system.finance.selectedSettlements(ids, query)
       : system.finance.searchSettlements(options.projectId, query).items;
+    requireValue(!ids.length || records.length === new Set(ids).size, "所选结算已变化，请刷新后重选", 409);
     requireValue(records.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
     requireValue(!options.projectId || records.every(row => row.project_id === options.projectId),
       "导出范围包含不属于当前项目的结算", 409);

@@ -7,7 +7,7 @@ import { httpServer } from "../../dist/server/platform/http/server.js";
 import { memoryPage } from "../../dist/server/platform/http/memory-page.js";
 
 const cleanup = [];
-const { s, user, project, node, scope, approval } =
+const { s, user, project, node, scope, approval, demand } =
   approvedFixture({ after: done => cleanup.push(done) });
 const costs = [];
 for (let n = 0; n < 35; n++)
@@ -48,7 +48,7 @@ try {
   const bill = bills.find(item => !billVisible.has(item.id));
   assert.ok(cost && bill, "both selections must be absent from the first 30-row list page");
   await selectFormChoice(page, "实际费用", cost.title + " ¥" + (cost.amount_fen / 100).toFixed(2), editor);
-  await selectFormChoice(page, "已批准结算明细", bill.number + " ¥" + (bill.items[0].amount_fen / 100).toFixed(2), editor);
+  await selectFormChoice(page, "已批准结算明细", bill.number + " ¥" + (bill.items[0].amount_fen / 100).toFixed(2) + " · 人工费 · " + demand.demand_no, editor);
   await editor.getByLabel("费用份额（元）").fill("50");
   await editor.getByLabel("核定结算额（元）").fill("50");
   await editor.getByLabel("核对依据").fill("跨页核对验收");
