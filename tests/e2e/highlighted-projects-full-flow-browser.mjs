@@ -523,10 +523,12 @@ try {
     assert.equal(system.projects.get(record.projectId).approval, null);
     await reviseDate(record, "2026-12-15");
     await openProject(record, "approval");
-    await detail.getByRole("button", { name: /^审核(立项|变更)$/ }).click();
-    await workPage(page).getByRole("button", { name: "确认正式批准", exact: true }).click();
-    await page.getByText(/需求正式版本已变化/).waitFor();
-    await workPage(page).getByRole("button", { name: "撤回草稿", exact: true }).click();
+    await detail.getByText(/需求正式版本已变化/).waitFor();
+    assert.equal(await detail.getByRole("button", { name: "审核立项", exact: true }).isDisabled(), true);
+    await postRejected(`/projects/${record.projectId}/approvals/${oldDraft.id}/approve`, {
+      expected_version: system.projects.get(record.projectId).version,
+    }, 409);
+    await detail.getByRole("button", { name: "撤回草稿", exact: true }).click();
     await confirm();
     assert.equal(inspect(system).find("project_approval_versions", "id", oldDraft.id).status, "withdrawn");
     await createApproval(record);
