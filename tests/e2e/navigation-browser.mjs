@@ -36,7 +36,8 @@ try {
   await login("admin", "Schema113-test-password");
   await page.getByRole('row').filter({ hasText: demand.demand_no }).locator(".cell-link:visible").first().click();
   await detail.getByRole('heading', { name: /安装防鸟装置 · 防鸟设施缺失/ }).waitFor();
-  await detail.getByText('需求编号：' + demand.demand_no, { exact: false }).waitFor();
+  await detail.locator('.business-number').getByText(demand.demand_no, { exact: true }).waitFor();
+  await detail.getByRole('button', { name: '复制需求编号', exact: true }).waitFor();
   assert.equal(page.url(), `${base}/#/demands`);
   await closeDetail();
   // A late search response must not replace a newer query's rows.
@@ -139,7 +140,7 @@ try {
   const editor = page.locator('.el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible');
   await editor.getByLabel('项目名称', { exact: true }).fill('防重复保存项目');
   await editor.getByLabel('年度框架', { exact: true }).press('ArrowDown');
-  await page.getByRole('option', { name: '年度框架 · 2026', exact: true }).click();
+  await page.getByRole('option', { name: '年度框架', exact: true }).click();
   let writes = 0;
   const countWrite = request => { if (request.method() === 'POST' && new URL(request.url()).pathname === '/api/projects') writes++; };
   page.on('request', countWrite);

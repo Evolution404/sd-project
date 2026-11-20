@@ -53,7 +53,7 @@ try {
   await selectNavigation(page, "子项目管理");
   await page.getByRole("button", { name: "新增子项目", exact: true }).click();
   await page.getByLabel("项目名称", { exact: true }).fill("浏览器完整流程项目");
-  await select("年度框架", "浏览器验收框架 · 2026");
+  await select("年度框架", "浏览器验收框架");
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
     .getByRole("button", { name: "保存", exact: true })
@@ -122,13 +122,13 @@ try {
       .click();
     await workPage(page).getByText("按子费用", { exact: true }).click();
     await select("费用科目", "人工费");
-    await select("关联需求（共同费用可不选）", demand.demand_no);
+    await select("关联需求（共同费用可不选）", demand.problem_description);
     await page.getByLabel("本次金额（元）", { exact: true }).fill("400");
     await page.getByLabel("依据", { exact: true }).fill("本期结算依据" + index);
     await page
       .getByRole("button", { name: "添加解决需求", exact: true })
       .click();
-    await select("项目需求", demand.demand_no);
+    await select("项目需求", demand.problem_description);
     const resolution = workPage(page).getByLabel("本次新增解决量", { exact: true });
     await resolution.fill(String(resolved));
     await resolution.press("Tab");
@@ -149,10 +149,11 @@ try {
     await approveSettlement(page, row);
   }
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
-  await select("实际费用", "浏览器真实费用 ¥1,400.00");
+  await select("实际费用", "浏览器真实费用 · ¥1,400.00");
   const choice = page.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});
   await choice.locator(".el-select__wrapper").click();
-  await page.getByRole("option", {name: new RegExp(generatedBills[0] + " ¥400.00")}).click();
+  await choice.getByRole("combobox").fill(generatedBills[0]);
+  await page.getByRole("option", {name: "人工费 · ¥400.00 · " + generatedBills[0], exact: true}).click();
   await page.getByLabel("费用份额（元）", { exact: true }).fill("300");
   await page.getByLabel("核定结算额（元）", { exact: true }).fill("400");
   await page.getByLabel("核对依据", { exact: true }).fill("浏览器核对原始依据");

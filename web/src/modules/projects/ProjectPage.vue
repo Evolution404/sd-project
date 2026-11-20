@@ -17,6 +17,7 @@ import { useDescriptionColumns } from "../../shared/composables/use-description-
 const descriptionColumns = useDescriptionColumns();
 import { useListRoute } from "../../shared/composables/use-list-route";
 import RowActions from "../../shared/ui/RowActions.vue";
+import BusinessNumber from "../../shared/ui/BusinessNumber.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
@@ -42,7 +43,7 @@ import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } f
 import { ApiError, api, download, money, quantity } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate, ProjectAction, ProjectDetail,
-  ProjectListItem, ProjectHistory, ProjectDeletionImpact } from "../../../../server/shared/types/project-api";
+  ProjectListItem, ProjectDeletionImpact } from "../../../../server/shared/types/project-api";
 import type { ProjectManagementInput, ProjectAgreementOption } from "../../../../server/shared/types/projects";
 
 type ApprovalDetail = ProjectDetail["approvals"][number];
@@ -200,7 +201,7 @@ const rows = ref<ProjectListItem[]>([]),
   agreementChoices = ref<ProjectAgreementOption[]>([]),
   agreementLoading = ref(false),
   agreementError = ref(""),
-  history = ref<(ProjectHistory & { approval_details: ApprovalDetail[] }) | null>(null),
+  historyRevision = ref(0),
   tab = ref("overview"),
   approvalRows = ref<ApprovalEditorRow[]>([]),
   priceScopeContext = ref<ApprovedScope | null>(null),
@@ -872,23 +873,6 @@ async function removeProject() {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-async function showHistory() {
-  const id = detail.value!.id;
-  try {
-    const [records, approvals] = await Promise.all([
-      api<ProjectHistory>(`/projects/${id}/history`),
-      api<ApprovalDetail[]>(`/projects/${id}/approval-history`),
-    ]);
-    if (detail.value?.id === id) history.value = { ...records, approval_details: approvals };
-  } catch (failure) {
-    if (detail.value?.id === id) ElMessage.error((failure as Error).message);
-  }
-}
-const closure = computed(() => history.value?.closures.at(-1));
-const closureSnapshot = computed(() => {
-  const snapshot = closure.value?.close_snapshot_json;
-  return typeof snapshot === "string" ? JSON.parse(snapshot) as ProjectFinanceSnapshot : null;
-});
 let overviewSequence = 0;
 async function loadOverview() {
   const id = detail.value?.id;
@@ -963,15 +947,11 @@ function runOverviewStep() {
 watch(() => detail.value, () => {
   if (detail.value?.id) {
     void loadOverview();
-    if (tab.value === "history" && !history.value) void showHistory();
   }
-});
-watch(tab, value => {
-  if (value === "history" && detail.value?.id && !history.value) void showHistory();
 });
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "projects" && !projectWork.value);
 const detailDialog = useEntityDialog(detail, id => api<ProjectDetail>('/projects/' + id + '?deleted=true'), () => {
-  dialog.value = ''; history.value = null; quoteOpen.value = false; closeReviewOpen.value = false;
+  dialog.value = ''; historyRevision.value = 0; quoteOpen.value = false; closeReviewOpen.value = false;
   projectActions.value = []; overviewSummary.value = null; overviewFramework.value = null; overviewAgreement.value = null;
 });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
@@ -1108,7 +1088,7 @@ onMounted(async () => {
       <h1>{{ detail.name }}</h1>
       <ElTag :type="projectStatusTag(detail.display_status)">{{ detail.display_status }}</ElTag
       ><ElTooltip :content="detail.code" placement="top">
-         <span class="muted project-code">{{ detail.code }}</span>
+         <span class="muted project-code"><BusinessNumber :value="detail.code" label="项目编号" /></span>
        </ElTooltip>
     </div>
     <ElTabs v-if="!projectWork" v-model="tab" class="project-workflow-tabs">
@@ -1321,30 +1301,11 @@ onMounted(async () => {
     />
     <div v-if="tab === 'history'" class="panel">
       <div class="toolbar">
-        <h2>完整正式历史</h2>
-        <ElButton data-guide-action="projects.history" :loading="busy" @click="showHistory">刷新历史</ElButton>
+        <h2>{{ detail.display_status === '已结项' ? '结项结果' : '项目历史记录' }}</h2>
+        <ElButton data-guide-action="projects.history" @click="historyRevision++">刷新历史</ElButton>
       </div>
-      <template v-if="closureSnapshot">
-        <h3>结项结果</h3>
-        <ElDescriptions :column="descriptionColumns" border class="closed-project-summary">
-          <ElDescriptionsItem label="结项时间">{{ formatVisibleDateTime(closure?.closed_at, 'closed_at') }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="实际费用">¥{{ money(closureSnapshot.actual_cost_fen) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="已批准结算">¥{{ money(closureSnapshot.settlement_fen) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="结算进度">{{ settlementProgressText(closureSnapshot.settlement_progress_percent) }}</ElDescriptionsItem>
-          <ElDescriptionsItem v-if="closureSnapshot.excess_settlement_fen" label="超结算">¥{{ money(closureSnapshot.excess_settlement_fen) }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="待核对费用">¥{{ money(closureSnapshot.unreconciled_cost_fen) }}</ElDescriptionsItem>
-        </ElDescriptions>
-        <BusinessTable v-if="closureSnapshot.demands?.length" table-key="project:closed-quantity"
-          :rows="closureSnapshot.demands" sort-mode="off" filter-mode="off"
-          :columns="[{key:'demand_no',label:'需求编号',minWidth:180},{key:'remaining_quantity_scaled',label:'未解决工作量'},
-            {key:'excess_quantity_scaled',label:'超出批准工作量'}]">
-          <template #cell="{row,column}">
-            {{ column.key === 'demand_no' ? row.demand_no : quantity(column.key === 'remaining_quantity_scaled' ? row.remaining_quantity_scaled : row.excess_quantity_scaled) }}
-          </template>
-        </BusinessTable>
-      </template>
-      <BusinessHistory v-if="history" :value="history" />
-      <ElSkeleton v-else :rows="5" animated />
+      <BusinessHistory :key="historyRevision" record-kind="projects" :record-id="detail.id"
+        :initial-entry="detail.display_status === '已结项' ? '结项结果' : undefined" />
     </div>
   </template>
     <template v-if="approvalReviewPage && approvalDraft && detail && !detail.deleted && can(approvalDraft.version_no === 1 ? 'project.approve' : 'change.approve')" #footer>

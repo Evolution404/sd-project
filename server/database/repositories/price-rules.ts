@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import { countBusinessReferences } from "../queries/deletion-impact.js";
 import type { createStore } from "./store.js";
 import type {
@@ -60,6 +61,7 @@ export function priceRuleRepository(store: ReturnType<typeof createStore>) {
     ) as PriceRuleRecord[];
   }
   return {
+    nextNumber: () => nextBusinessNumber(store, "prices"),
     references: (id: string) =>
       countBusinessReferences(store, "reference_price_catalog", id),
     current: (id: string) => rows(id)[0],
@@ -96,9 +98,12 @@ export function priceRuleRepository(store: ReturnType<typeof createStore>) {
       store.insert("reference_price_versions", version);
     },
     history: (id: string) =>
-      store.where("reference_price_versions", {
-        catalog_id: id,
-      }) as PriceRuleVersion[],
+      store.query<PriceRuleVersion>(`SELECT v.*,operation.name AS operation_id_label,
+        operation.attributes_schema_json,unit.name AS unit_id_label
+        FROM reference_price_versions v
+        JOIN operation_versions operation ON operation.operation_id=v.operation_id AND operation.version=v.operation_version
+        JOIN dictionary_item_versions unit ON unit.item_id=v.unit_id AND unit.version=v.unit_version
+        WHERE v.catalog_id=? ORDER BY v.version_no`, id),
     effectiveLocationRules(date: string): PriceRuleVersion[] {
       return store.query(
         `SELECT v.* FROM reference_price_versions v WHERE v.pricing_scope='work_location'

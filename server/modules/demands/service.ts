@@ -11,7 +11,7 @@ import type {
 import { normalizeAttributeValues, validateAttributeSchema } from "../../shared/operation-attributes.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import { demandDisplayStatus } from "../../shared/demand-display-status.js";
-import { authorize, documentCode, digest, id, now } from "../../platform/auth/service.js";
+import { authorize, digest, id, now } from "../../platform/auth/service.js";
 import {
   requireValue,
   text,
@@ -468,7 +468,7 @@ export function createDemands(
         const { work_locations, materials, attributes, ...root } = normalized;
         repo.createDemand({
           id: keyId,
-          demand_no: documentCode("XQ", keyId),
+          demand_no: repo.nextNumber(),
           batch_id: context.batchId || null,
           ...root,
           initial_attributes_json: JSON.stringify(attributes),
@@ -641,6 +641,9 @@ export function createDemands(
     history(key: string) {
       get(key, true);
       return repo.history(key);
+    },
+    historyFacts(key: string) {
+      return { current: get(key, true), ...repo.history(key, true) };
     },
     remove(actor: Actor, key: string, raw: unknown): { deleted: true } {
       requireValue(isObject(raw), "请提供需删除需求的版本");

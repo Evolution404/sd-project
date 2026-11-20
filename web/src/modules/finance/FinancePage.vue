@@ -5,10 +5,11 @@ import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { api, money, statusText } from "../../shared/api/client";
 import type { Page } from "../../../../server/shared/types/contracts";
-import type { FinanceListItem, FinanceRecordDetail } from "../../../../server/shared/types/finance";
+import type { FinanceListKind, FinanceListItem, FinanceRecordDetail } from "../../../../server/shared/types/finance";
 import { useListRoute } from "../../shared/composables/use-list-route";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
+import BusinessNumber from "../../shared/ui/BusinessNumber.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { projectFinanceContext, type BusinessFocus } from "../../shared/navigation/business-context";
 
@@ -47,10 +48,10 @@ const currentRecord = computed<FinanceRecordDetail | null>(() => {
     return [...recordContent.value].sort((a, b) => (b.version_no ?? 0) - (a.version_no ?? 0))[0] || null;
   return recordContent.value;
 });
-const recordVersions = computed(() => Array.isArray(recordContent.value) ? recordContent.value : null);
+const recordHistoryOpen = ref(false);
 async function viewRecord(row: FinanceListItem) {
   const sequence = ++recordSequence;
-  selectedRecord.value = row; recordOpen.value = true;
+  selectedRecord.value = row; recordOpen.value = true; recordHistoryOpen.value = false;
   recordLoading.value = true; recordContent.value = null; recordError.value = "";
   const path = kind.value === "costs"
     ? `/projects/${row.project_id}/costs/${row.id}`
@@ -205,7 +206,10 @@ onMounted(() => { void load(); });
         <h2>当前正式事实</h2>
         <ElDescriptions :column="2" border>
           <ElDescriptionsItem label="所属子项目">{{ selectedRecord.project_name }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="记录事项">{{ selectedRecord.label }}</ElDescriptionsItem>
+          <ElDescriptionsItem v-if="kind === 'settlements'" label="结算编号">
+            <BusinessNumber :value="selectedRecord.label" label="结算编号" />
+          </ElDescriptionsItem>
+          <ElDescriptionsItem v-else label="记录事项">{{ selectedRecord.label }}</ElDescriptionsItem>
           <ElDescriptionsItem label="业务状态">{{ recordStatus(selectedRecord.status) }}</ElDescriptionsItem>
           <ElDescriptionsItem label="业务日期">{{ selectedRecord.occurred_on || "—" }}</ElDescriptionsItem>
           <ElDescriptionsItem :label="kind === 'costs' ? '真实费用' : kind === 'settlements' ? '本次结算金额' : '核定结算金额'">
@@ -246,10 +250,9 @@ onMounted(() => { void load(); });
           </template>
         </BusinessTable>
       </div>
-      <div class="panel">
-        <h2>版本与正式历史</h2>
-        <BusinessHistory :value="recordVersions || recordContent" />
-      </div>
+      <ElButton @click="recordHistoryOpen = !recordHistoryOpen">历史记录</ElButton>
+      <BusinessHistory reveal v-if="recordHistoryOpen" :record-kind="crossKind as FinanceListKind"
+        :record-id="selectedRecord.id" :project-id="selectedRecord.project_id" />
     </template>
   </BusinessDetailDialog>
 </template>

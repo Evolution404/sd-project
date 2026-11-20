@@ -214,7 +214,7 @@ try {
     name: "费用科目版本与删除历史",
     exact: true,
   });
-  await history.getByText("删除", { exact: true }).waitFor();
+  await history.getByRole("article", { name: "事项详情" }).getByRole("heading", { name: "删除费用科目", exact: true }).waitFor();
   await history.getByRole("button", { name: "关闭详情", exact: true }).click();
   await selectNode(workspace, "人工费");
   await detail.getByRole("button", { name: "核定费用", exact: true }).click();
@@ -263,7 +263,8 @@ try {
     name: "实际费用与历史",
     exact: true,
   });
-  await costHistory.getByText("200.00", { exact: true }).waitFor();
+  await costHistory.getByRole("button", { name: /核定实际费用/ }).click();
+  await costHistory.getByRole("article", { name: "事项详情" }).getByText("¥200.00", { exact: true }).first().waitFor();
   await costHistory
     .getByRole("button", { name: "关闭详情", exact: true })
     .click();
@@ -399,9 +400,9 @@ try {
     name: "组织正式版本与上级历史",
     exact: true,
   });
-  await orgHistory
-    .getByText("示例公司 / 运检部 / 输电中心", { exact: true })
-    .waitFor();
+  await orgHistory.getByRole("button", { name: /建立归口单位/ }).click();
+  await orgHistory.getByRole("article", { name: "事项详情" })
+    .getByText("示例公司 / 运检部 / 输电中心", { exact: true }).waitFor();
   await orgHistory
     .getByRole("button", { name: "关闭详情", exact: true })
     .click();

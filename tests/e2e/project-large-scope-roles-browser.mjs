@@ -120,12 +120,24 @@ try{
   await viewer.reload();
   await viewer.getByRole('tab',{name:'立项与变更',exact:true}).click();
   assert.equal(await viewer.getByRole('button',{name:'编制变更',exact:true}).count(),0);
-  const historicalResponse=viewer.waitForResponse(response=>response.url().endsWith('/approval-history'));
+  const historicalResponse=viewer.waitForResponse(response=>response.url().includes('/api/history/projects/'+project.id+'?'));
   await viewer.getByRole('tab',{name:'历史记录',exact:true}).click();
   const historical=await historicalResponse;
   assert.equal(historical.status(),200);
-  assert.deepEqual((await historical.json()).map(row=>row.scopes.length),[1,2,1]);
-  await viewer.getByRole('heading',{name:'完整正式历史',exact:true}).waitFor();
+  const history = await historical.json();
+  const approvedVersions = history.versions.filter(row => row.versionGroup === '项目批准').sort((a,b) => a.version-b.version);
+  assert.deepEqual(approvedVersions.map(row => row.version), [1,2,3]);
+  const eachVersion = await Promise.all(approvedVersions.map(async entry => {
+    const url = new URL(historical.url());
+    url.searchParams.set('entry', entry.id);
+    const response = await viewer.request.get(url.href);
+    assert.equal(response.status(), 200);
+    const result = await response.json();
+    return result.selected.tables.find(table => table.title==='批准需求范围').rows.length;
+  }));
+  assert.deepEqual(eachVersion,[1,2,1]);
+  await viewer.getByRole('heading',{name:'项目历史记录',exact:true}).waitFor();
+  await viewer.getByRole('navigation',{name:'办理时间线',exact:true}).waitFor();
   await viewer.screenshot({path:join(out,'只读核对新增移出历史.png'),fullPage:true});
   assert.deepEqual(errors,[]);
   console.log('PROJECT_LARGE_SCOPE_ROLES_OK 20+5 complete immutable positions, editor proposes addition, verifier approves, admin proposes removal, verifier releases, viewer403, three approved histories retained');

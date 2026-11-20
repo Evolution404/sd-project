@@ -17,7 +17,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import { api, type Row, statusText, money, quantity } from "../../shared/api/client";
-import type { CatalogFormDefinition, CatalogField } from "../../../../server/shared/types/catalog";
+import type { CatalogKind, CatalogFormDefinition, CatalogField } from "../../../../server/shared/types/catalog";
 interface CatalogRow extends Row {
   id:string;
   deleted?:boolean;
@@ -43,7 +43,7 @@ const definitions = ref<Record<string,CatalogFormDefinition>>({}),
   formRef = ref(),
   detail = ref<CatalogRow | null>(null),
   businessLabels = ref<Record<string,string>>({}),
-  history = ref<unknown>(null);
+  history = ref(false);
 const kind = computed({
   get: () => String(route.params.kind || props.kinds[0]),
   set: value => { void router.push({ name: route.name!, params: { kind: value }, query: {} }); },
@@ -192,7 +192,7 @@ async function remove(row: CatalogRow) {
 async function hydrateDetail(id: string) {
   const requestedKind = kind.value;
   const row = await api<CatalogRow>(`/catalog/${requestedKind}/${id}?deleted=true`);
-  history.value = null;
+  history.value = false;
   const names = Object.fromEntries(fields().filter(field => field.type === "ref" && row[field.key])
     .map(field => [field.key, String(row[field.key + "_label"] || "历史关联对象")]));
   return { ...row, reference_names: names };
@@ -219,16 +219,15 @@ function display(field: CatalogField, value: unknown) {
 async function viewHistory(row: CatalogRow) {
   if (detail.value?.id !== row.id) await detailDialog.open(row.id);
   if (detail.value?.id !== row.id) return;
-  const value = await api<Row>(`/catalog/${kind.value}/history/${row.id}`);
-  if (detail.value?.id === row.id) history.value = value;
+  history.value = true;
 }
 watch(kind, () => {
   rows.value = [];
-  history.value = null;
+  history.value = false;
   void load();
 });
 useListRoute({ q: query, page, deleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load);
-const detailDialog = useEntityDialog(detail, hydrateDetail, () => { dialog.value = false; history.value = null; });
+const detailDialog = useEntityDialog(detail, hydrateDetail, () => { dialog.value = false; history.value = false; });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 onMounted(async () => {
   [definitions.value, businessLabels.value] = await Promise.all([
@@ -343,9 +342,9 @@ onMounted(async () => {
         ></ElDescriptions
       >
     </div>
-    <div v-if="history" class="panel">
+    <div v-if="history && detail" class="panel">
       <h2>完整版本与审计历史</h2>
-      <BusinessHistory :value="history" /></div
+      <BusinessHistory reveal :record-kind="kind as CatalogKind" :record-id="detail.id" /></div
   ></template>
   </BusinessDetailDialog>
   <ElDialog append-to-body

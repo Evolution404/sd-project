@@ -141,14 +141,24 @@ export function financeReadRepository(store: Store) {
       interface ItemRow extends Record<string, unknown> {
         settlement_version_id: string;
       }
-      const versions = store.query(`SELECT * FROM settlement_versions
-        WHERE settlement_id=? ORDER BY version_no`, settlementId) as VersionRow[];
+      const versions = store.query(`SELECT v.*,a.version_no AS approved_project_version
+        FROM settlement_versions v JOIN project_approval_versions a ON a.id=v.approval_version_id
+        WHERE v.settlement_id=? ORDER BY v.version_no`, settlementId) as VersionRow[];
       if (!versions.length) return [];
-      const items = store.query(`SELECT item.* FROM settlement_item_versions item
+      const items = store.query(`SELECT item.*,category.name AS cost_node_name,demand.demand_no,
+        json_extract(sc.snapshot_json,'$.unit_snapshot') AS adopted_unit
+        FROM settlement_item_versions item
         JOIN settlement_versions v ON v.id=item.settlement_version_id
+        JOIN project_cost_node_versions category ON category.id=item.cost_node_version_id
+        LEFT JOIN project_approval_scope_versions sc ON sc.id=item.approval_scope_version_id
+        LEFT JOIN demands demand ON demand.id=sc.demand_id
         WHERE v.settlement_id=? ORDER BY item.rowid`, settlementId) as ItemRow[];
-      const resolutions = store.query(`SELECT r.* FROM settlement_scope_results r
+      const resolutions = store.query(`SELECT r.*,demand.demand_no,demand.id AS demand_id,sc.demand_version,
+        json_extract(sc.snapshot_json,'$.unit_snapshot') AS adopted_unit
+        FROM settlement_scope_results r
         JOIN settlement_versions v ON v.id=r.settlement_version_id
+        JOIN project_approval_scope_versions sc ON sc.id=r.approval_scope_version_id
+        JOIN demands demand ON demand.id=sc.demand_id
         WHERE v.settlement_id=? ORDER BY r.rowid`, settlementId) as ItemRow[];
       const events = store.query(`SELECT e.* FROM settlement_review_events e
         JOIN settlement_versions v ON v.id=e.settlement_version_id

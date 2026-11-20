@@ -96,7 +96,6 @@ export interface ProjectApprovalInput {
   approved_budget_fen: number;
   scopes: ProjectApprovalScopeInput[];
   confirm_changes?: boolean;
-  change_code?: string;
   basis?: string;
   reason?: string;
 }
@@ -129,6 +128,8 @@ export interface ProjectAgreementOption {
   name: string;
   framework_id: string;
   status: string;
+  counterparty_name?: string | null;
+  contract_number?: string | null;
   effective_from: string | null;
   effective_to: string | null;
   deleted: boolean;

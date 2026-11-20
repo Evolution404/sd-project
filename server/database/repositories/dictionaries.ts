@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import { countBusinessReferences } from "../queries/deletion-impact.js";
 import type { createStore } from "./store.js";
 import type {
@@ -65,6 +66,7 @@ export function dictionaryRepository(store: ReturnType<typeof createStore>) {
     ) as T[];
   }
   return {
+    nextNumber: (kind: FoundationKind) => nextBusinessNumber(store, kind),
     references: (key: string) =>
       countBusinessReferences(store, "dictionary_items", key) +
       (

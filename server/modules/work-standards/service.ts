@@ -108,7 +108,7 @@ export function createWorkStandards(
       if (!previous)
         repository.createObject({
           id: objectId,
-          code: "OBJECTS-" + objectId.replaceAll("-", ""),
+          code: repository.nextNumber("objects"),
           created_at: timestamp,
         });
       repository.appendObject({
@@ -244,7 +244,7 @@ export function createWorkStandards(
       if (!previous)
         repository.createOperation({
           id: operationId,
-          code: "OPERATIONS-" + operationId.replaceAll("-", ""),
+          code: repository.nextNumber("operations"),
           created_at: timestamp,
         });
       const definition: OperationVersion = {

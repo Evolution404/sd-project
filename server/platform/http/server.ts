@@ -28,10 +28,10 @@ export function httpServer(
   system: HttpServices,
   { staticDirectory = webDirectory, accessLog = {} }: { staticDirectory?: string; accessLog?: AccessLogOptions } = {},
 ) {
-  const { auth, catalog, dashboard, demands, dictionaries, equipment, finance, funding, management,
+  const { auth, catalog, dashboard, demands, dictionaries, equipment, finance, funding, history, management,
     materials, organizations, priceRules, pricing, projectClosure, projects, sources, standards, exchange, evidence } = system;
   const routeServices: RouteServices = { auth, catalog, dashboard, demands, dictionaries, equipment, finance,
-    funding, management, materials, organizations, priceRules, pricing, projectClosure, projects, sources, standards };
+    funding, history, management, materials, organizations, priceRules, pricing, projectClosure, projects, sources, standards };
   const logs = createAccessLogs(system.dataDirectory, accessLog);
   const attempts = new Map<string, { count: number; until: number }>();
   const token = (req: IncomingMessage) =>

@@ -94,7 +94,7 @@ export function createDictionaries(
       if (!previous)
         repository.createDictionary(kind, {
           id: itemId,
-          code: kind.toUpperCase() + "-" + itemId.replaceAll("-", ""),
+          code: repository.nextNumber(kind),
           created_at: timestamp,
         });
       repository.appendDictionaryVersion({
@@ -169,7 +169,7 @@ export function createDictionaries(
       if (!previous)
         repository.createOrganization({
           id: unitId,
-          code: "ORGANIZATIONS-" + unitId.replaceAll("-", ""),
+          code: repository.nextNumber("organizations"),
         });
       repository.appendOrganizationVersion({
         id: id(),

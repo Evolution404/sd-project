@@ -77,8 +77,12 @@ try {
   await page
     .getByRole("heading", { name: "完整版本与审计历史", exact: true })
     .waitFor();
-  await page.getByText("正式内容版本", { exact: true }).click();
-  await page.getByText("创建时间", { exact: true }).first().waitFor();
+  const history = page.getByRole("region", { name: "历史记录", exact: true });
+  const event = history.getByRole("article", { name: "事项详情" });
+  await event.getByRole("heading", { name: "修订电压等级", exact: true }).waitFor();
+  await event.getByText("110kV", { exact: true }).waitFor();
+  await history.getByRole("button", { name: /新增电压等级/ }).click();
+  await event.getByRole("heading", { name: "新增电压等级", exact: true }).waitFor();
   assert.equal(await page.locator("pre.data-json").count(), 0);
   await page.screenshot({
     path: join(output, "ledger-detail-1500.png"),

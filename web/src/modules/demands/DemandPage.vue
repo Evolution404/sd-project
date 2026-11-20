@@ -9,6 +9,7 @@ import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
 const descriptionColumns = useDescriptionColumns();
 import { useListRoute } from "../../shared/composables/use-list-route";
+import BusinessNumber from "../../shared/ui/BusinessNumber.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
@@ -130,7 +131,6 @@ function createProjectAndLink() {
 function secondaryAction(action: string) {
   if (!detail.value) return;
   if (action === "edit") void edit(detail.value);
-  if (action === "history") void showHistory();
   if (action === "quote") quoteOpen.value = true;
   if (action === "return" && !detail.value.binding) void transition(detail.value, "returned");
   if (action === "cancel") void transition(detail.value, "cancelled");
@@ -148,7 +148,7 @@ const rows = ref<DemandListItem[]>([]),
   detail = ref<DemandRecord | null>(null),
   dialog = ref(false),
   editing = ref<DemandRecord | null>(null),
-  history = ref<unknown>(null),
+  history = ref(false),
   quoteOpen = ref(false),
   showDeleted = ref(false);
 
@@ -418,9 +418,7 @@ async function removeSource(source: SourceRow) {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-async function showHistory() {
-  history.value = await api("/demands/" + detail.value!.id + "/history");
-}
+function showHistory() { history.value = true; }
 async function remove(row: DemandListItem | DemandRecord) {
   try {
     await ElMessageBox.confirm(
@@ -437,7 +435,7 @@ async function remove(row: DemandListItem | DemandRecord) {
   }
 }
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "demands" && !editorRoute.value);
-const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = null; quoteOpen.value = false; });
+const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = false; quoteOpen.value = false; });
 watch(() => route.query.demand, demandId => {
   if (!editorRoute.value && typeof demandId === "string" && demandId && demandId !== detail.value?.id)
     void detailDialog.open(demandId);
@@ -543,7 +541,7 @@ onMounted(async () => {
     <template v-if="detail"><div class="detail-header">
       <div>
         <h1>{{ detail.operation_snapshot }} · {{ detail.problem_description }}</h1>
-        <div class="muted demand-technical-reference">需求编号：{{ detail.demand_no }} · 正式定义第{{ detail.current_version }}版</div>
+        <div class="muted demand-technical-reference">需求编号 <BusinessNumber :value="detail.demand_no" label="需求编号" /> · 正式定义第{{ detail.current_version }}版</div>
       </div>
       <ElTag :type="displayStatus(detail) === '已承接' ? 'success' : displayStatus(detail) === '已退回' ? 'warning' : 'info'">{{ displayStatus(detail) }}</ElTag>
     </div>
@@ -578,12 +576,12 @@ onMounted(async () => {
           :title="detail.status === 'cancelled' ? '需求已取消，只能查看正式历史' :
             can('write') ? undefined : '修订需求需要编辑权限'"
           @click="edit(detail)">修订需求</ElButton>
+        <ElButton data-guide-action="demands.history" @click="showHistory">历史记录</ElButton>
         <ElDropdown trigger="click" @command="secondaryAction">
           <ElButton>更多操作</ElButton>
           <template #dropdown>
             <ElDropdownMenu>
               <ElDropdownItem data-guide-action="demands.quote" command="quote">参考价试算</ElDropdownItem>
-              <ElDropdownItem data-guide-action="demands.history" command="history">完整历史</ElDropdownItem>
               <ElDropdownItem v-if="detail.status === 'active'" data-guide-action="demands.return" command="return" :title="detail.binding ? '已承接的需求不能退回，请正式修订或先明确解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding">退回</ElDropdownItem>
               <ElDropdownItem v-if="detail.status !== 'cancelled'" data-guide-action="demands.return" command="cancel" :title="detail.binding ? '需求已被子项目承接，请先办理显式解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding" divided>取消需求</ElDropdownItem>
               <ElDropdownItem data-guide-action="demands.delete" command="delete" :title="detail.status !== 'cancelled' ? '需要先取消需求且解除项目关联' : undefined" :disabled="!can('admin') || detail.deleted || detail.status !== 'cancelled'">删除</ElDropdownItem>
@@ -726,11 +724,12 @@ onMounted(async () => {
   />
   <ElDialog append-to-body
     :model-value="!!history"
-    title="需求完整历史"
-    width="900px"
-    @close="history = null"
+    title="需求历史记录"
+    width="min(1160px, 94vw)"
+    destroy-on-close
+    @close="history = false"
   >
-    <BusinessHistory :value="history" />
+    <BusinessHistory v-if="history && detail" record-kind="demands" :record-id="detail.id" />
   </ElDialog>
 </template>
 

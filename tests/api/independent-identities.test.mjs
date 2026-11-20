@@ -24,8 +24,8 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
       field.key.endsWith("code"),
     ))
       assert.equal(field.systemManaged, true, kind);
-  assert.match(line.line_code, /^LINES-/);
-  assert.match(voltage.code, /^VOLTAGES-/);
+  assert.match(line.line_code, /^XL-\d{6}$/);
+  assert.match(voltage.code, /^DY-\d{6}$/);
   const before = inspect(s).list("physical_towers").length;
   const tower = s.catalog.save(user, "towers", {
     line_id: line.id,
@@ -34,7 +34,7 @@ test("catalog identities are server-owned and ordinary tower creation is a compl
   assert.equal(tower.status, "active");
   assert.equal(inspect(s).list("physical_towers").length, before + 1);
   assert.ok(tower.physical_tower_id);
-  assert.match(tower.logical_code, /^TOWERS-/);
+  assert.match(tower.logical_code, /^HT-\d{6}$/);
   assert.throws(
     () => s.catalog.save(user, "towers", { line_id: line.id, tower_no: "#1" }),
     /已有该杆塔号/,

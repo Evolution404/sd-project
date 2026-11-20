@@ -436,12 +436,8 @@ onMounted(async () => {
       </div>
       <div v-if="showHistory" class="panel">
         <h2>完整版本与审计历史</h2>
-        <BusinessHistory
-          :value="{
-            versions: detailState?.versions,
-            audits: detailState?.audits,
-          }"
-        />
+        <BusinessHistory reveal :record-kind="kind" :record-id="detail.id"
+          :initial-entry="adoptedVersionExists ? `操作类型/${adoptedVersion}` : undefined" />
       </div>
     </template>
   </BusinessDetailDialog>

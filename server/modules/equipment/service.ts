@@ -238,7 +238,7 @@ export function createEquipment(
           );
         input[field.key] =
           previous?.[field.key as keyof EquipmentRecord] ||
-          kind.toUpperCase() + "-" + assetId.replaceAll("-", "");
+          (kind === "spans" ? undefined : repository.nextNumber(kind));
       }
       if (previous) expectedVersion(previous.version, input.expected_version);
       if (kind === "lines") {

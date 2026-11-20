@@ -34,6 +34,13 @@ export function identityRepository(store: ReturnType<typeof createStore>) {
   return {
     userByName: (name: string) => store.find("users", "username", name) as UserRecord | undefined,
     user: (id: string) => store.find("users", "id", id) as UserRecord | undefined,
+    actorNames(ids: string[]): Map<string, string> {
+      if (!ids.length) return new Map();
+      return new Map(store.query<{ id: string; username: string }>(
+        "SELECT id,username FROM users WHERE id IN (SELECT value FROM json_each(?))",
+        JSON.stringify(ids),
+      ).map(user => [user.id, user.username]));
+    },
     users: (): PublicUser[] => (store.list("users") as UserRecord[]).map(({ password_hash: _password, ...user }) => user),
     addUser(row: UserRecord): UserRecord { store.insert("users", row); return row; },
     updateUser: (id: string, values: UserChanges) => store.update("users", "id", id, values),

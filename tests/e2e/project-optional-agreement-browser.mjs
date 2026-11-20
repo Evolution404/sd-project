@@ -41,12 +41,12 @@ try {
   await page.getByRole("button",{name:"登录",exact:true}).click();
   await page.getByRole("button",{name:"新增子项目",exact:true}).click();
   await editor.getByLabel("项目名称",{exact:true}).fill("新建时选择协议");
-  await chooseFramework("2026业务框架 · 2026");
+  await chooseFramework("2026业务框架");
   await editor.getByLabel("执行协议（选填）",{exact:true}).click();
-  await page.getByRole("option",{name:/2026甲执行协议/}).waitFor();
+  await page.getByRole("option",{name:"2026甲执行协议",exact:true}).waitFor();
   assert.equal(await page.getByRole("option",{name:/2027乙执行协议/}).count(),0,
     "agreement choices must follow selected framework");
-  await page.getByRole("option",{name:/2026甲执行协议/}).click();
+  await page.getByRole("option",{name:"2026甲执行协议",exact:true}).click();
   await page.screenshot({path:join(out,"create-project-with-optional-agreement.png"),fullPage:true});
   await editor.getByRole("button",{name:"保存",exact:true}).click();
   await editor.waitFor({state:"hidden"});
@@ -58,7 +58,7 @@ try {
   assert.equal(await detail.getByRole("button",{name:"资金归属"}).count(),0);
 
   await editProfile();
-  await chooseFramework("2027业务框架 · 2027");
+  await chooseFramework("2027业务框架");
   assert.equal(await editor.getByLabel("执行协议（选填）",{exact:true}).inputValue(),"",
     "changing annual framework must clear the prior agreement");
   await chooseAgreement("2027乙执行协议");
@@ -73,7 +73,7 @@ try {
   await detail.getByRole("button",{name:"关闭详情",exact:true}).click();
   await page.getByRole("button",{name:"新增子项目",exact:true}).click();
   await editor.getByLabel("项目名称",{exact:true}).fill("执行协议可空的子项目");
-  await chooseFramework("2027业务框架 · 2027");
+  await chooseFramework("2027业务框架");
   assert.equal(await editor.getByText(/不选择执行协议，即直接归属所选年度框架/).isVisible(),true);
   await page.screenshot({path:join(out,"project-directly-owned-by-framework.png"),fullPage:true});
   await editor.getByRole("button",{name:"保存",exact:true}).click();

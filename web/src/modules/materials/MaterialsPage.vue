@@ -73,7 +73,7 @@ const detailState = shallowRef<MaterialDetail | null>(null),
   formRef = ref<FormInstance>(),
   fieldErrors = ref<FieldErrors>({});
 const detail = computed(() => detailState.value?.item || null),
-  history = computed(() => detailState.value?.versions || []);
+  historyOpen = ref(false);
 const form = ref<MaterialForm>({
   name: "",
   unit_id: null,
@@ -114,6 +114,7 @@ async function fetchDetail(id: string): Promise<MaterialDetail> {
   return api<MaterialDetail>(`/catalog/materials/${id}?deleted=true&history=true`);
 }
 const detailDialog = useEntityDialog(detailState, fetchDetail, () => {
+  historyOpen.value = false;
   editor.value = false;
 });
 async function refresh() {
@@ -341,8 +342,8 @@ onMounted(load);
           >第{{ detail.version_no }}版</ElDescriptionsItem
         ></ElDescriptions
       >
-      <h2 data-guide-action="materials.history">完整版本与审计历史</h2>
-      <BusinessHistory :value="{ versions: history, audit_events: detailState?.audits }" /></template
+      <ElButton data-guide-action="materials.history" @click="historyOpen = !historyOpen">历史记录</ElButton>
+      <BusinessHistory reveal v-if="historyOpen" record-kind="materials" :record-id="detail.id" /></template
   ></BusinessDetailDialog>
   <ElDialog
     v-model="editor"

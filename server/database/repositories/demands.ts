@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import type { createStore } from "./store.js";
 import { businessLists, searchPage, type DemandListRecord, type ListSource } from "../queries/business-lists.js";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
@@ -56,6 +57,7 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
       .map(row => ({ ...row, deleted: Boolean(row.deleted), superseded: Boolean(row.superseded) }));
   };
   return {
+    nextNumber: () => nextBusinessNumber(store, "demands"),
     current(key: string): DemandCurrentRow | undefined {
       return store.get("SELECT * FROM v_demand_current WHERE id=?", key) as DemandCurrentRow | undefined;
     },
@@ -163,12 +165,16 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
       return store.get("SELECT * FROM demand_lifecycle_events WHERE demand_id=? ORDER BY event_seq DESC LIMIT 1",key) as DemandLifecycleRow | undefined;
     },
     appendLifecycle(value: DemandLifecycleRow): void { store.insert("demand_lifecycle_events",value); },
-    history(key: string) {
+    history(key: string, presentation = false) {
       const versions = store.query("SELECT * FROM demand_versions WHERE demand_id=? ORDER BY version",key);
       const quotes = store.query("SELECT * FROM reference_price_evaluations WHERE demand_id=? ORDER BY created_at,id",key) as
         {id:string;[field:string]:unknown}[];
-      const lines = store.query("SELECT l.* FROM reference_price_evaluation_lines l " +
-        "JOIN reference_price_evaluations q ON q.id=l.evaluation_id WHERE q.demand_id=? " +
+      const lines = store.query("SELECT l.*" +
+        (presentation ? ",p.title AS rule_title,p.version_no AS rule_version_no,p.catalog_id AS rule_id,p.pricing_mode,p.unit_price_fen,p.base_fee_fen" : "") +
+        " FROM reference_price_evaluation_lines l " +
+        "JOIN reference_price_evaluations q ON q.id=l.evaluation_id " +
+        (presentation ? "JOIN reference_price_versions p ON p.id=l.reference_price_version_id " : "") +
+        "WHERE q.demand_id=? " +
         "ORDER BY l.evaluation_id,l.location_item_no",key) as {evaluation_id:string;[field:string]:unknown}[];
       const grouped = new Map<string,typeof lines>();
       for (const line of lines) {
@@ -176,10 +182,16 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
         grouped.get(line.evaluation_id)!.push(line);
       }
       const events = store.query("SELECT * FROM demand_lifecycle_events WHERE demand_id=? ORDER BY event_seq",key);
-      const scopes = store.query("SELECT * FROM project_demand_scopes WHERE demand_id=?",key) as
+      const scopes = store.query(presentation
+        ? `SELECT sc.*,p.code AS project_no,
+              (SELECT pv.name FROM project_management_versions pv
+               WHERE pv.project_id=sc.project_id AND pv.recorded_at<=sc.created_at
+               ORDER BY pv.version_no DESC LIMIT 1) AS project_name
+            FROM project_demand_scopes sc JOIN projects p ON p.id=sc.project_id WHERE sc.demand_id=?`
+        : "SELECT * FROM project_demand_scopes WHERE demand_id=?",key) as
         {id:string;[field:string]:unknown}[];
       const links = store.query("SELECT evt.* FROM project_demand_link_events evt " +
-        "JOIN project_demand_scopes scope ON scope.id=evt.project_scope_id WHERE scope.demand_id=?",key) as
+        "JOIN project_demand_scopes scope ON scope.id=evt.project_scope_id WHERE scope.demand_id=? ORDER BY evt.event_seq",key) as
         {project_scope_id:string;[field:string]:unknown}[];
       const linked = new Map<string,typeof links>();
       for (const event of links) {
@@ -191,7 +203,20 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
         reference_quotes: quotes.map(quote => ({...quote,lines:grouped.get(quote.id)||[]})),
         sources: sources(key,true),
         events,
-        bindings: scopes.map(scope => ({...scope,events:linked.get(scope.id)||[]}))
+        bindings: scopes.map(scope => ({...scope,events:linked.get(scope.id)||[]})),
+        ...(presentation ? {
+          revisions: store.query("SELECT version,reason FROM demand_revisions WHERE demand_id=?", key),
+          attributes: store.query(`SELECT DISTINCT d.operation_id,d.operation_version,o.attributes_schema_json
+            FROM demand_versions d JOIN operation_versions o ON o.operation_id=d.operation_id AND o.version=d.operation_version
+            WHERE d.demand_id=?`,key),
+          sourceActions: store.query(`SELECT a.id,a.entity_id AS source_id,a.action,a.actor_id,a.created_at
+            FROM demand_sources link JOIN audit_events a ON a.entity='sources' AND a.entity_id=link.source_id
+            WHERE link.demand_id=? AND a.action IN ('correct','delete') ORDER BY a.created_at,a.rowid`,key),
+          materials: store.query(`SELECT i.*,m.name AS material_name,m.specification
+            FROM demand_material_version_items i
+            JOIN material_versions m ON m.id=i.material_version_id
+            WHERE i.demand_id=? ORDER BY i.demand_version,i.item_no`,key),
+        } : {}),
       };
     }
   };

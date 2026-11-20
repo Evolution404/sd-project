@@ -13,7 +13,6 @@ import type {
   CatalogField,
 } from "../../../../server/shared/types/catalog";
 import type {
-  JsonValue,
   Page,
 } from "../../../../server/shared/types/contracts";
 import { api, statusText } from "../../shared/api/client";
@@ -66,7 +65,7 @@ const editing = ref<EquipmentRecord | null>(null),
   editorOpen = ref(false),
   replacing = ref(false),
   detail = ref<EquipmentRecord | null>(null),
-  history = shallowRef<JsonValue | null>(null);
+  history = ref(false);
 const fields = computed(() =>
   [
     ...(definitions.value[kind.value]?.rootFields || []),
@@ -123,7 +122,7 @@ const detailDialog = useEntityDialog(
   () => {
     editorOpen.value = false;
     replacing.value = false;
-    history.value = null;
+    history.value = false;
   },
 );
 function inspectImport(id: string, importedKind?: EquipmentKind) {
@@ -171,14 +170,7 @@ async function remove(row: EquipmentRecord) {
 async function viewHistory(row: EquipmentRecord) {
   if (detail.value?.id !== row.id) await detailDialog.open(row.id);
   if (detail.value?.id !== row.id) return;
-  try {
-    const value = await api<JsonValue>(
-      `/catalog/${kind.value}/history/${row.id}`,
-    );
-    if (detail.value?.id === row.id) history.value = value;
-  } catch (failure) {
-    ElMessage.error((failure as Error).message);
-  }
+  history.value = true;
 }
 function cell(row: EquipmentRecord, column: TableColumn): unknown {
   const value = row[column.key as keyof EquipmentRecord];
@@ -227,7 +219,7 @@ function clearSearch() {
 watch(kind, () => {
   appliedQuery.value = "";
   rows.value = [];
-  history.value = null;
+  history.value = false;
   void load();
 });
 useListRoute(
@@ -456,16 +448,9 @@ onMounted(async () => {
           ></BusinessTable
         >
       </div>
-      <BusinessHistory
-        v-if="detail.identity_decisions?.length"
-        :value="{ identity_decisions: detail.identity_decisions }"
-      /><BusinessHistory
-        v-if="detail.replacements?.length"
-        :value="{ replacements: detail.replacements }"
-      />
       <div v-if="history" class="panel">
         <h2>完整版本与审计历史</h2>
-        <BusinessHistory :value="history" />
+        <BusinessHistory reveal :record-kind="kind" :record-id="detail.id" />
       </div>
     </template>
   </BusinessDetailDialog>

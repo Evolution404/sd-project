@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import { financeReadRepository } from "./finance.js";
 import type { createStore } from "./store.js";
 import { searchPage, type ListSource } from "../queries/business-lists.js";
@@ -25,6 +26,7 @@ type Store = ReturnType<typeof createStore>;
 
 export function fundingRepository(store: Store) {
   return {
+    nextNumber: (kind: FundingKind) => nextBusinessNumber(store, kind),
     list(kind: FundingKind, includeDeleted = false): FundingRecord[] {
       const predicate = includeDeleted ? "" : "WHERE source.deleted=0";
       return store.query(`SELECT * FROM (

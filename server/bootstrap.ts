@@ -44,6 +44,7 @@ import { createFinance } from "./modules/finance/service.js";
 import { requireValue } from "./shared/errors/business-error.js";
 import { trainingRepository } from "./database/repositories/training.js";
 import { createTrainingService } from "./modules/training/service.js";
+import { createHistory } from "./modules/history/service.js";
 import type { Actor } from "./shared/types/contracts.js";
 
 export function createSystem(dataDir?: string) {
@@ -85,12 +86,15 @@ export function createSystem(dataDir?: string) {
   const organizations = createOrganizations(hierarchies, dictionaries, database);
   const reporting = createReporting(reportingReadRepository(store), projects, finance);
 
+  const evidence = createEvidence({ database, audit, evidenceStore });
+  const management = createManagement({ repository: managementRepository(store), identity, auth:seededAuth, audit, database });
+  const history = createHistory({ identity, audit, evidence, catalog, demands, projects, finance, organizations, management, standards });
   const system = {
     dataDirectory: database.directory,
-    evidence: createEvidence({ database, audit, evidenceStore }),
+    evidence, history,
     database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth:seededAuth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, projectClosure, organizations,
     training: createTrainingService(trainingRepository(store), database.directory),
-    management: createManagement({ repository: managementRepository(store), identity, auth:seededAuth, audit, database }),
+    management,
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {
       requireValue(typeof key === "string" && key.length >= 8 && key.length <= 200,

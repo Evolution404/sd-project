@@ -56,7 +56,7 @@ const saving = ref(false), editing = ref<FundingRecord | null>(null), editorOpen
 const editorRef = ref(), errors = ref<Record<string, string>>({});
 const selectedId = ref(""), details = ref<FundingDetails | null>(null);
 const detailsOpen = ref(false), detailsLoading = ref(false), detailsError = ref("");
-const history = ref<unknown>(null);
+const history = ref(false);
 
 const linkedAgreementColumns: TableColumn[] = [
   { key: "name", label: "协议名称", minWidth: 175 },
@@ -219,16 +219,12 @@ async function refreshDetails() {
   }
 }
 function openDetails(row: FundingRecord) {
-  selectedId.value = row.id; details.value = null; history.value = null;
+  selectedId.value = row.id; details.value = null; history.value = false;
   detailsOpen.value = true; void refreshDetails();
 }
-async function showHistory(row: FundingRecord) {
+function showHistory(row: FundingRecord) {
   if (selectedId.value !== row.id || !detailsOpen.value) openDetails(row);
-  try {
-    history.value = await api(`/funding/${props.kind}/history/${row.id}`);
-  } catch (error) {
-    ElMessage.error((error as Error).message);
-  }
+  history.value = !history.value;
 }
 watch([() => props.kind, () => route.query.record], ([, record]) => {
   if (typeof record === "string" && record)
@@ -359,7 +355,7 @@ onMounted(() => void load());
       </div>
       <div v-if="history" class="panel">
         <h2>正式版本与审计历史</h2>
-        <BusinessHistory :value="history" />
+        <BusinessHistory reveal :record-kind="kind" :record-id="details.item.id" />
       </div>
     </template>
   </BusinessDetailDialog>

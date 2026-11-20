@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BusinessHistory from "../../../shared/ui/BusinessHistory.vue";
 import { ref, computed, watch } from "vue";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
 import type {
@@ -208,22 +209,10 @@ async function remove() {
     if (failure instanceof Error) ElMessage.error(failure.message);
   }
 }
-const historyOpen = ref(false),
-  costView = ref<CategoryCost | null>(null),
-  costHistory = ref<CategoryCost[]>([]);
-async function viewCost(entryId: string) {
-  const row = detail.value?.items.find((item) => item.entry_id === entryId);
-  if (!row) return;
-  costView.value = row;
-  costHistory.value = [];
-  try {
-    const history = await api<CategoryCost[]>(
-      `/projects/${props.projectId}/costs/${row.entry_id}`,
-    );
-    if (costView.value?.entry_id === row.entry_id) costHistory.value = history;
-  } catch (failure) {
-    ElMessage.error((failure as Error).message);
-  }
+const historyOpen = ref(false);
+const costView = ref<CategoryCost | null>(null);
+function viewCost(entryId: string) {
+  costView.value = detail.value?.items.find(item => item.entry_id === entryId) ?? null;
 }
 </script>
 <template>
@@ -391,44 +380,9 @@ async function viewCost(entryId: string) {
       :open="historyOpen"
       title="费用科目版本与删除历史"
       @close="historyOpen = false"
-      ><p>
-        {{ path }} ·
-        {{ selected?.deleted ? "已删除，保留正式引用" : "当前科目" }}
-      </p>
-      <BusinessTable
-        client-side
-        table-key="cost-tree:versions"
-        :rows="detail?.versions || []"
-        :columns="[
-          { key: 'version_no', label: '正式版本' },
-          { key: 'name', label: '名称' },
-          { key: 'status', label: '状态' },
-          { key: 'actor_name', label: '操作人' },
-          { key: 'recorded_at', label: '变更时间' },
-        ]"
-        ><template #cell="{ row, column, value }"
-          ><span>{{
-            column.key === "status" ? statusText[row.status] : value
-          }}</span></template
-        ></BusinessTable
-      ><BusinessTable
-        client-side
-        table-key="cost-tree:audit"
-        :rows="detail?.audits || []"
-        :columns="[
-          { key: 'action', label: '审计操作' },
-          { key: 'actor_name', label: '操作人' },
-          { key: 'created_at', label: '操作时间' },
-        ]"
-        ><template #cell="{ row, column, value }"
-          ><span>{{
-            column.key === "action"
-              ? statusText[row.action] || row.action
-              : value
-          }}</span></template
-        ></BusinessTable
-      ></BusinessDetailDialog
     >
+      <BusinessHistory v-if="historyOpen && selected" record-kind="cost_nodes" :record-id="selected.id" :project-id="projectId" />
+    </BusinessDetailDialog>
     <BusinessDetailDialog
       :open="!!costView"
       title="实际费用与历史"
@@ -454,28 +408,10 @@ async function viewCost(entryId: string) {
           ><ElDescriptionsItem label="当前版本金额">{{
             money(costView.amount_fen)
           }}</ElDescriptionsItem></ElDescriptions
-        ><BusinessTable
-          client-side
-          table-key="cost-tree:cost-history"
-          :rows="costHistory || []"
-          :columns="[
-            { key: 'version_no', label: '历史版本' },
-            { key: 'title', label: '事项' },
-            { key: 'amount_fen', label: '历史金额' },
-            { key: 'status', label: '状态' },
-          ]"
-          ><template #cell="{ row, column, value }"
-            ><span>{{
-              column.key === "status"
-                ? statusText[row.status]
-                : column.key === "amount_fen"
-                  ? money(row.amount_fen)
-                  : value
-            }}</span></template
-          ></BusinessTable
-        ></template
-      ></BusinessDetailDialog
-    >
+        >
+        <BusinessHistory record-kind="costs" :record-id="costView.entry_id" :project-id="projectId" />
+      </template>
+    </BusinessDetailDialog>
   </section>
 </template>
 <style scoped>

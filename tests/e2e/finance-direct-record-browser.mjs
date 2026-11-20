@@ -64,7 +64,7 @@ try {
   await detail.getByRole("button", { name: /查看所属项目/ }).click();
   await page.waitForURL(url => url.hash.includes("#/projects") && url.hash.includes("focus=settlement"));
   await page.getByRole("heading", { name: "定位独立结算单", exact: true }).waitFor();
-  await page.getByText(/JS-2026/, { exact: false }).first().waitFor();
+  await page.getByText(/JS-\d{6}/, { exact: false }).first().waitFor();
   await page.screenshot({ path: join(out, "settlement-target-inside-project.png") });
   assert.deepEqual(errors, []);
   console.log("FINANCE_DIRECT_RECORD_BROWSER_OK project-first, direct cost/settlement view, target-project finance context");

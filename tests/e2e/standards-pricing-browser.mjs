@@ -151,7 +151,9 @@ try {
   const listUrl = page.url();
   const detail = page.locator(".business-detail-dialog:visible");
   await detail.getByRole("button", { name: "完整历史", exact: true }).click();
-  await detail.getByText("正式内容版本", { exact: true }).waitFor();
+  const history = detail.getByRole("region", { name: "历史记录", exact: true });
+  await history.getByRole("button", { name: "对比版本", exact: true }).waitFor();
+  await history.getByRole("article", { name: "事项详情" }).getByText("计价方式", { exact: true }).waitFor();
   assert.equal(page.url(), listUrl);
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await action(priceRow, "复制规则");

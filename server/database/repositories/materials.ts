@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import { countBusinessReferences } from "../queries/deletion-impact.js";
 import type { createStore } from "./store.js";
 import type { ListQuery } from "../../shared/types/contracts.js";
@@ -36,6 +37,7 @@ export function materialRepository(store: ReturnType<typeof createStore>) {
     ) as MaterialRecord[];
   }
   return {
+    nextNumber: () => nextBusinessNumber(store, "materials"),
     references: (key: string) =>
       countBusinessReferences(store, "materials", key),
     current: (id: string) => rows(id)[0],

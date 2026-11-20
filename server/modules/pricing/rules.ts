@@ -337,7 +337,7 @@ export function createPriceRules(
         if (!previous)
           repository.create({
             id: catalogId,
-            code: "PRICES-" + catalogId.replaceAll("-", ""),
+            code: repository.nextNumber(),
             created_by: actor.id,
             created_at: definition.created_at,
           });

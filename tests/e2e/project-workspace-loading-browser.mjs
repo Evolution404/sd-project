@@ -52,7 +52,7 @@ try {
   });
   assert.equal(page.url(), listUrl, "viewing must retain the background list URL");
   assert.ok(requests.some(row => row.path === `/api/projects/${project.id}/summary`));
-  assert.ok(!requests.some(row => /\/(?:costs|settlements|reconciliations|approval-history|history|cost-tree)$/.test(row.path)),
+  assert.ok(!requests.some(row => row.path.startsWith("/api/history/") || /\/(?:costs|settlements|reconciliations|approval-history|history|cost-tree)$/.test(row.path)),
     "overview must defer finance rows and full history");
   await measure("项目详情进入财务", async () => {
     const response = page.waitForResponse(response => response.url().includes(`/api/projects/${project.id}/settlements?`));
@@ -74,10 +74,12 @@ try {
   await page.screenshot({ path: join(out, "finance-page-two.png"), fullPage: true });
   await page.getByRole("region", { name: "费用与结算", exact: true }).getByRole("button", { name: "← 返回", exact: true }).click();
   await measure("项目详情打开完整历史", async () => {
-    const response = page.waitForResponse(response => response.url().endsWith(`/api/projects/${project.id}/approval-history`));
+    const response = page.waitForResponse(response => response.url().includes(`/api/history/projects/${project.id}?`));
     await detail.getByRole("tab", { name: "历史记录", exact: true }).click();
     assert.equal((await response).status(), 200);
-    await detail.getByRole("heading", { name: "完整正式历史", exact: true }).waitFor();
+    const history = detail.getByRole("region", { name: "历史记录", exact: true });
+    await history.getByRole("navigation", { name: "办理时间线", exact: true }).waitFor();
+    assert.equal((await (await response).json()).items.length, 10);
   });
   for (const [kind, label, heading] of [
     ["costs", "真实费用", "真实费用记录"], ["settlements", "结算单", "当前正式事实"],

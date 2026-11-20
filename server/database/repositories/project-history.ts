@@ -30,6 +30,21 @@ function groupBy<T extends object, K extends keyof T>(records: readonly T[], key
  */
 export function projectHistoryRepository(store: Store) {
   return {
+    projectHistoryDecisions(projectId: string) {
+      const events = store.query<{ kind: "link" | "withdrawal" }>(`
+        SELECT 'withdrawal' AS kind,event.id,event.actor_id,event.created_at AS recorded_at,
+          p.version_no,p.approved_budget_fen,NULL AS reason,NULL AS action,NULL AS demand_no,NULL AS demand_id
+        FROM project_approval_versions p JOIN audit_events event ON event.entity='approval_drafts'
+          AND event.entity_id=p.id AND event.action='delete'
+        WHERE p.project_id=? AND p.status='withdrawn'
+        UNION ALL
+        SELECT 'link',e.id,e.actor_id,e.recorded_at,sc.demand_version,NULL,e.reason,e.action,d.demand_no,d.id
+        FROM project_demand_link_events e JOIN project_demand_scopes sc ON sc.id=e.project_scope_id
+        JOIN demands d ON d.id=sc.demand_id WHERE sc.project_id=?
+        ORDER BY recorded_at`, projectId, projectId);
+      return { links: events.filter(row => row.kind === "link"),
+        withdrawals: events.filter(row => row.kind === "withdrawal") };
+    },
     projectFullHistory(projectId: string) {
       const approvals = store.query<Approval>(
         "SELECT * FROM project_approval_versions WHERE project_id=? ORDER BY rowid", projectId);
@@ -88,9 +103,20 @@ export function projectHistoryRepository(store: Store) {
           ...doc, versions:settlementVersions.get(doc.id) ?? [],
         })),
         profiles:store.query(
-          "SELECT * FROM project_management_versions WHERE project_id=? ORDER BY rowid", projectId),
+          `SELECT profile.*,category.name AS category_name,org.name AS organization_name,
+            responsible.username AS owner_name,manager.username AS manager_name,
+            (SELECT v.name FROM framework_versions v WHERE v.framework_id=profile.framework_id
+              AND v.recorded_at<=profile.recorded_at ORDER BY v.version_no DESC LIMIT 1) AS framework_name
+            FROM project_management_versions profile
+            LEFT JOIN dictionary_item_versions category ON category.item_id=profile.category_id AND category.version=profile.category_version
+            LEFT JOIN organizational_unit_versions org ON org.id=profile.managing_unit_version_id
+            LEFT JOIN users responsible ON responsible.id=profile.owner_id
+            LEFT JOIN users manager ON manager.id=profile.manager_id
+            WHERE profile.project_id=? ORDER BY profile.version_no`, projectId),
         funding:store.query(
-          "SELECT * FROM project_funding_versions WHERE project_id=? ORDER BY rowid", projectId),
+          `SELECT funding.*, (SELECT v.name FROM agreement_versions v WHERE v.agreement_id=funding.agreement_id
+              AND v.recorded_at<=funding.recorded_at ORDER BY v.version_no DESC LIMIT 1) AS agreement_name
+            FROM project_funding_versions funding WHERE funding.project_id=? ORDER BY funding.version_no`, projectId),
         stages:store.query(
           "SELECT * FROM project_stage_events WHERE project_id=? ORDER BY rowid", projectId),
         closures:store.query(

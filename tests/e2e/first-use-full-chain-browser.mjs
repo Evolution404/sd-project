@@ -125,7 +125,7 @@ try {
   await visit("agreements");
   await page.getByRole("button", { name: "新增执行协议", exact: true }).click();
   await editor.getByLabel("协议名称", { exact: true }).fill("A2空库执行协议");
-  await choice("所属年度框架", "A2空库年度框架 · 2026");
+  await choice("所属年度框架", "A2空库年度框架");
   await editor.getByLabel("协议额度（元）", { exact: true }).fill("100000");
   await save("保存正式版本");
   assert.equal(s.funding.list("agreements").length, 1);
@@ -156,7 +156,7 @@ try {
   await page.getByRole("dialog", { name: "选择子项目承接需求" })
     .getByRole("button", { name: "创建子项目并承接", exact: true }).click();
   await editor.getByLabel("项目名称", { exact: true }).fill("A2空库完整业务子项目");
-  await choice("年度框架", "A2空库年度框架 · 2026");
+  await choice("年度框架", "A2空库年度框架");
   await save();
   const project = s.projects.list().find(row => row.name === "A2空库完整业务子项目");
   assert.ok(project, "new project must be saved");

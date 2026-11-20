@@ -11,8 +11,6 @@ export const today = (): string => new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
 }).format(new Date());
 export const id = (): string => randomUUID();
-export const documentCode = (prefix: string, identity = id()): string =>
-  `${prefix}-${today().replaceAll("-", "")}-${identity.replaceAll("-", "").toUpperCase()}`;
 
 export function passwordHash(password: unknown): string {
   const value = text(password, "密码");

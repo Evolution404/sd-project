@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import { countBusinessReferences } from "../queries/deletion-impact.js";
 import type { createStore } from "./store.js";
 import type { ListQuery } from "../../shared/types/contracts.js";
@@ -83,6 +84,7 @@ export function workStandardRepository(store: ReturnType<typeof createStore>) {
     ) as T[];
   }
   return {
+    nextNumber: (kind: "objects" | "operations") => nextBusinessNumber(store, kind),
     object: (id: string) =>
       rows<WorkObjectRecord>("objects", objectSql + " WHERE c.id=?", [id])[0],
     operation: (id: string) =>

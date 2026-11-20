@@ -129,8 +129,9 @@ try {
   await detail.getByRole("button", { name: "删除", exact: true }).click();
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await detail.getByText("已删除", { exact: true }).waitFor();
-  await detail.getByRole("button", { name: "操作审计", exact: true }).click();
-  await detail.getByText("删除", { exact: true }).last().waitFor();
+  await detail.getByRole("button", { name: "历史记录", exact: true }).click();
+  await detail.getByRole("article", { name: "事项详情" })
+    .getByRole("heading", { name: "删除物资", exact: true }).waitFor();
   const material = s.materials
     .list(true)
     .find((item) => item.name === "新版物资浏览器");

@@ -22,6 +22,7 @@ const props = withDefaults(defineProps<{
   detailFallbackKey?: string;
   selectable?: boolean; loading?: boolean; actionsWidth?: number;
   clientSide?: boolean; maxHeight?: number | string; compact?: boolean;
+  hideToolbar?: boolean;
   /** If omitted, only client-side tables and explicitly controlled remote tables show controls. */
   sortMode?: "local" | "remote" | "off";
   filterMode?: "local" | "remote" | "off";
@@ -263,7 +264,7 @@ watch(() => props.tableKey, async () => {
 </script>
 <template>
   <div class="business-table">
-    <slot name="toolbar" :open-settings="openColumnSettings" :clear-filters="clearFilters" :active-filter-count="activeFilterCount" :has-active-filters="hasActiveFilters" :applied-filters="appliedFilters">
+    <slot v-if="!hideToolbar" name="toolbar" :open-settings="openColumnSettings" :clear-filters="clearFilters" :active-filter-count="activeFilterCount" :has-active-filters="hasActiveFilters" :applied-filters="appliedFilters">
     <div class="business-table-tools">
       <div class="business-table-state">
         <span class="business-table-row-count" role="status">{{ loading ? '正在加载…' : '本页 ' + tableRows.length + ' 条' }}</span>

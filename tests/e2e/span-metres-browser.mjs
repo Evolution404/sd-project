@@ -51,7 +51,9 @@ try {
   await detail.getByRole("button", { name: "完整历史", exact: true }).click();
   const history = detail.getByRole("heading", { name: "完整版本与审计历史", exact: true });
   await history.waitFor();
-  await detail.locator(".el-collapse-item__header").first().click();
+  const selected = detail.getByRole("article", { name: "事项详情" });
+  await selected.getByRole("heading", { name: "修订档距", exact: true }).waitFor();
+  await selected.getByText("125.75 米", { exact: true }).waitFor();
   await detail.getByText("130.125 米", { exact: true }).first().waitFor();
   await page.screenshot({ path: join(output, "detail-metres.png"), fullPage: true });
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();

@@ -7,8 +7,8 @@ import { today } from "../../dist/server/platform/auth/service.js";
 export const DEMO_ACCOUNT = "demo";
 export const DEMO_PASSWORD = "DemoOnly-2026!";
 const MARKER = "DEMO-DATA.json";
-const SEED_VERSION = 5;
-const OLDER_DEMO_VERSIONS = new Set([1, 2, 3, 4]);
+const SEED_VERSION = 6;
+const OLDER_DEMO_VERSIONS = new Set([1, 2, 3, 4, 5]);
 const SCHEMA_SQL = resolve(import.meta.dirname, "../../server/database/schema/schema113.sql");
 function schemaFingerprint() {
   return createHash("sha256").update(readFileSync(SCHEMA_SQL)).digest("hex");

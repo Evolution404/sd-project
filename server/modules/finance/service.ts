@@ -1,6 +1,6 @@
 import { safeAmount } from "../pricing/calculation.js";
 import { closedWriteReason } from "../../shared/project-lifecycle.js";
-import { authorize, documentCode, id, now, today } from "../../platform/auth/service.js";
+import { authorize, id, now, today } from "../../platform/auth/service.js";
 import {
   requireValue,
   expectedVersion,
@@ -307,7 +307,7 @@ export function createFinance(
         repo.createSettlement({
           id: settlementId,
           project_id: projectId,
-          number: documentCode("JS", settlementId),
+          number: repo.nextSettlementNumber(),
           created_by: actor.id,
           created_at: timestamp,
         });

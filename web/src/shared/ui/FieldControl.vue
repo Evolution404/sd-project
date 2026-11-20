@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onUnmounted, watch, inject } from "vue";
 
+import { choiceLabels } from "../utils/choice-labels";
 import { api, statusText } from "../api/client";
 import { exactScaledDecimalText, formatScaledDecimal, quantityFitsUnitPrecision } from "../utils/fixed-scale";
 import type { CatalogKind, CatalogFieldType } from "../../../../server/shared/types/catalog";
@@ -22,6 +23,11 @@ interface ReferenceOption {
   name?: string;
   title?: string;
   tower_no?: string;
+  fiscal_year?: number;
+  counterparty_name?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  contract_number?: string | null;
 }
 import { referenceSelectorsKey } from "./reference-selectors";
 const referenceSelectors = inject(referenceSelectorsKey, {});
@@ -36,17 +42,24 @@ const emit = defineEmits(["update:modelValue", "validity-change"]);
 const options = ref<ReferenceOption[]>([]);
 const searchError = ref("");
 let failedQuery = "";
-const optionLabel = (item: ReferenceOption): string =>
-  (item.id === props.modelValue && props.selectedLabel) ||
-  item.label || item.name || item.title || item.tower_no || "业务记录";
+const optionLabels = computed(() => {
+  const kind = props.field.reference;
+  return choiceLabels(options.value, item => {
+    if (kind === "frameworks" || kind === "agreements")
+      return item.name || item.title || item.label || "业务记录";
+    return (item.id === props.modelValue && props.selectedLabel)
+      || item.label || item.name || item.title || item.tower_no || "业务记录";
+  }, item => {
+    if (kind === "frameworks") return [item.fiscal_year];
+    if (kind === "agreements") return [item.counterparty_name, item.effective_from, item.effective_to, item.contract_number];
+    return [];
+  });
+});
+const selectedOptionLabel = computed(() => optionLabels.value.get(String(props.modelValue))
+  || props.selectedLabel || (searchError.value ? "原关联待核对" : "正在读取关联名称"));
 const ambiguous = computed(() => {
-  const counts = new Map<string, number>();
-  for (const item of options.value)
-    counts.set(optionLabel(item), (counts.get(optionLabel(item)) || 0) + 1);
-  return options.value.some(
-    (item) =>
-      item.id === props.modelValue && counts.get(optionLabel(item))! > 1,
-  );
+  const selected = optionLabels.value.get(String(props.modelValue));
+  return selected !== undefined && [...optionLabels.value.values()].filter(label => label === selected).length > 1;
 });
 const value = computed<string | number | null>({
   get: () => typeof props.modelValue === "string" || typeof props.modelValue === "number"
@@ -172,8 +185,10 @@ function search(q = "", immediate = false) {
           selected = { id: selectedId, label: "原关联需重新选择" };
         }
       }
-      if (sequence === requestSequence && !controller.signal.aborted)
+      if (sequence === requestSequence && !controller.signal.aborted) {
         options.value = selected ? [selected, ...response.items] : response.items;
+        searchError.value = "";
+      }
     } catch (error) {
       if (sequence === requestSequence && !controller.signal.aborted) {
         failedQuery = q;
@@ -207,11 +222,12 @@ onUnmounted(() => {
     placeholder="搜索并选择"
     no-data-text="没有匹配记录，请更换关键词"
   >
+    <template #label>{{ selectedOptionLabel }}</template>
     <ElOption
       v-for="item in options"
       :key="item.id"
       :value="item.id"
-      :label="optionLabel(item)"
+      :label="optionLabels.get(item.id)!"
     />
   </ElSelect>
   <ElSelect

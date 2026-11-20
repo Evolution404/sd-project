@@ -116,7 +116,6 @@ export function parseProjectApproval(input:Record<string,unknown>):ProjectApprov
     approved_budget_fen:numberValue(input.approved_budget_fen,"批准预算"),
     confirm_changes:input.confirm_changes,
     scopes:input.scopes.map((scope,i)=>parseScope(scope,i)),
-    change_code:optionalText(input.change_code,"变更编号") ?? undefined,
     basis:optionalText(input.basis,"批准依据") ?? undefined,
     reason:optionalText(input.reason,"变更理由") ?? undefined,
   };

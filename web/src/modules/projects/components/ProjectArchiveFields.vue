@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { computed } from "vue";
+import { choiceLabels } from "../../../shared/utils/choice-labels";
 import type { ProjectAgreementOption, ProjectManagementInput } from "../../../../../server/shared/types/projects";
 import FieldControl from "../../../shared/ui/FieldControl.vue";
 
@@ -7,7 +9,7 @@ type ArchiveForm = ProjectManagementInput & {
   managing_unit_version_id?: string | null;
 };
 const form = defineModel<ArchiveForm>({ required: true });
-defineProps<{
+const props = defineProps<{
   editingStatus?: string;
   actors: ReadonlyArray<{ id: string; username: string }>;
   agreementChoices: ProjectAgreementOption[];
@@ -15,6 +17,8 @@ defineProps<{
   agreementError: string;
   projectAgreementInvalid: boolean;
 }>();
+const agreementLabels = computed(() => choiceLabels(props.agreementChoices, item => item.name,
+  item => [item.counterparty_name, item.effective_from, item.effective_to, item.contract_number]));
 const emit = defineEmits<{ framework: [id: string | null]; retry: [] }>();
 </script>
 
@@ -40,8 +44,9 @@ const emit = defineEmits<{ framework: [id: string | null]; retry: [] }>();
       placeholder="直接归属年度框架（无需执行协议）"
       :disabled="!form.framework_id || agreementLoading || editingStatus === 'closed'"
       :loading="agreementLoading">
+      <template #label>{{ agreementLabels.get(String(form.agreement_id)) || "正在读取协议名称" }}</template>
       <ElOption v-for="item in agreementChoices" :key="item.id"
-        :value="item.id" :label="item.name + ' · ' + item.code"
+        :value="item.id" :label="agreementLabels.get(item.id)!"
         :disabled="!item.eligible" />
     </ElSelect>
     <p class="muted" style="font-size:12px;margin:6px 0 0">

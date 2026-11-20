@@ -1,3 +1,4 @@
+import { auditActions, auditObjects } from "../../shared/audit-display.js";
 import type { createStore } from "./store.js";
 import { searchPage } from "../queries/business-lists.js";
 import type { ListQuery } from "../../shared/types/contracts.js";
@@ -21,6 +22,10 @@ export interface AccessPolicy {
 }
 interface AccessPolicyRow extends Omit<AccessPolicy, "ip_restriction_enabled"> {
   ip_restriction_enabled: 0 | 1;
+}
+
+function labelCases(fallback: string, labels: Readonly<Record<string, string>>) {
+  return ` ${Object.entries(labels).map(([key, value]) => `WHEN '${key}' THEN '${value}'`).join(" ")} ELSE '${fallback}' END`;
 }
 
 export function managementRepository(store: Store) {
@@ -65,11 +70,13 @@ export function managementRepository(store: Store) {
       return store.get("SELECT * FROM audit_events WHERE id=?", key) as AuditRecord | undefined;
     },
     searchAuditEvents(query: ListQuery) {
-      return searchPage<AuditRecord & { actor_username: string }>(store, "audit", {
-        sql: `SELECT a.*, COALESCE(u.username,'历史账户') AS actor_username
+      return searchPage<AuditRecord & { actor_username: string; entity_label: string; action_label: string }>(store, "audit", {
+        sql: `SELECT a.*, COALESCE(u.username,'历史账户') AS actor_username,
+          CASE a.entity${labelCases("业务记录", auditObjects)} AS entity_label,
+          CASE a.action${labelCases("其他操作", auditActions)} AS action_label
           FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id`,
-        columns: ["id", "created_at", "actor_username", "entity", "entity_id", "action"],
-        search: ["actor_username", "entity", "entity_id", "action", "before_json", "after_json"],
+        columns: ["id", "created_at", "actor_username", "entity", "entity_id", "action", "entity_label", "action_label"],
+        search: ["actor_username", "entity_label", "action_label", "entity", "entity_id", "action", "before_json", "after_json"],
       }, query);
     },
     auditEvents(includeDeleted: boolean): (AuditRecord & { actor_username: string })[] {

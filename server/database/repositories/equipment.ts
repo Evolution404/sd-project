@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import type { createStore } from "./store.js";
 import { searchEquipment } from "./equipment-search.js";
 import type {
@@ -74,6 +75,7 @@ export function equipmentRepository(store: ReturnType<typeof createStore>) {
     ) as EquipmentRecord[];
   }
   return {
+    nextNumber: (kind: Exclude<EquipmentCatalogKind, "spans">) => nextBusinessNumber(store, kind),
     deletionReferences(kind: EquipmentCatalogKind, key: string) {
       const counts = (sql: string, ...parameters: string[]) =>
         store.get<{ total: number }>(sql, ...parameters)?.total ?? 0;

@@ -16,7 +16,7 @@ function syncDraft() {
   for (const key of Object.keys(fields) as (keyof typeof fields)[]) draft[key] = fields[key].value;
 }
 const rows = ref<AccessRecord[]>([]), total = ref(0), loading = ref(false), exporting = ref(false);
-const detail = ref<AccessRecord | null>(null), dialog = ref(false), diagnostic = ref("");
+const detail = ref<AccessRecord | null>(null), dialog = ref(false), technicalOpen = ref(false), diagnostic = ref("");
 const retention = ref(30), maxBytes = ref(0);
 const columns: TableColumn[] = [
   { key: "time", label: "北京时间", minWidth: 190 },
@@ -90,7 +90,7 @@ onMounted(load);
       </div>
     </ElForm>
 
-    <BusinessTable detail-column="path" @open-detail="detail = $event; dialog = true" :rows="rows" :columns="columns" :loading="loading" table-key="system:access-logs" :filter-state="filters"
+    <BusinessTable detail-column="path" @open-detail="detail = $event; technicalOpen = false; dialog = true" :rows="rows" :columns="columns" :loading="loading" table-key="system:access-logs" :filter-state="filters"
       :sort-state="{ prop: sort, order: direction === 'asc' ? 'ascending' : 'descending' }"
       @sort-change="sortChanged" @filter-change="value => { filters = value; refreshFirstPage(); }">
       <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
@@ -113,14 +113,36 @@ onMounted(load);
     <ElPagination v-model:current-page="page" :page-size="30" :total="total" layout="prev,pager,next,total" @current-change="load" />
   </div>
   <BusinessDetailDialog :open="dialog" title="访问请求详情" size="min(760px, 94vw)" @close="dialog = false">
-    <ElDescriptions v-if="detail" :column="1" border>
-      <ElDescriptionsItem v-for="column in [...columns, { key: 'request_id', label: '请求关联ID' }, { key: 'error_type', label: '异常类型' }, { key: 'error_summary', label: '安全错误摘要' }]" :key="column.key" :label="column.label"><span class="log-detail-value">{{ logValue(detail, column.key) }}</span></ElDescriptionsItem>
-    </ElDescriptions>
+    <section v-if="detail" class="access-detail">
+      <header>
+        <ElTag :type="detail.status < 400 ? 'success' : 'warning'" effect="light">{{ detail.outcome }}</ElTag>
+        <h2>{{ detail.error_summary || '访问请求' }}</h2>
+        <p>{{ logValue(detail, "time") }} · {{ detail.username || "未登录用户" }}</p>
+      </header>
+      <ElDescriptions :column="1" :label-width="145">
+        <ElDescriptionsItem label="访问路径"><span class="log-detail-value">{{ detail.path }}</span></ElDescriptionsItem>
+        <ElDescriptionsItem label="来源 IP">{{ detail.ip }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="响应时间">{{ detail.duration_ms }} 毫秒</ElDescriptionsItem>
+      </ElDescriptions>
+      <ElButton :aria-expanded="technicalOpen" @click="technicalOpen = !technicalOpen">
+        {{ technicalOpen ? "收起技术详情" : "查看技术详情" }}
+      </ElButton>
+      <ElDescriptions v-if="technicalOpen" :column="1" :label-width="145" border>
+        <ElDescriptionsItem label="请求方法">{{ detail.method }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="状态码">{{ detail.status }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="请求关联编号">{{ detail.request_id }}</ElDescriptionsItem>
+        <ElDescriptionsItem v-if="detail.error_type" label="异常类型">{{ detail.error_type }}</ElDescriptionsItem>
+      </ElDescriptions>
+    </section>
   </BusinessDetailDialog>
 </template>
 <style scoped>
 .log-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 0 16px; }
 .log-filters :deep(.el-date-editor), .log-filters :deep(.el-select) { width: 100%; }
 .log-policy { color: var(--el-text-color-secondary); font-size: 13px; margin: 16px 0; }
+.access-detail { display: grid; gap: 16px; }
+.access-detail h2 { margin: 7px 0; font-size: 17px; }
+.access-detail header p { margin: 0; color: var(--el-text-color-secondary); }
+.access-detail > .el-button { justify-self: start; }
 .log-detail-value { overflow-wrap: anywhere; }
 </style>

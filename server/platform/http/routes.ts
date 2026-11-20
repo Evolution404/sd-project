@@ -16,6 +16,7 @@ import { handleFinance } from '../../modules/finance/http.js';
 import { handlePricing } from '../../modules/pricing/http.js';
 import { handleExchange } from '../../modules/exchange/http.js';
 import { handleManagement } from '../../modules/management/http.js';
+import { handleHistory } from '../../modules/history/http.js';
 import { handleFiles } from '../files/http.js';
 import { requireValue } from '../../shared/errors/business-error.js';
 
@@ -41,6 +42,7 @@ const routes: Record<string, RouteHandler> = {
   'audit': handleManagement,
   'permissions': handleManagement,
   'evidence': handleFiles,
+  'history': handleHistory,
 };
 
 export function dispatchRoute(context: RouteContext) {

@@ -12,6 +12,7 @@ const categoryNodes = ref<CostCategoryNode[]>([]);
 import { usePageSelection } from "../../shared/composables/use-page-selection";
 import { useListRoute } from "../../shared/composables/use-list-route";import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import RowActions from "../../shared/ui/RowActions.vue";
+import BusinessNumber from "../../shared/ui/BusinessNumber.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import BusinessEditorSurface from "../../shared/ui/BusinessEditorSurface.vue";
 import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
@@ -32,6 +33,8 @@ import type { ActualCostVersion, SettlementWorkflow, ReconciliationVersion, Sett
   SettlementResolutionInput, ReconciliationSettlementChoice, ActualCostInput, SettlementDraftInput, ReconciliationInput } from "../../../../server/shared/types/finance-workflows";
 import type { CategoryCost } from "../../../../server/shared/types/trees";
 import type { FinanceSummary } from "../../../../server/shared/types/finance-api";
+import { choiceLabels } from "../../shared/utils/choice-labels";
+import type { HistoryTarget } from "../../../../server/shared/types/history";
 type CostFact = ActualCostVersion & CategoryCost;
 type BillFact = SettlementWorkflow & {deleted?: boolean};
 type ReconciliationFact = ReconciliationVersion & {deleted?:boolean; effective?:boolean};
@@ -190,13 +193,17 @@ const costs = ref<CostFact[]>([]),
   form = ref<FinanceForm>(emptyForm()),
   editing = ref<EditingFact | null>(null),
   busy = ref(false),
-  history = ref<unknown>(null),
+  history = ref<HistoryTarget | null>(null),
   reconciliations = ref<ReconciliationFact[]>([]);
 const approvalChoices = ref<ProjectDetail["approvals"]>([]);
 const approvalsLoading = ref(false);
 const approvalsError = ref("");
 const settlementScopes = computed(() => approvalChoices.value
   .find(ap => ap.id === form.value.approval_version_id)?.scopes || []);
+const demandScopeLabels = computed(() => choiceLabels(settlementScopes.value.map(scope => ({
+  ...scope, id: scope.project_scope_id,
+})), scope => scope.problem_description || "历史需求", scope => [scope.demand_no]));
+
 let approvalSequence = 0;
 async function loadApprovalChoices() {
   const projectId = props.project.id;
@@ -721,12 +728,18 @@ async function removeReconciliation(row: ReconciliationFact) {
     if (error instanceof Error) ElMessage.error(error.message);
   }
 }
-async function reconciliationHistory(row: ReconciliationFact) {
-  history.value = await api("/reconciliations/" + row.record_id);
+function reconciliationHistory(row: ReconciliationFact) {
+  history.value = { kind: "reconciliations", id: row.record_id, project: props.project.id };
 }
-async function showHistory(row: BillFact) {
-  history.value = await api("/settlements/" + row.id + "/history");
+function showHistory(row: BillFact) {
+  history.value = { kind: "settlements", id: row.id, project: props.project.id };
 }
+const focusedHistoryTarget = computed<HistoryTarget | null>(() => {
+  const focus = props.focus;
+  if (focus) return { kind: focus.kind === "cost" ? "costs" : focus.kind === "reconciliation" ? "reconciliations" : "settlements",
+    id: focus.id, project: props.project.id };
+  return focusedCurrent.value?.id ? { kind: "settlements", id: focusedCurrent.value.id, project: props.project.id } : null;
+});
 useListRoute({
   costPage, billPage, reconPage,
   deletedCosts: showDeletedCosts, deletedReconciliations: showDeletedReconciliations,
@@ -793,7 +806,8 @@ watch(() => props.project.id, () => {
           {{ focusedHistoryOpen ? '收起正式历史' : '查看正式历史' }}
         </ElButton>
       </div>
-      <BusinessHistory v-if="focusedHistoryOpen" :value="focusedFact" />
+      <BusinessHistory reveal v-if="focusedHistoryOpen && focusedHistoryTarget" :record-kind="focusedHistoryTarget.kind"
+        :record-id="focusedHistoryTarget.id" :project-id="focusedHistoryTarget.project" />
     </template>
   </div>
   <ElAlert v-if="listError" class="panel" type="error" :closable="false"
@@ -859,7 +873,9 @@ watch(() => props.project.id, () => {
       :sort-state="{ prop: financeSort.costs, order: financeSort.costs ? (financeDirection.costs === 'asc' ? 'ascending' : 'descending') : null }" :rows="costs" :columns="financeColumns.costs" :actions-width="145"
       @sort-change="financeTableSort('costs', $event)" @filter-change="financeTableFilter('costs', $event)">
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
+        <ElButton v-if="column.key === 'title'" link type="primary" class="cell-link"
+          @click="history = { kind: 'costs', id: row.entry_id, project: project.id }">{{ row.title }}</ElButton>
+        <span v-else-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
         <ElTag v-else-if="column.key === 'status'" :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? '已删除' : row.status === 'voided' ? '已作废' : statusText[row.status] || row.status }}</ElTag>
         <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
       </template>
@@ -987,7 +1003,7 @@ watch(() => props.project.id, () => {
         title="批准新版会影响原有核对记录"
         :description="`涉及 ${settlementReview.reconciliation_impact.count} 条有效核对，已核对费用 ¥${money(settlementReview.reconciliation_impact.cost_fen)}。批准后请按生效明细重新核对，原记录保留历史。`" />
       <ElDescriptions :column="2" border>
-        <ElDescriptionsItem label="结算编号">{{ settlementReview.number }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="结算编号"><BusinessNumber :value="settlementReview.number" label="结算编号" /></ElDescriptionsItem>
         <ElDescriptionsItem label="业务日期">{{ reviewDocument?.settlement_on || '—' }}</ElDescriptionsItem>
         <ElDescriptionsItem label="结算方式">{{ reviewDocument?.mode === 'project_total' ? '按项目总额' : '按子费用' }}</ElDescriptionsItem>
         <ElDescriptionsItem label="本次申请">¥{{ money(reviewDocument?.amount_fen) }}</ElDescriptionsItem>
@@ -1075,14 +1091,13 @@ watch(() => props.project.id, () => {
             <ElFormItem label="费用科目" required
               > <CostCategorySelect v-model="item.cost_node_id" :project-id="project.id" :nodes="categoryNodes" :disabled="categoryLoading || !!categoryError" :historical-label="item.cost_node_name" :historical-version-id="item.cost_node_version_id" /></ElFormItem
             ><ElFormItem label="关联需求（共同费用可不选）"
-              ><ElSelect v-model="item.project_scope_id" clearable
-                ><ElOption
+              ><ElSelect v-model="item.project_scope_id" clearable filterable
+                ><template #label>{{ demandScopeLabels.get(item.project_scope_id || '') || "正在读取需求名称" }}</template>
+                <ElOption
                   v-for="scope in settlementScopes"
                   :key="scope.project_scope_id"
                   :value="scope.project_scope_id"
-                  :label="
-                    scope.demand_no || scope.demand_id
-                  " /></ElSelect></ElFormItem
+                  :label="demandScopeLabels.get(scope.project_scope_id) || '历史需求'" /></ElSelect></ElFormItem
             ><ElFormItem label="费用计价数量"
               ><FieldControl
                 v-model="item.quantity_scaled"
@@ -1113,14 +1128,13 @@ watch(() => props.project.id, () => {
           </div>
           <div class="form-grid">
             <ElFormItem label="项目需求" required
-              ><ElSelect v-model="r.project_scope_id"
-                ><ElOption
+              ><ElSelect v-model="r.project_scope_id" filterable
+                ><template #label>{{ demandScopeLabels.get(r.project_scope_id || '') || "正在读取需求名称" }}</template>
+                <ElOption
                   v-for="scope in settlementScopes"
                   :key="scope.project_scope_id"
                   :value="scope.project_scope_id"
-                  :label="
-                    scope.demand_no || scope.demand_id
-                  " /></ElSelect></ElFormItem
+                  :label="demandScopeLabels.get(scope.project_scope_id) || '历史需求'" /></ElSelect></ElFormItem
             ><ElFormItem label="本次新增解决量" required
               ><FieldControl
                 v-model="r.resolved_quantity_scaled"
@@ -1156,11 +1170,12 @@ watch(() => props.project.id, () => {
     ></BusinessEditorSurface>
   <ElDialog append-to-body
     :model-value="!!history"
-    title="正式版本历史"
-    width="950px"
+    title="财务历史记录"
+    width="min(1160px, 94vw)"
+    destroy-on-close
     @close="history = null"
   >
-    <BusinessHistory :value="history" />
+    <BusinessHistory v-if="history" :record-kind="history.kind" :record-id="history.id" :project-id="history.project" />
   </ElDialog>
 </template>
 <style scoped>

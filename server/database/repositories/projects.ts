@@ -55,6 +55,9 @@ export interface ApprovedLocationSnapshot {
   approval_scope_version_id: string;
   location_item_no: number;
   approved_quantity_scaled: number;
+  frozen_location: string;
+  location_kind: string;
+  location_object: string;
 }
 interface ApprovedScopeRow {
   id: string;
@@ -65,6 +68,7 @@ interface ApprovedScopeRow {
   quantity_scaled: number;
   approved_amount_fen: number | null;
   demand_no: string;
+  problem_description: string;
   unit_id: string;
   unit_version: number;
   snapshot_json: string;
@@ -74,6 +78,7 @@ export interface ApprovedScope extends ApprovedScopeRow {
   locations: ApprovedLocationSnapshot[];
 }
 export interface ProjectApprovalHistory extends ProjectApprovalVersion {
+  change_reason?: string;
   scopes: ApprovedScope[];
   pending_scopes: ProjectApprovalCandidateProposal[];
 }
@@ -255,11 +260,12 @@ export function projectReadRepository(store: Store) {
             SELECT MAX(v.version_no) FROM project_approval_versions v
             WHERE v.project_id=ap.project_id AND v.status='approved')))`
         : "";
-      const approvals = store.query(`SELECT ap.* FROM project_approval_versions ap
+      const approvals = store.query(`SELECT ap.*,change.reason AS change_reason FROM project_approval_versions ap
+        LEFT JOIN project_change_orders change ON change.id=ap.change_order_id
         WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no`, projectId) as
-        ProjectApprovalVersion[];
+        (ProjectApprovalVersion & { change_reason?: string })[];
       if (!approvals.length) return [];
-      const scopes = store.query(`SELECT sc.*, d.demand_no, dv.unit_id, dv.unit_version
+      const scopes = store.query(`SELECT sc.*, d.demand_no, dv.problem_description, dv.unit_id, dv.unit_version
         FROM project_approval_scope_versions sc
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
         JOIN demands d ON d.id=sc.demand_id
@@ -270,9 +276,13 @@ export function projectReadRepository(store: Store) {
         JOIN project_scope_materials pm ON pm.id=item.project_material_id
         WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}
         ORDER BY ap.version_no,item.item_no`, projectId) as ApprovedMaterialSnapshot[];
-      const locations = store.query(`SELECT loc.* FROM project_approval_work_locations loc
+      const locations = store.query(`SELECT loc.*,work.location_snapshot_json AS frozen_location,
+        work.location_kind,COALESCE(work.logical_tower_id,work.physical_tower_id,work.span_id) AS location_object
+        FROM project_approval_work_locations loc
         JOIN project_approval_scope_versions sc ON sc.id=loc.approval_scope_version_id
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
+        JOIN demand_version_work_locations work ON work.demand_id=sc.demand_id AND work.demand_version=sc.demand_version
+          AND work.item_no=loc.location_item_no
         WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}
         ORDER BY ap.version_no,loc.location_item_no`, projectId) as ApprovedLocationSnapshot[];
       const materialGroups = new Map<string, ApprovedMaterialSnapshot[]>();

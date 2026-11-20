@@ -99,8 +99,8 @@ const tableColumns = computed<TableColumn[]>(() => {
   ];
   return [
     { key: "created_at", label: "登记时间", minWidth: 190 },
-    { key: "entity", label: "业务对象" },
-    { key: "action", label: "动作" },
+    { key: "entity_label", label: "业务对象" },
+    { key: "action_label", label: "操作" },
     { key: "actor_username", label: "操作人", minWidth: 190 },
   ];
 });
@@ -264,7 +264,7 @@ onMounted(() => {
       layout="prev,pager,next,total" @current-change="load" />
   </div>
   <BusinessDetailDialog :open="!!selectedAudit" title="操作审计详情" @close="selectedAudit = null">
-    <BusinessHistory v-if="selectedAudit" :value="selectedAudit" />
+    <BusinessHistory v-if="selectedAudit" record-kind="audit" :record-id="selectedAudit.id" />
   </BusinessDetailDialog>
   <ElDialog append-to-body
     v-model="dialog"

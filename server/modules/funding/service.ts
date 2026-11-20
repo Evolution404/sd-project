@@ -59,7 +59,7 @@ export function createFunding(
         requireValue(fiscalYear <= 2100, "年度必须在2000至2100之间");
         requireValue(!previous || previous.fiscal_year === fiscalYear, "年度是框架稳定身份，不可修改");
         if (!previous) repository.createFramework({
-          id: newId, code: "FRAMEWORKS-" + newId.replaceAll("-", ""),
+          id: newId, code: repository.nextNumber(kind),
           fiscal_year: fiscalYear, created_at: timestamp,
         });
         repository.appendFrameworkVersion({
@@ -77,7 +77,7 @@ export function createFunding(
         const effectiveTo = optionalDate(input.effective_to, previous?.effective_to, "截止日期");
         requireValue(!effectiveFrom || !effectiveTo || effectiveTo >= effectiveFrom, "截止日期不得早于生效日期");
         if (!previous) repository.createAgreement({
-          id: newId, code: "AGREEMENTS-" + newId.replaceAll("-", ""),
+          id: newId, code: repository.nextNumber(kind),
           framework_id: frameworkId, created_at: timestamp,
         });
         repository.appendAgreementVersion({

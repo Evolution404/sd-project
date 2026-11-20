@@ -1,3 +1,4 @@
+import { nextBusinessNumber } from "./business-numbers.js";
 import type { Store } from "./store.js";
 import type { Database } from "../connection.js";
 import { businessLists } from "../queries/business-lists.js";
@@ -9,6 +10,7 @@ import { projectReadRepository } from "./projects.js";
 /** Finance-only read/write port plus explicitly named project close/cost cross-domain facts. */
 export function financePersistenceRepository(store: Store, database: Pick<Database, "transaction">) {
   return {
+    nextSettlementNumber: () => nextBusinessNumber(store, "settlements"),
     ...financeReadRepository(store),
     ...financeListRepository(store),
     ...financeCommandRepository(store),

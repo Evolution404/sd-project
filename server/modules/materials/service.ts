@@ -69,7 +69,7 @@ export function createMaterials(
       if (!previous)
         repository.create({
           id: materialId,
-          code: "MATERIALS-" + materialId.replaceAll("-", ""),
+          code: repository.nextNumber(),
           unit_id: unit.id,
           created_by: actor.id,
           created_at: timestamp,

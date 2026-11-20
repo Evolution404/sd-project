@@ -55,7 +55,9 @@ export function financeCommandRepository(store:Store) {
       return store.where<ActualCostVersion>("cost_versions",{entry_id:entryId},"version_no",1)[0];
     },
     costVersions(entryId:string):ActualCostVersion[] {
-      return store.where<ActualCostVersion>("cost_versions",{entry_id:entryId});
+      return store.query<ActualCostVersion>(`SELECT v.*,node.name AS cost_node_name FROM cost_versions v
+        JOIN project_cost_node_versions node ON node.id=v.cost_node_version_id
+        WHERE v.entry_id=? ORDER BY v.version_no`, entryId);
     },
     createCostNode(row:CostNodeIdentity):void { store.insert("project_cost_nodes",row); },
     appendCostNodeVersion(row:CostNodeVersion):void { store.insert("project_cost_node_versions",row); },
@@ -143,7 +145,16 @@ export function financeCommandRepository(store:Store) {
         {record_id:id},"version_no",1)[0];
     },
     reconciliationVersions(id:string):ReconciliationVersion[] {
-      return store.where<ReconciliationVersion>("cost_reconciliation_versions",{record_id:id});
+      return store.query<ReconciliationVersion>(`SELECT r.*,cost.title AS cost_title,cost.entry_id,
+        cost.version_no AS cost_version,entry.project_id,doc.number AS settlement_number,
+        doc.id AS settlement_id,v.version_no AS settlement_version
+        FROM cost_reconciliation_versions r
+        JOIN cost_versions cost ON cost.id=r.cost_version_id
+        JOIN cost_entries entry ON entry.id=cost.entry_id
+        JOIN settlement_item_versions iv ON iv.id=r.settlement_item_version_id
+        JOIN settlement_versions v ON v.id=iv.settlement_version_id
+        JOIN settlements doc ON doc.id=v.settlement_id
+        WHERE r.record_id=? ORDER BY r.version_no`, id);
     },
     appendReconciliation(row:ReconciliationVersion):void {
       store.insert("cost_reconciliation_versions",row);

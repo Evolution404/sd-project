@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BusinessHistory from "../../../shared/ui/BusinessHistory.vue";
 import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
 import type {
@@ -484,48 +485,9 @@ const projectDialog = useEntityDialog(
     :open="historyOpen"
     title="组织正式版本与上级历史"
     @close="historyOpen = false"
-    ><BusinessTable
-      client-side
-      table-key="organization:versions"
-      :rows="detail?.versions || []"
-      :columns="[
-        { key: 'version_no', label: '正式版本' },
-        { key: 'name', label: '采用名称' },
-        { key: 'parent_name', label: '当时上级名称' },
-        { key: 'historical_path', label: '该正式版本的组织路径' },
-        { key: 'status', label: '状态' },
-        { key: 'actor_name', label: '操作人' },
-        { key: 'recorded_at', label: '变更时间' },
-      ]"
-      ><template #cell="{ row, column, value }"
-        ><span>{{
-          column.key === "status"
-            ? statusText[row.status]
-            : column.key === "parent_name"
-              ? row.parent_unit_id
-                ? row.parent_name || "历史上级（定义待核对）"
-                : "根单位"
-              : value
-        }}</span></template
-      ></BusinessTable
-    ><BusinessTable
-      client-side
-      table-key="organization:audit"
-      :rows="detail?.audits || []"
-      :columns="[
-        { key: 'action', label: '审计操作' },
-        { key: 'actor_name', label: '操作人' },
-        { key: 'created_at', label: '操作时间' },
-      ]"
-      ><template #cell="{ row, column, value }"
-        ><span>{{
-          column.key === "action"
-            ? statusText[row.action] || row.action
-            : value
-        }}</span></template
-      ></BusinessTable
-    ></BusinessDetailDialog
-  >
+    >
+      <BusinessHistory v-if="historyOpen && selectedId" record-kind="organizations" :record-id="selectedId" />
+    </BusinessDetailDialog>
 </template>
 <style scoped>
 .tree-workspace {

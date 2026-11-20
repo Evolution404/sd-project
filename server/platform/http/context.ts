@@ -3,7 +3,7 @@ import type { System } from "../../bootstrap.js";
 import type { Actor, Page } from "../../shared/types/contracts.js";
 
 export type RouteServices = Pick<System, "auth" | "catalog" | "dashboard" | "demands" |
-  "dictionaries" | "equipment" | "finance" | "funding" | "management" | "materials" |
+  "dictionaries" | "equipment" | "finance" | "funding" | "history" | "management" | "materials" |
   "organizations" | "priceRules" | "pricing" | "projectClosure" | "projects" | "sources" | "standards">;
 export type HttpServices = RouteServices & Pick<System, "dataDirectory" | "evidence" | "exchange" | "training" | "idempotent">;
 

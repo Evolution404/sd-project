@@ -1,7 +1,7 @@
 import type { HandlingTarget, HandlingReviewRow } from "../../shared/types/handling-batch.js";
 import type { ProjectApprovalScopeInput, ProjectApprovalCandidateProposal, ProjectScopeListItem } from "../../shared/types/projects.js";
 import { ordinaryLinkReason, approvalDraftReason, projectDeleteReason } from "../../shared/project-lifecycle.js";
-import { authorize, documentCode, id, now, today } from "../../platform/auth/service.js";
+import { authorize, id, now, today } from "../../platform/auth/service.js";
 import {
   BusinessError,
   requireValue,
@@ -181,7 +181,7 @@ export function createProjects(
       if (!previous) {
         repo.createProject({
           id: projectId,
-          code: documentCode("XM", projectId),
+          code: repo.nextProjectNumber(),
           framework_id: frameworkId,
           created_by: actor.id,
           created_at: timestamp,
@@ -507,7 +507,7 @@ export function createProjects(
         repo.proposeChange({
           id: changeId,
           project_id: key,
-          code: input.change_code || `BG-${id()}`,
+          code: repo.nextChangeNumber(),
           base_approval_version_id: previous.id,
           proposal_json: JSON.stringify(input),
           created_by: actor.id,
@@ -557,6 +557,8 @@ export function createProjects(
         return {
           id: agreement.id, code: agreement.code, name: agreement.name,
           framework_id: agreement.framework_id, status: agreement.status,
+          counterparty_name: agreement.counterparty_name,
+          contract_number: agreement.contract_number,
           effective_from: agreement.effective_from,
           effective_to: agreement.effective_to,
           deleted: agreement.deleted, eligible,
@@ -568,7 +570,7 @@ export function createProjects(
         };
       });
     return agreements.filter(row => row.eligible || row.id === selectedId)
-      .sort((a, b) => a.code.localeCompare(b.code, "zh-CN"));
+      .sort((a, b) => a.name.localeCompare(b.name, "zh-CN"));
   }
   function agreementOptions(key: string) {
     const project = get(key);
@@ -887,8 +889,12 @@ export function createProjects(
       });
     },
     history(key: string) {
-      get(key, true);
+      get(key, true, true);
       return repo.projectFullHistory(key);
+    },
+    historyFacts(key: string) {
+      const current = get(key, true, true);
+      return { current, records: { ...repo.projectFullHistory(key), ...repo.projectHistoryDecisions(key) } };
     },
   };
 }
