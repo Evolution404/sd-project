@@ -166,7 +166,7 @@ try {
   await page.getByRole("heading", { name: /最少录入甲线/ }).waitFor();
   await page.getByRole("button", { name: "整基更换", exact: true }).click();
   const replacementHeight = page.getByRole("dialog", { name: "整基杆塔更换" })
-    .locator(".el-form-item").filter({ hasText: "新杆塔杆塔高度（米）" })
+    .locator(".el-form-item").filter({ hasText: "杆塔高度（米）" })
     .locator("input");
   await replacementHeight.fill("25.00001");
   await page.getByText("数值小数位数超出精度或安全整数范围", { exact: false }).waitFor();

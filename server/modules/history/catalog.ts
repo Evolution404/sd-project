@@ -1,8 +1,9 @@
+import { definitionTables } from "../../shared/catalog-definition-display.js";
 import { auditActions, auditObjects } from "../../shared/audit-display.js";
 import type { CatalogKind } from "../../shared/types/catalog.js";
 import type { HistoryEntry, HistoryFact, HistoryValue } from "../../shared/types/history.js";
 import { catalogDefinitions } from "../catalog/definitions.js";
-import { differences, document, event, facts, feeName, json, label, lifecycle, methods, metres, money, number, pricingModels,
+import { differences, document, event, facts, label, lifecycle, methods, metres, money, number, pricingModels,
   quantity, readVersions, record, rows, string, table, text, type HistoryRecord, type ReadRow } from "./core.js";
 
 const assetStates = { ...lifecycle, active: "在运", draft: "待完善" };
@@ -85,60 +86,6 @@ export function catalogFacts(kind: CatalogKind, row: ReadRow): HistoryFact[] {
   }
 }
 
-function words(value: unknown): HistoryValue {
-  if (Array.isArray(value)) return value.map(words).filter(part => part !== null).join("、") || null;
-  if (typeof value === "boolean") return value ? "是" : "否";
-  return text(value);
-}
-
-function versionedCatalogTables(kind: CatalogKind, row: ReadRow) {
-  if (kind === "operations") {
-    const attributes = rows(json(row.attributes_schema_json));
-    return table("附加属性定义", ["字段", "填写位置", "取值来源", "要求", "参与计价", "可选项", "说明"], attributes.map(field => [
-      text(field.label), label(field.scope, { demand: "需求", location: "作业位置" }),
-      label(field.source, { manual: "手工填写", ledger: "台账取值", asset: "台账取值" }),
-      field.enabled === false ? "已停用" : label(field.requirement, { optional: "选填", required: "必填", pricing: "计价必填" }),
-      field.pricing ? "是" : "否",
-      Array.isArray(field.options) ? field.options.map(option => words(record(option).label ?? option)).filter(Boolean).join("、") : null,
-      text(field.hint),
-    ]), attributes.map(field => String(field.key)));
-  }
-  if (kind !== "prices") return [];
-  const parameters = document(row.calculation_params_json);
-  const components = rows(json(row.fee_components_json));
-  const brackets = rows(json(row.quantity_brackets_json));
-  const tiers = rows(parameters.tiers);
-  const criteria = record(json(row.additional_conditions_json));
-  const definitions = rows(json(row.attributes_schema_json));
-  return [
-    ...table("现场适用条件", ["条件", "判断", "要求"], definitions.flatMap(definition => {
-      const key = string(definition.key), name = string(definition.label);
-      if (!key || !name || !Object.hasOwn(criteria, key)) return [];
-      const condition = record(criteria[key]);
-      return [[name, label(condition.op, { eq: "等于", in: "属于", range: "在范围内", gte: "不少于", lte: "不多于" }),
-        condition.op === "range" ? [words(condition.min), words(condition.max)].filter(value => value !== null).join(" 至 ")
-          : words(condition.value ?? condition.values)]];
-    })),
-    ...table("计价参数", ["项目", "采用值"], facts(
-      ["每组数量", quantity(parameters.group_size_scaled)], ["每组金额", money(parameters.group_fee_fen)],
-      ["费率基数", label(parameters.rate_basis, { labor: "人工费", materials: "材料费", machinery: "机械费", approved_subtotal: "批准小计" })],
-      ["费率", number(parameters.rate_basis_points) === undefined ? null : `${Number(parameters.rate_basis_points) / 100}%`],
-      ["最低金额", money(parameters.min_amount_fen)], ["封顶金额", money(parameters.max_amount_fen)],
-    ).filter(fact => fact.value !== null).map(fact => [fact.label, fact.value])),
-    ...table("费用分项", ["费用", "计价方式", "单价或定额", "基础费"], components.map((component, index) => [
-      text(component.title ?? component.name) ?? feeName(component.coverage_key, index),
-      label(component.formula_mode ?? component.pricing_mode, pricingModels),
-      money(component.unit_price_fen), money(component.base_fee_fen),
-    ]), components.map(component => String(component.coverage_key))),
-    ...table("整批数量阶梯", ["起始数量", "截止数量", "基础费", "单价"], brackets.map(bracket => [
-      quantity(bracket.min_quantity_scaled), quantity(bracket.max_quantity_scaled), money(bracket.base_fee_fen), money(bracket.unit_price_fen),
-    ])),
-    ...table("累进计价阶梯", ["截止数量", "单价"], tiers.map(tier => [
-      quantity(tier.up_to_quantity_scaled) ?? "剩余数量", money(tier.unit_price_fen),
-    ])),
-  ];
-}
-
 export function auditTitle(action: unknown, entity?: unknown): string {
   const object = string(label(entity, auditObjects)) ?? "业务记录";
   return (string(label(action, auditActions)) ?? "记录") + object;
@@ -194,7 +141,7 @@ export function catalogHistory(kind: CatalogKind, current: unknown, list: unknow
       : previous && kind === "organizations" && row.parent_unit_id !== previous.parent_unit_id
         ? "调整组织上级" : previous ? "修订" + kindName : "建立" + kindName,
     badge: row === versionRows.at(-1) ? "当前正式版本" : undefined,
-    tables: versionedCatalogTables(kind, row),
+    tables: kind === "operations" || kind === "prices" ? definitionTables(kind, row) : [],
   }));
   entries.push(...auditRows.filter(row => kind === "voltages"
     || !["revise", "create", "update", "move"].includes(String(row.action)))

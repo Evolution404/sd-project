@@ -25,6 +25,8 @@ export interface HistoryTable {
   rows: HistoryValue[][];
   /** Stable member identity used only to match rows during version comparison. */
   memberKeys?: string[];
+  /** Event-specific details are shown on the timeline and omitted from snapshot comparison. */
+  compare?: false;
 }
 
 export interface HistoryTarget {

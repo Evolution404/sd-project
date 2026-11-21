@@ -26,8 +26,8 @@ function compareFacts(before: HistoryEntry, after: HistoryEntry): HistoryChange[
 }
 
 export function compareHistory(before: HistoryEntry, after: HistoryEntry) {
-  const from = new Map(before.tables?.map(table => [table.title, table]));
-  const to = new Map(after.tables?.map(table => [table.title, table]));
+  const from = new Map(before.tables?.filter(table => table.compare !== false).map(table => [table.title, table]));
+  const to = new Map(after.tables?.filter(table => table.compare !== false).map(table => [table.title, table]));
   const changes: HistoryTable[] = [];
   for (const title of new Set([...from.keys(), ...to.keys()])) {
     const oldTable = from.get(title);

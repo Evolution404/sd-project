@@ -12,6 +12,10 @@ export const fieldNames: Record<string, string> = {
   custom_fields: "补充现场字段",
   demand_no: "需求编号",
   operation_id: "操作类型",
+  operation_name: "操作类型名称",
+  expected_on: "预计解决时间",
+  priority_name: "优先级",
+  primary_source: "来源说明",
   operation_version: "操作定义版本",
   quantity_scaled: "工作量",
   amount_fen: "金额",
@@ -40,6 +44,9 @@ export const fieldNames: Record<string, string> = {
   effective_on: "生效日期",
   occurred_on: "发生日期",
   settlement_on: "结算日期",
+  mode: "结算方式",
+  project_name: "子项目名称",
+  relationship: "关联关系",
   expected_version: "原正式版本",
   expected_edit_version: "原草稿版本",
   document: "整张单据",
@@ -201,6 +208,8 @@ export function factText(
 ): string {
   if (value == null || value === "") return "未填写";
   if (actorFields.has(field)) return actors[String(value)] || "历史账户";
+  if (field === "mode" && value === "project_total") return "按项目总额";
+  if (field === "mode" && value === "itemized") return "按子费用";
   if (field === "transmission_center_length_mm" && typeof value === "number")
     return (value / 1000).toString() + " 米";
   if (field.endsWith("_fen") && typeof value === "number")

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { approvedFixture } from "../helpers.mjs";
+import { definitionTables } from "../../dist/server/shared/catalog-definition-display.js";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 function fact(list, label) {
@@ -36,6 +37,31 @@ test("demand history reads frozen quotes, revisions and project adoption in busi
   const approval = s.history.get(user, { kind: "projects", id: project.id }, { page: 1, entry: "项目批准/1" }).selected;
   assert.equal(approval.tables.find(table => table.title === "批准作业位置").rows.length, 3);
   assert.equal(approval.links[0].target.entry, "需求/1");
+  assert.equal(approval.tables.find(table => table.title === "本次范围变化").compare, false);
+  assert.equal(approval.tables.find(table => table.title === "批准需求范围").compare, undefined);
+});
+
+test("price definition displays nested fees, rates and chosen option labels", () => {
+  const tables = definitionTables("prices", {
+    attributes_schema_json: '[{"key":"scene","label":"作业难度","options":[{"label":"常规","value":"standard"}]}]',
+    additional_conditions_json: '{"scene":{"op":"eq","value":"standard"}}',
+    fee_components_json: JSON.stringify([
+      { coverage_key: "labor", formula_mode: "base_plus_unit", parameters: { base_fee_fen: 1250, unit_price_fen: 5000 } },
+      { coverage_key: "transport", formula_mode: "rate", parameters: { rate_basis: "labor", rate_basis_points: 500 } },
+      { coverage_key: "进场准备", formula_mode: "quantity_bracket", parameters: { brackets: [
+        { min_quantity_scaled: 10000, max_quantity_scaled: null, base_fee_fen: 0, unit_price_fen: 5000 },
+      ] } },
+    ]),
+  });
+  const rows = name => tables.find(table => table.title === name)?.rows;
+  assert.deepEqual(rows("现场适用条件"), [["作业难度", "等于", "常规"]]);
+  assert.deepEqual(rows("费用分项参数"), [
+    ["人工费", "单价或定额", money(5000)],
+    ["人工费", "基础费", money(1250)],
+    ["运输费", "费用计算基数", "人工费"],
+    ["运输费", "费用计算比例", "5%"],
+  ]);
+  assert.equal(rows("费用分项整批数量阶梯")[0][2], "无上限");
 });
 
 test("formal settlement history distinguishes approved versions, returns, resubmissions and financial impact", t => {

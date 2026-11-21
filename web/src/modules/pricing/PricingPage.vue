@@ -14,7 +14,8 @@ import type {
 } from "../../../../server/shared/types/contracts";
 import type { PriceRuleRecord } from "../../../../server/shared/types/price-rules";
 import { api, statusText, money, quantity } from "../../shared/api/client";
-import { factText } from "../../shared/utils/display";
+import { definitionTables } from "../../../../server/shared/catalog-definition-display";
+import HistoryFactsTable from "../../shared/ui/HistoryFactsTable.vue";
 import { useListRoute } from "../../shared/composables/use-list-route";
 import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
@@ -54,7 +55,6 @@ const kind = computed({
 const definitions = shallowRef<Partial<Record<Kind, CatalogFormDefinition>>>(
     {},
   ),
-  labels = ref<Record<string, string>>({}),
   rows = ref<Item[]>([]),
   total = ref(0),
   page = ref(1),
@@ -74,6 +74,14 @@ const editingRule = computed(() =>
   editing.value && "catalog_id" in editing.value ? editing.value : null,
 );
 const detail = computed(() => detailState.value?.item || null);
+const currentDefinitionTables = computed(() => {
+  const current = detail.value;
+  if (!current) return [];
+  const frozen = detailState.value?.versions.find(
+    version => version && typeof version === "object" && "version_no" in version && version.version_no === current.version_no,
+  );
+  return definitionTables("prices", { ...current, ...(typeof frozen === "object" && frozen !== null ? frozen : {}) });
+});
 const fields = computed(() =>
   [
     ...(definitions.value[kind.value]?.rootFields || []),
@@ -102,7 +110,6 @@ function display(row: Item, field: CatalogField): string {
   if (field.type === "quantity") return quantity(Number(value));
   if (field.type === "select")
     return String(statusText[String(value)] || value);
-  if (field.type === "json") return factText(value, field.key, labels.value);
   return String(value);
 }
 function cell(row: Item, column: TableColumn): string {
@@ -246,10 +253,7 @@ watch(kind, () => {
 useListRoute({ q: query, page, deleted, sort, direction, filters }, load);
 onMounted(async () => {
   try {
-    [definitions.value, labels.value] = await Promise.all([
-      api<Record<Kind, CatalogFormDefinition>>("/catalogs"),
-      api<Record<string, string>>("/display-labels"),
-    ]);
+    definitions.value = await api<Record<Kind, CatalogFormDefinition>>("/catalogs");
     await load();
   } catch (failure) {
     loadError.value = (failure as Error).message;
@@ -396,13 +400,13 @@ onMounted(async () => {
         <h2>正式定义</h2>
         <ElDescriptions :column="descriptionColumns" border>
           <ElDescriptionsItem
-            v-for="field in fields"
+            v-for="field in fields.filter(field => field.type !== 'json')"
             :key="field.key"
             :label="field.label"
-            :span="field.type === 'json' ? descriptionColumns : 1"
             >{{ display(detail, field) }}</ElDescriptionsItem
           >
         </ElDescriptions>
+        <HistoryFactsTable v-for="table in currentDefinitionTables" :key="table.title" :table="table" :scope="'definition:' + kind" />
       </div>
       <div v-if="showHistory" class="panel">
         <h2>完整版本与审计历史</h2>

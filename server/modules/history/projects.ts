@@ -91,7 +91,8 @@ export function projectHistoryDetail(id: string, { records: raw, approvals }: De
       changes: previous && previous.approved_budget_fen !== approval.approved_budget_fen ? [
         { label: "批准预算", before: money(previous.approved_budget_fen), after: money(approval.approved_budget_fen) },
       ] : undefined,
-      tables: [...table("本次范围变化", ["需求编号", "变化", "原采用版本", "新采用版本"], changes),
+      tables: [...table("本次范围变化", ["需求编号", "变化", "原采用版本", "新采用版本"], changes)
+        .map(details => ({ ...details, compare: false as const })),
         ...approvedTables(approval.scopes)],
       links: approval.scopes.map(scope => ({ label: `查看 ${scope.demand_no} 第 ${scope.demand_version} 版`,
         target: { kind: "demands", id: scope.demand_id, entry: `需求/${scope.demand_version}` } })),

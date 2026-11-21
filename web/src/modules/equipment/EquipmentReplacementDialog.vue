@@ -124,7 +124,7 @@ async function save() {
         <ElFormItem
           v-for="field in fields"
           :key="field.key"
-          :label="'新杆塔' + field.label"
+          :label="field.label"
           ><FieldControl
             v-model="form[field.key as keyof EquipmentRecord]"
             :field="field"

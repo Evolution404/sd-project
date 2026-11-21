@@ -39,7 +39,26 @@ interface ExchangePreviewResponse {
 }
 type ExchangeDisplayRow = ExchangePreviewDocument | WorkbookIssue;
 function rowField(row: ExchangeDisplayRow, key: string): unknown {
+  if (key === "number" && "changes" in row) return previewReference(row);
   return Object.entries(row).find(([field]) => field === key)?.[1];
+}
+function previewReference(row: ExchangePreviewDocument) {
+  if (props.kind === "settlements" && row.action === "create" && row.row)
+    return `${row.sheet} · 第 ${row.row} 行`;
+  return row.number;
+}
+function issueField(key: string) {
+  const name = fieldName(key);
+  return name === key && /^[a-zA-Z_][\w.]*$/.test(key) ? "工作表字段" : name;
+}
+function issueValue(issue: WorkbookIssue) {
+  const raw = issue.raw_value;
+  const value = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? Object.entries(raw).find(([key]) => key === issue.field)?.[1]
+    : raw;
+  if (value === undefined || (value !== null && typeof value === "object"))
+    return "见工作表对应行";
+  return factText(value, issue.field);
 }
 const emit = defineEmits<{changed:[];inspect:[id:string, kind?: AssetExchangeKind]}>();
 const exchangeSections=ref(["template","upload"]);
@@ -85,8 +104,13 @@ onUnmounted(() => {
 const documentPage = ref(1),
   issuePage = ref(1),
   activePreviewTab = ref<'documents' | 'issues'>('documents');
+const previewReferenceLabel = {
+  demands: "导入关联号",
+  settlements: "单据或工作表位置",
+  assets: "业务记录",
+};
 const documentColumns: TableColumn[] = [
-  { key: "number", label: props.kind === "demands" ? "导入关联号" : "业务编号", minWidth: 155 },
+  { key: "number", label: previewReferenceLabel[props.kind], minWidth: 155 },
   { key: "action", label: "动作", minWidth: 105 },
   { key: "expectedResult", label: "预计结果", minWidth: 150, sortable: false, filterable: false },
   { key: "changes", label: "逐字段变化", minWidth: 335, sortable: false, filterable: false },
@@ -368,8 +392,8 @@ async function commit() {
               sort-mode="remote" filter-mode="remote"
               @sort-change="onIssuesSort" @filter-change="onIssuesFilter">
               <template #cell="{ row, column }">
-                <span v-if="column.key === 'field'">{{ fieldName(row.field) }}</span>
-                <span v-else-if="column.key === 'raw_value'">{{ factText(row.raw_value, row.field) }}</span>
+                <span v-if="column.key === 'field'">{{ issueField(row.field) }}</span>
+                <span v-else-if="column.key === 'raw_value'">{{ issueValue(row) }}</span>
                 <span v-else>{{ rowField(row, column.key) ?? '—' }}</span>
               </template>
             </BusinessTable><ElPagination
@@ -415,7 +439,7 @@ async function commit() {
         type="primary"
         :disabled="
           readonly || !can('write') ||
-          !preview ||
+          !preview?.documents.length ||
           !!result ||
           (atomic && preview.issues.length > 0)
         "

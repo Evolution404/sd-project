@@ -80,9 +80,9 @@ try {
   await dialog.getByText("新增 45", { exact: true }).waitFor();
   assert.ok(await dialog.getByRole("cell", { name: "预检筛选000", exact: true }).count());
   assert.equal(await dialog.getByRole("cell", { name: "预检筛选044", exact: true }).count(), 0);
-  await dialog.getByRole("button", { name: "筛选业务编号" }).click();
-  await page.getByPlaceholder("筛选业务编号").fill("预检筛选044");
-  await page.getByPlaceholder("筛选业务编号").press("Enter");
+  await dialog.getByRole("button", { name: "筛选业务记录" }).click();
+  await page.getByPlaceholder("筛选业务记录").fill("预检筛选044");
+  await page.getByPlaceholder("筛选业务记录").press("Enter");
   await dialog.getByRole("cell", { name: "预检筛选044", exact: true }).waitFor();
   assert.equal(await dialog.getByRole("cell", { name: "预检筛选000", exact: true }).count(), 0);
   assert.equal(s.catalog.list("lines").filter(x => x.name.startsWith("预检筛选")).length, 0,
