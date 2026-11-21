@@ -299,7 +299,7 @@ onMounted(() => void load());
       <div class="toolbar">
         <ElButton :data-guide-action="isAgreement ? 'agreements.edit' : 'frameworks.edit'" v-if="can('write') && !details.item.deleted" @click="startEdit(details.item)">编辑</ElButton>
         <ElButton :data-guide-action="isAgreement ? 'agreements.history' : 'frameworks.history'" @click="showHistory(details.item)">完整历史</ElButton>
-        <ElButton v-if="can('admin') && !details.item.deleted" type="danger" plain @click="remove(details.item)">删除{{ title }}</ElButton>
+        <ElButton v-if="can('admin') && !details.item.deleted" :data-guide-action="isAgreement ? 'agreements.delete' : 'frameworks.delete'" type="danger" plain @click="remove(details.item)">删除{{ title }}</ElButton>
       </div>
       <div class="panel">
         <h2>资金概览</h2>
@@ -340,7 +340,7 @@ onMounted(() => void load());
       </div>
       <div class="panel">
         <h2>关联子项目（{{ details.projects.length }}）</h2>
-        <BusinessTable client-side detail-column="name" detail-guide-action="agreements.projects"
+        <BusinessTable client-side detail-column="name" :detail-guide-action="isAgreement ? 'agreements.projects' : 'frameworks.projects'"
           @open-detail="row => router.push(projectContext(row.id, 'overview', { focus: 'funding', record: details!.item.id }))"
           table-key="funding:linked-projects" :rows="details.projects"
           :columns="linkedProjectColumns" :actions-width="110">
@@ -348,7 +348,7 @@ onMounted(() => void load());
             {{ relatedProjectCell(row, column) }}
           </template>
           <template #actions="{ row }">
-            <ElButton link type="primary" @click="router.push(projectFinanceContext(row.id, router.resolve(fundContext(props.kind, details!.item.id)).fullPath))">费用与结算</ElButton>
+            <ElButton link type="primary" :data-guide-action="isAgreement ? 'agreements.finance' : 'frameworks.finance'" @click="router.push(projectFinanceContext(row.id, router.resolve(fundContext(props.kind, details!.item.id)).fullPath))">费用与结算</ElButton>
           </template>
         </BusinessTable>
         <ElEmpty v-if="!details.projects.length" description="暂无关联子项目" :image-size="56" />

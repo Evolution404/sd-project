@@ -93,7 +93,7 @@ export function createSystem(dataDir?: string) {
     dataDirectory: database.directory,
     evidence, history,
     database, projectPort, financePort, exchangeReferences, exchangePersistence, identity, auth:seededAuth, audit, evidenceStore, equipment, dictionaries, materials, standards, priceRules, catalog, funding, demands, pricing, projects, finance, projectClosure, organizations,
-    training: createTrainingService(trainingRepository(store), database.directory),
+    training: createTrainingService(trainingRepository(store), database.directory, finance.summary),
     management,
     sources: createSources(demandRecords, catalog, database),
     idempotent<T>(actor: Actor, key: unknown, payload: unknown, action: () => T): T {

@@ -1,11 +1,12 @@
 import type { createProjects } from "../projects/service.js";
 import type { HistoryEntry } from "../../shared/types/history.js";
 import { document, event, facts, label, lifecycle, money, percent, quantity, readVersions,
-  rows, string, table, text, type HistoryRecord } from "./core.js";
+  rows, string, table, text } from "./core.js";
 import { actualCostHistory } from "./finance.js";
 
 type Projects = ReturnType<typeof createProjects>;
 type Approval = ReturnType<Projects["approvalHistory"]>[number];
+type Detail = ReturnType<Projects["historyDetail"]>;
 type Scope = Approval["scopes"][number];
 
 function approvedTables(scopes: Scope[]) {
@@ -31,12 +32,9 @@ function approvedTables(scopes: Scope[]) {
   ];
 }
 
-export function projectHistory(project: ReturnType<Projects["workspace"]>, raw: ReturnType<Projects["historyFacts"]>["records"],
-  approvals: Approval[]): HistoryRecord {
-  const id = project.id;
+export function projectHistoryDetail(id: string, { records: raw, approvals }: Detail): HistoryEntry[] {
   const approved = approvals.filter(approval => approval.status === "approved");
   const currentApproval = approved.at(-1);
-  const byApprovalId = new Map(approvals.map(row => [row.id, row.version_no]));
   const profileVersions = rows(raw.profiles);
   const entries: HistoryEntry[] = readVersions(profileVersions, "项目档案", row => facts(
     ["项目名称", text(row.name)], ["年度框架", text(row.framework_name)], ["项目类别", text(row.category_name)],
@@ -126,9 +124,9 @@ export function projectHistory(project: ReturnType<Projects["workspace"]>, raw: 
         text(demand.demand_no), quantity(demand.resolved_quantity_scaled, string(demand.unit)),
         quantity(demand.remaining_quantity_scaled, string(demand.unit)), quantity(demand.excess_quantity_scaled, string(demand.unit)),
       ])),
-      links: byApprovalId.has(String(record.approval_version_id)) ? [{
+      links: record.approval_no ? [{
         label: "查看结项采用的批准版本", target: {
-          kind: "projects", id, entry: `项目批准/${byApprovalId.get(String(record.approval_version_id))}`,
+          kind: "projects", id, entry: `项目批准/${record.approval_no}`,
         },
       }] : [],
     }));
@@ -146,14 +144,15 @@ export function projectHistory(project: ReturnType<Projects["workspace"]>, raw: 
     const settlementId = string(settlement.id);
     if (!settlementId) continue;
     for (const version of rows(settlement.versions)) {
-      for (const [index, row] of rows(version.events).entries()) {
+      for (const row of rows(version.events)) {
+        const initial = row.event_seq === 1;
         const title = row.action === "approve" ? "批准结算" : row.action === "return" ? "退回结算申请"
-          : row.action === "reject" ? "驳回结算申请" : index ? "原版本重新送审" : "提交结算审核";
+          : row.action === "reject" ? "驳回结算申请" : initial ? "提交结算审核" : "原版本重新送审";
         entries.push(event(`settlement/${row.id}`, title, "金额", row, {
           summary: `结算单 ${settlement.number} · 第 ${version.version_no} 版`,
           facts: facts(["本期申请金额", money(version.amount_fen)]),
           links: [{ label: "查看结算单历史", target: { kind: "settlements", id: settlementId, project: id,
-            entry: index === 0 ? `结算单/${version.version_no}` : `review/${row.id}` } }],
+            entry: initial ? `结算单/${version.version_no}` : `review/${row.id}` } }],
         }));
       }
     }
@@ -169,8 +168,5 @@ export function projectHistory(project: ReturnType<Projects["workspace"]>, raw: 
       summary: title, links: [{ label: "查看费用科目历史", target: { kind: "cost_nodes" as const, id: nodeId, project: id, entry: entry.id } }],
     })));
   }
-  const context = facts(["项目编号", project.code], ["档案版本", `第 ${project.profile_version} 版`],
-    ["当前批准版本", currentApproval ? `第 ${currentApproval.version_no} 版` : "尚未批准"],
-    ["当前批准预算", money(currentApproval?.approved_budget_fen)]);
-  return { name: project.name, status: project.deleted ? "已删除" : project.display_status, context, entries };
+  return entries;
 }

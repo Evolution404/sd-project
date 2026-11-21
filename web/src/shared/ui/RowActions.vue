@@ -60,7 +60,8 @@ async function invoke(action: RowAction) {
       @click="invoke(secondary[0])">{{ secondary[0].label }}</ElButton>
     <ElDropdown v-else-if="secondary.length > 1" ref="dropdown" trigger="click" placement="bottom-end"
       @command="invoke" @visible-change="menuVisibilityChanged">
-      <ElButton text size="small" :disabled="busy" aria-label="更多操作">
+      <ElButton text size="small" :disabled="busy" aria-label="更多操作"
+        :data-guide-menu="secondary.map(action => action.guideActionId || '').filter(Boolean).join(' ') || undefined">
         更多<ElIcon><MoreFilled /></ElIcon>
       </ElButton>
       <template #dropdown>

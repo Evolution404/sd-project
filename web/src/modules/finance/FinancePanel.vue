@@ -816,8 +816,8 @@ watch(() => props.project.id, () => {
   </ElAlert>
   <nav class="toolbar" aria-label="定位财务分区">
     <ElButton size="small" @click="jumpToSection(actualSection)">实际费用</ElButton>
-    <ElButton size="small" @click="jumpToSection(settlementSection)">结算单</ElButton>
-    <ElButton size="small" @click="jumpToSection(reconciliationSection)">费用核对</ElButton>
+    <ElButton size="small" @click="jumpToSection(settlementSection)" data-guide-action="finance.settlement-section">结算单</ElButton>
+    <ElButton size="small" @click="jumpToSection(reconciliationSection)" data-guide-action="finance.reconciliation-section">费用核对</ElButton>
   </nav>
   <section v-if="!listError" class="panel finance-summary" v-loading="listLoading" aria-label="项目结算总览">
     <div class="finance-summary-main">
@@ -935,9 +935,9 @@ watch(() => props.project.id, () => {
             { label: '审核结算', guideActionId: 'finance.approve', primary: true, disabled: !!writeBlock, run: () => emit('openSettlement', row.id, 'review') },
           ] : []),
           ...(row.draft && can('write') ? [{ label: '复核并提交', guideActionId: 'finance.submit', primary: true, disabled: !!writeBlock || row.review?.action === 'submit', run: () => emit('openSettlement', row.id, 'submit') }] : []),
-          ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', primary: true, disabled: !!writeBlock || !can('write'), run: () => resubmitBill(row) }] : []),
-          { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
-          ...(row.draft ? [{ label: '撤回草稿', disabled: !!writeBlock || !can('write'), run: () => withdrawBillDraft(row) }] : []),
+          ...(row.review?.action === 'return' && !row.draft ? [{ label: '原版重新提交', guideActionId: 'finance.resubmit', reason: writeBlock || (!can('write') ? '需要结算编制权限' : undefined), primary: true, disabled: !!writeBlock || !can('write'), run: () => resubmitBill(row) }] : []),
+          { label: row.draft ? '继续编辑草稿' : row.review?.action === 'return' ? '修订结算' : row.review?.action === 'submit' ? '审核中（禁止修订）' : row.version ? '发起新修订' : '编制结算', guideActionId: 'finance.revise-settlement', reason: writeBlock || (row.review?.action === 'submit' ? '结算待审核，须审核完成后再修订' : !can('write') ? '需要结算编制权限' : undefined), disabled: !!writeBlock || !can('write') || row.review?.action === 'submit', run: () => edit('settlement', row) },
+          ...(row.draft ? [{ label: '撤回草稿', guideActionId: 'finance.withdraw-settlement', disabled: !!writeBlock || !can('write'), run: () => withdrawBillDraft(row) }] : []),
           ...(row.version ? [{ label: '附件', run: () => evidence = { ownerKind: 'settlement_version_id', ownerId: row.version!.id } }] : []),
           { label: '历史', guideActionId: 'finance.history', run: () => showHistory(row) },
           { label: '删除', danger: true, disabled: !!writeBlock || !can('admin'), run: () => removeBill(row) },
@@ -1041,7 +1041,7 @@ watch(() => props.project.id, () => {
     <template v-if="settlementReview && !reviewBlock" #footer>
       <ElButton :disabled="busy" @click="emit('closeSettlement')">取消</ElButton>
       <template v-if="settlementWork.action === 'review'">
-        <ElButton :disabled="busy || !reviewReason.trim()" type="danger" plain @click="action(settlementReview, 'return')">确认退回</ElButton>
+        <ElButton data-guide-action="finance.return" :title="!reviewReason.trim() ? '先填写退回原因' : undefined" :disabled="busy || !reviewReason.trim()" type="danger" plain @click="action(settlementReview, 'return')">确认退回</ElButton>
         <ElButton data-guide-action="finance.approve" :loading="busy" type="primary" @click="action(settlementReview, 'approve')">确认批准结算</ElButton>
       </template>
       <ElButton v-else data-guide-action="finance.submit" :loading="busy" type="primary" @click="action(settlementReview, 'submit')">确认提交审核</ElButton>

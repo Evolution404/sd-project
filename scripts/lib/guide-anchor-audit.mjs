@@ -18,7 +18,7 @@ if(!rowRenderer.includes(':data-guide-action="primary.guideActionId"') ||
 const direct=new Set(), delegated=new Set();
 for(const file of sourceFiles("web/src/modules")){
   const source=readFileSync(file,"utf8");
-  for(const [,value] of source.matchAll(/\bdata-guide-action\s*=\s*"([^"]+)"/g)){
+  for(const [,value] of source.matchAll(/\b(?:data-guide-action|detail-guide-action|action-id)\s*=\s*"([^"]+)"/g)){
     if(/^[a-z][a-z0-9-]+\.[a-z][a-z0-9-]+$/.test(value)) direct.add(value);
     else for(const [,id] of value.matchAll(/['"]([a-z][a-z0-9-]+\.[a-z][a-z0-9-]+)['"]/g))
       direct.add(id);

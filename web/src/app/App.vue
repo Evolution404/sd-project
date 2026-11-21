@@ -26,6 +26,8 @@ const active = computed(() => moduleKey.value === "projects" &&
   (route.params.work === "finance" || route.params.work === "settlements") &&
   typeof route.query.returnTo === "string" && router.resolve(route.query.returnTo).name === "finance"
   ? "finance" : moduleKey.value);
+const guideModule = computed(() => moduleKey.value === "projects" &&
+  (route.params.work === "finance" || route.params.work === "settlements") ? "finance" : active.value);
 const user = ref<Actor | null>(null),
   ready = ref(false),
   login = ref({ username: "", password: "" }),
@@ -248,7 +250,7 @@ onMounted(async () => {
           <component :is="Component" :key="moduleKey" v-bind="moduleKey === 'demands' ? { user } : {}" />
         </RouterView>
       </main>
-      <GuideHost v-model:open="guideOpen" :actor="user" :route-key="active" />
+      <GuideHost v-model:open="guideOpen" :actor="user" :route-key="guideModule" />
       <ElDrawer v-model="mobileNavigation" title="业务导航" direction="ltr" size="min(320px, 90vw)" class="mobile-navigation-drawer">
         <NavigationMenu :active="active" :admin="user.role === 'admin'" @select="selectMenu" />
       </ElDrawer>

@@ -15,7 +15,7 @@ const emit = defineEmits<{ retry: [] }>();
 
 <template>
   <ElAlert v-if="approvalsError" :title="'批准历史读取失败：' + approvalsError" type="error" :closable="false">
-    <ElButton :loading="approvalsLoading" @click="emit('retry')">重新读取批准历史</ElButton>
+    <ElButton :loading="approvalsLoading" @click="emit('retry')" data-guide-action="finance.reload-approvals">重新读取批准历史</ElButton>
   </ElAlert>
   <ElFormItem label="结算日期"
     ><ElDatePicker

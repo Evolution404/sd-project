@@ -82,3 +82,12 @@ export interface HistoryPage {
   selected: HistoryEntry | null;
   versions: Pick<HistoryItem, "id" | "version" | "versionGroup" | "badge" | "title">[];
 }
+
+export interface HistoryQuery {
+  page: number;
+  category?: string;
+  actor?: string;
+  entry?: string;
+  start?: string;
+  end?: string;
+}

@@ -182,7 +182,7 @@ async function submit(){
       <ElButton :disabled="saving||loading||!selectedOnPage" @click="choosePage(false)">取消本页选择</ElButton>
     </div>
     <div class="demand-picker-options">
-      <ElCheckbox v-if="!proposal" v-model="includePending" :disabled="saving" @change="changePending">
+      <ElCheckbox data-guide-action="projects.include-pending" v-if="!proposal" v-model="includePending" :disabled="saving" @change="changePending">
         包含待确认需求（确认有效后方可立项）
       </ElCheckbox>
       <span class="muted">符合条件 {{total}} 条，可跨页多选</span>

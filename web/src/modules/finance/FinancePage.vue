@@ -163,7 +163,7 @@ onMounted(() => { void load(); });
             <ElInput v-model="query" clearable placeholder="搜索子项目、编号或费用事项" @change="reset" />
             <ElPopover trigger="click" placement="bottom-start">
               <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox v-model="deleted" @change="reset">包含已删除</ElCheckbox>
+              <ElCheckbox v-model="deleted" @change="reset" data-guide-action="finance.show-deleted">包含已删除</ElCheckbox>
             </ElPopover>
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
           </div>

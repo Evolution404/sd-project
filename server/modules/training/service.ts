@@ -1,3 +1,6 @@
+import type { Actor } from "../../shared/types/contracts.js";
+import { isObject } from "../../shared/types/contracts.js";
+import type { TrainingScenario, ScenarioStep } from "../../shared/types/training.js";
 import { existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { resolve, join } from "node:path";
 import type { trainingRepository } from "../../database/repositories/training.js";
@@ -25,19 +28,20 @@ function validId(value:unknown):value is string {
 }
 
 /** No HTTP request values can promote a normal production server to training. */
-export function trustedTrainingInstance(directory:string): boolean {
-  if (!validId(process.env.SD_TRAINING_INSTANCE_ID)) return false;
+function readInstance(directory:string) {
+  if (!validId(process.env.SD_TRAINING_INSTANCE_ID)) return null;
   if (!process.env.SD_TRAINING_DATA_DIR ||
-      resolve(directory)!==resolve(process.env.SD_TRAINING_DATA_DIR)) return false;
+      resolve(directory)!==resolve(process.env.SD_TRAINING_DATA_DIR)) return null;
   try {
     const markerPath=join(directory,markerFile);
-    if (!existsSync(markerPath)) return false;
+    if (!existsSync(markerPath)) return null;
     const marker:unknown=JSON.parse(readFileSync(markerPath,"utf8"));
-    if (typeof marker!=="object" || marker===null) return false;
-    const data=marker as {purpose?:unknown;id?:unknown};
-    return data.purpose==="sd-project-isolated-training" &&
-      data.id===process.env.SD_TRAINING_INSTANCE_ID;
-  } catch { return false; }
+    return isObject(marker) && marker.purpose==="sd-project-isolated-training" &&
+      marker.id===process.env.SD_TRAINING_INSTANCE_ID ? marker : null;
+  } catch { return null; }
+}
+export function trustedTrainingInstance(directory:string): boolean {
+  return readInstance(directory)!==null;
 }
 function readEvents(directory:string):Recorded {
   try {
@@ -49,8 +53,10 @@ function readEvents(directory:string):Recorded {
     return data;
   } catch {return {version:2,byActor:{}};}
 }
-export function createTrainingService(repository:ReturnType<typeof trainingRepository>,directory:string) {
-  const enabled=trustedTrainingInstance(directory);
+export function createTrainingService(repository:ReturnType<typeof trainingRepository>,directory:string,
+  readFinance:(id:string)=>{actual_cost_fen:number;settlement_fen:number;settlement_progress_percent:number|null}) {
+  const instance=readInstance(directory);
+  const enabled=instance!==null;
   // Record only course-evidence categories and authenticated technical actor id.
   // There are no credentials, business records, uploaded files, or arbitrary paths.
   function record(actorId:string,event:TrainingEvent,batchId?:string) {
@@ -107,5 +113,31 @@ export function createTrainingService(repository:ReturnType<typeof trainingRepos
       courses:actual.map(([id,completed,details])=>({id,completed,details})),
     };
   }
-  return {enabled,record,checkpoints};
+
+  function journey(actor: Actor): TrainingScenario | null {
+    const seed = isObject(instance?.scenario) ? instance.scenario : null;
+    const operationId = seed?.operationId;
+    const frameworkId = seed?.frameworkId;
+    if (typeof operationId !== "string" || typeof frameworkId !== "string") return null;
+    const data = repository.scenarioFacts({operationId,frameworkId});
+    const totals = data?.projectId ? readFinance(data.projectId) : null;
+    const facts = data ? { ...data, actualCost:totals?.actual_cost_fen ?? 0, approvedAmount:totals?.settlement_fen ?? 0 } : null;
+    const checks: [ScenarioStep, boolean][] = [
+      ["register",Boolean(facts)],
+      ["return-demand",Boolean(facts?.returnedDemand)],
+      ["revise-demand",Boolean(facts?.correctedAfterReturn && facts.demandStatus==="active")],
+      ["link",Boolean(facts?.projectId)],
+      ["approve",Boolean(facts?.firstApproval)],
+      ["change",Boolean(facts?.changedApproval)],
+      ["cost",Boolean(facts?.actualCost && facts.actualCost>0)],
+      ["review",Boolean(facts?.totalBillReturned && facts.totalBillResubmitted && facts.totalBillStatus==="approve")],
+      ["itemized",Boolean(facts?.itemizedApproved)],
+      ["close",Boolean(facts?.closed)],
+    ];
+    let completed = true;
+    const steps = checks.map(([id, verified]) => ({id, completed:completed &&= verified}));
+    return { steps,facts,canProceed:actor.role==="admin",
+      progressPercent:totals?.settlement_progress_percent ?? null };
+  }
+  return {enabled,record,checkpoints,journey};
 }

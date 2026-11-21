@@ -1020,8 +1020,8 @@ onMounted(async () => {
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="子项目批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
         <span class="muted">本页 {{ rows.length }} 条</span>
-        <ElButton :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
-        <ElButton v-if="selected.some(row => row.display_status === '储备' && !row.deleted) && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
+        <ElButton data-guide-action="projects.export-selection" :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
+        <ElButton data-guide-action="projects.batch-stock" v-if="selected.some(row => row.display_status === '储备' && !row.deleted) && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
         <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
@@ -1084,7 +1084,7 @@ onMounted(async () => {
     :title="approvalReviewPage ? approvalReviewTitle : projectFinancePage ? '费用与结算' : '子项目详情'"
     :subtitle="projectWork ? detail?.name : undefined" bare :loading="detailLoading" :error="detailError"
     @close="projectWork ? returnFromProjectWork() : detailDialog.close()" @retry="detailDialog.reload">
-    <template v-if="detail"><div v-if="!projectWork" class="detail-header">
+    <template v-if="detail"><div v-if="!projectWork" class="detail-header" :data-guide-record="'project/' + detail.id">
       <h1>{{ detail.name }}</h1>
       <ElTag :type="projectStatusTag(detail.display_status)">{{ detail.display_status }}</ElTag
       ><ElTooltip :content="detail.code" placement="top">
@@ -1145,7 +1145,7 @@ onMounted(async () => {
           <template #actions="{ row }">
             <RowActions :actions="[
               { label: '查看需求', run: () => router.push(demandContext(row.demand_id)) },
-              { label: '显式解绑', danger: true, disabled: !!releaseBlockReason(row), reason: releaseBlockReason(row), run: () => release(row) },
+              { label: '显式解绑', guideActionId: 'projects.release', danger: true, disabled: !!releaseBlockReason(row), reason: releaseBlockReason(row), run: () => release(row) },
             ]" />
           </template>
         </BusinessTable>
@@ -1395,7 +1395,7 @@ onMounted(async () => {
         type="info" :closable="false"
         title="已继承上一版正式批准的物资、位置、数量和预算；新增需求默认不纳入，需要明确选择。" />
       <template v-if="dialog === 'approval'">
-        <ElButton v-if="detail?.status === 'approved'" @click="linkPickerOpen = true">新增候选需求</ElButton>
+        <ElButton v-if="detail?.status === 'approved'" @click="linkPickerOpen = true" data-guide-action="projects.add-candidate">新增候选需求</ElButton>
         <p v-if="detail?.status === 'approved'" class="muted">新增候选在正式批准时建立归属，移出原批准需求在同一事务中解绑。</p>
         <div
           v-for="scope in approvalRows"

@@ -471,9 +471,9 @@ onMounted(async () => {
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="专业需求批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
         <span class="muted">本页 {{ rows.length }} 条</span>
-        <ElButton :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
-        <ElButton v-if="selected.some(row => row.display_status === '待确认' && !row.deleted) && can('demand.activate')" type="primary" :disabled="selected.length > 100" @click="confirmSelectedDemands">批量确认</ElButton>
-        <ElButton v-if="selected.some(row => row.display_status === '待承接' && !row.deleted) && can('write')" type="primary" :disabled="selected.length > 100" @click="openBatchProjectPicker">批量关联子项目</ElButton>
+        <ElButton data-guide-action="demands.export-selection" :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
+        <ElButton data-guide-action="demands.batch-confirm" v-if="selected.some(row => row.display_status === '待确认' && !row.deleted) && can('demand.activate')" type="primary" :disabled="selected.length > 100" @click="confirmSelectedDemands">批量确认</ElButton>
+        <ElButton data-guide-action="demands.batch-link" v-if="selected.some(row => row.display_status === '待承接' && !row.deleted) && can('write')" type="primary" :disabled="selected.length > 100" @click="openBatchProjectPicker">批量关联子项目</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
         <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
@@ -538,7 +538,7 @@ onMounted(async () => {
   </div>
   <BusinessDetailDialog :open="detailOpen && !editorRoute" title="需求详情" :loading="detailLoading" :error="detailError"
     @close="detailDialog.close" @retry="detailDialog.reload">
-    <template v-if="detail"><div class="detail-header">
+    <template v-if="detail"><div class="detail-header" :data-guide-record="'demand/' + detail.id">
       <div>
         <h1>{{ detail.operation_snapshot }} · {{ detail.problem_description }}</h1>
         <div class="muted demand-technical-reference">需求编号 <BusinessNumber :value="detail.demand_no" label="需求编号" /> · 正式定义第{{ detail.current_version }}版</div>
@@ -578,12 +578,15 @@ onMounted(async () => {
           @click="edit(detail)">修订需求</ElButton>
         <ElButton data-guide-action="demands.history" @click="showHistory">历史记录</ElButton>
         <ElDropdown trigger="click" @command="secondaryAction">
-          <ElButton>更多操作</ElButton>
+          <ElButton :data-guide-menu="[
+            'demands.quote', 'demands.delete', detail.status === 'active' ? 'demands.return' : '',
+            detail.status !== 'cancelled' ? 'demands.cancel' : '',
+          ].join(' ')">更多操作</ElButton>
           <template #dropdown>
             <ElDropdownMenu>
               <ElDropdownItem data-guide-action="demands.quote" command="quote">参考价试算</ElDropdownItem>
               <ElDropdownItem v-if="detail.status === 'active'" data-guide-action="demands.return" command="return" :title="detail.binding ? '已承接的需求不能退回，请正式修订或先明确解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding">退回</ElDropdownItem>
-              <ElDropdownItem v-if="detail.status !== 'cancelled'" data-guide-action="demands.return" command="cancel" :title="detail.binding ? '需求已被子项目承接，请先办理显式解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding" divided>取消需求</ElDropdownItem>
+              <ElDropdownItem v-if="detail.status !== 'cancelled'" data-guide-action="demands.cancel" command="cancel" :title="detail.binding ? '需求已被子项目承接，请先办理显式解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding" divided>取消需求</ElDropdownItem>
               <ElDropdownItem data-guide-action="demands.delete" command="delete" :title="detail.status !== 'cancelled' ? '需要先取消需求且解除项目关联' : undefined" :disabled="!can('admin') || detail.deleted || detail.status !== 'cancelled'">删除</ElDropdownItem>
             </ElDropdownMenu>
           </template>

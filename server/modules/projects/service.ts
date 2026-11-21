@@ -1,3 +1,4 @@
+import type { HistoryQuery } from "../../shared/types/history.js";
 import type { HandlingTarget, HandlingReviewRow } from "../../shared/types/handling-batch.js";
 import type { ProjectApprovalScopeInput, ProjectApprovalCandidateProposal, ProjectScopeListItem } from "../../shared/types/projects.js";
 import { ordinaryLinkReason, approvalDraftReason, projectDeleteReason } from "../../shared/project-lifecycle.js";
@@ -892,9 +893,26 @@ export function createProjects(
       get(key, true, true);
       return repo.projectFullHistory(key);
     },
-    historyFacts(key: string) {
-      const current = get(key, true, true);
-      return { current, records: { ...repo.projectFullHistory(key), ...repo.projectHistoryDecisions(key) } };
+    historyTimeline(key: string, query: HistoryQuery, pageSize: number) {
+      const root = repo.projectIdentity(key);
+      const profile = root && repo.latestProjectProfile(key);
+      requireValue(root && profile, "项目不存在或档案版本不存在", 404);
+      const { approval, draft } = repo.projectTimelineBasis(key);
+      return {
+        project: { ...root, name: profile.name, profile_version: profile.version_no,
+          deleted: repo.projectDeleted(key), display_status: projectDisplayStatus(root.status, draft ? [{ status: "draft" }] : []) },
+        approval, timeline: repo.projectTimeline(key, query, pageSize),
+      };
+    },
+    historyDetail(key: string, source: Parameters<typeof repo.projectTimelineDetails>[1], rowId: string) {
+      const { records, approvalIds } = repo.projectTimelineDetails(key, source, rowId);
+      const approvals = approvalIds.length ? repo.projectApprovalHistory(key, false, approvalIds) : [];
+      const summaries = pricing.summariesForApprovals(approvalIds);
+      return { records, approvals: approvals.map(approval => {
+        const reference = summaries.get(approval.id);
+        requireValue(reference, "批准范围参考计价汇总不存在", 409);
+        return { ...approval, reference };
+      }) };
     },
   };
 }

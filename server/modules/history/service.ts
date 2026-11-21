@@ -17,9 +17,9 @@ import type { ManagementService } from "../management/service.js";
 import type { WorkStandardService } from "../work-standards/service.js";
 import { auditEntry, catalogHistory } from "./catalog.js";
 import { demandHistory } from "./demands.js";
-import { projectHistory } from "./projects.js";
+import { projectHistoryDetail } from "./projects.js";
 import { actualCostHistory, reconciliationHistory, settlementHistory } from "./finance.js";
-import { event, facts, historyPage, label, lifecycle, readVersions, rows, string, table, text,
+import { event, facts, historyPage, HISTORY_PAGE_SIZE, label, lifecycle, money, readVersions, record, rows, string, table, text,
   type HistoryQuery, type HistoryRecord, type ReadRow } from "./core.js";
 
 interface HistoryReaders {
@@ -64,12 +64,6 @@ export function createHistory(readers: HistoryReaders) {
             time: file.time, summary: file.name, badge: file.removed ? "已移除" : undefined, files: [file],
           }));
         }
-        appendAudit(result, kind, key, ["delete"]);
-        return result;
-      }
-      case "projects": {
-        const { current, records } = projects.historyFacts(key);
-        const result = projectHistory(current, records, projects.approvalHistory(key));
         appendAudit(result, kind, key, ["delete"]);
         return result;
       }
@@ -140,11 +134,33 @@ export function createHistory(readers: HistoryReaders) {
     }
   }
 
+  function projectPage(id: string, query: HistoryQuery) {
+    const {project, approval, timeline} = projects.historyTimeline(id,query,HISTORY_PAGE_SIZE);
+    const {selection, ...page} = timeline;
+    const item = page.items.find(row => row.id === selection?.entry_id);
+    let selected: HistoryEntry | null = null;
+    if (selection && item) {
+      const detail = projects.historyDetail(id,selection.source,selection.row_id);
+      const audit = detail.records.audit?.[0];
+      const event = selection.source === "audit" && audit
+        ? auditEntry(record(audit), "projects")
+        : projectHistoryDetail(id,detail).find(row => row.id === item.id);
+      selected = { ...event, ...item, summary: item.summary ?? event?.summary };
+    }
+    return { ...page, selected, name: project.name,
+      status: project.deleted ? "已删除" : project.display_status,
+      context: facts(["项目编号",project.code],["档案版本",`第 ${project.profile_version} 版`],
+        ["当前批准版本",approval ? `第 ${approval.version_no} 版` : "尚未批准"],
+        ["当前批准预算",money(approval?.approved_budget_fen)]),
+    };
+  }
+
   return {
     get(actor: Actor, target: HistoryTarget, query: HistoryQuery): HistoryPage {
       authorize(actor, "read");
       const { kind, id, project } = target;
       requireValue(id, "请选择要查看历史的记录", 404);
+      if (kind === "projects") return projectPage(id,query);
       const result = select(actor, kind, id, project);
       const page = historyPage(result, query, readers.identity.actorNames);
       const selected = page.selected;

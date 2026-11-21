@@ -175,7 +175,7 @@ function confirm() {
           <ElInput v-model="reason" type="textarea" :rows="2"
             placeholder="请说明为什么同一操作、同一位置仍需要单独立项，例如故障性质、实际作业任务或发现批次不同" />
         </ElFormItem>
-        <ElCheckbox v-model="reviewed">
+        <ElCheckbox data-guide-action="demands.duplicate-check" v-model="reviewed">
           我已核对上述 {{ candidates.length }} 条正式需求，确认本次需求属于不同的现场任务。
         </ElCheckbox>
         <p class="muted duplicate-decision-hint">
@@ -185,8 +185,8 @@ function confirm() {
     </div>
     <div class="duplicate-review-actions">
       <ElButton :disabled="submitting" @click="emit('park')">暂存并返回</ElButton>
-      <ElButton :disabled="submitting" @click="emit('close')">返回继续修改</ElButton>
-      <ElButton type="primary" :loading="submitting" :disabled="!canConfirm" @click="confirm">
+      <ElButton :disabled="submitting" @click="emit('close')" data-guide-action="demands.duplicate-back">返回继续修改</ElButton>
+      <ElButton data-guide-action="demands.duplicate-save" type="primary" :loading="submitting" :disabled="!canConfirm" @click="confirm">
         确认独立并保存
       </ElButton>
     </div>

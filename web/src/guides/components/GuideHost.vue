@@ -9,8 +9,9 @@ import { guideModules, guideModuleForRoute } from "../registry/modules";
 import { guideActions } from "../registry/actions";
 import { guideCourses } from "../registry/journeys";
 import { clearProgress, readProgress, writeProgress, GUIDE_COURSE_VERSION, type LearningProgress } from "../core/progress";
-import { hasActiveGuideWorkspace, resolveGuideTarget, resolveGuideActionTarget } from "../core/target-resolver";
+import { hasActiveGuideWorkspace, resolveGuideTarget, resolveGuideAction, resolveGuideActionTarget } from "../core/target-resolver";
 import type { GuideAction, GuideModule, GuideCourse } from "../core/types";
+import PracticeJourney from "./PracticeJourney.vue";
 const props = defineProps<{open:boolean; actor:Actor; routeKey:string}>();
 const emit = defineEmits<{ "update:open":[boolean] }>();
 const open = computed({ get:()=>props.open, set:v=>emit("update:open",v) });
@@ -38,12 +39,13 @@ const selectedCourse = ref<GuideCourse|null>(null);
 const courseStep = ref(0);
 const selectedModule = ref<GuideModule|null>(null);
 const selectedAction = ref<GuideAction|null>(null);
+const selectedActionHint = ref("");
 const tourSteps = computed(() => selectedAction.value ? [{
   id:selectedAction.value.id,
   title:selectedAction.value.title,
   target:"",
-  description:selectedAction.value.purpose+"；操作前："+selectedAction.value.prerequisite+
-    "；正式结果："+selectedAction.value.result+"；风险："+selectedAction.value.risk,
+  description:[selectedActionHint.value, selectedAction.value.purpose, selectedAction.value.prerequisite,
+    selectedAction.value.result, selectedAction.value.risk].filter(Boolean).join("。"),
 }] : (tourModule.value?.steps??[]));
 const progress = ref<Readonly<Record<string,LearningProgress>>>({});
 type CourseCheck = {id:string;completed:boolean;details:string};
@@ -76,6 +78,11 @@ const filteredActions = computed(()=>{
     [a.title,a.id,a.purpose,...a.aliases].some(x=>x.toLocaleLowerCase().includes(q))));
 });
 const moduleActions = computed(()=>guideActions.filter(a=>a.module===(selectedModule.value?.id??currentModule.value?.id)));
+const stateLabels: Readonly<Record<string,string>> = {
+  empty:"尚无记录",pending:"待确认",returned:"已退回",active:"有效",
+  reserve:"储备",stocked:"已入库",approved:"已批准",
+};
+const stateLabel = (state:string) => stateLabels[state] ?? state;
 const roleLabel:Readonly<Record<string,string>>={
   admin:"管理员",editor:"编辑人员",verifier:"审核人员",viewer:"只读人员"
 };
@@ -133,12 +140,14 @@ function showFeedback(message: string) {
   void nextTick(() => feedbackRegion.value?.scrollIntoView({ block: "nearest" }));
 }
 function locateAction(action: GuideAction) {
-  if (!resolveGuideActionTarget(action.id)) {
+  const target = resolveGuideAction(action.id);
+  if (!target) {
     showFeedback(`当前没有唯一可定位的「${action.title}」控件。请核对权限、页签及单据状态，或打开具体记录后重试。`);
     return;
   }
   selectedModule.value = null;
   selectedAction.value = action;
+  selectedActionHint.value = target.menu ? `打开高亮的菜单后选择「${action.title}」` : target.reason;
   queueTour();
 }
 function moduleDestination(key: string) {
@@ -231,7 +240,7 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
               <p><strong>适用身份：</strong>{{ action.roles.map(role=>roleLabel[role]).join("、") }}
                 <ElTag v-if="!hasRole(action.roles)" type="info" size="small">当前角色一般不可办理</ElTag>
               </p>
-              <p v-if="action.states.join(',')!=='any'"><strong>典型状态：</strong>{{ action.states.join("、") }}</p>
+              <p v-if="action.states.join(',')!=='any'"><strong>典型状态：</strong>{{ action.states.map(stateLabel).join("、") }}</p>
             </ElCollapseItem>
           </ElCollapse>
         </template>
@@ -273,6 +282,9 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
           <p>使用稳定关联号，下载中文模板、预检、修正、合法部分或整批原子提交并回查。</p>
           <ElButton text type="primary" @click="tab='search';query='Excel'">查看Excel操作说明</ElButton>
         </article>
+      </ElTabPane>
+      <ElTabPane label="全流程实操" name="practice" lazy>
+        <PracticeJourney v-if="open && tab === 'practice'" :key="actor.id" @navigate="open = false" />
       </ElTabPane>
       <ElTabPane label="业务课程" name="training">
         <template v-if="!selectedCourse">

@@ -39,7 +39,7 @@ const columns: TableColumn[] = [
   <ElDialog v-model="model" append-to-body title="结项前业务核对" width="min(820px, 94vw)"
     :close-on-click-modal="false">
     <ElAlert v-if="error" :title="error" type="error" :closable="false">
-      <ElButton link type="primary" @click="emit('retry')">重新读取结项核对</ElButton>
+      <ElButton link type="primary" @click="emit('retry')" data-guide-action="projects.reload-closure">重新读取结项核对</ElButton>
     </ElAlert>
     <ElAlert v-if="reason" :title="reason" type="warning" :closable="false" />
     <template v-if="summary">

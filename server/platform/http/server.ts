@@ -155,6 +155,10 @@ export function httpServer(
       username = safeAccount(actor.username);
       authenticatedActorId=actor.id;
       authenticatedViewer=actor.role==="viewer";
+      if (parts[1] === "training" && parts[2] === "journey" && parts.length === 3 && method === "GET") {
+        json(res, 200, { scenario: system.training.journey(actor) });
+        return;
+      }
       if (parts[1] === "training" && parts[2] === "checkpoints" && method === "GET") {
         json(res, 200, system.training.checkpoints(actor.id));
         return;

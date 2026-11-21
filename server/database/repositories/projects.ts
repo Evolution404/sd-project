@@ -252,9 +252,11 @@ export function projectReadRepository(store: Store) {
         binding: binding_json ? JSON.parse(binding_json) as CurrentProjectBinding : null,
       }));
     },
-    projectApprovalHistory(projectId: string, currentOnly = false): ProjectApprovalHistory[] {
+    projectApprovalHistory(projectId: string, currentOnly = false, ids?: string[]): ProjectApprovalHistory[] {
       // Only the current approval and pending draft are needed for live
       // actions. Historical approved versions load on explicit request.
+      const selected = ids ? " AND ap.id IN (SELECT value FROM json_each(?))" : "";
+      const parameters = ids ? [projectId, JSON.stringify(ids)] : [projectId];
       const current = currentOnly
         ? ` AND (ap.status='draft' OR (ap.status='approved' AND ap.version_no=(
             SELECT MAX(v.version_no) FROM project_approval_versions v
@@ -262,7 +264,7 @@ export function projectReadRepository(store: Store) {
         : "";
       const approvals = store.query(`SELECT ap.*,change.reason AS change_reason FROM project_approval_versions ap
         LEFT JOIN project_change_orders change ON change.id=ap.change_order_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no`, projectId) as
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}${selected} ORDER BY ap.version_no`, ...parameters) as
         (ProjectApprovalVersion & { change_reason?: string })[];
       if (!approvals.length) return [];
       const scopes = store.query(`SELECT sc.*, d.demand_no, dv.problem_description, dv.unit_id, dv.unit_version
@@ -270,12 +272,12 @@ export function projectReadRepository(store: Store) {
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
         JOIN demands d ON d.id=sc.demand_id
         JOIN demand_versions dv ON dv.demand_id=sc.demand_id AND dv.version=sc.demand_version
-        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current} ORDER BY ap.version_no,sc.rowid`, projectId) as ApprovedScopeRow[];
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}${selected} ORDER BY ap.version_no,sc.rowid`, ...parameters) as ApprovedScopeRow[];
       const materials = store.query(`SELECT item.*, pm.material_id FROM project_approval_material_items item
         JOIN project_approval_versions ap ON ap.id=item.approval_version_id
         JOIN project_scope_materials pm ON pm.id=item.project_material_id
-        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}
-        ORDER BY ap.version_no,item.item_no`, projectId) as ApprovedMaterialSnapshot[];
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}${selected}
+        ORDER BY ap.version_no,item.item_no`, ...parameters) as ApprovedMaterialSnapshot[];
       const locations = store.query(`SELECT loc.*,work.location_snapshot_json AS frozen_location,
         work.location_kind,COALESCE(work.logical_tower_id,work.physical_tower_id,work.span_id) AS location_object
         FROM project_approval_work_locations loc
@@ -283,8 +285,8 @@ export function projectReadRepository(store: Store) {
         JOIN project_approval_versions ap ON ap.id=sc.approval_version_id
         JOIN demand_version_work_locations work ON work.demand_id=sc.demand_id AND work.demand_version=sc.demand_version
           AND work.item_no=loc.location_item_no
-        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}
-        ORDER BY ap.version_no,loc.location_item_no`, projectId) as ApprovedLocationSnapshot[];
+        WHERE ap.project_id=? AND ap.status<>'withdrawn' ${current}${selected}
+        ORDER BY ap.version_no,loc.location_item_no`, ...parameters) as ApprovedLocationSnapshot[];
       const materialGroups = new Map<string, ApprovedMaterialSnapshot[]>();
       for (const item of materials) {
         const key = `${item.approval_version_id}:${item.project_scope_id}`;

@@ -51,7 +51,26 @@ async function password(){
   try{return await rl.question("训练实例管理员口令（输入将显示，周围无人时操作）：");}
   finally{rl.close();}
 }
-async function create(){
+
+function seedScenario(system, actor) {
+  return system.database.transaction(() => {
+    const save = (kind, input) => system.catalog.save(actor, kind, input);
+    const unit = save("units", { name:"套", quantity_precision:0 });
+    const object = save("objects", { name:"训练杆塔防鸟装置", object_position:"body", attribution_unit:"logical_tower" });
+    const voltage = save("voltages", { name:"110kV" });
+    const line = save("lines", { name:"【训练】青禾线", voltage_level_id:voltage.id });
+    for (const tower of ["01", "02"]) save("towers", {
+      line_id:line.id, tower_no:tower, physical_properties:{ tower_material:"angle",tower_nature:"straight" },
+    });
+    const operation = save("operations", { name:"【训练】防鸟装置安装", work_object_id:object.id,
+      default_unit_id:unit.id, completion_standard:"装置固定牢靠，现场复核通过" });
+    const fiscalYear = new Date().getFullYear();
+    const framework = save("frameworks", { name:"【训练】输电检修年度框架", fiscal_year:fiscalYear, limit_fen:5000000 });
+    return { operationId:operation.id,frameworkId:framework.id };
+  });
+}
+
+async function create(withScenario = false){
   const id=randomBytes(16).toString("hex");
   mkdirSync(instances,{recursive:true,mode:0o700});
   const dir=folder(id);
@@ -62,10 +81,13 @@ async function create(){
       throw Error("训练管理员账号必须由3至32位字母/数字/下划线组成");
     const secret=await password();
     const system=createSystem(dir);
-    try{system.auth.initialize(user,secret);}
-    finally{system.close();}
+    let scenario;
+    try{
+      const created=system.auth.initialize(user,secret);
+      if(withScenario)scenario=seedScenario(system,{...created,permissions:["admin"]});
+    }finally{system.close();}
     writeFileSync(join(dir,"TRAINING-INSTANCE.json"),
-      JSON.stringify({purpose:"sd-project-isolated-training",id,createdAt:new Date().toISOString()},null,2),
+      JSON.stringify({purpose:"sd-project-isolated-training",id,createdAt:new Date().toISOString(),scenario},null,2),
       {encoding:"utf8",mode:0o600,flag:"wx"});
     console.log("TRAINING_INSTANCE_CREATED "+id+" user="+user);
     return id;
@@ -125,12 +147,12 @@ function reset(id) {
   rmSync(dir,{recursive:true,force:true});
   console.log("TRAINING_INSTANCE_RESET "+id+" only");
 }
-if(command==="create")await create();
+if(command==="create")await create(args.includes("--scenario"));
 else if(command==="start")await start(flag("id"));
-else if(command==="start-new")await start(await create());
+else if(command==="start-new")await start(await create(!args.includes("--blank")));
 else if(command==="list")list();
 else if(command==="reset")reset(flag("id"));
 else {
-  console.log("create | start-new | start --id=ID [--port=8791] | list | reset --id=ID --confirm=ID");
+  console.log("create [--scenario] | start-new [--blank] | start --id=ID [--port=8791] | list | reset --id=ID --confirm=ID");
   if(command!=="help")process.exitCode=2;
 }

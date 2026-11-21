@@ -30,7 +30,7 @@ const emit = defineEmits<{ framework: [id: string | null]; retry: [] }>();
     required
     ><ElInput v-model="form.name" /></ElFormItem>
   <ElFormItem
-    label="年度框架"
+    data-guide-action="projects.funding" label="年度框架"
     prop="framework_id"
     :rules="[{ required: true, message: '请填写年度框架' }]"
     required

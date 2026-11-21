@@ -63,3 +63,36 @@ test("history SQL query count never grows with project record count", () => {
   assert.equal(calls.length,15,"project history must use 15 fixed collection reads, not per-record SQL");
   assert.ok(calls.every(call=>call.args.every(arg=>arg==="p")),"SQL restricted to the requested project");
 });
+
+test("project timeline pages metadata in SQL and still compares an older version with its predecessor", t => {
+  const {s,user,project,node} = approvedFixture(t);
+  let checkpoint;
+  for (let index=0;index<180;index++) {
+    const cost=s.finance.cost(user,project.id,{cost_node_id:node.id,title:"历史费用 "+index,
+      amount_fen:1000+index,occurred_on:"2026-11-12",evidence:"正式历史凭据 "+index});
+    if(index===22) checkpoint=cost;
+  }
+  assert.ok(checkpoint);
+  s.finance.cost(user,project.id,{expected_version:1,cost_node_id:node.id,title:"历史费用 22 更正",
+    amount_fen:2060,occurred_on:"2026-11-12",evidence:"更正凭据",reason:"更正已核定金额"},checkpoint.entry_id);
+  const target={kind:"projects",id:project.id};
+  const first=s.history.get(user,target,{page:1,category:"金额",actor:"ADMIN"});
+  assert.equal(first.total,181);
+  assert.equal(first.items.length,10);
+  assert.equal(first.items.some(item=>Object.hasOwn(item,"facts")),false);
+  assert.equal(first.selected.title,"更正实际费用");
+  assert.deepEqual(first.selected.changes.find(change=>change.label==="金额"),{
+    label:"金额",before:{format:"money",value:1022},after:{format:"money",value:2060},
+  });
+  const older=s.history.get(user,target,{page:1,entry:"实际费用/1/"+checkpoint.entry_id,category:"金额"});
+  assert.ok(older.page>1);
+  assert.equal(older.selected.title,"核定实际费用");
+  assert.equal(older.selected.badge,undefined);
+  assert.equal(older.selected.links[0].target.entry,"实际费用/1/"+checkpoint.entry_id);
+  const empty=s.history.get(user,target,{page:1,category:"金额",start:"2030-01-01"});
+  assert.equal(empty.selected,null);
+  assert.equal(empty.total,0);
+  assert.ok(empty.versions.some(version=>version.id==="项目批准/1"));
+  const approval=s.history.get(user,target,{page:1,entry:"项目批准/1"});
+  assert.equal(approval.selected.tables.find(table=>table.title==="批准作业位置").rows.length,3);
+});

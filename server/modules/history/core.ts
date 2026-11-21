@@ -1,5 +1,5 @@
 import { isObject } from "../../shared/types/contracts.js";
-import type { HistoryChange, HistoryEntry, HistoryFact, HistoryItem, HistoryPage, HistoryTable, HistoryValue } from "../../shared/types/history.js";
+import type { HistoryChange, HistoryEntry, HistoryFact, HistoryItem, HistoryPage, HistoryQuery, HistoryTable, HistoryValue } from "../../shared/types/history.js";
 
 export type ReadRow = Record<string, unknown>;
 export const record = (value: unknown): ReadRow => isObject(value) ? value : {};
@@ -100,14 +100,8 @@ export interface HistoryRecord {
   entries: HistoryEntry[];
 }
 
-export interface HistoryQuery {
-  page: number;
-  category?: string;
-  actor?: string;
-  entry?: string;
-  start?: string;
-  end?: string;
-}
+export type { HistoryQuery } from "../../shared/types/history.js";
+export const HISTORY_PAGE_SIZE = 10;
 
 function item({ id, title, time, actor, summary, badge, category, tone, version, versionGroup }: HistoryEntry): HistoryItem {
   return { id, title, time, actor, summary, badge, category, tone, version, versionGroup };
@@ -135,7 +129,7 @@ export function historyPage(
     }
     return true;
   });
-  const pageSize = 10;
+  const pageSize = HISTORY_PAGE_SIZE;
   const selectedPosition = query.entry ? filtered.findIndex(row => row.id === query.entry) : -1;
   const page = selectedPosition >= 0 ? Math.floor(selectedPosition / pageSize) + 1
     : Math.max(1, Math.min(query.page, Math.ceil(filtered.length / pageSize)));
