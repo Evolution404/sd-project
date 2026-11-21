@@ -58,8 +58,13 @@ try {
   let drawer=await openGuide();
   await drawer.getByRole("tab",{name:"当前页面"}).click();
   await drawer.getByText("先记录现场问题",{exact:false}).first().waitFor();
-  assert.equal(await drawer.getByRole("tab").count(),4);
+  assert.deepEqual(await drawer.getByRole("tab").allTextContents(),
+    ["当前页面","操作搜索","模块导览","全流程实操","业务课程"]);
   await page.screenshot({path:join(out,"guide-current-1500.png"),fullPage:true});
+  await drawer.getByRole("tab",{name:"全流程实操"}).click();
+  await drawer.getByRole("heading",{name:"需求到结项",exact:true}).waitFor();
+  assert.equal(await drawer.getByRole("button",{name:"前往办理",exact:true}).count(),0,
+    "普通演示环境展示独立训练入口说明");
   await drawer.getByRole("tab",{name:"操作搜索"}).click();
   await drawer.getByRole("textbox",{name:"搜索业务操作说明"}).fill("正式批准");
   await drawer.locator(".el-collapse-item").filter({hasText:"正式批准 · 子项目管理"})
