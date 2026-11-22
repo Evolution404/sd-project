@@ -16,7 +16,7 @@ import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { createProjectForDemand, projectContext, setupContext } from "../../shared/navigation/business-context";
+import { contextOrigin, createProjectForDemand, projectContext, setupContext } from "../../shared/navigation/business-context";
 import { takeDemandDraft } from "../../shared/forms/demand-draft-handoff";
 import { ElMessage, ElMessageBox } from "element-plus";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -93,7 +93,9 @@ async function linkSelectedProject() {
 }
 function openLinkedProject() {
   if (detail.value?.binding?.project_id) {
-    void router.push(projectContext(detail.value.binding.project_id,
+    const origin = contextOrigin(router, route.query.returnTo, "projects");
+    if (origin?.query.project === detail.value.binding.project_id) void workRoute.exit(origin.fullPath);
+    else void router.push(projectContext(detail.value.binding.project_id,
       "scope", { focus: "demand", record: detail.value.id }, demandDetailsPath()));
   }
 }
@@ -310,6 +312,7 @@ function filterTable(value: Record<string, string>) {
   load();
 }
 const appliedQuery = ref("");
+const exportQuery = computed(() => listLoading.value || listReadError.value ? "" : appliedQuery.value);
 let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
@@ -430,10 +433,16 @@ async function remove(row: DemandListItem | DemandRecord) {
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "demands" && !editorRoute.value);
 const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = false; quoteOpen.value = false; });
 function closeDetails() {
+  const origin = contextOrigin(router, route.query.returnTo, "projects");
+  if (typeof origin?.query.project === "string") {
+    void workRoute.exit(origin.fullPath);
+    return;
+  }
   detailDialog.close();
   if (typeof route.query.demand === "string") {
     const query = { ...route.query };
     delete query.demand;
+    delete query.returnTo;
     void router.replace({ query });
   }
 }
@@ -473,9 +482,9 @@ onMounted(async () => {
         <span role="status">已选 {{ selected.length }} 条</span>
         <span class="muted">共 {{ total }} 条</span>
         <ExcelExportButton kind="demands" guide-action="demands.export-selection" :selected-ids="eligibleIds"
-          :disabled="eligibleIds.length !== selected.length" />
+          :disabled="!exportQuery || eligibleIds.length !== selected.length" />
         <ExchangePanel v-if="eligibleIds.length === selected.length" kind="demands" :selected-ids="eligibleIds"
-          :applied-query="appliedQuery" @changed="load" @inspect="detailDialog.open($event)" />
+          :applied-query="exportQuery" @changed="load" @inspect="detailDialog.open($event)" />
         <span v-if="selected.some(row => row.display_status !== '待确认' || row.deleted) &&
           selected.some(row => row.display_status === '待确认' && !row.deleted) && can('demand.activate')" class="muted">
           批量确认仅处理已选中的待确认需求
@@ -510,8 +519,8 @@ onMounted(async () => {
               <ElButton :loading="listLoading" @click="load">刷新</ElButton>
               <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
 
-        <ExcelExportButton kind="demands" :total="total" :applied-query="appliedQuery" :disabled="listLoading" />
-        <ExchangePanel kind="demands" :total="total" :applied-query="appliedQuery"
+        <ExcelExportButton kind="demands" :total="total" :applied-query="exportQuery" />
+        <ExchangePanel kind="demands" :total="total" :applied-query="exportQuery"
           @changed="load" @inspect="detailDialog.open($event)"
         /><ElButton data-guide-action="demands.create" v-if="can('write')" type="primary" @click="edit()"
           >新增需求</ElButton

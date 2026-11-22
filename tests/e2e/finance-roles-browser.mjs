@@ -60,18 +60,33 @@ try {
   await section(owner, "实际费用");
   assert.equal(await button(owner.detail,"核定费用").isEnabled(),true);
   await owner.page.screenshot({path:join(output,"01-admin.png"),fullPage:true});
-  // A failed refresh must not keep stale financial rows or display misleading zero totals.
+  // A summary failure must leave a working settlement list and preserve its last known totals.
   await owner.page.route("**/api/projects/*/summary", route => route.abort());
   await owner.detail.getByText("包含已删除费用", {exact:true}).click();
   await owner.detail.locator(".el-alert--error")
-    .filter({hasText:"费用数据读取失败"}).waitFor();
-  assert.equal(await owner.bill.count(), 0, "stale bill must not remain after a failed refresh");
-  await owner.page.unroute("**/api/projects/*/summary");
-  await button(owner.detail, "重新读取费用数据").click();
+    .filter({hasText:"结算总览"}).waitFor();
   await section(owner, "结算单");
   await owner.bill.waitFor();
-  assert.equal(await owner.detail.locator(".el-alert--error")
-    .filter({hasText:"费用数据读取失败"}).count(), 0);
+  assert.equal(await button(owner.detail,"导出 Excel").isEnabled(),true);
+  await owner.detail.getByRole("region",{name:"项目结算总览"}).waitFor();
+  await owner.page.unroute("**/api/projects/*/summary");
+  await button(owner.detail, "重新读取费用数据").click();
+  await owner.detail.locator(".el-alert--error").filter({hasText:"费用数据读取失败"}).waitFor({state:"hidden"});
+
+  // A failed settlement query must keep the visible rows and block export of the old query.
+  const filteredBills = url => url.pathname.endsWith("/settlements") && (url.searchParams.get("filters") || "").includes("999");
+  await owner.page.route(filteredBills, route => route.abort());
+  await button(owner.detail, "筛选本次金额").click();
+  const amount = owner.page.getByPlaceholder("筛选本次金额", {exact:true});
+  await amount.fill("999.00");
+  await amount.press("Enter");
+  await owner.detail.locator(".el-alert--error").filter({hasText:"结算单"}).waitFor();
+  await owner.bill.waitFor();
+  assert.equal(await button(owner.detail,"导出 Excel").isDisabled(),true);
+  await owner.page.unroute(filteredBills);
+  await button(owner.detail, "重新读取费用数据").click();
+  await owner.bill.waitFor({state:"hidden"});
+  await owner.detail.locator(".el-alert--error").filter({hasText:"费用数据读取失败"}).waitFor({state:"hidden"});
 
   const editor=await as("editor");
   assert.equal(await button(editor.detail,"新增结算草稿").isEnabled(),true);

@@ -7,7 +7,8 @@ import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter, type RouteLocationRaw } from "vue-router";
-import { projectContext, projectFinanceContext } from "../../shared/navigation/business-context";
+import { contextOrigin, projectContext, projectFinanceContext } from "../../shared/navigation/business-context";
+import { useWorkRoute } from "../../shared/navigation/use-work-route";
 import { api, money, statusText } from "../../shared/api/client";
 import type { FundingKind, FundingRecord, FundingProject } from "../../../../server/shared/types/funding";
 import { useListRoute } from "../../shared/composables/use-list-route";
@@ -20,6 +21,7 @@ import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 
 const props = defineProps<{ kind: FundingKind }>();
 const route = useRoute(), router = useRouter();
+const workRoute = useWorkRoute();
 const can = useAccess();
 const isAgreement = computed(() => props.kind === "agreements");
 const title = computed(() => isAgreement.value ? "执行协议" : "年度框架");
@@ -78,17 +80,15 @@ function openAgreement(id: string) {
   openRelated({ name: "agreements", query: { record: id, returnTo: relatedOrigin() } });
 }
 function openRelatedProject(id: string) {
-  const target = projectContext(id, "overview", { focus: "funding", record: selectedId.value });
-  if (typeof target !== "string" && "query" in target)
-    openRelated({ ...target, query: { ...target.query, returnTo: relatedOrigin() } });
+  const origin = contextOrigin(router, route.query.returnTo, "projects");
+  if (origin?.query.project === id) void workRoute.exit(origin.fullPath);
+  else openRelated(projectContext(id, "overview", { focus: "funding", record: selectedId.value }, relatedOrigin()));
 }
 function closeDetails() {
-  if (typeof route.query.returnTo === "string") {
-    const origin = router.resolve(route.query.returnTo);
-    if (origin.name === "frameworks" || origin.name === "agreements") {
-      void router.push(origin.fullPath);
-      return;
-    }
+  const origin = contextOrigin(router, route.query.returnTo, "frameworks", "agreements", "projects");
+  if (origin && (origin.name !== "projects" || typeof origin.query.project === "string")) {
+    void workRoute.exit(origin.fullPath);
+    return;
   }
   detailsOpen.value = false;
   if (typeof route.query.record === "string") {

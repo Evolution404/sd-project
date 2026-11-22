@@ -79,6 +79,12 @@ try {
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await detail.getByText(waiting.demand_no, { exact: true }).waitFor();
   assert.match(new URL(page.url()).hash, /#\/demands\?/);
+  await page.goto(base + "/#/projects?project=" + project.id + "&tab=scope");
+  await detail.getByRole("button", { name: waiting.demand_no, exact: true }).click();
+  await detail.getByText(waiting.demand_no, { exact: true }).waitFor();
+  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
+  assert.equal(await detail.getByRole("tab", { name: "承接需求", exact: true }).getAttribute("aria-selected"), "true");
 
   // A second active demand starts another project and links atomically.
   await page.goto(base + "/#/demands?demand=" + another.id);

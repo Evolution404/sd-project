@@ -94,6 +94,7 @@ const columns = computed<TableColumn[]>(() => (
 const selection = usePageSelection(rows, () => JSON.stringify([kind.value, query.value, deleted.value, columnFilters.value]));
 const { selectedIds, selected } = selection;
 const appliedQuery = ref("");
+const exportQuery = computed(() => loading.value || error.value ? "" : appliedQuery.value);
 let sequence = 0;
 async function load() {
   const current = ++sequence,
@@ -312,9 +313,10 @@ onMounted(async () => {
       <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
         <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="设备批量操作">
           <span role="status">已选 {{ selected.length }} 条</span>
-          <ExcelExportButton kind="assets" :asset-kind="kind === 'voltages' ? undefined : kind" :selected-ids="selectedIds" />
+          <ExcelExportButton kind="assets" :asset-kind="kind === 'voltages' ? undefined : kind" :selected-ids="selectedIds"
+            :disabled="!exportQuery" />
           <ExchangePanel kind="assets" :asset-kind="kind === 'voltages' ? undefined : kind"
-            :selected-ids="selectedIds" :applied-query="appliedQuery" @changed="load" @inspect="inspectImport" />
+            :selected-ids="selectedIds" :applied-query="exportQuery" @changed="load" @inspect="inspectImport" />
           <ElButton link @click="selection.clear">清空选择</ElButton>
           <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         </div>
@@ -343,14 +345,14 @@ onMounted(async () => {
           <div class="toolbar page-heading-actions">
       <ElButton :loading="loading" @click="load">刷新</ElButton>
       <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-      <ExcelExportButton v-if="!voltage" kind="assets" :total="total" :applied-query="appliedQuery"
-        :asset-kind="kind === 'voltages' ? undefined : kind" :disabled="loading" />
+      <ExcelExportButton v-if="!voltage" kind="assets" :total="total" :applied-query="exportQuery"
+        :asset-kind="kind === 'voltages' ? undefined : kind" />
       <ExchangePanel
         v-if="!voltage"
         :key="kind"
         kind="assets"
         :total="total"
-        :applied-query="appliedQuery"
+        :applied-query="exportQuery"
         :asset-kind="kind === 'voltages' ? undefined : kind"
         @changed="load" @inspect="inspectImport"
       />

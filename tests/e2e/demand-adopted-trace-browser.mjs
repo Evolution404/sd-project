@@ -46,13 +46,16 @@ try {
   await locations.locator("tbody tr").first().locator("button").first().click();
   await page.waitForURL(url=>url.hash.includes("#/ledger/physical")&&
     url.hash.includes("record="+towers[0].id));
-  await detail.getByRole("heading",{name:/T15/}).waitFor();
+  await detail.getByRole("heading",{name:"T15",exact:true,level:1}).waitFor();
   await detail.getByRole("heading",{name:"完整版本与审计历史"}).waitFor();
   await page.screenshot({path:join(output,"02-physical-device-history.png"),fullPage:true});
   await detail.getByRole("button",{name:"返回需求详情"}).click();
   await page.waitForURL(url=>url.hash.includes("#/demands")&&url.hash.includes("demand="+demand.id));
   await detail.getByText(demand.problem_description).first().waitFor();
   assert.equal(s.demands.get(demand.id).work_locations[0].physical_tower_id,towers[0].id);
+  await detail.getByRole("button",{name:"关闭详情",exact:true}).click();
+  await detail.getByRole("heading",{name:project.name,exact:true,level:1}).waitFor();
+  assert.equal(await detail.getByRole("tab",{name:"承接需求",exact:true}).getAttribute("aria-selected"),"true");
   assert.deepEqual(errors,[]);
   console.log("ADOPTED_TRACE_BROWSER_OK project->demand->frozen operation version->demand->physical device and history->demand with stable IDs");
 } finally {

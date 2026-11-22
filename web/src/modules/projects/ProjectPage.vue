@@ -24,7 +24,7 @@ import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
 import { ref, onMounted, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
-import { demandContext, fundContext, projectContext } from "../../shared/navigation/business-context";
+import { contextOrigin, demandContext, fundContext, projectContext } from "../../shared/navigation/business-context";
 import { projectDisplayStatuses } from "../../../../server/shared/project-display-status";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
@@ -134,6 +134,19 @@ function closeProjectDetails() {
     void router.replace({ query });
   }
 }
+function projectDetailsPath() {
+  return router.resolve({ path: route.path, query: { ...route.query, project: detail.value?.id, tab: tab.value } }).fullPath;
+}
+function openRelatedDemand(id: string) {
+  const origin = contextOrigin(router, route.query.returnTo, "demands");
+  if (origin?.query.demand === id) void workRoute.exit(origin.fullPath);
+  else void router.push(demandContext(id, projectDetailsPath()));
+}
+function openRelatedFunding(kind: "frameworks" | "agreements", id: string) {
+  const origin = contextOrigin(router, route.query.returnTo, kind);
+  if (origin?.query.record === id) void workRoute.exit(origin.fullPath);
+  else void router.push(fundContext(kind, id, projectDetailsPath()));
+}
 const projectActions = ref<ProjectAction[]>([]);
 const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
 const overviewFramework = ref<ProjectReference | null>(null);
@@ -195,6 +208,7 @@ const overviewProject = computed<ProjectOverviewFacts | null>(() => {
     status: row.status,
     deleted: Boolean(row.deleted),
     framework_id: row.framework_id,
+    agreement_id: row.funding?.agreement_id ?? null,
     scopes: (row.scopes || []).map((scope) => ({ binding: scope.binding })),
     approval: row.approval
       ? { version_no: row.approval.version_no, approved_budget_fen: row.approval.approved_budget_fen }
@@ -370,16 +384,21 @@ function filterTable(value: Record<string, string>) {
   load();
 }
 const appliedQuery = ref("");
+const exportQuery = computed(() => listLoading.value || listReadError.value ? "" : appliedQuery.value);
 let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
   listReadError.value = "";
   try {
-    const value = await api<{ items: ProjectListItem[]; total: number }>(
-      `/projects?page=${page.value}&q=${encodeURIComponent(query.value)}&deleted=${showDeleted.value}&sort=${encodeURIComponent(sortKey.value || "created_at")}&direction=${sortDirection.value}&filters=${encodeURIComponent(JSON.stringify(columnFilters.value))}`,
-    );
+    const parameters = new URLSearchParams({
+      page: String(page.value), q: query.value, deleted: String(showDeleted.value),
+      sort: sortKey.value || "created_at", direction: sortDirection.value,
+      filters: JSON.stringify(columnFilters.value),
+    });
+    const value = await api<{ items: ProjectListItem[]; total: number }>(`/projects?${parameters}`);
     if (sequence !== loadSequence) return;
+    appliedQuery.value = parameters.toString();
     rows.value = value.items;
     total.value = value.total;
     const id = detail.value?.id;
@@ -1047,7 +1066,7 @@ onMounted(async () => {
         <span role="status">已选 {{ selected.length }} 条</span>
         <span class="muted">共 {{ total }} 条</span>
         <ExcelExportButton kind="projects" guide-action="projects.export-selection" :selected-ids="eligibleIds"
-          :disabled="eligibleIds.length !== selected.length" />
+          :disabled="!exportQuery || eligibleIds.length !== selected.length" />
         <ElButton data-guide-action="projects.batch-stock" v-if="selected.some(row => row.display_status === '储备' && !row.deleted) && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
         <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
@@ -1074,7 +1093,7 @@ onMounted(async () => {
             <div class="toolbar page-heading-actions">
               <ElButton :loading="listLoading" @click="load">刷新</ElButton>
               <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-              <ExcelExportButton kind="projects" :applied-query="appliedQuery" :total="total" :disabled="listLoading" />
+              <ExcelExportButton kind="projects" :applied-query="exportQuery" :total="total" />
 
         <ElButton
           v-if="can('write')"
@@ -1133,7 +1152,7 @@ onMounted(async () => {
         :delete-reason="deleteReason" :close-reason="closeAction?.reason ?? (closeAction ? '' : undefined)"
         :description-columns="descriptionColumns" :settlement-blockers="closeAction?.settlement_blockers"
         @settlement="(id) => goToProjectWork('finance', id, '', 'settlement')"
-        @fund="(kind, id) => router.push(fundContext(kind, id))"
+        @fund="openRelatedFunding"
         @edit="editProject(detail || undefined)" @remove="removeProject" @close="openCloseReview" />
     </template>
     <template v-if="tab === 'scope'"
@@ -1163,7 +1182,7 @@ onMounted(async () => {
               </ElTag>
             </template>
             <template v-else-if="column.key === 'demand_no'">
-              <ElButton link type="primary" @click="router.push(demandContext(row.demand_id))">{{ row.demand_no }}</ElButton>
+              <ElButton link type="primary" @click="openRelatedDemand(row.demand_id)">{{ row.demand_no }}</ElButton>
               <ElTag v-if="row.demand_id === focusedDemandId" size="small" type="info">当前定位</ElTag>
             </template>
             <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
@@ -1183,7 +1202,7 @@ onMounted(async () => {
         title="正式批准前，请填写全部关联需求和本次候选需求的预计解决时间">
         <div class="toolbar">
           <ElButton v-for="demand in missingExpected" :key="demand.id" link type="primary"
-            @click="router.push(demandContext(demand.id))">{{ demand.number }}</ElButton>
+            @click="openRelatedDemand(demand.id)">{{ demand.number }}</ElButton>
         </div>
         <p v-if="approvalDraft">若补填的是草稿采纳的需求，请撤回草稿后按最新需求版本重新编制。</p>
       </ElAlert>

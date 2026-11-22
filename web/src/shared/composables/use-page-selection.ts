@@ -15,6 +15,12 @@ export function usePageSelection<T extends { id: string; deleted?: boolean }>(
     clear();
     ElMessage.info("筛选已变化，已清空原有选中项");
   }, { flush: "sync" });
+  watch(pageRows, freshRows => {
+    if (!records.value.size) return;
+    const refreshed = new Map(records.value);
+    for (const row of freshRows) if (refreshed.has(row.id)) refreshed.set(row.id, row);
+    records.value = refreshed;
+  });
 
   function remove(ids: string[]) {
     const remaining = new Map(records.value);

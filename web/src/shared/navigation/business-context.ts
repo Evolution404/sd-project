@@ -23,11 +23,16 @@ export function projectContext(
     },
   };
 }
-export function demandContext(demandId: string): RouteLocationRaw {
-  return { name: "demands", query: { demand: demandId } };
+export function demandContext(demandId: string, returnTo?: string): RouteLocationRaw {
+  return { name: "demands", query: { demand: demandId, ...(returnTo ? { returnTo } : {}) } };
 }
-export function fundContext(kind: "frameworks" | "agreements", recordId: string): RouteLocationRaw {
-  return { name: kind, query: { record: recordId } };
+export function fundContext(kind: "frameworks" | "agreements", recordId: string, returnTo?: string): RouteLocationRaw {
+  return { name: kind, query: { record: recordId, ...(returnTo ? { returnTo } : {}) } };
+}
+export function contextOrigin(router: Router, returnTo: unknown, ...names: string[]) {
+  if (typeof returnTo !== "string" || !returnTo.startsWith("/") || returnTo.startsWith("//")) return null;
+  const origin = router.resolve(returnTo);
+  return names.includes(String(origin.name)) ? origin : null;
 }
 export function createProjectForDemand(demandId: string): RouteLocationRaw {
   return { name: "projects", query: { action: "create", demand: demandId } };

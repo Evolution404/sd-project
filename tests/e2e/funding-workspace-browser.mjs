@@ -78,6 +78,24 @@ try {
   await editor.waitFor({ state: "hidden" });
   assert.ok(s.funding.list("agreements").some(row => row.name === "浏览器创建协议"));
   await page.screenshot({ path: join(out, "agreement-list.png"), fullPage: true });
+  const agreementLookup = url => url.pathname === `/api/funding/agreements/${agreement.id}` &&
+    url.searchParams.get("deleted") === "true";
+  await page.route(agreementLookup, route => route.abort());
+  await page.goto(base + "/#/projects?project=" + project.id + "&tab=overview");
+  await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
+  const agreementLink = detail.getByRole("button", { name: "通过执行协议 · 查看执行协议", exact: true });
+  await agreementLink.waitFor();
+  assert.equal(await detail.getByText("直接归属年度框架（无需执行协议）", { exact: true }).count(), 0);
+  await page.unroute(agreementLookup);
+  await agreementLink.click();
+  await detail.getByRole("heading", { name: "安全测试协议正式变更", exact: true }).waitFor();
+  await detail.getByRole("button", { name: "关闭详情" }).click();
+  await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
+  await detail.getByRole("button", { name: framework.name, exact: true }).click();
+  await detail.getByRole("heading", { name: framework.name, exact: true }).waitFor();
+  await detail.getByRole("button", { name: "关闭详情" }).click();
+  await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
+  assert.equal(await detail.getByRole("tab", { name: "概览", exact: true }).getAttribute("aria-selected"), "true");
   assert.deepEqual(errors, []);
   console.log("FUNDING_WORKSPACE_BROWSER_OK two dedicated business pages, related facts, version history, edit and create");
 } catch (error) {

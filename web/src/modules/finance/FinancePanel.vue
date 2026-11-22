@@ -139,6 +139,7 @@ function markQuantityInvalid(path: string, invalid: boolean) {
   invalidQuantity.value = { ...invalidQuantity.value, [path]: invalid };
 }
 const focusedSection = ref<HTMLElement>();
+const focusedTarget = ref<FocusedRecord | null>(null);
 const focusedFact = ref<EditingFact | EditingFact[] | null>(null);
 const focusedLoading = ref(false);
 const focusedError = ref("");
@@ -148,26 +149,34 @@ const focusedCurrent = computed<EditingFact | null>(() => Array.isArray(focusedF
   ? [...focusedFact.value].sort((a, b) => (b.version_no || 0) - (a.version_no || 0))[0] || null
   : focusedFact.value);
 const focusedTitle = computed(() => {
-  const f = props.focus;
-  if (!f) return "结算单详情";
+  const f = focusedTarget.value;
+  if (!f || !props.focus) return "结算单详情";
   return f.kind === "cost" ? "定位真实费用" : f.kind === "settlement" ? "定位独立结算单" : "定位正式费用核对";
 });
 async function inspectSettlement(row: BillFact) {
   financeSection.value = "settlement";
+  focusSequence++;
+  focusedTarget.value = { kind: "settlement", id: row.id };
   focusedFact.value = row;
+  focusedLoading.value = false;
+  focusedError.value = "";
   focusedHistoryOpen.value = false;
   await nextTick();
   jumpToSection(focusedSection.value);
 }
 async function inspectImportedSettlement(id: string) {
-  const row = await api<BillFact>(`/projects/${props.project.id}/settlements/${id}`);
-  await inspectSettlement(row);
+  financeSection.value = "settlement";
+  focusedTarget.value = { kind: "settlement", id };
+  await nextTick();
+  jumpToSection(focusedSection.value);
+  await loadFocusedRecord();
 }
 async function loadFocusedRecord() {
-  const sequence = ++focusSequence, focus = props.focus;
+  const sequence = ++focusSequence, focus = focusedTarget.value;
   focusedHistoryOpen.value = false;
   focusedFact.value = null;
   focusedError.value = "";
+  focusedLoading.value = false;
   if (!focus || !focus.id) return;
   focusedLoading.value = true;
   try {
@@ -188,7 +197,8 @@ async function loadFocusedRecord() {
   }
 }
 watch(() => [props.project.id, props.focus?.kind, props.focus?.id], () => {
-  if (props.focus) financeSection.value = props.focus.kind;
+  focusedTarget.value = props.focus?.id ? { ...props.focus } : null;
+  if (focusedTarget.value) financeSection.value = focusedTarget.value.kind;
   void loadFocusedRecord();
 }, { immediate: true });
 const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
@@ -199,7 +209,6 @@ const emit = defineEmits<{
 }>();
 const costs = ref<CostFact[]>([]),
   listLoading = ref(false),
-  listError = ref(""),
   bills = ref<BillFact[]>([]),
   summary = ref<Partial<FinanceSummary>>({}),
   dialog = ref(""),
@@ -208,6 +217,14 @@ const costs = ref<CostFact[]>([]),
   busy = ref(false),
   history = ref<HistoryTarget | null>(null),
   reconciliations = ref<ReconciliationFact[]>([]);
+const financeSections = {
+  costs: "实际费用", bills: "结算单", summary: "结算总览",
+  reconciliations: "费用核对", categories: "费用科目",
+} as const;
+type FinanceReadSection = keyof typeof financeSections;
+const readErrors = ref<Partial<Record<FinanceReadSection, string>>>({});
+const listError = computed(() => Object.keys(readErrors.value).length > 0);
+const exportBillQuery = computed(() => listLoading.value || readErrors.value.bills ? "" : billQuery.value);
 const approvalChoices = ref<ProjectDetail["approvals"]>([]);
 const approvalsLoading = ref(false);
 const approvalsError = ref("");
@@ -355,13 +372,12 @@ let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
   listLoading.value = true;
-  listError.value = "";
   try {
     const billParameters = new URLSearchParams({
       page: String(billPage.value), page_size: "30", sort: financeSort.value.bills || "created_at",
       direction: financeDirection.value.bills, filters: JSON.stringify(financeFilters.value.bills),
     });
-    const [costResult, billResult, summaryResult, reconResult, treeResult] = await Promise.all([
+    const [costResult, billResult, summaryResult, reconResult, treeResult] = await Promise.allSettled([
       api<{ items: CostFact[]; total: number }>(`/projects/${props.project.id}/costs?page=${costPage.value}&page_size=30&deleted=${showDeletedCosts.value}&sort=${encodeURIComponent(financeSort.value.costs || "created_at")}&direction=${financeDirection.value.costs}&filters=${encodeURIComponent(JSON.stringify(financeFilters.value.costs))}`),
       api<{ items: BillFact[]; total: number }>(`/projects/${props.project.id}/settlements?${billParameters}`),
       api<FinanceSummary>(`/projects/${props.project.id}/summary`),
@@ -369,23 +385,21 @@ async function load() {
       api<CostCategoryNode[]>(`/projects/${props.project.id}/cost-tree`),
     ]);
     if (sequence !== loadSequence) return;
-    categoryNodes.value = treeResult;
-    costs.value = costResult.items;
-    costTotal.value = costResult.total;
-    billQuery.value = billParameters.toString();
-    bills.value = billResult.items;
-    billTotal.value = billResult.total;
-    summary.value = summaryResult;
-    reconciliations.value = reconResult.items;
-    reconTotal.value = reconResult.total;
-  } catch (error) {
-    if (sequence === loadSequence) {
-      listError.value = "费用数据读取失败：" + (error as Error).message;
-      categoryNodes.value = [];
-      costs.value = []; bills.value = []; reconciliations.value = [];
-      costTotal.value = 0; billTotal.value = 0; reconTotal.value = 0;
-      summary.value = {};
+    const errors: Partial<Record<FinanceReadSection, string>> = {};
+    function apply<T>(section: FinanceReadSection, result: PromiseSettledResult<T>, update: (value: T) => void) {
+      if (result.status === "fulfilled") update(result.value);
+      else errors[section] = result.reason instanceof Error ? result.reason.message : "读取失败";
     }
+    apply("costs", costResult, value => { costs.value = value.items; costTotal.value = value.total; });
+    apply("bills", billResult, value => {
+      billQuery.value = billParameters.toString();
+      bills.value = value.items;
+      billTotal.value = value.total;
+    });
+    apply("summary", summaryResult, value => { summary.value = value; });
+    apply("reconciliations", reconResult, value => { reconciliations.value = value.items; reconTotal.value = value.total; });
+    apply("categories", treeResult, value => { categoryNodes.value = value; });
+    readErrors.value = errors;
   } finally {
     if (sequence === loadSequence) listLoading.value = false;
   }
@@ -748,10 +762,9 @@ function showHistory(row: BillFact) {
   history.value = { kind: "settlements", id: row.id, project: props.project.id };
 }
 const focusedHistoryTarget = computed<HistoryTarget | null>(() => {
-  const focus = props.focus;
-  if (focus) return { kind: focus.kind === "cost" ? "costs" : focus.kind === "reconciliation" ? "reconciliations" : "settlements",
-    id: focus.id, project: props.project.id };
-  return focusedCurrent.value?.id ? { kind: "settlements", id: focusedCurrent.value.id, project: props.project.id } : null;
+  const focus = focusedTarget.value;
+  return focus ? { kind: focus.kind === "cost" ? "costs" : focus.kind === "reconciliation" ? "reconciliations" : "settlements",
+    id: focus.id, project: props.project.id } : null;
 });
 useListRoute({
   costPage, billPage, reconPage,
@@ -777,6 +790,8 @@ watch(() => props.project.id, () => {
   categoryNodes.value = [];
   costs.value = []; bills.value = []; reconciliations.value = [];
   summary.value = {};
+  readErrors.value = {};
+  billQuery.value = "";
   costTotal.value = 0; billTotal.value = 0; reconTotal.value = 0;
   void load();
 }, { immediate: true });
@@ -791,7 +806,7 @@ watch(() => props.project.id, () => {
       :owner-kind="evidence.ownerKind"
       :owner-id="evidence.ownerId"
   /></template>
-  <div v-if="focus || focusedFact" ref="focusedSection" class="panel" v-loading="focusedLoading">
+  <div v-if="focusedTarget" ref="focusedSection" class="panel" v-loading="focusedLoading">
     <div class="toolbar">
       <h2>{{ focusedTitle }}</h2>
       <ElButton size="small" @click="loadFocusedRecord">重新读取</ElButton>
@@ -805,13 +820,13 @@ watch(() => props.project.id, () => {
         <ElDescriptionsItem label="正式版本">
           {{ focusedCurrent.version?.version_no || focusedCurrent.version_no || '查看完整历史' }}
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="focus?.kind === 'cost'" label="实际金额">
+        <ElDescriptionsItem v-if="focusedTarget.kind === 'cost'" label="实际金额">
           {{ focusedCurrent.amount_fen == null ? '未核定' : '¥' + money(focusedCurrent.amount_fen) }}
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="focus?.kind === 'settlement' || (!focus && focusedFact)" label="结算业务">
-          {{ focusedCurrent.number }}
+        <ElDescriptionsItem v-if="focusedTarget.kind === 'settlement'" label="本次结算金额">
+          {{ money(focusedCurrent.draft?.document.amount_fen ?? focusedCurrent.version?.amount_fen) }} 元
         </ElDescriptionsItem>
-        <ElDescriptionsItem v-if="focus?.kind === 'reconciliation'" label="核对金额">
+        <ElDescriptionsItem v-if="focusedTarget.kind === 'reconciliation'" label="核对金额">
           {{ focusedCurrent.reconciled_settlement_fen == null ? '—' : '¥' + money(focusedCurrent.reconciled_settlement_fen) }}
         </ElDescriptionsItem>
       </ElDescriptions>
@@ -825,10 +840,12 @@ watch(() => props.project.id, () => {
     </template>
   </div>
   <ElAlert v-if="listError" class="panel" type="error" :closable="false"
-    :title="listError" show-icon>
-    <ElButton @click="load">重新读取费用数据</ElButton>
+    title="部分费用数据读取失败" show-icon>
+    <p v-for="(message, section) in readErrors" :key="section">{{ financeSections[section] }} · {{ message }}</p>
+    <p>相应分区保留上次成功读取的结果。其余分区可继续使用。</p>
+    <ElButton :loading="listLoading" @click="load">重新读取费用数据</ElButton>
   </ElAlert>
-  <section v-if="!listError" class="panel finance-summary" v-loading="listLoading" aria-label="项目结算总览">
+  <section v-if="!readErrors.summary || summary.settlement_fen !== undefined" class="panel finance-summary" v-loading="listLoading" aria-label="项目结算总览">
     <div class="finance-summary-main">
       <div class="settlement-progress">
         <h2>结算进度</h2>
@@ -913,9 +930,9 @@ watch(() => props.project.id, () => {
       <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
         <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="结算批量操作">
           <span role="status">已选 {{ selected.length }} 条</span>
-          <ExcelExportButton kind="settlements" :project-id="project.id" :selected-ids="selectedIds" />
+          <ExcelExportButton kind="settlements" :project-id="project.id" :selected-ids="selectedIds" :disabled="!exportBillQuery" />
           <ExchangePanel :blocked-reason="settlementImportBlock" kind="settlements" :project-id="project.id"
-            :applied-query="billQuery" :selected-ids="selectedIds" @changed="load" @inspect="inspectImportedSettlement" />
+            :applied-query="exportBillQuery" :selected-ids="selectedIds" @changed="load" @inspect="inspectImportedSettlement" />
           <ElButton link @click="billSelection.clear">清空选择</ElButton>
           <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         </div>
@@ -928,10 +945,10 @@ watch(() => props.project.id, () => {
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除列筛选</ElButton>
             <ElButton :loading="listLoading" @click="load">刷新</ElButton>
             <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-            <ExcelExportButton kind="settlements" :project-id="project.id" :applied-query="billQuery"
+            <ExcelExportButton kind="settlements" :project-id="project.id" :applied-query="exportBillQuery"
               :total="billTotal" :disabled="listLoading" />
             <ExchangePanel :blocked-reason="settlementImportBlock" kind="settlements" :project-id="project.id"
-              :applied-query="billQuery" :total="billTotal" @changed="load" @inspect="inspectImportedSettlement" />
+              :applied-query="exportBillQuery" :total="billTotal" @changed="load" @inspect="inspectImportedSettlement" />
             <ElButton v-if="can('write') && project.status === 'approved' && !writeBlock" data-guide-action="finance.settlement-draft"
               type="primary" @click="edit('settlement')">新增结算草稿</ElButton>
           </div>

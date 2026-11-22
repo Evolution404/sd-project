@@ -26,9 +26,11 @@ defineProps<{ workflow: ReturnType<typeof useHandlingReview> }>();
     </template>
     <template #footer>
       <ElButton :disabled="workflow.saving.value" @click="workflow.close">取消</ElButton>
-      <ElButton type="primary" :loading="workflow.saving.value"
-        :disabled="workflow.loading.value || !!workflow.error.value || !workflow.ready.value.length"
-        @click="workflow.commit">确认办理 {{ workflow.ready.value.length }} 条</ElButton>
+      <ElButton v-if="workflow.recovery.value === 'check'" type="primary" @click="workflow.recheck">重新核对</ElButton>
+      <ElButton v-else type="primary" :loading="workflow.saving.value"
+        :disabled="workflow.loading.value || !workflow.ready.value.length" @click="workflow.commit">
+        {{ workflow.recovery.value === 'submit' ? '重试提交' : '确认办理 ' + workflow.ready.value.length + ' 条' }}
+      </ElButton>
     </template>
   </ElDialog>
 </template>

@@ -8,6 +8,7 @@ export interface ProjectOverviewFacts {
   status: string;
   deleted: boolean;
   framework_id: string;
+  agreement_id: string | null;
   scopes: Array<{ binding: unknown }>;
   approval: ProjectApprovedSnapshot | null;
   planned_end_on: string | null;

@@ -1,6 +1,6 @@
 import { computed, ref, shallowRef } from "vue";
 import { ElMessage } from "element-plus";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import type { HandlingReviewRow, HandlingTarget } from "../../../../server/shared/types/handling-batch";
 
 interface ReviewRequest {
@@ -16,6 +16,7 @@ interface ReviewRequest {
 export function useHandlingReview() {
   const request = shallowRef<ReviewRequest | null>(null);
   const open = ref(false), loading = ref(false), saving = ref(false), error = ref("");
+  const recovery = ref<"" | "check" | "submit">("");
   const rows = ref<HandlingReviewRow[]>([]);
   const ready = computed(() => rows.value.filter(row => !row.reason));
   let sequence = 0;
@@ -26,6 +27,7 @@ export function useHandlingReview() {
     request.value = config;
     rows.value = [];
     error.value = "";
+    recovery.value = "";
     loading.value = true;
     open.value = true;
     try {
@@ -33,27 +35,39 @@ export function useHandlingReview() {
         config.payload?.(config.targets) ?? { items: config.targets });
       if (token === sequence) rows.value = result;
     } catch (failure) {
-      if (token === sequence) error.value = (failure as Error).message;
+      if (token === sequence) {
+        error.value = (failure as Error).message;
+        recovery.value = "check";
+      }
     } finally {
       if (token === sequence) loading.value = false;
     }
   }
+  function recheck() {
+    if (request.value && recovery.value === "check" && !saving.value && !loading.value)
+      return review(request.value);
+  }
   async function commit() {
     const config = request.value;
-    if (!config || !ready.value.length || error.value || loading.value || saving.value) return;
+    if (!config || !ready.value.length || (error.value && recovery.value !== "submit") || loading.value || saving.value) return;
+    const targets = ready.value.map(({ id, expected_version, expected_event_seq }) =>
+      ({ id, expected_version, expected_event_seq }));
     saving.value = true;
+    error.value = "";
+    recovery.value = "";
     try {
-      const targets = ready.value.map(({ id, expected_version, expected_event_seq }) =>
-        ({ id, expected_version, expected_event_seq }));
       await api(config.commitPath, "POST", config.payload?.(targets) ?? { items: targets });
-      open.value = false;
-      ElMessage.success("已办理 " + targets.length + " 条");
-      await config.complete(targets.map(target => target.id));
     } catch (failure) {
       error.value = (failure as Error).message;
+      recovery.value = failure instanceof ApiError && (failure.code === "WRITE_RESULT_UNKNOWN" || failure.status >= 500)
+        ? "submit" : "check";
+      return;
     } finally {
       saving.value = false;
     }
+    open.value = false;
+    ElMessage.success("已办理 " + targets.length + " 条");
+    await config.complete(targets.map(target => target.id));
   }
   function close() {
     if (saving.value) return;
@@ -61,5 +75,5 @@ export function useHandlingReview() {
     loading.value = false;
     open.value = false;
   }
-  return { request, open, loading, saving, error, rows, ready, review, commit, close };
+  return { request, open, loading, saving, error, recovery, rows, ready, review, recheck, commit, close };
 }

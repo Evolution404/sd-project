@@ -49,8 +49,10 @@ const emit = defineEmits<{
         </ElButton>
       </ElDescriptionsItem>
       <ElDescriptionsItem label="归属方式">
-        <ElButton v-if="agreement" link type="primary"
-          @click="emit('fund', 'agreements', agreement.id)">通过执行协议 · {{ agreement.name }}</ElButton>
+        <ElButton v-if="project.agreement_id" link type="primary"
+          @click="emit('fund', 'agreements', project.agreement_id)">
+          通过执行协议 · {{ agreement?.id === project.agreement_id ? agreement.name : '查看执行协议' }}
+        </ElButton>
         <span v-else>直接归属年度框架（无需执行协议）</span>
       </ElDescriptionsItem>
       <ElDescriptionsItem label="计划结束日期">{{ project.planned_end_on || '未指定' }}</ElDescriptionsItem>

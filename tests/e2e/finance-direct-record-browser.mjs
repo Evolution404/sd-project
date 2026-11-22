@@ -74,6 +74,14 @@ try {
   await page.getByRole("heading", { name: "定位独立结算单", exact: true }).waitFor();
   await page.getByText(/JS-\d{6}/, { exact: false }).first().waitFor();
   await page.screenshot({ path: join(out, "settlement-target-inside-project.png") });
+  const finance = page.getByRole("region", { name: "费用与结算", exact: true });
+  await finance.getByRole("button", { name: "JS-000001", exact: true }).click();
+  await finance.getByRole("button", { name: "查看正式历史", exact: true }).click();
+  const history = finance.getByRole("region", { name: "历史记录", exact: true });
+  await history.getByRole("heading", { name: "结算单 JS-000001", exact: true }).waitFor();
+  assert.equal(await history.getByRole("heading", { name: "结算单 " + billNumber, exact: true }).count(), 0);
+  await finance.getByRole("button", { name: "重新读取", exact: true }).click();
+  await finance.getByRole("cell", { name: "108.00 元", exact: true }).waitFor();
   await page.getByRole("button", { name: "← 返回", exact: true }).click();
   await detail.getByRole("heading", { name: billNumber, exact: true }).waitFor();
   assert.equal(await listedBills.count(), 1);
@@ -82,6 +90,12 @@ try {
   await page.reload();
   await page.getByRole("button", { name: billNumber, exact: true }).waitFor();
   assert.equal(await detail.isVisible(), false);
+  await page.goto(base + "/#/finance");
+  await page.getByRole("button", { name: "【演示】青峰线防鸟装置整治", exact: true }).click();
+  await finance.getByRole("tab", { name: "结算单", exact: true }).click();
+  await finance.getByRole("button", { name: billNumber, exact: true }).click();
+  await finance.getByRole("button", { name: "重新读取", exact: true }).click();
+  await finance.getByRole("cell", { name: "166.00 元", exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log("FINANCE_DIRECT_RECORD_BROWSER_OK project-first, direct cost/settlement view, target-project finance context");
 } finally {

@@ -65,12 +65,32 @@ try {
   const selectedDemands = workbook.getWorksheet("专业需求报表");
   assert.equal(selectedDemands.actualRowCount, 5);
   assert.match(selectedDemands.getCell("A1").text, /勾选的记录，共 2 条/);
+  const checkPath = "**/api/demands/confirm-batch/preview";
+  await page.route(checkPath, route => route.abort(), { times: 1 });
   await demandBatch.getByRole("button", { name: "批量确认", exact: true }).click();
   const confirmation = page.getByRole("dialog", { name: "核对批量确认" });
+  await confirmation.getByRole("button", { name: "重新核对", exact: true }).click();
   await confirmation.getByText(/可办理 2 条，暂不可办理 0 条/).waitFor();
   assert.equal(s.demands.list().filter(row => row.status === "active").length, 0);
+  const submissions = [];
+  const commitPath = "**/api/demands/confirm-batch";
+  await page.route(commitPath, async route => {
+    submissions.push({ key: route.request().headers()["idempotency-key"], body: route.request().postDataJSON() });
+    if (submissions.length === 1) {
+      const response = await route.fetch();
+      assert.equal(response.status(), 200);
+      await route.abort();
+    } else await route.continue();
+  });
   await confirmation.getByRole("button", { name: "确认办理 2 条", exact: true }).click();
+  const retry = confirmation.getByRole("button", { name: "重试提交", exact: true });
+  await retry.waitFor();
+  assert.equal(s.demands.list().filter(row => row.status === "active").length, 2);
+  await retry.click();
   await confirmation.waitFor({ state: "hidden" });
+  await page.unroute(commitPath);
+  assert.ok(submissions[0].key);
+  assert.deepEqual(submissions, [submissions[0], submissions[0]]);
   assert.equal(s.demands.list().filter(row => row.status === "active").length, 2);
 
   await page.getByRole("tab", { name: "待承接", exact: true }).click();
@@ -135,7 +155,22 @@ try {
   assert.deepEqual(projects.map(row => s.projects.get(row.id).status), ["stocked", "stocked", "reserve"]);
 
   await page.getByRole("tab", { name: "已入库", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: /^共 2 条$/ }).waitFor();
   const row = bodyRows.filter({ hasText: projects[0].name });
+  await page.route(/\/api\/projects\?/, route => route.abort(), { times: 1 });
+  await page.getByRole("button", { name: "刷新", exact: true }).click();
+  await page.getByText("当前显示上次成功读取的结果。", { exact: true }).waitFor();
+  assert.equal(await row.isVisible(), true);
+  const projectExport = page.getByRole("button", { name: "导出 Excel", exact: true });
+  assert.equal(await projectExport.isEnabled(), false);
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await page.getByText("当前显示上次成功读取的结果。", { exact: true }).waitFor({ state: "hidden" });
+  const [projectFile] = await Promise.all([page.waitForEvent("download"), projectExport.click()]);
+  const stockedReport = new ExcelJS.Workbook();
+  await stockedReport.xlsx.readFile(await projectFile.path());
+  const stockedRows = stockedReport.getWorksheet("子项目清单").getSheetValues().flat();
+  assert.ok(stockedRows.includes(projects[0].name) && stockedRows.includes(projects[1].name));
+  assert.ok(!stockedRows.includes(projects[2].name));
   await selectRow(row);
   const listUrl = page.url();
   await row.locator(".cell-link:visible").first().click();
@@ -152,7 +187,7 @@ try {
   await page.getByRole("tab", { name: "储备", exact: true }).click();
   await projectBatch.waitFor({ state: "hidden" });
   assert.deepEqual(errors, []);
-  console.log("HANDLING_BATCH_BROWSER_OK cross-page selection, read-only export, confirm/link/stock, modal direct action and list preservation");
+  console.log("HANDLING_BATCH_BROWSER_OK cross-page selection, scoped exports, retry without duplicate writes, confirm/link/stock and list preservation");
 } catch (error) {
   await page.screenshot({ path: join(out, "failure.png"), fullPage: true });
   throw error;
