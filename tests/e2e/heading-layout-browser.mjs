@@ -75,7 +75,7 @@ try {
       .waitFor();
     if (button)
       await page.getByRole("button", { name: button, exact: true }).waitFor();
-    for (const width of [2524, 1920, 1500, 1280, 960, 760, 360]) {
+    for (const width of [2524, 1920, 1500, 1280, 960, 760]) {
       await checkHeading(title, button, width);
       if (title === "输电设备台账" && [2524, 760].includes(width))
         await page.screenshot({

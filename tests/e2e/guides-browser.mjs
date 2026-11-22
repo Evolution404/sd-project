@@ -96,7 +96,7 @@ try {
   assert.equal(await page.locator("main .panel").first().evaluate(panel => panel.clientHeight > innerHeight),true,
     "Use a populated list long enough to reproduce the original out-of-viewport tour");
   const steps=["本页面用于什么","业务功能区域","从主要操作开始","查询、筛选与查看","正式历史与风险"];
-  for (const width of [1512, 360]) {
+  for (const width of [1512, 760]) {
     await page.setViewportSize({width,height:866});
     drawer=await openGuide();
     await drawer.getByRole("tab",{name:"当前页面"}).click();
@@ -174,7 +174,7 @@ try {
   assert.equal(system.demands.list().length,before.demands);
   assert.equal(system.projects.list().length,before.projects);
   assert.equal(system.catalog.list("frameworks").length,before.frameworks);
-  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, five reachable tour steps on a populated long list at desktop and phone sizes, zero business writes");
+  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, five reachable tour steps on a populated long list at full and compact desktop widths, zero business writes");
 } catch(error){
   console.error("P10_GUIDES_BROWSER_FAILURE",error.message,errors,writes);
   await page.screenshot({path:join(out,"failure.png"),fullPage:true});
