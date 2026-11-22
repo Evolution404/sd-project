@@ -115,6 +115,7 @@ try {
     .getByRole("button", { name: "保存", exact: true })
     .click();
   await page.locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible").waitFor({ state: "hidden" });
+  await page.getByRole("tab", { name: "结算单", exact: true }).click();
   const generatedBills = [];
   for (const [index, resolved] of [2, 3, 0].entries()) {
     await page
@@ -148,6 +149,7 @@ try {
     await submitSettlement(page, row);
     await approveSettlement(page, row);
   }
+  await page.getByRole("tab", { name: "费用核对", exact: true }).click();
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await select("实际费用", "浏览器真实费用 · ¥1,400.00");
   const choice = page.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});

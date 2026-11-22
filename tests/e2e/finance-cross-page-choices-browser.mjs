@@ -39,6 +39,7 @@ try {
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.getByRole("tab", { name: "费用核对", exact: true }).click();
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "正式费用核对" });
   const params = new URLSearchParams("page=1&page_size=30&sort=created_at&direction=desc");

@@ -172,17 +172,6 @@ onMounted(refreshDashboard);
   </div>
   <ElAlert v-if="loadError" class="error-banner" type="error" show-icon :closable="false"
     title="业务概览读取失败" :description="(dashboard.as_of ? '当前保留上次结果。' : '') + loadError" />
-  <div class="metric-grid dashboard-metrics" v-loading="loading">
-    <ElButton v-for="metric in metrics" :key="metric.key" class="metric metric-action" plain
-      :data-metric="metric.key" :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
-      <span class="metric-icon"><ElIcon><component :is="metric.icon" /></ElIcon></span>
-      <span class="metric-text">
-        <span>{{ metric.label }}</span>
-        <strong>{{ dashboard.as_of ? dashboard[metric.key] : '—' }}</strong>
-      </span>
-      <ElIcon class="metric-arrow"><ArrowRight /></ElIcon>
-    </ElButton>
-  </div>
   <div class="dashboard-flow" :class="{ 'without-queue': !queue.length }">
     <section v-if="queue.length" class="panel dashboard-panel task-queue" data-guide-action="dashboard.open" v-loading="loading">
       <div class="dashboard-section-heading">
@@ -193,9 +182,8 @@ onMounted(refreshDashboard);
         <article v-for="task in visibleTasks" :key="task.key" class="queue-card">
           <div class="queue-card-heading">
             <h3>{{ task.label }}</h3>
-            <span v-if="!queueErrors[task.key]" class="queue-count">{{ queueRows[task.key]?.total }}</span>
             <ElButton v-if="queueRows[task.key]?.total" text class="queue-all" :aria-label="'查看全部' + task.label"
-              @click="openQueue(task)">全部<ElIcon><ArrowRight /></ElIcon></ElButton>
+              @click="openQueue(task)">查看全部 {{ queueRows[task.key]?.total }} 项<ElIcon><ArrowRight /></ElIcon></ElButton>
           </div>
           <p v-if="queueErrors[task.key]" class="queue-error">读取失败 · {{ queueErrors[task.key] }}</p>
           <ul v-else class="dashboard-records">
@@ -229,6 +217,17 @@ onMounted(refreshDashboard);
         <ElIcon><Bell /></ElIcon><span>{{ loadError ? '项目预警读取失败' : '暂无项目预警' }}</span>
       </div>
     </section>
+  </div>
+  <div class="metric-grid dashboard-metrics" v-loading="loading">
+    <ElButton v-for="metric in metrics" :key="metric.key" class="metric metric-action" plain
+      :data-metric="metric.key" :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
+      <span class="metric-icon"><ElIcon><component :is="metric.icon" /></ElIcon></span>
+      <span class="metric-text">
+        <span>{{ metric.label }}</span>
+        <strong>{{ dashboard.as_of ? dashboard[metric.key] : '—' }}</strong>
+      </span>
+      <ElIcon class="metric-arrow"><ArrowRight /></ElIcon>
+    </ElButton>
   </div>
   <div ref="analysisPanel" class="panel dashboard-analysis" v-loading="loading">
     <ElTabs v-model="analysisTab">
@@ -343,15 +342,6 @@ onMounted(refreshDashboard);
 }
 .queue-card-heading { display: flex; align-items: center; gap: 7px; min-height: 26px }
 .queue-card h3 { font-size: 13px; margin: 0; line-height: 1.4 }
-.queue-count {
-  color: var(--brand-primary);
-  background: var(--brand-soft);
-  border-radius: 5px;
-  padding: 2px 5px;
-  font-size: 12px;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
 .queue-all.el-button { color: var(--muted); min-width: 0; height: 24px; margin-left: auto; padding: 0 3px }
 .queue-all .el-icon { margin-left: 2px }
 .dashboard-records { list-style: none; margin: 5px 0 0; padding: 0; display: grid; gap: 3px }

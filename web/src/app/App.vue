@@ -130,8 +130,16 @@ function resizeSidebarByKeyboard(event: KeyboardEvent) {
   sidebarWidth.value = constrainSidebarWidth(next);
 }
 onUnmounted(() => endSidebarResize());
+let projectListQuery: typeof route.query = {};
+watch(() => route.fullPath, () => {
+  if (route.name === "projects" && !route.params.projectId && !route.params.work)
+    projectListQuery = Object.fromEntries(Object.entries(route.query)
+      .filter(([key]) => ["q", "page", "deleted", "sort", "direction", "filters"].includes(key)));
+}, { immediate: true, flush: "sync" });
 function selectMenu(key: string) {
-  void router.push({ name: key });
+  void router.push(key === "projects"
+    ? { name: key, params: { projectId: "", work: "", recordId: "", recordAction: "" }, query: projectListQuery }
+    : { name: key });
   mobileNavigation.value = false;
 }
 watch([user, () => route.name], () => {

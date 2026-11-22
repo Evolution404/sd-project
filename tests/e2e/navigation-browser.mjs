@@ -85,7 +85,7 @@ try {
   assert.ok(await page.getByRole('heading', { name: '输电设备台账', exact: true }).isVisible());
   await closeDetail();
   assert.equal(await page.locator('.el-pager .is-active').innerText(), '2');
-  const search = page.getByPlaceholder('搜索名称或真实属性');
+  const search = page.getByPlaceholder('搜索线路名称');
   await search.fill('路由验收17线');
   await search.press('Enter');
   await page.getByRole('row').filter({ hasText: '路由验收17线' }).locator(".cell-link:visible").first().click();
@@ -127,6 +127,7 @@ try {
   const financeUrl = page.url();
   await page.locator(".cell-link:visible").first().click();
   const financeWork = page.getByRole("region", { name: "费用与结算", exact: true });
+  await financeWork.getByRole("tab", { name: "结算单", exact: true }).click();
   await financeWork.getByRole('heading', { name: '独立结算单', exact: true }).waitFor();
   assert.match(page.url(), /\/projects\/[^/]+\/finance/);
   await page.screenshot({ path: join(output, 'project-finance-work.png'), fullPage: true });
@@ -134,6 +135,11 @@ try {
   await page.waitForURL(financeUrl);
   await page.reload();
   assert.equal(await detail.count(), 0);
+  await page.locator(".cell-link:visible").first().click();
+  await financeWork.waitFor();
+  await selectNavigation(page, '子项目管理');
+  await page.waitForURL(url => /^#\/projects(?:\?|$)/.test(url.hash));
+  await detail.waitFor({ state: "hidden" });
   // Validation awaits must still reserve a save before a second click.
   await selectNavigation(page, '子项目管理');
   await page.getByRole('button', { name: '新增子项目', exact: true }).click();

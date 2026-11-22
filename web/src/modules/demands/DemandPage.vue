@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import HandlingReviewDialog from "../../shared/ui/HandlingReviewDialog.vue";
 import { useHandlingReview } from "../../shared/composables/use-handling-review";
 import { usePageSelection } from "../../shared/composables/use-page-selection";
@@ -22,7 +23,7 @@ import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.v
 import PricingQuoteDialog from "../pricing/PricingQuoteDialog.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
-import { api, download, quantity, statusText } from "../../shared/api/client";
+import { api, quantity, statusText } from "../../shared/api/client";
 import DemandEditor from "./components/DemandEditor.vue";
 import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
 import { useWorkRoute } from "../../shared/navigation/use-work-route";
@@ -155,18 +156,7 @@ const rows = ref<DemandListItem[]>([]),
 const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]));
 const { selected, selectedIds, eligibleIds } = selection;
 const handling = useHandlingReview();
-const exportingSelection = ref(false);
 
-async function exportSelected() {
-  const ids = eligibleIds.value;
-  if (!ids.length || ids.length > 100 || exportingSelection.value) return;
-  const query = new URLSearchParams();
-  for (const id of ids) query.append("id", id);
-  exportingSelection.value = true;
-  try { await download("/exchange/demands/export?" + query); }
-  catch (failure) { ElMessage.error((failure as Error).message); }
-  finally { exportingSelection.value = false; }
-}
 
 const batchLinkItems = ref<HandlingTarget[] | null>(null);
 function selectedTargets() {
@@ -470,13 +460,24 @@ onMounted(async () => {
         <template #toolbar="{ openSettings, clearFilters, hasActiveFilters, appliedFilters }">
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="专业需求批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
-        <span class="muted">本页 {{ rows.length }} 条</span>
-        <ElButton data-guide-action="demands.export-selection" :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
+        <span class="muted">共 {{ total }} 条</span>
+        <ExcelExportButton kind="demands" guide-action="demands.export-selection" :selected-ids="eligibleIds"
+          :disabled="eligibleIds.length !== selected.length" />
+        <ExchangePanel v-if="eligibleIds.length === selected.length" kind="demands" :selected-ids="eligibleIds"
+          :applied-query="appliedQuery" @changed="load" @inspect="detailDialog.open($event)" />
+        <span v-if="selected.some(row => row.display_status !== '待确认' || row.deleted) &&
+          selected.some(row => row.display_status === '待确认' && !row.deleted) && can('demand.activate')" class="muted">
+          批量确认仅处理已选中的待确认需求
+        </span>
+        <span v-if="selected.some(row => row.display_status !== '待承接' || row.deleted) &&
+          selected.some(row => row.display_status === '待承接' && !row.deleted) && can('write')" class="muted">
+          批量关联仅处理已选中的待承接需求
+        </span>
         <ElButton data-guide-action="demands.batch-confirm" v-if="selected.some(row => row.display_status === '待确认' && !row.deleted) && can('demand.activate')" type="primary" :disabled="selected.length > 100" @click="confirmSelectedDemands">批量确认</ElButton>
         <ElButton data-guide-action="demands.batch-link" v-if="selected.some(row => row.display_status === '待承接' && !row.deleted) && can('write')" type="primary" :disabled="selected.length > 100" @click="openBatchProjectPicker">批量关联子项目</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
         <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-        <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
+        <span v-if="selected.length > 100" class="muted">每次批量办理最多 100 条</span>
         <span v-else-if="eligibleIds.length !== selected.length" class="muted">导出前请取消勾选已删除记录</span>
       </div>
           <div v-else class="unified-list-tools">
@@ -487,25 +488,19 @@ onMounted(async () => {
           clearable
           @change="applySearch" @keyup.enter="applySearch"
         />
-            <ElPopover trigger="click" placement="bottom-start">
-              <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox data-guide-action="demands.show-deleted" v-model="showDeleted" @change="resetListPage"
+            <ElCheckbox data-guide-action="demands.show-deleted" v-model="showDeleted" @change="resetListPage"
           >包含已删除</ElCheckbox
         >
-            </ElPopover>
-              <span role="status" class="muted">本页 {{ rows.length }} 条</span>
+              <span role="status" class="muted">共 {{ total }} 条</span>
               <ElTag v-for="condition in appliedFilters" :key="condition.label" effect="plain">{{ condition.label }} · {{ condition.value }}</ElTag>
-              <ElTag v-if="showDeleted" effect="plain">包含已删除</ElTag>
               <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
             </div>
             <div class="toolbar page-heading-actions">
               <ElButton :loading="listLoading" @click="load">刷新</ElButton>
               <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
 
-        <ExchangePanel
-          kind="demands"
-          :selected-ids="eligibleIds"
-          :applied-query="appliedQuery"
+        <ExcelExportButton kind="demands" :total="total" :applied-query="appliedQuery" :disabled="listLoading" />
+        <ExchangePanel kind="demands" :total="total" :applied-query="appliedQuery"
           @changed="load" @inspect="detailDialog.open($event)"
         /><ElButton data-guide-action="demands.create" v-if="can('write')" type="primary" @click="edit()"
           >新增需求</ElButton

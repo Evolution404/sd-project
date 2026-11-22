@@ -130,7 +130,7 @@ try {
   // Changing the query from page 2 must display page 1 of the NEW result set.
   await page.locator(".el-pagination .btn-next").first().click();
   await page.waitForFunction(() => document.querySelector(".el-pagination .el-pager .is-active")?.textContent?.trim() === "2");
-  const search = page.getByPlaceholder("搜索名称或真实属性");
+  const search = page.getByPlaceholder("搜索线路名称");
   await search.fill("测试可拖动侧栏和列宽");
   await search.press("Enter");
   await table.getByRole("cell", { name: "测试可拖动侧栏和列宽", exact: true }).waitFor();

@@ -206,7 +206,7 @@ try {
   await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page.getByRole("tab", { name: "线路", exact: true }).click();
   await page
-    .getByRole("button", { name: "Excel 批量处理", exact: true })
+    .getByRole("button", { name: "导入 Excel", exact: true })
     .click();
   const buffer = await makeWorkbook("assets", {
     documents: [{ name: "浏览器批量线路", voltage_name: "220kV" }],
@@ -220,13 +220,13 @@ try {
   });
   await page.getByText("新增 2", { exact: false }).waitFor();
   await page
-    .getByRole("button", { name: "确认提交有效单据", exact: true })
+    .getByRole("button", { name: /^保存 \d+ 条台账$/ })
     .click();
-  await page
-    .getByText("已处理 2 张单据，失败 0 项", { exact: false })
-    .waitFor();
+  const result = page.getByRole("dialog", { name: "导入 Excel" });
+  await result.getByText("已处理 2 条", { exact: true }).waitFor();
+  assert.equal(await result.getByRole("region", { name: "需要处理" }).count(), 0);
   assert.ok(s.catalog.list("towers").some((row) => row.tower_no === "#77"));
-  await page.getByRole("button", { name: "关闭", exact: true }).click();
+  await result.getByRole("button", { name: "完成", exact: true }).click();
   if (await page.getByRole("button", { name: "打开导航" }).isVisible())
     await page.getByRole("button", { name: "打开导航" }).click();
   await selectNavigation(page, "专业需求");

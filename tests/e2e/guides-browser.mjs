@@ -92,7 +92,7 @@ try {
   }
   await drawer.locator(".el-drawer__close-btn").click();
   await drawer.waitFor({state:"hidden"});
-  await page.getByText("本页 24 条",{exact:true}).waitFor();
+  await page.getByRole("status").filter({hasText:/^共 24 条$/}).waitFor();
   assert.equal(await page.locator("main .panel").first().evaluate(panel => panel.clientHeight > innerHeight),true,
     "Use a populated list long enough to reproduce the original out-of-viewport tour");
   const steps=["本页面用于什么","业务功能区域","从主要操作开始","查询、筛选与查看","正式历史与风险"];
@@ -126,7 +126,7 @@ try {
     // Closing the tour must release the overlay for the original table.
     await page.getByRole("tab",{name:"待承接",exact:true}).click();
     await page.getByRole("tab",{name:"全部需求",exact:true}).click();
-    await page.getByText("本页 24 条",{exact:true}).waitFor();
+    await page.getByRole("status").filter({hasText:/^共 24 条$/}).waitFor();
   }
 
   await page.setViewportSize({width:1512,height:866});

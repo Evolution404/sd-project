@@ -59,8 +59,8 @@ export async function api<T = unknown>(
   }
   return result;
 }
-export async function download(path: string, filename?: string) {
-  const response = await fetch("/api" + path, { credentials: "same-origin" });
+export async function download(path: string, filename?: string, options?: RequestInit) {
+  const response = await fetch("/api" + path, { ...options, credentials: "same-origin" });
   if (!response.ok) throw new Error((await response.json()).message);
   const url = URL.createObjectURL(await response.blob());
   const link = document.createElement("a");

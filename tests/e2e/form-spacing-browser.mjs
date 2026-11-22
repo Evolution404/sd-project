@@ -93,6 +93,7 @@ try {
         }));
       assert.ok(alignment.every(diff => diff < 8), "panel headings and buttons must share a baseline " + alignment);
     }
+    if (kind === "settlement") await page.getByRole("tab", { name: "结算单", exact: true }).click();
     await page.getByRole("button", { name: button, exact: true }).click();
     const routed = ["operation", "demand", "settlement"].includes(kind);
     const dialog = routed ? page.getByRole("region", { name: kind === "operation" ? "新增操作类型" : kind === "demand" ? "新增专业需求" : "编制结算草稿", exact: true })

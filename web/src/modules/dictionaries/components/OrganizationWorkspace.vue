@@ -273,7 +273,7 @@ const projectDialog = useEntityDialog(
       </div>
       <div class="toolbar page-heading-actions">
         <ElButton :loading="loading" @click="load">刷新组织</ElButton>
-        <ElButton v-if="can('admin')" data-guide-action="dictionaries.organization-root" type="primary" @click="edit()">新增根单位</ElButton>
+        <ElButton v-if="can('admin')" data-guide-action="dictionaries.organization-root" type="primary" @click="edit()">新增一级单位</ElButton>
       </div>
     </div>
     <div class="mobile-tree-switch" role="group" aria-label="单位视图切换">

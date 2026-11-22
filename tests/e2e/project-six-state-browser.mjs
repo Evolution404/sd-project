@@ -66,7 +66,7 @@ try {
   await selectStatus("变更中",project.name);
   await page.getByRole("row").filter({hasText:project.name}).locator(".cell-link:visible").first().click();
   await detail.locator(".detail-header").getByText("变更中", { exact: true }).waitFor();
-  await detail.getByRole("button",{name:"查看变更差异",exact:true}).click();
+  await detail.getByRole("button",{name:"审核变更",exact:true}).click();
   const review = page.getByRole("region", { name: "审核项目变更", exact: true });
   await review.getByRole("button", { name: "确认正式批准", exact: true }).waitFor();
   await page.screenshot({path:join(out,"project-change-pending.png"),fullPage:true});

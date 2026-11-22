@@ -1,3 +1,4 @@
+import { exchangeReportScope } from "../../shared/exchange-display.js";
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
 import { createReferences } from "./references.js";
@@ -753,8 +754,8 @@ export function createAssetExchange(system: ExchangePorts) {
           管辖长度米: row.transmission_center_length_mm == null
             ? "" : row.transmission_center_length_mm / 1000,
         })),
-      ]);
-    return makeWorkbook("assets", rows);
+      ], [], exchangeReportScope(options, rootCount));
+    return makeWorkbook("assets", rows, { assetKind: options.assetKind });
   }
   return {
     preview,

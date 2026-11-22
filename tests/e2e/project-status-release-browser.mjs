@@ -52,7 +52,7 @@ try {
   const detail=page.locator(".business-detail-dialog:visible");
   await detail.getByRole("tab",{name:"承接需求"}).click();
   await detail.getByText("当前正式批准范围内的需求不可直接解绑").waitFor();
-  const release=detail.getByRole("button",{name:"显式解绑",exact:true});
+  const release=detail.getByRole("button",{name:"解除承接",exact:true});
   await release.waitFor();
   assert.ok(await release.isDisabled(),"approved bound demand must have disabled release action");
   assert.match((await release.getAttribute("title"))||"",/正式批准范围/);

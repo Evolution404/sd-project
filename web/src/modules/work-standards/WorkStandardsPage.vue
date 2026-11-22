@@ -334,15 +334,13 @@ onMounted(async () => {
             <ElInput
         v-model="query"
         clearable
-        placeholder="搜索名称或真实属性"
+        placeholder="搜索操作类型或作业对象名称"
         @change="
           page = 1;
           load();
         "
       />
-            <ElPopover trigger="click" placement="bottom-start">
-              <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox data-guide-action="standards.show-deleted"
+            <ElCheckbox data-guide-action="standards.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -350,7 +348,6 @@ onMounted(async () => {
         "
         >包含已删除</ElCheckbox
       >
-            </ElPopover>
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
           </div>
           <div class="toolbar page-heading-actions">

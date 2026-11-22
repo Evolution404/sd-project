@@ -4,20 +4,22 @@ import {
   makeWorkbook,
   makeBusinessReport,
   errorsWorkbook,
+  correctionWorkbook,
   issue,
   attributeKey,
 } from "./workbook.js";
+import { exchangeReportScope, issueDetails } from "../../shared/exchange-display.js";
 import { createAssetExchange } from "./assets.js";
 import { createReferences } from "./references.js";
 import { cleanRow as clean, detailIdentity as identity, mergeDetails, differences } from "./details.js";
 import { authorize, id, now, digest } from "../../platform/auth/service.js";
 import { requireValue, expectedVersion } from "../../shared/errors/business-error.js";
 import type { ExchangePorts } from "./ports.js";
-import type {Actor} from "../../shared/types/contracts.js";
+import type {Actor, ListQuery} from "../../shared/types/contracts.js";
 import type {DemandRecord} from "../../shared/types/demands.js";
 import type {ParsedWorkbook,ParsedWorkbookRow,WorkbookKind,WorkbookIssue,ExchangeCommitResult,
   ExchangeMode,ExchangePreviewOptions,ExchangeExportOptions,
-  ExchangePreviewDocument,ExchangePrepareResult,ExchangeCommitInput} from "../../shared/types/exchange.js";
+  ExchangePreviewDocument,ExchangePrepareResult,ExchangeCommitInput,ExchangePreview,ExchangeBatch,AssetExchangeKind} from "../../shared/types/exchange.js";
 import {BusinessError} from "../../shared/errors/business-error.js";
 import {isObject} from "../../shared/types/contracts.js";
 import type {DetailKind} from "./details.js";
@@ -500,10 +502,34 @@ export function createExchange(system:ExchangePorts) {
       issues,
     };
   }
-  async function preview(actor:Actor,kind:WorkbookKind,buffer:Buffer,options:ExchangePreviewOptions = {}) {
+  function batchResult(batch: ExchangeBatch): ExchangeCommitResult {
+    const body: unknown = JSON.parse(batch.draft_json);
+    requireValue(isObject(body) && isObject(body.result), "尚未保存导入结果", 409);
+    const result = body.result;
+    requireValue(Array.isArray(result.results) && result.results.every(isObject) &&
+      Array.isArray(result.issues) && result.issues.every(isObject) &&
+      typeof result.submitted_at === "string", "正式批次结果结构无效", 409);
+    return result as unknown as ExchangeCommitResult;
+  }
+  function previousWorkbook(actor: Actor, kind: WorkbookKind, sha256: string, projectId?: string) {
+    const previous = exchangePersistence.submittedWorkbook(sha256, kind, projectId);
+    if (!previous) return;
+    requireValue(previous.created_by === actor.id, "此文件已由其他人员导入，请在业务列表核对结果。", 409);
+    return { token: previous.id, result: batchResult(previous) };
+  }
+  async function preview(actor:Actor,kind:WorkbookKind,buffer:Buffer,options:ExchangePreviewOptions = {}): Promise<ExchangePreview> {
+    authorize(actor, kind === "assets" ? "admin" : "write");
+    const sha256 = digest(buffer);
+    const previous = previousWorkbook(actor, kind, sha256, options.projectId);
+    if (previous && !options.newSettlement) return previousPreview(previous);
+    if (kind === "settlements" && options.projectId) {
+      const project = system.projects.get(options.projectId);
+      requireValue(project.status === "approved" && project.approval, "项目正式批准后才可导入结算。", 409);
+    }
+    requireValue(!options.newSettlement || (kind === "settlements" && previous &&
+      previous.result.results.every(row => row.action === "create") && !previous.result.issues.length),
+      "只有已完成的新增结算文件可以作为新一期使用。", 409);
     if (kind === "assets") return assets.preview(actor, buffer, options);
-    authorize(actor, "write");
-    requireValue(["demands", "settlements"].includes(kind), "未知交换类型");
     const started = performance.now();
     const parsed = await parseWorkbook(buffer, kind);
     const parsedAt = performance.now();
@@ -534,12 +560,16 @@ export function createExchange(system:ExchangePorts) {
       options.mode || "mixed",
       options.projectId,
     );
+    if (options.newSettlement)
+      requireValue(!prepared.issues.length && prepared.documents.length > 0 &&
+        prepared.documents.every(row => row.action === "create"), "请用新增结算模板编制新一期。", 409);
     const token = id(),
       body = {
         kind,
         mode: options.mode || "mixed",
         projectId: options.projectId || null,
-        sha256: digest(buffer),
+        repeatOf: options.newSettlement ? previous?.token : undefined,
+        sha256,
         parsed,
         ...prepared,
       };
@@ -562,6 +592,13 @@ export function createExchange(system:ExchangePorts) {
         total: performance.now() - started,
       },
       summary: counts(prepared),
+    };
+  }
+  function previousPreview(prior: { token: string; result: ExchangeCommitResult }): ExchangePreview {
+    return {
+      token: prior.token, documents: [], issues: prior.result.issues, previous: prior.result,
+      summary: { documents: 0, invalid_documents: 0, created: 0, updated: 0, unchanged: 0, duplicate_issues: 0, conflicts: 0 },
+      timings_ms: { parse: 0, total: 0 },
     };
   }
   function counts(prepared:ExchangePrepareResult) {
@@ -599,8 +636,11 @@ export function createExchange(system:ExchangePorts) {
         );
         requireValue(batch.status === "draft", "批次已提交", 409);
         const commitStarted = performance.now();
-        const body = JSON.parse(batch.draft_json),
-          prepared =
+        const body = JSON.parse(batch.draft_json);
+        if (body.kind === "assets") authorize(actor, "admin");
+        const previous = previousWorkbook(actor, body.kind, body.sha256, body.projectId);
+        requireValue(previous?.token === body.repeatOf, "此文件已被导入，请重新上传并查看上次结果。", 409);
+        const prepared =
             body.kind === "assets"
               ? assets.prepare(body.parsed, body.mode)
               : prepare(body.kind, body.parsed, body.mode, body.projectId),
@@ -631,6 +671,7 @@ export function createExchange(system:ExchangePorts) {
               results.push({
                 ...("kind" in document ? { entity_kind: document.kind } : {}),
                 ...(body.kind === "demands" ? { import_ref: document.number } : {}),
+                sheet: document.sheet, row: document.row,
                 number: resultNumber, id: result.id, action: document.action,
               });
             } catch (error) {
@@ -702,9 +743,9 @@ export function createExchange(system:ExchangePorts) {
     preview,
     commit,
     exportData,
-    projectReport(actor: Actor, ids: string[]) {
-      const records = system.projects.selectedProjectReport(actor, ids);
-      const finances = system.finance.summariesForPortfolio(system.projects.dashboardPortfolio(ids));
+    projectReport(actor: Actor, ids: string[], listQuery?: ListQuery) {
+      const records = system.projects.projectReportRows(actor, ids, listQuery);
+      const finances = system.finance.summariesForPortfolio(system.projects.dashboardPortfolio(records.map(record => record.id)));
       return makeBusinessReport("projects", records.map(({ id, ...record }) => {
         const summary = finances.get(id);
         requireValue(summary, "项目财务概要不存在", 409);
@@ -712,11 +753,11 @@ export function createExchange(system:ExchangePorts) {
           "累计生效结算（元）": summary.settlement_fen / 100,
           "结算进度": summary.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent + "%",
           "超结算（元）": summary.excess_settlement_fen == null ? null : summary.excess_settlement_fen / 100 };
-      }));
+      }), [], exchangeReportScope({ids, listQuery}, records.length));
     },
-    template(actor:Actor,kind:WorkbookKind,projectId?:string|null) {
+    template(actor:Actor,kind:WorkbookKind,projectId?:string|null,assetKind?:AssetExchangeKind) {
       authorize(actor, "read");
-      if (kind === "assets") return makeWorkbook("assets");
+      if (kind === "assets") return makeWorkbook("assets", {}, { assetKind, template: true });
       const project = projectId ? system.projects.get(projectId) : null;
       return makeWorkbook(
         kind,
@@ -725,6 +766,7 @@ export function createExchange(system:ExchangePorts) {
               documents: [
                 {
                   project_id: project.id,
+                  project_name: project.name,
                   approval_version_id: project.approval?.id,
                   funding_version_id: project.funding?.id,
                   expected_version: 0,
@@ -732,20 +774,14 @@ export function createExchange(system:ExchangePorts) {
               ],
             }
           : {},
-        { lookups: lookupRows(), attributes: kind === "demands" ? system.standards.operations().flatMap(operation=>system.standards.operationAttributes(operation.id,operation.version).items) : [] },
+        { template: true, lookups: lookupRows(), attributes: kind === "demands" ? system.standards.operations().flatMap(operation=>system.standards.operationAttributes(operation.id,operation.version).items) : [] },
       );
     },
     results(actor:Actor,token:string) {
       authorize(actor, "read");
       const batch = exchangePersistence.batch(token);
       requireValue(batch && batch.created_by === actor.id, "批次不存在", 404);
-      const body:unknown=JSON.parse(batch.draft_json);
-      requireValue(isObject(body)&&isObject(body.result),"批次尚未提交",409);
-      const rawResult=body.result;
-      requireValue(Array.isArray(rawResult.results)&&rawResult.results.every(isObject)&&
-        Array.isArray(rawResult.issues)&&rawResult.issues.every(isObject)&&
-        typeof rawResult.submitted_at==="string","正式批次结果结构无效",409);
-      const result=rawResult as unknown as ExchangeCommitResult;
+      const result = batchResult(batch);
       return makeBusinessReport("exchange", [
         ...result.results.map((row) => ({
           导入关联号: row.import_ref || "",
@@ -756,22 +792,43 @@ export function createExchange(system:ExchangePorts) {
               : row.action === "update"
                 ? "已更新"
                 : "保持原值",
-          业务标识: row.id,
-          提交时间: result.submitted_at,
+          保存时间: new Date(Date.parse(result.submitted_at) + 8 * 3600_000).toISOString().slice(0, 19).replace("T", " "),
         })),
-        ...result.issues.map((row) => ({
-          处理结果: "失败",
-          工作表: row.sheet,
-          行号: row.row,
-          字段: row.field,
-          原始值:
-            typeof row.raw_value === "object"
-              ? JSON.stringify(row.raw_value)
-              : row.raw_value,
-          原因: row.reason,
-          修改建议: row.suggestion,
-        })),
+        ...result.issues.map(row => {
+          const details = issueDetails(row);
+          return { 处理结果: "待处理", 工作表: row.sheet, 行号: row.row, 字段: details.label,
+            原始值: details.value, 原因: details.reason, 修改建议: details.suggestion };
+        }),
       ]);
+    },
+    correction(actor: Actor, token: string, buffer: Buffer) {
+      authorize(actor, "read");
+      const batch = exchangePersistence.batch(token);
+      requireValue(batch && batch.created_by === actor.id, "导入检查结果不存在", 404);
+      const body = JSON.parse(batch.draft_json) as { kind: WorkbookKind; sha256: string; parsed: ParsedWorkbook;
+        issues: WorkbookIssue[] };
+      requireValue(body.sha256 === digest(buffer), "文件与本次检查不一致，请选择原文件。", 409);
+      const result = batch.status === "submitted" ? batchResult(batch) : undefined;
+      requireValue(!result?.results.some(item => !item.sheet || !item.row),
+        "本次保存结果缺少对应行，请下载问题清单，并在新表中只填写待处理记录。", 409);
+      const completed = new Map<string, Set<number>>();
+      const record = (sheet: string, row: number) => {
+        const rows = completed.get(sheet) ?? new Set<number>();
+        rows.add(row);
+        completed.set(sheet, rows);
+      };
+      for (const item of result?.results ?? [])
+        if (item.sheet && item.row) record(item.sheet, item.row);
+      if (body.kind !== "assets") {
+        const numberKey = body.kind === "demands" ? "import_ref" : "number";
+        const numbers = new Set(body.parsed.rows.documents
+          .filter(row => completed.get(row._sheet)?.has(row._row)).map(row => row[numberKey]));
+        for (const [name, rows] of Object.entries(body.parsed.rows)) {
+          if (name === "documents") continue;
+          for (const row of rows) if (row[numberKey] && numbers.has(row[numberKey])) record(row._sheet, row._row);
+        }
+      }
+      return correctionWorkbook(buffer, result?.issues ?? body.issues, completed);
     },
     errors(actor:Actor,token:string) {
       authorize(actor, "read");

@@ -44,17 +44,21 @@ async function as(role) {
   const detail=page.locator(".business-detail-page:visible");
   await detail.getByText(project.name,{exact:true}).first().waitFor();
   await detail.getByRole("button",{name:"核定费用",exact:true}).waitFor();
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   if (role === "admin" || role === "editor") await detail.getByRole("button",{name:"新增结算草稿",exact:true}).waitFor();
-  await detail.getByRole("button",{name:"新增正式核对",exact:true}).waitFor();
   const bill=detail.getByRole("row").filter({hasText:draft.number}).first();
   await bill.waitFor();
   return {page,detail,bill};
 }
 function button(area,name) {return area.getByRole("button",{name,exact:true});}
+const section = (actor, name) => actor.detail.getByRole("tab", { name, exact: true }).click();
 try {
   const owner=await as("admin");
-  for(const name of ["核定费用","新增结算草稿","新增正式核对"])
-    assert.equal(await button(owner.detail,name).isEnabled(),true);
+  assert.equal(await button(owner.detail,"新增结算草稿").isEnabled(),true);
+  await section(owner, "费用核对");
+  assert.equal(await button(owner.detail,"新增正式核对").isEnabled(),true);
+  await section(owner, "实际费用");
+  assert.equal(await button(owner.detail,"核定费用").isEnabled(),true);
   await owner.page.screenshot({path:join(output,"01-admin.png"),fullPage:true});
   // A failed refresh must not keep stale financial rows or display misleading zero totals.
   await owner.page.route("**/api/projects/*/summary", route => route.abort());
@@ -64,16 +68,20 @@ try {
   assert.equal(await owner.bill.count(), 0, "stale bill must not remain after a failed refresh");
   await owner.page.unroute("**/api/projects/*/summary");
   await button(owner.detail, "重新读取费用数据").click();
+  await section(owner, "结算单");
   await owner.bill.waitFor();
   assert.equal(await owner.detail.locator(".el-alert--error")
     .filter({hasText:"费用数据读取失败"}).count(), 0);
 
   const editor=await as("editor");
-  assert.equal(await button(editor.detail,"核定费用").isDisabled(),true);
   assert.equal(await button(editor.detail,"新增结算草稿").isEnabled(),true);
-  assert.equal(await button(editor.detail,"新增正式核对").isDisabled(),true);
+  await section(editor, "实际费用");
+  assert.equal(await button(editor.detail,"核定费用").isDisabled(),true);
   await editor.detail.getByText("费用核定须由具备审核权限的人员办理").waitFor();
+  await section(editor, "费用核对");
+  assert.equal(await button(editor.detail,"新增正式核对").isDisabled(),true);
   await editor.detail.getByText("正式费用核对须由具备审核权限的人员办理").waitFor();
+  await section(editor, "结算单");
   assert.equal(await button(editor.bill,"审核结算").count(),0);
   const directReview = new URL(editor.page.url());
   directReview.hash = `/projects/${project.id}/settlements/${draft.id}/review`;
@@ -84,10 +92,13 @@ try {
   await editor.page.screenshot({path:join(output,"02-editor.png"),fullPage:true});
 
   const viewer=await as("viewer");
-  for(const name of ["核定费用","新增正式核对"])
-    assert.equal(await button(viewer.detail,name).isDisabled(),true);
+  await section(viewer, "实际费用");
+  assert.equal(await button(viewer.detail,"核定费用").isDisabled(),true);
+  await section(viewer, "费用核对");
+  assert.equal(await button(viewer.detail,"新增正式核对").isDisabled(),true);
+  await section(viewer, "结算单");
   assert.equal(await button(viewer.detail,"新增结算草稿").count(),0);
-  await viewer.detail.getByText("当前账号可查看结算").waitFor();
+  await viewer.detail.getByText("当前账号可查看及导出结算").waitFor();
   assert.equal(await button(viewer.bill,"审核结算").count(),0,
     "read-only viewers have no review action");
   await viewer.bill.getByRole("button",{name:"更多操作"}).click();
@@ -101,12 +112,15 @@ try {
   assert.equal(s.finance.settlement(draft.id).review.action,"submit");
 
   const verifier=await as("verifier");
-  assert.equal(await button(verifier.detail,"核定费用").isEnabled(),true);
   assert.equal(await button(verifier.detail,"新增结算草稿").count(),0);
-  await verifier.detail.getByText("当前账号可查看结算").waitFor();
+  await verifier.detail.getByText("当前账号可查看及导出结算").waitFor();
+  await section(verifier, "实际费用");
+  assert.equal(await button(verifier.detail,"核定费用").isEnabled(),true);
+  await section(verifier, "费用核对");
   assert.equal(await button(verifier.detail,"新增正式核对").isEnabled(),true);
+  await section(verifier, "结算单");
   await approveSettlement(verifier.page, verifier.bill);
-  await verifier.bill.getByText(/第\s*\d+\s*版.*已审核/).waitFor();
+  await verifier.bill.getByText(/已批准/).waitFor();
   const reviewed=s.finance.settlement(draft.id);
   assert.equal(reviewed.review.action,"approve");
   assert.equal(reviewed.review.actor_id,actors.verifier.id);

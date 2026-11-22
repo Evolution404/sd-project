@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
 import { scaledDecimal, decimalText } from "../../shared/decimal.js";
+import { exchangeColumnLabels as labels, issueDetails } from "../../shared/exchange-display.js";
 import { requireValue } from "../../shared/errors/business-error.js";
-import type { WorkbookKind, WorkbookReportKind, WorkbookRow, WorkbookIssue, ParsedWorkbookRow, ParsedWorkbook, WorkbookRows, WorkbookLayouts, WorkbookSheetDefinition, WorkbookOptions } from "../../shared/types/exchange.js";
+import type { WorkbookKind, WorkbookReportKind, WorkbookRow, WorkbookIssue, ParsedWorkbookRow, ParsedWorkbook, WorkbookRows, WorkbookLayouts, WorkbookSheetDefinition, WorkbookOptions, ExchangeReportScope } from "../../shared/types/exchange.js";
 export const MAX_BYTES = 12 * 1024 * 1024,
   MAX_ROWS = 25000,
   MAX_DOCUMENTS = 5000;
@@ -10,6 +11,8 @@ export const attributeKey = (column: string): string => Buffer.from(column.slice
 export const KEEP = "__KEEP__",
   CLEAR = "__CLEAR__",
   DELETE = "delete";
+const CLEAR_LABEL = "清空原值";
+const KEEP_LABEL = "保留原值";
 const decimalPlaces: Record<string,number> = {
   transmission_center_length_mm: 3,
   height_scaled: 4,
@@ -31,6 +34,7 @@ const businessChoices: Record<string,Record<string,string>> = {
   work_mode: { outage: "停电", non_outage: "不停电", unspecified: "未明确" },
   action: { upsert: "新增或修改", delete: "删除" },
   tower_nature: { straight: "直线", tension: "耐张" },
+  mode: { project_total: "按项目总额", itemized: "按子费用" },
   tower_material: {angle:"角钢塔",pipe:"钢管杆"},
 };
 const technicalColumns = new Set([
@@ -174,10 +178,10 @@ export const layouts: WorkbookLayouts = {
         "expected_edit_version",
         "approval_version_id",
         "funding_version_id",
+        "amount_fen",
+        "mode",
         "settlement_on",
         "basis",
-        "mode",
-        "amount_fen",
         "change_type",
         "project_name",
       ],
@@ -216,101 +220,6 @@ for (const [kind, sheets] of Object.entries(layouts))
   for (const sheet of sheets)
     if (kind === "settlements" && sheet.key !== "documents")
       sheet.columns.push("document_row");
-const labels: Record<string,string> = {
-  import_ref: "导入关联号",
-  location_ref: "位置关联号",
-  primary_source: "主要来源说明",
-  primary_source_id: "主要来源身份",
-  unit_name: "单位",
-  line_kind: "线路类型",
-  parent_line_name: "所属主线名称（支线填写）",
-  parent_voltage_name: "所属主线电压等级（重名时填写）",
-  junction_tower_no: "主线接入杆塔号（支线填写）",
-  start_tower_no: "起点杆塔号",
-  start_line_name: "起点所属线路（支线接入时填写）",
-  start_voltage_name: "起点线路电压等级（重名时填写）",
-  end_line_name: "终点所属线路（支线接入时填写）",
-  end_voltage_name: "终点线路电压等级（重名时填写）",
-  transmission_center_length_mm: "输电中心管辖长度（米）",
-  sharing_line_name: "共用实物的已有线路",
-  sharing_voltage_name: "共塔线路电压等级",
-  sharing_tower_no: "共用实物的已有杆塔号",
-  name: "线路名称",
-  tower_nature: "杆塔性质",
-  line_id: "线路身份",
-  voltage_level_id: "电压等级身份",
-  parent_line_id: "主线路身份",
-  junction_tower_id: "接入杆塔身份",
-  start_tower_id: "起点杆塔身份",
-  end_tower_id: "终点杆塔身份",
-  tower_code: "系统编号",
-  purpose: "用途",
-  commissioned_on: "投运日期",
-  tower_material: "杆塔材质",
-  model: "型号",
-  height_scaled: "杆塔高度（米）",
-  longitude: "经度",
-  latitude: "纬度",
-  operations_team: "运维班组",
-  management_department: "管辖部门",
-  status: "状态",
-  operation_name: "操作类型名称",
-  priority_name: "优先级名称",
-  line_name: "线路名称",
-  voltage_name: "电压等级名称（同名线路时填写）",
-  tower_no: "杆塔号或档距起点杆号",
-  end_tower_no: "档距终点杆号",
-  asset_no: "独立实物资产铭牌号",
-  material_name: "物资名称",
-  material_model: "物资型号",
-  material_specification: "物资规格",
-  project_name: "子项目名称",
-  demand_description: "项目需求问题描述",
-  document_row: "对应清单行号（多单据时填写）",
-  location_row: "作业位置表行号",
-  factor_name: "现场特征名称",
-  factor_id: "系统特征身份",
-  specification: "作业规格",
-  field_key: "字段标识",
-  field_name: "字段名称",
-  value: "实际值",
-  cost_node_path: "费用科目完整路径",
-  demand_no: "需求编号",
-  number: "结算编号",
-  id: "系统标识",
-  expected_version: "原正式版本",
-  expected_edit_version: "原草稿版本",
-  operation_id: "操作标识",
-  problem_description: "问题描述",
-  target_object: "处理部位",
-  completion_standard: "验收标准",
-  priority_id: "优先级标识",
-  expected_on: "预计解决时间",
-  action: "明细动作",
-  location_kind: "位置类型",
-  logical_tower_id: "逻辑塔标识",
-  physical_tower_id: "物理塔标识",
-  span_id: "档距标识",
-  quantity_scaled: "数量（万分之一单位）",
-  work_mode: "作业方式",
-  material_id: "物资标识",
-  note: "备注",
-  description: "来源说明",
-  discovered_on: "提出日期",
-  project_id: "子项目标识",
-  approval_version_id: "批准版本标识",
-  funding_version_id: "资金版本标识",
-  settlement_on: "结算日期",
-  basis: "结算依据",
-  mode: "结算方式",
-  change_type: "版本动作",
-  cost_node_id: "费用科目标识",
-  project_scope_id: "项目需求范围标识",
-  amount_fen: "本次金额（分）",
-  unit_price_fen: "单价（分）",
-  evidence: "事实依据",
-  resolved_quantity_scaled: "本次新增解决量（万分之一单位）",
-};
 function businessHeader(key:string, kind:WorkbookKind, sheet?:string):string {
   if(kind === "demands" && key === "quantity_scaled") return sheet === "materials" ? "预计数量" : "需求数量";
   // Identity/version columns stay hidden; ordinary equipment users see only
@@ -369,7 +278,7 @@ function cellValue(cell:ExcelJS.Cell):unknown {
   );
   return value;
 }
-export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<ParsedWorkbook> {
+async function readWorkbook(buffer: Buffer) {
   requireValue(
     buffer.length > 0 && buffer.length <= MAX_BYTES,
     "Excel文件须在12MB以内",
@@ -426,10 +335,11 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
   } catch {
     requireValue(false, "Excel文件损坏或格式无效");
   }
-  requireValue(
-    !workbook.getWorksheet("报表标记"),
-    "业务报表不能回导，请使用数据维护导出",
-  );
+  requireValue(!workbook.getWorksheet("报表标记"), "业务报表不能导入。如需修改已有记录，请先点「用 Excel 批量修改」。");
+  return workbook;
+}
+export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<ParsedWorkbook> {
+  const workbook = await readWorkbook(buffer);
   const layout = layouts[kind];
   requireValue(layout, "未知交换类型");
   const rows:WorkbookRows = {documents:[]},
@@ -477,10 +387,10 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
         try {
           const value = cellValue(row.getCell(column));
           rawValues[key]=value;
-          if (value !== KEEP && value !== null) {
+          if (value !== KEEP && value !== KEEP_LABEL && value !== null) {
             const places = decimalPlaces[key];
             data[key] =
-              value === CLEAR
+              value === CLEAR || value === CLEAR_LABEL
                 ? null
                 : places
                   ? scaledDecimal(value, places, key)
@@ -491,14 +401,18 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
             issue(
               definition.name,
               rowNumber,
-              kind === "assets" ? businessHeader(key, kind, definition.key) : key,
+              key,
               String(row.getCell(column).value),
               error instanceof Error ? error.message : "工作簿单元格校验失败",
             ),
           );
         }
       }
-      if (Object.keys(data).length > 2) rows[definition.key].push({...data,_raw_values:rawValues});
+      const dataKeys = Object.keys(data).filter(key => key !== "_sheet" && key !== "_row");
+      const emptyExample = kind === "demands" && definition.key === "work_locations" &&
+        data.import_ref === "XQ001" && data.location_ref === "WZ001" &&
+        dataKeys.every(key => key === "import_ref" || key === "location_ref");
+      if (dataKeys.length && !emptyExample) rows[definition.key].push({...data,_raw_values:rawValues});
     });
   }
   requireValue(
@@ -511,6 +425,21 @@ function formatScaledCell(value:unknown,places:number):string {
   requireValue(typeof value === "number" && Number.isSafeInteger(value), "Excel数字列的数据必须是安全整数");
   return decimalText(value,places);
 }
+function columnHint(kind: WorkbookKind, sheet: string, key: string) {
+  if (kind === "demands") {
+    if (key === "import_ref") return "示例组号 XQ001。同一需求在其他工作表使用同一组号。";
+    if (key === "location_ref") return "示例位置 WZ001。同一需求内的位置组号须各不相同。";
+    if (key === "quantity_scaled") return "填写实际工作量，例如计量单位为套时填写整数。";
+  }
+  if (kind === "assets") {
+    if (key === "parent_line_name" || key === "junction_tower_no") return "支线才填写所属主线和接入杆塔。";
+    if (key === "sharing_line_name" || key === "sharing_tower_no") return "与已有杆塔共用同一实物时填写。";
+    if (key === "asset_no" && sheet === "physical") return "此表用于单独维护物理杆塔。普通新建杆塔请填写「杆塔」表。";
+  }
+  if (kind === "settlements" && key === "amount_fen" && sheet === "documents") return "填写本次结算金额（元）。按费用明细计算时可留空。";
+  return "";
+}
+
 export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string,WorkbookRow[]>> = {}, options:WorkbookOptions = {}):Promise<Buffer> {
   requireValue(layouts[kind], "未知交换类型");
   if (kind === "demands") {
@@ -524,7 +453,11 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
   }
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
-  for (const original of layouts[kind]) {
+  const definitions = [...layouts[kind]];
+  const primaryKey = options.assetKind === "lines" ? "documents" : options.assetKind;
+  const primaryIndex = kind === "assets" ? definitions.findIndex(sheet => sheet.key === primaryKey) : -1;
+  if (primaryIndex > 0) definitions.unshift(definitions.splice(primaryIndex, 1)[0]!);
+  for (const original of definitions) {
     const scope = original.key === "documents" ? "demand" : original.key === "work_locations" ? "location" : null;
     const attributes = kind === "demands" && scope ? [...new Map((options.attributes || []).filter(field => field.scope === scope && field.source === "manual" && field.enabled).map(field => [field.key,field])).values()] : [];
     const definition = { ...original, columns: [...original.columns, ...attributes.map(field => attributeColumn(field.key))] };
@@ -559,6 +492,8 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
       headerCell.protection = { locked: false };
       headerCell.alignment = { vertical: "middle", wrapText: true };
       workbook.definedNames.add(`${sheet.name}!${headerCell.address}`, `sd113_${definition.key}_${key}`);
+      const hint = columnHint(kind, definition.key, key);
+      if (hint) headerCell.note = hint;
       if (!businessChoices[key]) continue;
       const options = Object.values(businessChoices[key]).join(",");
       const letter = sheet.getColumn(index + 1).letter;
@@ -593,6 +528,12 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
       }
       sheet.addRow(row);
     }
+    if (options.template && kind === "demands" && definition.key === "work_locations") {
+      sheet.getCell("A2").value = "XQ001";
+      sheet.getCell("A2").note = "示例。此处填写需求清单中同一条需求的组号。";
+      sheet.getCell("B2").value = "WZ001";
+      sheet.getCell("B2").note = "同一需求内，每个位置用不同组号。";
+    }
     if (!options.report)
       await sheet.protect("", {
         selectLockedCells: true,
@@ -613,23 +554,31 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
   }
   const info = workbook.addWorksheet("使用说明");
   info.columns = [{ width: 110 }];
-  for (const text of [
-    options.report
-      ? "业务报表，仅供阅读，不可回导"
-      : "数据维护工作簿，可离线修改并回导",
-    "金额填写人民币元（最多2位小数），工作量填写实际单位数量（最多4位小数）；档距输电中心管辖长度填写米（最多3位小数），未知请留空，明确无管辖长度填0。",
-    "线路、物理杆塔、逻辑杆塔、档距可在同一份 Excel 内录入。普通新增杆塔只需填写逻辑杆塔表；物理杆塔表用于独立维护已有实体或明确新建独立实物。",
-    "支线在“线路”填写所属主线和主线接入杆塔号；档距填写所属线路和两端杆塔号。共塔必须明确填写要共享的已有杆塔，不允许猜测实物身份。",
-    "系统身份和原版本自动携带。新增填写业务名称、线路杆号及真实属性，单据号由服务端生成。同名歧义须在系统核对后使用维护导出。",
-    kind === "demands" ? "需求清单的导入关联号须唯一，作业位置、预计物资和补充来源均填写相同关联号。位置关联号在同一需求内唯一。插行、排序和删除行均保持关联号。" : "多张结算单请明确明细归属。",
-    "表头上方标有“新增必填”的列在新增时填写；“条件必填”按支线、共塔、作业位置或多单据关系填写。维护时未填写的单元格保持原值。",
-    "表头可以修改显示名称，字段绑定由工作簿自动携带。位置类型、作业方式、杆塔性质和明细动作使用中文下拉选项。",
-    `${KEEP} 保持原值，${CLEAR} 明确清除，空单元格/缺少列保持原值。文本空串请使用 __EMPTY__。`,
-    "明细action填upsert或delete。未出现的工作表或明细行保持原值。",
-    "导入结算只保存草稿。正式提交和审核须在系统内分别操作。",
-    "请勿填写公式。系统不按线路名称、杆号或显示名称模糊匹配。",
-  ])
-    info.addRow([text]);
+  const instructions: Record<WorkbookKind, string[]> = {
+    demands: [
+      "先填需求清单，再填作业位置。预计物资有需要时再填。",
+      "同一条需求的组号一致。例：需求清单中的 XQ001 对应作业位置中的 XQ001；多个位置分别用 WZ001、WZ002。",
+      "一个位置一行。按操作类型的计量单位填写实际工作量。",
+    ],
+    assets: [
+      "只填写要新增或修改的设备表。普通新增杆塔填写「杆塔」。",
+      "档距填写所属线路和两端杆塔号，填写范围是输电中心管辖的长度，单位为米。",
+    ],
+    settlements: [
+      "只知道本次结算金额时，在「结算单」填入金额（元），即可保存草稿。",
+      "有费用明细或实际解决量时，填写相应的表。多张结算单按结算单所在行号关联明细。",
+      "导入后在系统内提交审核，批准后计入项目累计结算。",
+    ],
+  };
+  for (const instruction of [
+    ...instructions[kind],
+    "填写表头标出的必填内容。修改已有记录时留空保留原值，需清空则填写「清空原值」。",
+    "含「明细动作」的表可选「删除」。粘贴外部数据时请选择粘贴为值。",
+  ]) {
+    const row = info.addRow([instruction]);
+    row.alignment = { wrapText: true, vertical: "middle" };
+    row.height = 30;
+  }
 
   if (options.lookups) {
     const sheet = workbook.addWorksheet("可选基础数据");
@@ -645,10 +594,47 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
   }
   if (options.report) {
     const properties = workbook.addWorksheet("报表标记");
+    properties.state = "veryHidden";
     properties.addRow(["READ_ONLY_REPORT"]);
   }
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
+export async function correctionWorkbook(buffer: Buffer, issues: WorkbookIssue[],
+  completed: ReadonlyMap<string, ReadonlySet<number>>): Promise<Buffer> {
+  const workbook = await readWorkbook(buffer);
+  const title = "导入检查问题";
+  const previousSummary = workbook.getWorksheet(title);
+  if (previousSummary) workbook.removeWorksheet(previousSummary.id);
+  const summary = workbook.addWorksheet(title);
+  summary.columns = [
+    { header: "位置（点击跳转）", key: "place", width: 32 },
+    { header: "字段", key: "field", width: 24 },
+    { header: "问题", key: "issue", width: 52 },
+    { header: "处理建议", key: "suggestion", width: 52 },
+  ];
+  for (const [name, rows] of completed) {
+    const sheet = workbook.getWorksheet(name);
+    if (!sheet) continue;
+    for (const row of rows) sheet.getRow(row).values = [];
+  }
+  for (const issue of issues) {
+    const details = issueDetails(issue);
+    const sheet = workbook.getWorksheet(issue.sheet);
+    const place = issue.sheet + " · 第 " + issue.row + " 行";
+    summary.addRow({ place: sheet && issue.row > 0
+      ? { text: place, hyperlink: "#'" + sheet.name.replace(/'/g, "''") + "'!A" + issue.row }
+      : place, field: details.label, issue: details.reason, suggestion: details.suggestion });
+    if (sheet && issue.row > 1 && issue.row <= sheet.rowCount) {
+      const row = sheet.getRow(issue.row);
+      row.eachCell(cell => {
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFE8DD" } };
+      });
+    }
+  }
+  workbook.views = [{ x: 0, y: 0, width: 12000, height: 18000, activeTab: workbook.worksheets.length - 1, firstSheet: 0, visibility: "visible" }];
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
 export async function errorsWorkbook(issues:WorkbookIssue[]):Promise<Buffer> {
   const workbook = new ExcelJS.Workbook(),
     sheet = workbook.addWorksheet("问题清单");
@@ -667,39 +653,39 @@ export async function errorsWorkbook(issues:WorkbookIssue[]):Promise<Buffer> {
     header,
     width: key === "reason" ? 55 : 28,
   }));
-  for (const item of issues)
-    sheet.addRow({
-      ...item,
-      raw_value:
-        typeof item.raw_value === "object"
-          ? JSON.stringify(item.raw_value)
-          : item.raw_value,
-    });
+  for (const item of issues) {
+    const details = issueDetails(item);
+    sheet.addRow({ ...item, field: details.label, raw_value: details.value, suggestion: details.suggestion });
+  }
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
-export async function makeBusinessReport(kind:WorkbookReportKind, records:Record<string,unknown>[], positions:Record<string,unknown>[] = []):Promise<Buffer> {
+export async function makeBusinessReport(kind:WorkbookReportKind, records:Record<string,unknown>[], positions:Record<string,unknown>[] = [], scope?:ExchangeReportScope):Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
-  const marker = workbook.addWorksheet("报表标记");
-  marker.addRow(["只读业务报表"]);
-  marker.addRow([
-    "业务报表用于统计、审核与打印。维护回导请下载数据维护工作簿。",
-  ]);
-  function addSheet(name:string, rows:Record<string,unknown>[]) {
+  function addSheet(name:string, rows:Record<string,unknown>[], summary?: ExchangeReportScope) {
     const sheet = workbook.addWorksheet(name);
     const headers = [...new Set(rows.flatMap((row) => Object.keys(row)))];
     if (!headers.length) headers.push("当前筛选结果为空");
     sheet.columns = headers.map((header) => ({
-      header,
       key: header,
       width: header.includes("描述") || header.includes("依据") ? 42 : 24,
     }));
+    if (summary) {
+      const time = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 19).replace("T", " ");
+      sheet.addRow([`范围：${summary.label}，共 ${summary.count} 条`]);
+      sheet.addRow(["生成时间（北京时间）：" + time]);
+      for (const row of [1, 2]) {
+        sheet.mergeCells(row, 1, row, Math.max(2, headers.length));
+        sheet.getRow(row).height = row === 1 ? 30 : 20;
+      }
+    }
+    const heading = sheet.addRow(headers);
     for (const row of rows) sheet.addRow(row);
-    sheet.views = [{ state: "frozen", ySplit: 1 }];
-    sheet.getRow(1).height = 42;
-    sheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    sheet.getRow(1).fill = {
+    sheet.views = [{ state: "frozen", ySplit: heading.number }];
+    heading.height = 42;
+    heading.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    heading.fill = {
       type: "pattern",
       pattern: "solid",
       fgColor: { argb: "FF23434E" },
@@ -724,8 +710,11 @@ export async function makeBusinessReport(kind:WorkbookReportKind, records:Record
         : kind === "exchange"
           ? "导入结果"
           : kind === "projects" ? "子项目清单" : "结算业务报表",
-    records,
+    records, scope,
   );
   if (positions.length) addSheet(kind === "settlements" ? "生效需求解决量" : "需求位置报表", positions);
+  const marker = workbook.addWorksheet("报表标记");
+  marker.state = "veryHidden";
+  marker.addRow(["READ_ONLY_REPORT"]);
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }

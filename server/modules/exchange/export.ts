@@ -1,3 +1,4 @@
+import { exchangeReportScope } from "../../shared/exchange-display.js";
 import type {Actor} from "../../shared/types/contracts.js";
 import type { ExchangePorts } from "./ports.js";
 import type {WorkbookKind,WorkbookRow,ExchangeExportOptions} from "../../shared/types/exchange.js";
@@ -24,7 +25,7 @@ function scopeDescription(system:ExchangePorts,scopeId:string|null|undefined):st
   requireValue(demandId,"结算已采用需求范围不存在",404);
   return system.demands.get(demandId,true).problem_description;
 }
-function reportDemand(system:ExchangePorts,records:DemandRecord[]):Promise<Buffer> {
+function reportDemand(system:ExchangePorts,records:DemandRecord[], options: ExchangeExportOptions):Promise<Buffer> {
   return makeBusinessReport("demands",
     records.map(record=>({
       需求编号:record.demand_no,操作类型:record.operation_snapshot,
@@ -46,9 +47,10 @@ function reportDemand(system:ExchangePorts,records:DemandRecord[]):Promise<Buffe
         return (field?.label || key)+"="+String(value);
       }).join(" / "),
     }))),
+    exchangeReportScope(options, records.length),
   );
 }
-function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[]):Promise<Buffer> {
+function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[], options: ExchangeExportOptions):Promise<Buffer> {
   const statuses = {draft:"未提交", submit:"待审核", approve:"已批准", return:"已退回", reject:"已驳回", voided:"已注销"};
   const projects = system.projects.dashboardPortfolio([...new Set(records.map(record => record.project_id))]);
   const projectById = new Map(projects.map(project => [project.id, project]));
@@ -92,7 +94,7 @@ function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[]):Pro
     解决量:decimalText(row.resolved_quantity_scaled,4),
     计量单位:row.unit,
     解决依据:row.evidence,
-  })));
+  })), exchangeReportScope(options, records.length));
 }
 function exportDemands(system:ExchangePorts,records:DemandRecord[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();
@@ -174,7 +176,7 @@ export function createExchangeExporter(system:ExchangePorts,lookups:()=>Record<s
       const records = listed.map(id => system.demands.get(id, ids.length > 0 || query.deleted));
       requireValue(!options.projectId || records.every(row => row.binding?.project_id === options.projectId),
         "导出范围包含不属于当前项目的需求", 409);
-      return options.report ? reportDemand(system, records) : exportDemands(system, records, lookups);
+      return options.report ? reportDemand(system, records, options) : exportDemands(system, records, lookups);
     }
     const records = ids.length
       ? system.finance.selectedSettlements(ids, query)
@@ -183,6 +185,6 @@ export function createExchangeExporter(system:ExchangePorts,lookups:()=>Record<s
     requireValue(records.length <= MAX_DOCUMENTS, "导出超过5000张，请收窄筛选条件");
     requireValue(!options.projectId || records.every(row => row.project_id === options.projectId),
       "导出范围包含不属于当前项目的结算", 409);
-    return options.report ? reportSettlement(system, records) : exportSettlements(system, records, lookups);
+    return options.report ? reportSettlement(system, records, options) : exportSettlements(system, records, lookups);
   };
 }

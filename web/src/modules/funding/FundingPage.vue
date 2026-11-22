@@ -1,9 +1,12 @@
+<script lang="ts">
+const relatedDrawerScroll = new Map<string, number>();
+</script>
 <script setup lang="ts">
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { useRoute, useRouter } from "vue-router";
-import { fundContext, projectContext, projectFinanceContext } from "../../shared/navigation/business-context";
+import { useRoute, useRouter, type RouteLocationRaw } from "vue-router";
+import { projectContext, projectFinanceContext } from "../../shared/navigation/business-context";
 import { api, money, statusText } from "../../shared/api/client";
 import type { FundingKind, FundingRecord, FundingProject } from "../../../../server/shared/types/funding";
 import { useListRoute } from "../../shared/composables/use-list-route";
@@ -57,6 +60,37 @@ const editorRef = ref(), errors = ref<Record<string, string>>({});
 const selectedId = ref(""), details = ref<FundingDetails | null>(null);
 const detailsOpen = ref(false), detailsLoading = ref(false), detailsError = ref("");
 const history = ref(false);
+const detailHeader = ref<HTMLElement>();
+function drawerBody() {
+  return detailHeader.value?.closest<HTMLElement>(".el-drawer__body");
+}
+function relatedOrigin() {
+  return router.resolve({ name: props.kind, query: { ...route.query, record: selectedId.value } }).fullPath;
+}
+function openRelated(target: RouteLocationRaw) {
+  const origin = relatedOrigin();
+  relatedDrawerScroll.set(origin, drawerBody()?.scrollTop ?? 0);
+  void router.push(target);
+}
+function openAgreement(id: string) {
+  openRelated({ name: "agreements", query: { record: id, returnTo: relatedOrigin() } });
+}
+function openRelatedProject(id: string) {
+  const target = projectContext(id, "overview", { focus: "funding", record: selectedId.value });
+  if (typeof target !== "string" && "query" in target)
+    openRelated({ ...target, query: { ...target.query, returnTo: relatedOrigin() } });
+}
+function closeDetails() {
+  if (typeof route.query.returnTo === "string") {
+    const origin = router.resolve(route.query.returnTo);
+    if (origin.name === "frameworks" || origin.name === "agreements") {
+      void router.push(origin.fullPath);
+      return;
+    }
+  }
+  detailsOpen.value = false;
+}
+
 
 const linkedAgreementColumns: TableColumn[] = [
   { key: "name", label: "协议名称", minWidth: 175 },
@@ -215,7 +249,16 @@ async function refreshDetails() {
   } catch (error) {
     if (selectedId.value === id) detailsError.value = (error as Error).message;
   } finally {
-    if (selectedId.value === id) detailsLoading.value = false;
+    if (selectedId.value === id) {
+      detailsLoading.value = false;
+      const position = relatedDrawerScroll.get(route.fullPath);
+      if (position !== undefined) {
+        relatedDrawerScroll.delete(route.fullPath);
+        await nextTick();
+        const body = drawerBody();
+        if (body) body.scrollTop = position;
+      }
+    }
   }
 }
 function openDetails(row: FundingRecord) {
@@ -232,7 +275,6 @@ watch([() => props.kind, () => route.query.record], ([, record]) => {
 }, { immediate: true, flush: "post" });
 watch(() => props.kind, () => {
   rows.value = []; detailsOpen.value = false;
-  page.value = 1; query.value = ""; sort.value = ""; filters.value = {};
   void load();
 });
 onMounted(() => void load());
@@ -260,10 +302,7 @@ onMounted(() => void load());
             <ElInput v-model="query" clearable
         :placeholder="isAgreement ? '搜索协议名称、合同编号或合同对方' : '搜索框架名称或年度'"
         @change="page = 1; load()" @keyup.enter="page = 1; load()" />
-            <ElPopover trigger="click" placement="bottom-start">
-              <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox :data-guide-action="isAgreement ? 'agreements.show-deleted' : 'frameworks.show-deleted'" v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox>
-            </ElPopover>
+            <ElCheckbox :data-guide-action="isAgreement ? 'agreements.show-deleted' : 'frameworks.show-deleted'" v-model="deleted" @change="page = 1; load()">包含已删除</ElCheckbox>
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
           </div>
           <div class="toolbar page-heading-actions">
@@ -287,9 +326,9 @@ onMounted(() => void load());
 
   <BusinessDetailDialog :open="detailsOpen" :title="title + '详情'"
     :loading="detailsLoading" :error="detailsError"
-    @close="detailsOpen = false" @retry="refreshDetails">
+    @close="closeDetails" @retry="refreshDetails">
     <template v-if="details">
-      <div class="detail-header">
+      <div ref="detailHeader" class="detail-header">
         <h1>{{ details.item.name }}</h1>
         <ElTag :type="details.item.deleted ? 'danger' :
           details.item.status === 'active' ? 'success' : 'info'">
@@ -331,7 +370,7 @@ onMounted(() => void load());
       </div>
       <div v-if="!isAgreement" class="panel">
         <h2>关联执行协议（{{ details.agreements.length }}）</h2>
-        <BusinessTable client-side detail-column="name" @open-detail="row => router.push(fundContext('agreements', row.id))" table-key="funding:linked-agreements" :rows="details.agreements"
+        <BusinessTable client-side detail-column="name" @open-detail="row => openAgreement(row.id)" table-key="funding:linked-agreements" :rows="details.agreements"
           :columns="linkedAgreementColumns" :actions-width="110">
           <template #cell="{ row, column }">
             {{ relatedAgreementCell(row, column) }}
@@ -341,14 +380,14 @@ onMounted(() => void load());
       <div class="panel">
         <h2>关联子项目（{{ details.projects.length }}）</h2>
         <BusinessTable client-side detail-column="name" :detail-guide-action="isAgreement ? 'agreements.projects' : 'frameworks.projects'"
-          @open-detail="row => router.push(projectContext(row.id, 'overview', { focus: 'funding', record: details!.item.id }))"
+          @open-detail="row => openRelatedProject(row.id)"
           table-key="funding:linked-projects" :rows="details.projects"
           :columns="linkedProjectColumns" :actions-width="110">
           <template #cell="{ row, column }">
             {{ relatedProjectCell(row, column) }}
           </template>
           <template #actions="{ row }">
-            <ElButton link type="primary" :data-guide-action="isAgreement ? 'agreements.finance' : 'frameworks.finance'" @click="router.push(projectFinanceContext(row.id, router.resolve(fundContext(props.kind, details!.item.id)).fullPath))">费用与结算</ElButton>
+            <ElButton link type="primary" :data-guide-action="isAgreement ? 'agreements.finance' : 'frameworks.finance'" @click="openRelated(projectFinanceContext(row.id, relatedOrigin()))">办理费用</ElButton>
           </template>
         </BusinessTable>
         <ElEmpty v-if="!details.projects.length" description="暂无关联子项目" :image-size="56" />

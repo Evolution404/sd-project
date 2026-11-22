@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref, useId } from "vue";
+import { computed, onMounted, reactive, ref, useId } from "vue";
 import { ElMessage } from "element-plus";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
@@ -15,6 +15,18 @@ const draft = reactive({ from: "", to: "", ip: "", username: "", method: "", sta
 function syncDraft() {
   for (const key of Object.keys(fields) as (keyof typeof fields)[]) draft[key] = fields[key].value;
 }
+const moreFilters = ref(false);
+const fieldKeys = Object.keys(fields) as (keyof typeof fields)[];
+const draftChanged = computed(() => fieldKeys.some(key => (draft[key] || "") !== fields[key].value));
+const scopeLabel = computed(() => {
+  const terms = [
+    from.value && "自 " + from.value, to.value && "至 " + to.value, q.value && "关键词 " + q.value,
+    ip.value && "来源 IP " + ip.value, username.value && "账号 " + username.value,
+    method.value && "方法 " + method.value, status.value && "状态码 " + status.value,
+    Object.keys(filters.value).length && "已应用列筛选",
+  ];
+  return terms.filter(Boolean).join("，") || "全部访问日志";
+});
 const rows = ref<AccessRecord[]>([]), total = ref(0), loading = ref(false), exporting = ref(false);
 const detail = ref<AccessRecord | null>(null), dialog = ref(false), technicalOpen = ref(false), diagnostic = ref("");
 const retention = ref(30), maxBytes = ref(0);
@@ -54,7 +66,7 @@ async function load() {
 }
 function refreshFirstPage() { page.value = 1; void load(); }
 function apply() {
-  for (const key of Object.keys(fields) as (keyof typeof fields)[]) fields[key].value = draft[key] || "";
+  for (const key of fieldKeys) fields[key].value = draft[key] || "";
   refreshFirstPage();
 }
 function sortChanged(value: { key: string; order: string }) {
@@ -64,6 +76,7 @@ function sortChanged(value: { key: string; order: string }) {
 }
 async function exportLogs() {
   exporting.value = true;
+  if (draftChanged.value) apply();
   const applied = search();
   applied.delete("page");
   applied.delete("page_size");
@@ -82,11 +95,16 @@ onMounted(load);
       <div class="log-filters">
         <ElFormItem label="开始时间（北京时间）"><ElDatePicker v-model="draft.from" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>
         <ElFormItem label="结束时间（北京时间）"><ElDatePicker v-model="draft.to" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>
+        <ElFormItem label="关键词"><ElInput v-model="draft.q" clearable placeholder="路径、访问结果或请求ID" /></ElFormItem>
+      </div>
+      <ElButton link :aria-expanded="moreFilters" @click="moreFilters = !moreFilters">
+        {{ moreFilters ? "收起更多筛选" : "更多筛选" }}
+      </ElButton>
+      <div v-show="moreFilters" class="log-filters">
         <ElFormItem label="客户端IP"><ElInput v-model="draft.ip" clearable /></ElFormItem>
         <ElFormItem label="账号"><ElInput v-model="draft.username" clearable /></ElFormItem>
         <ElFormItem label="请求方法"><ElSelect v-model="draft.method" clearable><ElOption v-for="value in ['GET','POST','PUT','PATCH','DELETE','HEAD','OPTIONS']" :key="value" :value="value" :label="value" /></ElSelect></ElFormItem>
         <ElFormItem label="状态码"><ElInput v-model="draft.status" clearable placeholder="例如 403" /></ElFormItem>
-        <ElFormItem label="关键词"><ElInput v-model="draft.q" clearable placeholder="路径、访问结果或请求ID" /></ElFormItem>
       </div>
     </ElForm>
 
@@ -96,13 +114,13 @@ onMounted(load);
       <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
         <div class="unified-list-tools">
           <div class="toolbar">
-            <span class="muted" role="status">{{ loading ? '正在加载…' : '本页 ' + rows.length + ' 条' }}</span>
+            <span class="muted" role="status">{{ loading ? '正在查询…' : scopeLabel + ' · 共 ' + total + ' 条' }}</span>
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除列筛选</ElButton>
           </div>
           <div class="toolbar page-heading-actions">
             <ElButton :loading="loading" @click="load">刷新</ElButton>
             <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-            <ElButton :loading="exporting" @click="exportLogs">下载筛选日志</ElButton>
+            <ElButton :loading="exporting" @click="exportLogs">{{ draftChanged ? "应用条件并下载" : "下载筛选日志" }}</ElButton>
             <ElButton type="primary" native-type="submit" :form="filterFormId" :disabled="loading">查询</ElButton>
           </div>
         </div>

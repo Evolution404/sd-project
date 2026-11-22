@@ -84,7 +84,7 @@ try{
   assert.ok(await page.locator('[data-guide-action="excel.template"]').isVisible());
   await drawer.getByRole("button",{name:"关闭此对话框",exact:true}).click();
   await drawer.waitFor({state:"hidden"});
-  ({drawer,item}=await searchAction("excel.template","Excel 批量处理",true));
+  ({drawer,item}=await searchAction("excel.template","导入 Excel",true));
   await item.getByRole("button",{name:"定位当前按钮"}).click();
   await drawer.waitFor({state:"hidden"});
   const excelTour=page.locator(".el-tour__content:visible");

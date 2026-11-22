@@ -70,6 +70,7 @@ try {
   await page.setViewportSize({ width: 1500, height: 1000 });
   await navigate("费用与结算");
   await page.locator(".cell-link:visible").first().click();
+  await page.getByRole("tab", { name: "结算单", exact: true }).click();
   const billRow = page.getByRole("row").filter({ hasText: bill.number });
   await submitSettlement(page, billRow);
   await billRow.getByRole("button", { name: "审核结算", exact: true }).click();
@@ -90,6 +91,7 @@ try {
   await ledger.getByRole("button", { name: "关闭详情", exact: true }).click();
   await navigate("费用与结算");
   await page.locator(".cell-link:visible").first().click();
+  await page.getByRole("tab", { name: "结算单", exact: true }).click();
   await billRow.getByRole("button", { name: "附件", exact: true }).waitFor();
   await billRow.getByRole("button", { name: "更多操作" }).click();
   assert.equal(await billRow.getByRole("button", { name: "审核结算", exact: true }).count(), 0);

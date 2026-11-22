@@ -252,7 +252,7 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
         <div class="guide-result-count">共 {{ filteredActions.length }} 条操作解释</div>
         <ElCollapse>
           <ElCollapseItem v-for="action in filteredActions" :key="action.id"
-            :title="action.title + ' · ' + (guideModuleForRoute(action.module)?.title ?? 'Excel 批量处理')" :name="action.id">
+            :title="action.title + ' · ' + (guideModuleForRoute(action.module)?.title ?? '导入 Excel')" :name="action.id">
             <p>{{ action.purpose }}</p>
             <ElButton v-if="action.module !== routeKey && moduleDestination(action.module)" size="small" text type="primary"
               @click="goToModule(action.module)">前往{{ moduleDestination(action.module)?.title }}</ElButton>
@@ -278,8 +278,8 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
           </article>
         </div>
         <article class="guide-module-item">
-          <strong>Excel批量处理专题</strong>
-          <p>使用稳定关联号，下载中文模板、预检、修正、合法部分或整批原子提交并回查。</p>
+          <strong>使用 Excel 导入和导出</strong>
+          <p>下载模板并填写，上传检查，有问题时按提示修改。保存后可打开已导入的记录。</p>
           <ElButton text type="primary" @click="tab='search';query='Excel'">查看Excel操作说明</ElButton>
         </article>
       </ElTabPane>

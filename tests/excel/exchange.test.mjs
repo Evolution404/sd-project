@@ -32,7 +32,10 @@ test("demand maintenance export, diff, revision, idempotency and stale version",
     exchange.commit(user, preview.token, { request_key: "excel-request-0001" }),
     result,
   );
-  const stale = await exchange.preview(user, "demands", edited, {
+  const repeated = await exchange.preview(user, "demands", edited, { mode: "update" });
+  assert.deepEqual(repeated.previous, result);
+  positions.getRow(2).getCell(columnIndex(positions,"quantity_scaled")).value = 6;
+  const stale = await exchange.preview(user, "demands", Buffer.from(await workbook.xlsx.writeBuffer()), {
     mode: "update",
   });
   assert.ok(stale.issues.some((x) => x.field === "expected_version"));

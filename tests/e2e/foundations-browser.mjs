@@ -143,7 +143,6 @@ try {
   await rowAction(current, "删除");
   await page.getByRole("button", { name: "确定", exact: true }).click();
   await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "关闭详情" }).click();
-  await page.getByRole("button", { name: "筛选", exact: true }).click();
   await page.locator("label.el-checkbox:visible").filter({ hasText: "包含已删除" }).click();
   await page
     .getByRole("row")

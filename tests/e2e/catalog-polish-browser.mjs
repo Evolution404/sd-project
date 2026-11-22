@@ -83,9 +83,9 @@ try {
   assert.equal(await editor.getByText('影响与预览', { exact: true }).count(), 0);
   await editor.getByRole('button', { name: '取消', exact: true }).click();
   await selectNavigation(page, '专业需求');
-  await page.getByRole('button', { name: 'Excel 批量处理', exact: true }).click();
+  await page.getByRole('button', { name: '导入 Excel', exact: true }).click();
   const received = page.waitForEvent('download');
-  await page.getByRole('button', { name: '空白模板', exact: true }).click();
+  await page.getByRole('button', { name: '下载模板', exact: true }).click();
   const file = await received;
   assert.equal(file.suggestedFilename(), '需求模板.xlsx');
   const book = new ExcelJS.Workbook();

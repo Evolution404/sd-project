@@ -64,7 +64,7 @@ try {
 
   await selectNavigation(page, "输电设备台账");
   await page.getByRole("heading", { name: "输电设备台账" }).waitFor();
-  await page.getByRole("button", { name: "Excel 批量处理", exact: true }).click();
+  await page.getByRole("button", { name: "导入 Excel", exact: true }).click();
   const workbook = await makeWorkbook("assets", {
     documents: Array.from({ length: 45 }, (_, i) => ({
       name: "预检筛选" + String(i).padStart(3, "0"),
@@ -76,8 +76,9 @@ try {
     mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: workbook,
   });
-  const dialog = page.getByRole("dialog", { name: /设备台账 Excel/ });
-  await dialog.getByText("新增 45", { exact: true }).waitFor();
+  const dialog = page.getByRole("dialog", { name: "导入 Excel" });
+  await dialog.getByText("新增 45 条，修改 0 条，0 条需处理", { exact: true }).waitFor();
+  await dialog.getByRole("button", { name: "查看改动", exact: true }).click();
   assert.ok(await dialog.getByRole("cell", { name: "预检筛选000", exact: true }).count());
   assert.equal(await dialog.getByRole("cell", { name: "预检筛选044", exact: true }).count(), 0);
   await dialog.getByRole("button", { name: "筛选业务记录" }).click();

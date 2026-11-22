@@ -92,6 +92,7 @@ async function approveDraft(change=false) {
   await page.getByText("确认正式批准成功，正在刷新业务状态",{exact:true}).last().waitFor();
 }
 async function bill(itemized=false) {
+  await finance.getByRole("tab", { name: "结算单", exact: true }).click();
   await finance.getByRole("button",{name:"新增结算草稿",exact:true}).click();
   if(itemized) {
     await editor.getByText("按子费用",{exact:true}).click();
@@ -195,11 +196,11 @@ try {
   await first.row.getByText(/待审核/).waitFor();
   assert.equal(system.finance.settlement(first.document.id).version.id,version);
   await approveSettlement(page,first.row);
-  await first.row.getByText(/已审核/).waitFor();
+  await first.row.getByText(/已批准/).waitFor();
   assert.equal(snapshot().progressPercent,60);
   const second=await bill(true);
   await approveSettlement(page,second.row);
-  await second.row.getByText(/已审核/).waitFor();
+  await second.row.getByText(/已批准/).waitFor();
   assert.equal(snapshot().progressPercent,98);
   await page.goto(base+"/#/projects?project="+snapshot().facts.projectId);
   await detail.getByRole("button",{name:"结项核对",exact:true}).click();
@@ -217,7 +218,7 @@ try {
   await detail.getByRole("heading",{name:"结项结果",exact:true}).waitFor();
   const projectId=snapshot().facts.projectId;
   await detail.getByRole("tab",{name:"承接需求",exact:true}).click();
-  await locateHelp("projects.release","显式解绑 · 子项目管理",/已结项，最新版正式批准范围仍包含该需求/);
+  await locateHelp("projects.release","解除承接 · 子项目管理",/已结项，最新版正式批准范围仍包含该需求/);
   const roleNames=["editor","verifier","viewer"];
   for(const role of roleNames) {
     system.auth.saveUser(user,{username:"practice-"+role,password,role,status:"active"});
@@ -229,10 +230,16 @@ try {
       await restricted.getByRole("button",{name:"登录",exact:true}).click();
       const panel=restricted.locator(".business-detail-dialog:visible");
       await panel.getByRole("heading",{name:"青禾线防鸟治理训练项目"}).waitFor();
-      const restriction=role==="editor" ? "项目已结项" : "当前账号没有变更关联权限";
-      const release=panel.locator('[data-guide-action="projects.release"][title*="'+restriction+'"]:visible');
-      await release.waitFor({timeout:10000});
-      assert.equal(await release.isDisabled({timeout:10000}),true,role+"不可解绑已结项批准范围");
+      await panel.getByRole("tab", { name: "承接需求", exact: true }).click();
+      await panel.getByRole("columnheader", { name: /^需求编号/ }).waitFor();
+      const release=panel.locator('[data-guide-action="projects.release"]:visible');
+      if (role === "editor") {
+        await release.waitFor({timeout:10000});
+        assert.match(await release.getAttribute("title"), /项目已结项/);
+        assert.equal(await release.isDisabled(), true, "编辑不可解绑已结项批准范围");
+      } else {
+        assert.equal(await release.count(), 0, role+"无权变更承接关系");
+      }
       await panel.getByRole("button",{name:"使用指引",exact:true}).click();
       const roleGuide=restricted.getByRole("dialog",{name:"使用指引"});
       await roleGuide.getByRole("tab",{name:"全流程实操"}).click();

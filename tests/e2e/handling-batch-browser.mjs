@@ -32,9 +32,13 @@ const bodyRows = page.locator(".business-table-grid .el-table__body-wrapper tbod
 async function selectRow(row) {
   await row.locator("label.el-checkbox").first().click();
 }
-async function downloadSelected(toolbar) {
+async function downloadSelected(toolbar, kind) {
   const pending = page.waitForEvent("download");
+  const request = page.waitForRequest(item => item.url().includes(`/api/exchange/${kind}/export`));
   await toolbar.getByRole("button", { name: "导出所选", exact: true }).click();
+  const outgoing = await request;
+  assert.equal(outgoing.method(), "POST");
+  assert.equal(outgoing.postDataJSON().ids.length, 2);
   const file = await pending;
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(await file.path());
@@ -50,14 +54,17 @@ try {
   const first = await bodyRows.first().getByRole("cell").nth(1).innerText();
   await selectRow(bodyRows.first());
   await page.locator(".el-pagination").getByText("2", { exact: true }).click();
-  await page.getByText("本页 2 条", { exact: true }).filter({ visible: true }).first().waitFor();
+  await page.waitForFunction(() =>
+    document.querySelectorAll(".business-table-grid .el-table__body-wrapper tbody tr").length === 2);
   await selectRow(bodyRows.first());
   await demandBatch.getByText("已选 2 条", { exact: true }).waitFor();
   await page.locator(".el-pagination").getByText("1", { exact: true }).click();
   await page.getByRole("cell", { name: first, exact: true }).first().waitFor();
   assert.equal(await bodyRows.first().getByRole("checkbox").isChecked(), true);
-  const workbook = await downloadSelected(demandBatch);
-  assert.equal(workbook.getWorksheet("需求清单").actualRowCount, 3);
+  const workbook = await downloadSelected(demandBatch, "demands");
+  const selectedDemands = workbook.getWorksheet("专业需求报表");
+  assert.equal(selectedDemands.actualRowCount, 5);
+  assert.match(selectedDemands.getCell("A1").text, /勾选的记录，共 2 条/);
   await demandBatch.getByRole("button", { name: "批量确认", exact: true }).click();
   const confirmation = page.getByRole("dialog", { name: "核对批量确认" });
   await confirmation.getByText(/可办理 2 条，暂不可办理 0 条/).waitFor();
@@ -67,7 +74,7 @@ try {
   assert.equal(s.demands.list().filter(row => row.status === "active").length, 2);
 
   await page.getByRole("tab", { name: "待承接", exact: true }).click();
-  await page.getByText("本页 2 条", { exact: true }).filter({ visible: true }).first().waitFor();
+  await page.getByRole("status").filter({ hasText: /^共 2 条$/ }).waitFor();
   await page.locator(".business-table-grid thead label.el-checkbox").first().click();
   await demandBatch.getByRole("button", { name: "批量关联子项目", exact: true }).click();
   const picker = page.getByRole("dialog", { name: "选择子项目承接需求" });
@@ -80,20 +87,23 @@ try {
   assert.equal(s.projects.get(projects[0].id).scopes.filter(row => row.binding).length, 2);
 
   await page.getByRole("tab", { name: "已承接", exact: true }).click();
-  await page.getByText("本页 2 条", { exact: true }).waitFor();
+  await page.getByRole("status").filter({ hasText: /^共 2 条$/ }).waitFor();
   const beforeFilter = await bodyRows.first().locator(".cell-link:visible").first().innerText();
   await page.getByRole("button", { name: "筛选问题描述", exact: true }).click();
   const filter = page.getByPlaceholder("筛选问题描述", { exact: true });
   await filter.fill(beforeFilter);
   await filter.press("Enter");
-  await page.getByText("本页 1 条", { exact: true }).waitFor();
-  await page.getByRole("button", { name: "Excel 批量处理", exact: true }).click();
-  const exchange = page.getByRole("dialog").filter({ hasText: "筛选结果维护导出" });
+  await page.getByRole("status").filter({ hasText: /^共 1 条$/ }).waitFor();
   const filtered = page.waitForEvent("download");
-  await exchange.getByRole("button", { name: "筛选结果维护导出", exact: true }).click();
+  await page.getByRole("button", { name: "导出 Excel", exact: true }).click();
   const subset = new ExcelJS.Workbook();
   await subset.xlsx.readFile(await (await filtered).path());
-  assert.equal(subset.getWorksheet("需求清单").actualRowCount, 2);
+  const filteredReport = subset.getWorksheet("专业需求报表");
+  assert.equal(filteredReport.actualRowCount, 4);
+  assert.match(filteredReport.getCell("A1").text, /已承接.*共 1 条/);
+  assert.equal(filteredReport.getRow(4).getCell(4).value, beforeFilter);
+  assert.equal(subset.worksheets[0].name, "专业需求报表");
+  assert.equal(subset.getWorksheet("报表标记").state, "veryHidden");
 
   await page.goto(base + "/#/projects");
   for (const project of projects.slice(0, 2)) await selectRow(bodyRows.filter({ hasText: project.name }));
@@ -104,8 +114,18 @@ try {
   await page.getByRole("button", { name: "完成", exact: true }).click();
   assert.equal(page.url(), stateBeforeReset);
   await projectBatch.getByText("已选 2 条", { exact: true }).waitFor();
-  const report = await downloadSelected(projectBatch);
-  assert.equal(report.getWorksheet("子项目清单").actualRowCount, 3);
+  const report = await downloadSelected(projectBatch, "projects");
+  assert.equal(report.getWorksheet("子项目清单").actualRowCount, 5);
+  const selectedEndpoint = base + "/api/exchange/projects/export";
+  const emptySelection = await page.request.post(selectedEndpoint, { data: { ids: [] } });
+  assert.equal(emptySelection.status(), 422, "an empty selection must never broaden to all projects");
+  const largeSelection = { ids: Array(5000).fill(projects[0].id) };
+  assert.ok(JSON.stringify(largeSelection).length > 16384);
+  const largeResponse = await page.request.post(selectedEndpoint, { data: largeSelection });
+  assert.equal(largeResponse.status(), 200);
+  const largeReport = new ExcelJS.Workbook();
+  await largeReport.xlsx.load(await largeResponse.body());
+  assert.equal(largeReport.getWorksheet("子项目清单").actualRowCount, 4);
   await page.screenshot({ path: join(out, "项目所选和批量入口.png") });
   await projectBatch.getByRole("button", { name: "批量入库", exact: true }).click();
   const stock = page.getByRole("dialog", { name: "核对批量入库" });

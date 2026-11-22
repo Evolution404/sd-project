@@ -441,9 +441,9 @@ try {
   await login("tree-viewer", "Tree-viewer-password");
   await page.locator(".organization-workspace").waitFor();
   assert.equal(
-    await page.getByRole("button", { name: "新增根单位", exact: true }).count(),
+    await page.getByRole("button", { name: "新增一级单位", exact: true }).count(),
     0,
-    "只读账号没有新增根单位权限",
+    "只读账号没有新增一级单位权限",
   );
   assert.equal(
     await page

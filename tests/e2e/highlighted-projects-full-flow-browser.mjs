@@ -309,6 +309,7 @@ async function createNode(record, name) {
   return system.finance.costTree(user, record.projectId).find(node => node.name === name);
 }
 async function createCost(record, node, title, amount) {
+  await detail.getByRole("tab", { name: "实际费用", exact: true }).click();
   await detail.getByRole("button", { name: "核定费用", exact: true }).click();
   await editor.getByLabel("费用事项", { exact: true }).fill(title);
   await choose("末级费用科目", node.name);
@@ -319,6 +320,7 @@ async function createCost(record, node, title, amount) {
   return system.finance.costs(record.projectId).find(cost => cost.title === title);
 }
 async function createBill(record, node, evidence, amount, resolved, candidate, itemized = false) {
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   await detail.getByRole("button", { name: "新增结算草稿", exact: true }).click();
   if (itemized) {
     await editor.getByText("按子费用", { exact: true }).click();
@@ -365,10 +367,11 @@ async function submitBill(bill, returned = false) {
     recordStep("结算退回后原版重新提交", { bill:bill.number });
   }
   await approveSettlement(page, row);
-  await row.getByText(/已审核/).waitFor();
+  await row.getByText(/已批准/).waitFor();
   return system.finance.settlement(bill.id);
 }
 async function reconcile(record, cost, bill, suffix) {
+  await detail.getByRole("tab", { name: "费用核对", exact: true }).click();
   await detail.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await choose("实际费用", cost.title + " · ¥" + displayAmount(cost.amount_fen));
   const choice = editor.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});
@@ -423,6 +426,7 @@ async function financialFlow(record, candidate) {
   await openProject(record, "finance");
   assert.notEqual(system.projects.get(record.projectId).approval.id, previousApproval);
   recordStep("已有结算后正式调整项目预算，原结算继续有效", { project: record.source_reference });
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   const firstRow = detail.getByRole("row").filter({ hasText:firstBill.number }).first();
   await rowAction(firstRow, "发起新修订");
   await editor.getByLabel("本次金额（元）", { exact:true }).first().fill(amountInput(firstTarget));
@@ -433,13 +437,14 @@ async function financialFlow(record, candidate) {
   await firstRow.getByText(/待审核/).waitFor();
   assert.equal(system.finance.summary(record.projectId).settlement_fen, originalAmount);
   await approveSettlement(page, firstRow);
-  await firstRow.getByText(/已审核/).waitFor();
+  await firstRow.getByText(/已批准/).waitFor();
   firstBill = system.finance.settlement(firstBill.id);
   assert.notEqual(firstBill.version.id, previousVersion);
   assert.equal(firstBill.version.approval_version_id, previousApproval);
   assert.equal(system.finance.summary(record.projectId).settlement_fen, firstTarget);
   assert.equal(system.finance.summary(record.projectId).reconciled_cost_fen, 0);
   if (oldReconciliation) {
+    await detail.getByRole("tab", { name: "费用核对", exact: true }).click();
     const staleRow = detail.getByRole("row").filter({ hasText:"模拟双金额核对原送审版" }).first();
     await rowAction(staleRow, "删除");
     await confirm();
@@ -474,9 +479,10 @@ async function financialFlow(record, candidate) {
   await detail.getByText(/尚有未提交的结算草稿或修订草稿/).waitFor();
   assert.equal(await detail.getByRole("button", { name:"结项核对", exact:true }).isDisabled(), true);
   await openProject(record, "finance");
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   await rowAction(thirdRow, "撤回草稿");
   await confirm();
-  await thirdRow.getByText(/已审核/).waitFor();
+  await thirdRow.getByText(/已批准/).waitFor();
   assert.equal(system.finance.settlement(third.id).draft, null);
   assert.equal(system.finance.summary(record.projectId).settlement_fen, record.approved_settlement_fen);
   recordStep("撤回未提交结算修订，保留原批准金额", { project:record.source_reference });

@@ -45,7 +45,7 @@ try {
   await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
   await selectNavigation(page, "专业需求");
   await page
-    .getByRole("button", { name: "Excel 批量处理", exact: true })
+    .getByRole("button", { name: "导入 Excel", exact: true })
     .click();
   const buffer = await makeWorkbook("demands", {
     documents: [
@@ -72,13 +72,14 @@ try {
     buffer,
   });
   await page.getByText("新增 1", { exact: false }).waitFor();
-  await page.getByRole("button", { name: "确认提交有效单据" }).click();
-  await page.getByText("已处理 1 张单据，失败 0 项").waitFor();
+  await page.getByRole("button", { name: "保存 1 条需求" }).click();
+  await page.getByText("已处理 1 条").waitFor();
   assert.equal(s.demands.list().length, 1);
-  await page.getByText("下载模板与维护导出",{exact:true}).click();
+  await page.getByRole("button", { name: "完成", exact: true }).last().click();
+  await page.getByRole("button", { name: "用 Excel 批量修改", exact: true }).click();
   const downloaded = page.waitForEvent("download");
   await page
-    .getByRole("button", { name: "筛选结果维护导出", exact: true })
+    .getByRole("button", { name: "下载要修改的记录", exact: true })
     .click();
   const exported = readFileSync(await (await downloaded).path());
   const workbook = new ExcelJS.Workbook();
@@ -105,9 +106,9 @@ try {
     mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
   });
-  await page.getByText("更新 1", { exact: false }).waitFor();
-  await page.getByRole("button", { name: "确认提交有效单据" }).click();
-  await page.getByText("已处理 1 张单据，失败 0 项").waitFor();
+  await page.getByText("修改 1 条", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "保存 1 条需求" }).click();
+  await page.getByText("已处理 1 条").waitFor();
   const revised = s.demands.list()[0];
   assert.equal(revised.current_version, 2);
   assert.equal(revised.quantity_scaled, 30000);

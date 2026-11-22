@@ -61,10 +61,12 @@ try {
   await workspace.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
   const financial = page.getByRole("region", { name: "费用与结算", exact: true });
   await financial.getByText("项目已结项，普通费用、科目、结算及核对写入已冻结", { exact: true }).first().waitFor();
-  for (const name of ["新增科目", "核定费用", "编制结算", "新增核对", "上传并预检"]) {
-    const button = financial.getByRole("button", { name, exact: true });
-    if (await button.count()) assert.equal(await button.isDisabled(), true, name);
-  }
+  assert.equal(await financial.getByRole("button", { name: "核定费用", exact: true }).isDisabled(), true);
+  await financial.getByRole("tab", { name: "结算单", exact: true }).click();
+  assert.equal(await financial.getByRole("button", { name: "导入 Excel", exact: true }).count(), 0);
+  assert.equal(await financial.getByRole("button", { name: "新增结算草稿", exact: true }).count(), 0);
+  await financial.getByRole("tab", { name: "费用核对", exact: true }).click();
+  assert.equal(await financial.getByRole("button", { name: "新增正式核对", exact: true }).isDisabled(), true);
   await financial.screenshot({ path: join(out, "结项财务冻结.png") });
   assert.deepEqual(errors, []);
   console.log("PROJECT_LIFECYCLE_INTEGRITY_BROWSER_OK candidate proposal, atomic add/release, frozen closed finance and immutable history");

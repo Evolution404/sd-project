@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import { projectStatusTag } from "../../shared/utils/project-status";
 import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
@@ -21,7 +22,7 @@ import BusinessNumber from "../../shared/ui/BusinessNumber.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useAccess } from "../../shared/composables/use-access";
 const can = useAccess();
-import { ref, onMounted, computed, watch } from "vue";
+import { ref, onMounted, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { demandContext, fundContext, projectContext } from "../../shared/navigation/business-context";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -40,7 +41,7 @@ import ProjectArchiveFields from "./components/ProjectArchiveFields.vue";
 import ProjectApprovalFields from "./components/ProjectApprovalFields.vue";
 import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
-import { ApiError, api, download, money, quantity } from "../../shared/api/client";
+import { ApiError, api, money, quantity } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate, ProjectAction, ProjectDetail,
   ProjectListItem, ProjectDeletionImpact } from "../../../../server/shared/types/project-api";
@@ -95,7 +96,8 @@ function goToProjectWork(work: string, recordId = "", recordAction = "", focus =
     query: { ...route.query, ...(focus ? { focus, record: recordId } : {}) },
   });
 }
-function returnFromProjectWork() {
+let returningToProjectDetail = false;
+async function returnFromProjectWork() {
   if (projectWork.value === "finance" && typeof route.query.returnTo === "string") {
     const origin = router.resolve(route.query.returnTo);
     if (["finance", "dashboard", "frameworks", "agreements", "funding"].includes(String(origin.name))) return workRoute.exit(origin.fullPath);
@@ -103,10 +105,24 @@ function returnFromProjectWork() {
   if (projectWork.value === "settlements") return workRoute.exit({ name: "projects",
     params: { projectId: workProjectId.value, work: "finance", recordId: "", recordAction: "" }, query: route.query,
   });
-  return workRoute.exit({ name: "projects",
-    params: { projectId: "", work: "", recordId: "", recordAction: "" },
-    query: { ...route.query, project: workProjectId.value, tab: projectFinancePage.value ? "finance" : "approval" },
-  });
+  returningToProjectDetail = true;
+  try {
+    await workRoute.exit({ name: "projects",
+      params: { projectId: "", work: "", recordId: "", recordAction: "" },
+      query: { ...route.query, project: workProjectId.value, tab: projectFinancePage.value ? "finance" : "approval" },
+    });
+    await nextTick();
+  } finally { returningToProjectDetail = false; }
+}
+function closeProjectDetails() {
+  if (route.query.focus === "funding" && typeof route.query.returnTo === "string") {
+    const from = router.resolve(route.query.returnTo);
+    if (from.name === "frameworks" || from.name === "agreements") {
+      void workRoute.exit(from.fullPath);
+      return;
+    }
+  }
+  detailDialog.close();
 }
 const projectActions = ref<ProjectAction[]>([]);
 const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
@@ -210,18 +226,7 @@ const rows = ref<ProjectListItem[]>([]),
 const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]));
 const { selected, selectedIds, eligibleIds } = selection;
 const handling = useHandlingReview();
-const exportingSelection = ref(false);
 
-async function exportSelected() {
-  const ids = eligibleIds.value;
-  if (!ids.length || ids.length > 100 || exportingSelection.value) return;
-  const query = new URLSearchParams();
-  for (const id of ids) query.append("id", id);
-  exportingSelection.value = true;
-  try { await download("/exchange/projects/export?" + query); }
-  catch (failure) { ElMessage.error((failure as Error).message); }
-  finally { exportingSelection.value = false; }
-}
 
 function stockSelectedProjects() {
   const targets: HandlingTarget[] = selected.value.map(row => ({ id: row.id, expected_version: row.version }));
@@ -354,6 +359,7 @@ function filterTable(value: Record<string, string>) {
   page.value = 1;
   load();
 }
+const appliedQuery = ref("");
 let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
@@ -917,9 +923,15 @@ const overviewStep = computed(() => {
   if (!project) return { message: "" };
   if (project.deleted) return { message: "此项目已删除，可查阅保留的业务记录。", label: "查看历史", action: "history" };
   if (project.display_status === "已结项") return { message: "结项结果及差异已保存。", label: "查看结项结果", action: "history" };
-  if (approvalDraft.value) return currentApproval.value
-    ? { message: "第 " + currentApproval.value.version_no + " 版批准继续生效。本次变更等待审核。", label: "查看变更差异", action: "draft" }
-    : { message: "已保存立项草稿，等待审核。", label: "查看立项草稿", action: "draft" };
+  if (approvalDraft.value) {
+    const change = !!currentApproval.value;
+    const canReview = can(change ? "change.approve" : "project.approve");
+    return {
+      message: approvalAction.value?.reason || (change ? "当前批准继续生效，变更等待审核。" : "立项草稿等待审核。"),
+      label: canReview && !approvalAction.value?.reason ? (change ? "审核变更" : "审核立项") : "查看申请",
+      action: canReview && !approvalAction.value?.reason ? "draft" : "inspectApproval",
+    };
+  }
   if (currentApproval.value) return {
     message: "第 " + currentApproval.value.version_no + " 版批准范围和预算已生效。",
     label: "办理费用与结算", action: "finance",
@@ -942,6 +954,7 @@ function runOverviewStep() {
   if (next === "approval") { tab.value = "approval"; void openDialog("approval"); }
   if (next === "draft") { tab.value = "approval"; void goToProjectWork("review"); }
   if (next === "history") tab.value = "history";
+  if (next === "inspectApproval") tab.value = "approval";
   if (next === "finance") void goToProjectWork("finance");
 }
 watch(() => detail.value, () => {
@@ -977,7 +990,10 @@ async function openWorkRoute() {
   if (!work) {
     ++approvalRequest;
     if (dialog.value === "approval") dialog.value = "";
-    if (workProjectId.value && detail.value?.id !== workProjectId.value) await detailDialog.open(workProjectId.value);
+    const project = route.query.project;
+    if (typeof project === "string" && project) {
+      if (project !== detail.value?.id || !detailOpen.value) await detailDialog.open(project);
+    } else if (detailOpen.value && !returningToProjectDetail) detailDialog.close();
     return;
   }
   if (!workProjectId.value) {
@@ -1019,12 +1035,13 @@ onMounted(async () => {
         <template #toolbar="{ openSettings, clearFilters, hasActiveFilters, appliedFilters }">
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="子项目批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
-        <span class="muted">本页 {{ rows.length }} 条</span>
-        <ElButton data-guide-action="projects.export-selection" :loading="exportingSelection" :disabled="!eligibleIds.length || eligibleIds.length !== selected.length || selected.length > 100" @click="exportSelected">导出所选</ElButton>
+        <span class="muted">共 {{ total }} 条</span>
+        <ExcelExportButton kind="projects" guide-action="projects.export-selection" :selected-ids="eligibleIds"
+          :disabled="eligibleIds.length !== selected.length" />
         <ElButton data-guide-action="projects.batch-stock" v-if="selected.some(row => row.display_status === '储备' && !row.deleted) && can('project.stock')" type="primary" :disabled="selected.length > 100" @click="stockSelectedProjects">批量入库</ElButton>
         <ElButton link @click="selection.clear">清空选择</ElButton>
         <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-        <span v-if="selected.length > 100" class="muted">一次最多办理或导出 100 条</span>
+        <span v-if="selected.length > 100" class="muted">每次批量办理最多 100 条</span>
         <span v-else-if="eligibleIds.length !== selected.length" class="muted">导出前请取消勾选已删除记录</span>
       </div>
           <div v-else class="unified-list-tools">
@@ -1035,20 +1052,17 @@ onMounted(async () => {
           placeholder="搜索项目编号或名称"
           @change="applySearch" @keyup.enter="applySearch"
         />
-            <ElPopover trigger="click" placement="bottom-start">
-              <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox data-guide-action="projects.show-deleted" v-model="showDeleted" @change="resetListPage"
+            <ElCheckbox data-guide-action="projects.show-deleted" v-model="showDeleted" @change="resetListPage"
           >包含已删除</ElCheckbox
         >
-            </ElPopover>
-              <span role="status" class="muted">本页 {{ rows.length }} 条</span>
+              <span role="status" class="muted">共 {{ total }} 条</span>
               <ElTag v-for="condition in appliedFilters" :key="condition.label" effect="plain">{{ condition.label }} · {{ condition.value }}</ElTag>
-              <ElTag v-if="showDeleted" effect="plain">包含已删除</ElTag>
               <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
             </div>
             <div class="toolbar page-heading-actions">
               <ElButton :loading="listLoading" @click="load">刷新</ElButton>
               <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+              <ExcelExportButton kind="projects" :applied-query="appliedQuery" :total="total" :disabled="listLoading" />
 
         <ElButton
           v-if="can('write')"
@@ -1083,7 +1097,7 @@ onMounted(async () => {
   <BusinessDetailDialog :open="detailOpen && !approvalEditorPage" :page="approvalReviewPage || projectFinancePage"
     :title="approvalReviewPage ? approvalReviewTitle : projectFinancePage ? '费用与结算' : '子项目详情'"
     :subtitle="projectWork ? detail?.name : undefined" bare :loading="detailLoading" :error="detailError"
-    @close="projectWork ? returnFromProjectWork() : detailDialog.close()" @retry="detailDialog.reload">
+    @close="projectWork ? returnFromProjectWork() : closeProjectDetails()" @retry="detailDialog.reload">
     <template v-if="detail"><div v-if="!projectWork" class="detail-header" :data-guide-record="'project/' + detail.id">
       <h1>{{ detail.name }}</h1>
       <ElTag :type="projectStatusTag(detail.display_status)">{{ detail.display_status }}</ElTag
@@ -1143,10 +1157,9 @@ onMounted(async () => {
             <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
           </template>
           <template #actions="{ row }">
-            <RowActions :actions="[
-              { label: '查看需求', run: () => router.push(demandContext(row.demand_id)) },
-              { label: '显式解绑', guideActionId: 'projects.release', danger: true, disabled: !!releaseBlockReason(row), reason: releaseBlockReason(row), run: () => release(row) },
-            ]" />
+            <ElButton v-if="row.binding && can('write')" data-guide-action="projects.release" size="small"
+              plain type="danger" :disabled="!!releaseBlockReason(row)" :title="releaseBlockReason(row)"
+              @click="release(row)">解除承接</ElButton>
           </template>
         </BusinessTable>
       </div>

@@ -455,7 +455,7 @@ async function save() {
     </ElForm>
     <template #footer
       ><ElButton @click="close()">取消</ElButton
-      ><ElButton data-guide-action="pricing.preview" :loading="checking" @click="preview">保存前检查</ElButton
+      ><ElButton data-guide-action="pricing.preview" :loading="checking" @click="preview">试算</ElButton
       ><ElButton data-guide-action="pricing.save" type="primary" :loading="saving" @click="save"
         >保存</ElButton
       ></template

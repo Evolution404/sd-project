@@ -32,6 +32,7 @@ try {
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   const detail = page.locator(".business-detail-page:visible");
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   const row = detail.getByRole("row").filter({ hasText: bill.number }).first();
   await row.getByRole("button", { name: "发起新修订", exact: true }).click();
   const editor = page.getByRole("region", { name: "修订结算草稿", exact: true });

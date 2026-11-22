@@ -61,8 +61,10 @@ try {
     const pageResult = await (await response).json();
     assert.equal(pageResult.total, 35);
     assert.equal(pageResult.items.length, 30);
+    await page.getByRole("tab", { name: "结算单", exact: true }).click();
     await page.getByRole("heading", { name: "独立结算单", exact: true }).waitFor();
   });
+  await page.getByRole("tab", { name: "实际费用", exact: true }).click();
   const costsPanel = page.locator(".business-detail-page:visible .panel").filter({ has: page.getByRole("heading", { name: "实际费用", exact: true }) });
   const secondPage = page.waitForResponse(response => response.url().includes(`/api/projects/${project.id}/costs?page=2&`));
   await costsPanel.locator(".el-pagination").getByText("2", { exact: true }).click();

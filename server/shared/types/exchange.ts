@@ -132,6 +132,8 @@ export interface WorkbookOptions {
   report?: boolean;
   lookups?: Record<string, unknown>[];
   attributes?: OperationAttribute[];
+  assetKind?: AssetExchangeKind;
+  template?: boolean;
 }
 export type AssetExchangeKind = "lines" | "physical" | "towers" | "spans";
 export type ExchangeMode = "create" | "update" | "mixed";
@@ -159,6 +161,7 @@ export interface AssetPrepareResult {
 export interface ExchangePreviewOptions {
   mode?:ExchangeMode;
   projectId?:string;
+  newSettlement?:boolean;
 }
 export interface ExchangeExportOptions {
   ids?:string[];
@@ -188,11 +191,25 @@ export interface ExchangeCommitInput {
   atomic:boolean;
 }
 export interface ExchangeCommitResult {
-  results:Array<{entity_kind?: AssetExchangeKind;import_ref?:string;number:string;id:string;action:"create"|"update"|"unchanged"}>;
+  results:Array<{entity_kind?: AssetExchangeKind;import_ref?:string;sheet?:string;row?:number;number:string;id:string;action:"create"|"update"|"unchanged"}>;
   issues:WorkbookIssue[];
   timings_ms:{revalidation:number;business_writes:number};
   submitted_at:string;
   kind:WorkbookKind;
+}
+export interface ExchangePreview {
+  token: string;
+  documents: ExchangePreviewDocument[];
+  issues: WorkbookIssue[];
+  summary: { documents: number; invalid_documents: number; created: number; updated: number; unchanged: number;
+    duplicate_issues: number; conflicts: number; missing_devices?: number; ambiguous_locations?: number;
+    format_errors?: number; precision_errors?: number; invalid?: number };
+  timings_ms: { parse: number; total: number };
+  previous?: ExchangeCommitResult;
+}
+export interface ExchangeReportScope {
+  label: string;
+  count: number;
 }
 export interface ExchangeBatch {
   id:string;

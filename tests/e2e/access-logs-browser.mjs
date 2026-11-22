@@ -27,6 +27,7 @@ try {
   await logs.getByText("2026-11-13 00:03:47", { exact: true }).first().waitFor();
   await context.request.get(base + "/api/missing-log-browser");
   instant = new Date("2026-11-12T16:04:47Z");
+  await logs.getByRole("button", { name: "更多筛选", exact: true }).click();
   await logs.getByLabel("状态码", { exact: true }).fill("404");
   await logs.getByRole("button", { name: "查询", exact: true }).click();
   await logs.getByText("/api/missing-log-browser", { exact: true }).waitFor();
@@ -44,11 +45,13 @@ try {
   await logs.getByLabel("状态码", { exact: true }).fill("403");
   await logs.getByRole("button", { name: "刷新", exact: true }).click();
   await logs.getByRole("button", { name: "/api/missing-log-browser", exact: true }).waitFor();
-  const [download] = await Promise.all([page.waitForEvent("download"), logs.getByRole("button", { name: "下载筛选日志" }).click()]);
+  await logs.getByLabel("状态码", { exact: true }).fill("404");
+  await logs.getByLabel("关键词", { exact: true }).fill("/api/missing-log-browser");
+  const [download] = await Promise.all([page.waitForEvent("download"), logs.getByRole("button", { name: "应用条件并下载", exact: true }).click()]);
   assert.equal(download.suggestedFilename(), "访问日志.jsonl");
   const saved = join(output, "访问日志.jsonl"); await download.saveAs(saved);
   const records = readFileSync(saved, "utf8").trim().split("\n").map(line => JSON.parse(line));
-  assert.ok(records.length > 0); assert.ok(records.every(row => row.status === 404));
+  assert.ok(records.length > 0); assert.ok(records.every(row => row.status === 404 && row.path.includes("/api/missing-log-browser")));
   await logs.getByLabel("状态码", { exact: true }).fill("");
   await logs.getByLabel("关键词", { exact: true }).fill("登录成功");
   await logs.getByRole("button", { name: "查询", exact: true }).click();

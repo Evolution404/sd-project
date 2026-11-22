@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { closedWriteReason } from "../../../../server/shared/project-lifecycle";
@@ -56,9 +57,7 @@ import {
 } from "../../shared/api/client";
 type FocusKind = "cost" | "settlement" | "reconciliation";
 type FocusedRecord = { kind: FocusKind; id: string };
-const actualSection = ref<HTMLElement>();
-const settlementSection = ref<HTMLElement>();
-const reconciliationSection = ref<HTMLElement>();
+const financeSection = ref<FocusKind | "resolutions">("cost");
 function jumpToSection(section?: HTMLElement) {
   section?.scrollIntoView({ block: "start" });
 }
@@ -70,6 +69,16 @@ const props = defineProps<{
 }>();
 const settlementReview = ref<BillFact | null>(null);
 const billQuery = ref("");
+const settlementImportBlock = computed(() => writeBlock.value ||
+  (props.project.status !== "approved" ? "项目批准后可导入结算。" : ""));
+function settlementLabel(row: BillFact) {
+  if (row.deleted) return "已删除";
+  if (row.status === "voided") return "已注销";
+  if (row.review?.action === "submit") return "待审核";
+  if (row.draft) return "草稿";
+  return row.review?.action === "return" ? "已退回"
+    : row.status === "approve" ? "已批准" : statusText[row.status] || "草稿";
+}
 const itemized = computed(() => form.value.mode === "itemized");
 const categoryLoading = ref(false), categoryError = ref("");
 let categoryRequest = 0;
@@ -142,6 +151,7 @@ const focusedTitle = computed(() => {
   return f.kind === "cost" ? "定位真实费用" : f.kind === "settlement" ? "定位独立结算单" : "定位正式费用核对";
 });
 async function inspectSettlement(row: BillFact) {
+  financeSection.value = "settlement";
   focusedFact.value = row;
   focusedHistoryOpen.value = false;
   await nextTick();
@@ -176,6 +186,7 @@ async function loadFocusedRecord() {
   }
 }
 watch(() => [props.project.id, props.focus?.kind, props.focus?.id], () => {
+  if (props.focus) financeSection.value = props.focus.kind;
   void loadFocusedRecord();
 }, { immediate: true });
 const showDeletedCosts = ref(false), showDeletedReconciliations = ref(false);
@@ -257,7 +268,7 @@ const financeColumns: Record<string, TableColumn[]> = {
     { key: "amount_fen", label: "本次金额", minWidth: 135 },
     { key: "effective_amount_fen", label: "当前生效", minWidth: 135, sortable: false, filterable: false },
     { key: "number", label: "结算编号", minWidth: 175 },
-    { key: "status", label: "正式版本与状态", minWidth: 180, sortable: false },
+    { key: "status", label: "结算状态", minWidth: 180, sortable: false },
   ],
   reconciliations: [
     { key: "reconciled_cost_fen", label: "实际费用份额", minWidth: 165 },
@@ -752,6 +763,7 @@ useListRoute({
   reconciliationsSort: computed({ get: () => financeSort.value.reconciliations, set: value => { financeSort.value.reconciliations = value; } }),
   reconciliationsDirection: computed({ get: () => financeDirection.value.reconciliations, set: value => { financeDirection.value.reconciliations = value; } }),
   reconciliationsFilters: computed({ get: () => financeFilters.value.reconciliations, set: value => { financeFilters.value.reconciliations = value; } }),
+  financeSection,
 }, load, () => !props.settlementWork);
 watch(() => props.refreshKey, () => { if (!props.settlementWork) void load(); });
 watch(() => props.project.id, () => {
@@ -814,11 +826,6 @@ watch(() => props.project.id, () => {
     :title="listError" show-icon>
     <ElButton @click="load">重新读取费用数据</ElButton>
   </ElAlert>
-  <nav class="toolbar" aria-label="定位财务分区">
-    <ElButton size="small" @click="jumpToSection(actualSection)">实际费用</ElButton>
-    <ElButton size="small" @click="jumpToSection(settlementSection)" data-guide-action="finance.settlement-section">结算单</ElButton>
-    <ElButton size="small" @click="jumpToSection(reconciliationSection)" data-guide-action="finance.reconciliation-section">费用核对</ElButton>
-  </nav>
   <section v-if="!listError" class="panel finance-summary" v-loading="listLoading" aria-label="项目结算总览">
     <div class="finance-summary-main">
       <div class="settlement-progress">
@@ -850,10 +857,12 @@ watch(() => props.project.id, () => {
       <div><dt>待核对费用</dt><dd>¥{{ money(summary.unreconciled_cost_fen) }}</dd></div>
     </dl>
   </section>
-  <CostCategoryWorkspace :readonly="!!writeBlock" :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
   <ElAlert v-if="scopePrecisionError" type="error" :closable="false"
     :title="scopePrecisionError" class="panel" />
-  <div ref="actualSection" class="panel">
+  <ElTabs v-model="financeSection" aria-label="项目财务分区">
+  <ElTabPane label="实际费用" name="cost">
+  <CostCategoryWorkspace :readonly="!!writeBlock" :project-id="project.id" :snapshot="categoryNodes" @changed="load(); emit('changed')" />
+  <div class="panel">
     <div class="toolbar">
       <h2>实际费用</h2>
       <ElCheckbox data-guide-action="finance.cost-show-deleted" v-model="showDeletedCosts" @change="costPage = 1; load()"
@@ -891,7 +900,10 @@ watch(() => props.project.id, () => {
     <ElPagination v-model:current-page="costPage" :total="costTotal" :page-size="30"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
-  <div ref="settlementSection" class="panel">
+  </ElTabPane>
+  <ElTabPane name="settlement">
+    <template #label><span data-guide-action="finance.settlement-section">结算单</span></template>
+  <div class="panel">
     <BusinessTable table-key="finance:bills" :loading="listLoading" :filter-state="financeFilters.bills"
       :sort-state="{ prop: financeSort.bills, order: financeSort.bills ? (financeDirection.bills === 'asc' ? 'ascending' : 'descending') : null }" :rows="bills" :columns="financeColumns.bills" selectable :actions-width="190"
        :selected-ids="selectedIds" @selection-change="billSelection.updatePage" @sort-change="financeTableSort('bills', $event)"
@@ -899,20 +911,25 @@ watch(() => props.project.id, () => {
       <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
         <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="结算批量操作">
           <span role="status">已选 {{ selected.length }} 条</span>
-          <ExchangePanel :readonly="!!writeBlock" kind="settlements" :project-id="project.id"
+          <ExcelExportButton kind="settlements" :project-id="project.id" :selected-ids="selectedIds" />
+          <ExchangePanel :blocked-reason="settlementImportBlock" kind="settlements" :project-id="project.id"
             :applied-query="billQuery" :selected-ids="selectedIds" @changed="load" @inspect="inspectImportedSettlement" />
           <ElButton link @click="billSelection.clear">清空选择</ElButton>
           <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
         </div>
         <div v-else class="unified-list-tools">
           <div class="toolbar"><h2>独立结算单</h2>
-          <span v-if="!can('write') || project.status !== 'approved'" class="muted">{{ writeBlock || (project.status !== 'approved' ? '待项目正式批准后编制结算' : '当前账号可查看结算') }}</span></div>
+          <span v-if="settlementImportBlock" class="muted">{{ settlementImportBlock }}</span>
+          <span v-else-if="!can('write')" class="muted">当前账号可查看及导出结算</span>
+          <span v-else class="muted" role="status">共 {{ billTotal }} 条</span></div>
           <div class="toolbar page-heading-actions">
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除列筛选</ElButton>
             <ElButton :loading="listLoading" @click="load">刷新</ElButton>
             <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-            <ExchangePanel :readonly="!!writeBlock" kind="settlements" :project-id="project.id"
-              :applied-query="billQuery" @changed="load" @inspect="inspectImportedSettlement" />
+            <ExcelExportButton kind="settlements" :project-id="project.id" :applied-query="billQuery"
+              :total="billTotal" :disabled="listLoading" />
+            <ExchangePanel :blocked-reason="settlementImportBlock" kind="settlements" :project-id="project.id"
+              :applied-query="billQuery" :total="billTotal" @changed="load" @inspect="inspectImportedSettlement" />
             <ElButton v-if="can('write') && project.status === 'approved' && !writeBlock" data-guide-action="finance.settlement-draft"
               type="primary" @click="edit('settlement')">新增结算草稿</ElButton>
           </div>
@@ -922,7 +939,7 @@ watch(() => props.project.id, () => {
         <span v-if="column.key === 'amount_fen'">¥{{ money(row.draft?.document.amount_fen ?? row.version?.amount_fen) }}</span>
         <span v-else-if="column.key === 'effective_amount_fen'">{{ row.effective_amount_fen == null ? '—' : '¥' + money(row.effective_amount_fen) }}</span>
         <span v-else-if="column.key === 'status'">
-          第 {{ row.version?.version_no || 0 }} 版 · {{ row.status === 'voided' ? '已注销' : row.status === 'submit' ? '待审核' : row.status === 'return' ? '已退回' : row.draft ? '有草稿' : statusText[row.status] || '待编制' }}
+          {{ settlementLabel(row) }}
           <span v-if="row.review?.action === 'return'" class="muted" :title="row.review.reason || '未记录原因'"> · 退回原因：{{ row.review.reason || '未记录' }}</span>
         </span>
         <ElButton v-else-if="column.key === 'number'" link type="primary" class="cell-link"
@@ -947,7 +964,10 @@ watch(() => props.project.id, () => {
     <ElPagination v-model:current-page="billPage" :total="billTotal" :page-size="30"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
-  <div ref="reconciliationSection" class="panel">
+  </ElTabPane>
+  <ElTabPane name="reconciliation">
+    <template #label><span data-guide-action="finance.reconciliation-section">费用核对</span></template>
+  <div class="panel">
     <div class="toolbar">
       <h2>费用与结算核对</h2>
       <ElCheckbox data-guide-action="finance.reconcile-show-deleted" v-model="showDeletedReconciliations" @change="reconPage = 1; load()"
@@ -980,6 +1000,8 @@ watch(() => props.project.id, () => {
     <ElPagination v-model:current-page="reconPage" :total="reconTotal" :page-size="30"
       layout="prev,pager,next,total" @current-change="load" />
   </div>
+  </ElTabPane>
+  <ElTabPane label="需求解决量" name="resolutions">
   <div class="panel">
     <h2>实际解决需求</h2>
     <BusinessTable client-side table-key="finance:demands" :rows="summary.demands || []"
@@ -990,6 +1012,8 @@ watch(() => props.project.id, () => {
       </template>
     </BusinessTable>
   </div>
+  </ElTabPane>
+  </ElTabs>
   </template>
   <BusinessWorkSurface v-if="settlementWork && dialog !== 'settlement'" :title="settlementTitle" :subtitle="project.name" :busy="busy"
     @back="emit('closeSettlement')">

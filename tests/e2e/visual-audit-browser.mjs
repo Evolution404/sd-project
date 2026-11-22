@@ -85,6 +85,7 @@ async function auditLayout(name, width) {
 }
 async function auditDialog(name, button, width) {
   await page.setViewportSize({ width, height: 700 });
+  if (button === "新增结算草稿") await page.getByRole("tab", { name: "结算单", exact: true }).click();
   await page.getByRole('button', { name: button, exact: true }).click();
   const workTitles = { 新增需求: "新增专业需求", 新增结算草稿: "编制结算草稿", 新增操作类型: "新增操作类型",
     新增作业对象: "新增作业对象", 新增参考价格规则: "新增参考价格规则" };

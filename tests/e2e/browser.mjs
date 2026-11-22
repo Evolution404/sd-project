@@ -97,9 +97,9 @@ try {
   }
   await page.getByRole("button", { name: "关闭详情", exact: true }).click();
   await page
-    .getByRole("button", { name: "Excel 批量处理", exact: true })
+    .getByRole("button", { name: "导入 Excel", exact: true })
     .click();
-  await page.getByRole("button", { name: "空白模板", exact: true }).waitFor();
+  await page.getByRole("button", { name: "下载模板", exact: true }).waitFor();
   await page.screenshot({
     path: join(output, "exchange-760.png"),
     fullPage: true,

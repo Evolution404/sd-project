@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { resumeTask } from "../../shared/navigation/business-context";
@@ -305,6 +306,7 @@ onMounted(async () => {
       <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
         <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="设备批量操作">
           <span role="status">已选 {{ selected.length }} 条</span>
+          <ExcelExportButton kind="assets" :asset-kind="kind === 'voltages' ? undefined : kind" :selected-ids="selectedIds" />
           <ExchangePanel kind="assets" :asset-kind="kind === 'voltages' ? undefined : kind"
             :selected-ids="selectedIds" :applied-query="appliedQuery" @changed="load" @inspect="inspectImport" />
           <ElButton link @click="selection.clear">清空选择</ElButton>
@@ -315,15 +317,13 @@ onMounted(async () => {
             <ElInput
         v-model="query"
         clearable
-        placeholder="搜索名称或真实属性"
+        :placeholder="kind === 'lines' ? '搜索线路名称' : kind === 'towers' ? '搜索线路名称或杆塔号' : kind === 'spans' ? '搜索线路或起止杆塔' : '搜索铭牌号或杆塔型号'"
         @change="
           page = 1;
           load();
         "
       />
-            <ElPopover trigger="click" placement="bottom-start">
-              <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox data-guide-action="ledger.show-deleted"
+            <ElCheckbox data-guide-action="ledger.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -331,18 +331,21 @@ onMounted(async () => {
         "
         >包含已删除</ElCheckbox
       >
-            </ElPopover>
+            <span class="muted" role="status">共 {{ total }} 条</span>
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
           </div>
           <div class="toolbar page-heading-actions">
       <ElButton :loading="loading" @click="load">刷新</ElButton>
       <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
+      <ExcelExportButton v-if="!voltage" kind="assets" :total="total" :applied-query="appliedQuery"
+        :asset-kind="kind === 'voltages' ? undefined : kind" :disabled="loading" />
       <ExchangePanel
         v-if="!voltage"
+        :key="kind"
         kind="assets"
+        :total="total"
         :applied-query="appliedQuery"
         :asset-kind="kind === 'voltages' ? undefined : kind"
-        :selected-ids="selectedIds"
         @changed="load" @inspect="inspectImport"
       />
       <ElButton :data-guide-action="kind === 'physical' ? 'ledger.physical' : kind === 'towers' ? 'ledger.logical' : kind === 'spans' ? 'ledger.span' : voltage ? 'dictionaries.voltage' : 'ledger.line'" v-if="can('admin') && definitions[kind]" type="primary" @click="edit()"

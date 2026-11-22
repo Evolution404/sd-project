@@ -245,15 +245,13 @@ onMounted(load);
             <ElInput
         v-model="query"
         clearable
-        placeholder="搜索名称或真实属性"
+        placeholder="搜索物资名称、型号或规格"
         @change="
           page = 1;
           load();
         "
       />
-            <ElPopover trigger="click" placement="bottom-start">
-              <template #reference><ElButton>筛选</ElButton></template>
-              <ElCheckbox data-guide-action="materials.show-deleted"
+            <ElCheckbox data-guide-action="materials.show-deleted"
         v-model="deleted"
         @change="
           page = 1;
@@ -261,7 +259,6 @@ onMounted(load);
         "
         >包含已删除</ElCheckbox
       >
-            </ElPopover>
             <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
           </div>
           <div class="toolbar page-heading-actions">

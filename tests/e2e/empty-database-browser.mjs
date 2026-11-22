@@ -158,7 +158,7 @@ try {
   await dialog.getByLabel("计价依据", { exact: true }).fill("验收依据");
   await dialog.getByRole("tab", { name: "计价方式" }).click();
   await dialog.getByLabel("单价/固定价", { exact: true }).fill("30");
-  await dialog.getByRole("button", { name: "保存前检查" }).click();
+  await dialog.getByRole("button", { name: "试算" }).click();
   await dialog.getByText("规则完整性检查通过").waitFor();
   await dialog.getByText("试算金额：¥30.00", { exact: false }).waitFor();
   await auditOpenDialog("price-rule-precheck", 760);
@@ -171,7 +171,7 @@ try {
   await ruleRow.locator(".cell-link:visible").first().click();
   const recordDetail = page.locator(".business-detail-dialog:visible");
   await recordDetail.getByRole("button", { name: "复制规则", exact: true }).click();
-  await dialog.getByRole("button", { name: "保存前检查" }).click();
+  await dialog.getByRole("button", { name: "试算" }).click();
   await dialog.getByText("存在可能重叠的参考价格规则").waitFor();
   await save();
   await recordDetail.getByRole("button", { name: "关闭详情" }).click();

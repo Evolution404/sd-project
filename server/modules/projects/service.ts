@@ -614,11 +614,14 @@ export function createProjects(
           : approvalBlockReason(get(row.id, false, true)),
       })) };
     },
-    selectedProjectReport(actor: Actor, ids: string[]) {
+    projectReportRows(actor: Actor, ids: string[], query?: ListQuery) {
       authorize(actor, "read");
-      requireValue(ids.length > 0 && ids.length <= 100, "请勾选1～100个子项目");
-      const rows = repo.selectedProjects(ids);
-      requireValue(rows.length === new Set(ids).size, "所选项目已删除或不存在，请刷新后重选", 409);
+      const unique = [...new Set(ids)];
+      requireValue(unique.length <= 5000, "最多导出5000个子项目");
+      requireValue(unique.length > 0 || query, "请先选择导出的子项目范围");
+      const rows = unique.length ? repo.selectedProjects(unique) : repo.searchProjects({ ...query!, page: 1, page_size: 5001 }).items;
+      requireValue(!unique.length || rows.length === unique.length, "所选项目已删除或不存在，请刷新后重选", 409);
+      requireValue(rows.length <= 5000, "导出超过5000条，请收窄筛选条件");
       return rows.map(row => ({
         id: row.id, 项目编号: row.code, 项目名称: row.name, 项目状态: row.display_status,
         "批准预算（元）": row.approval_json ? (JSON.parse(row.approval_json) as Pick<ProjectApprovalVersion, "approved_budget_fen">).approved_budget_fen / 100 : null,

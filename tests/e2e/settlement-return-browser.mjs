@@ -44,6 +44,7 @@ try {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   const detail = page.locator(".business-detail-page:visible");
   await detail.getByText(project.name, { exact: true }).first().waitFor();
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   const row = detail.getByRole("row").filter({ hasText: draft.number }).first();
   await row.waitFor();
   await row.getByRole("button", { name: "更多操作" }).click();

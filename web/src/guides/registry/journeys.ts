@@ -10,6 +10,6 @@ export const guideCourses: readonly GuideCourse[] = [
   {id:"L08",title:"真实费用",roles:["editor","verifier","admin"],routeName:"finance",purpose:"核定费用归属、科目和实际金额",checkpoint:"正式费用记录与项目、科目正确关联",instructions:["进入项目费用与结算","维护费用科目树","录入实际费用和证据","通过合法角色核定真实费用"]},
   {id:"L09",title:"多次部分结算",roles:["editor","verifier","admin"],routeName:"finance",purpose:"进行至少两次独立结算并审核",checkpoint:"存在两份不同身份的正式已批准结算",instructions:["编制第一份结算草稿，按项目总额填金额或按子费用录入明细","提交，由审核人员正式审核","按本期实际业务编制第二份结算","检查两份正式单据、累计已结金额与项目结算进度"]},
   {id:"L10",title:"费用核对与结项",roles:["editor","verifier","admin"],routeName:"finance",purpose:"正式核对差异并结项",checkpoint:"正式核对和项目结项历史可追溯",instructions:["核对实际费用、结算与预算差异","记录正式核对依据","查看结项前差异预览","由有权人员结项并检查历史"]},
-  {id:"L11",title:"Excel批量纠错",roles:["editor","admin"],routeName:"demands",purpose:"模板下载、问题定位、原子或部分提交和回查",checkpoint:"预检不产生写入，合法结果可通过正式编号回查",instructions:["下载中文模板并检查稳定关联号","上传含错文件，执行零写入预检","下载问题清单，合法部分提交","纠正后重新预检并整批提交，按正式编号回查"]},
+  {id:"L11",title:"修正 Excel 导入问题",roles:["editor","admin"],routeName:"demands",purpose:"从下载模板到修正错误、保存和查看记录",checkpoint:"完成检查并保存后，可打开已导入的记录",instructions:["下载模板，根据示例填写需求和作业位置","选择 Excel 文件，按工作表和行号查看需要处理的问题","下载标出错误的原表，按修改建议修正后重新上传","确认检查结果后保存，点击业务编号打开记录"]},
   {id:"L12",title:"权限与正式审计",roles:["admin","viewer"],routeName:"system",purpose:"查看权限和业务历史，验证越权拦截",checkpoint:"服务端403与正式业务审计链均得到核验",instructions:["管理员查看账号授权和IP策略","只读人员查看已批准项目与需求历史","验证无权业务修改被服务端拒绝","核对审计记录及历史事件身份"]},
 ];

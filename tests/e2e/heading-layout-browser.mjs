@@ -88,11 +88,11 @@ try {
       await selectNavigation(page, "输电设备台账");
       await page.getByRole("tab", { name: "线路", exact: true }).click();
       await page
-        .getByRole("button", { name: "Excel 批量处理", exact: true })
+        .getByRole("button", { name: "导入 Excel", exact: true })
         .click();
       await page
         .getByRole("dialog", {
-          name: "设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）", exact: true,
+          name: "导入 Excel", exact: true,
         })
         .waitFor();
       await page.getByRole("button", { name: "关闭", exact: true }).click();

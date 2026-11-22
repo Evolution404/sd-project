@@ -137,7 +137,7 @@ try {
   await ruleEditor.getByRole("tab", { name: "计价方式", exact: true }).click();
   await page.setViewportSize({ width: 760, height: 1000 });
   await ruleEditor
-    .getByRole("button", { name: "保存前检查", exact: true })
+    .getByRole("button", { name: "试算", exact: true })
     .click();
   await ruleEditor.getByText("规则完整性检查通过", { exact: true }).waitFor();
   await settle();

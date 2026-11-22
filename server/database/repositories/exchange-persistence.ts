@@ -59,6 +59,13 @@ export function exchangePersistenceRepository(store: Store) {
     batch(token: string): ExchangeBatch | undefined {
       return store.get<ExchangeBatch>("SELECT * FROM demand_batches WHERE id=?", token);
     },
+    submittedWorkbook(sha256: string, kind: string, projectId?: string | null): ExchangeBatch | undefined {
+      return store.get<ExchangeBatch>(`SELECT * FROM demand_batches
+        WHERE status='submitted' AND payload_sha256=? AND json_extract(draft_json,'$.kind')=?
+          AND json_extract(draft_json,'$.projectId') IS ?
+          AND json_array_length(draft_json,'$.result.results')>0
+        ORDER BY updated_at DESC, rowid DESC LIMIT 1`, sha256, kind, projectId ?? null);
+    },
     submitBatch(token: string, expectedVersion: number, submission: ExchangeBatchSubmission): void {
       const changed = store.run(`UPDATE demand_batches
         SET status='submitted',draft_json=?,version=version+1,updated_at=?,

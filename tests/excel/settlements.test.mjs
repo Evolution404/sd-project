@@ -78,7 +78,7 @@ test("settlement workbook creates draft only, preserves independent resolution a
   );
   const reportSheet = businessReport.getWorksheet("结算业务报表");
   const reportValue = (header) =>
-    reportSheet.getRow(2).getCell(reportSheet.getRow(1).values.indexOf(header))
+    reportSheet.getRow(4).getCell(reportSheet.getRow(3).values.indexOf(header))
       .value;
   assert.equal(reportValue("本次草稿金额（元）"), "350.99");
   assert.equal(reportValue("当前已批准金额（元）"), "300.01");
@@ -200,7 +200,8 @@ test("settlement report distinguishes current approval from a revision and expor
   await workbook.xlsx.load(await exchange.exportData(user, "settlements", { ids: [bill.id], report: true }));
   const cell = (sheetName, heading) => {
     const sheet = workbook.getWorksheet(sheetName);
-    return sheet.getRow(2).getCell(sheet.getRow(1).values.indexOf(heading)).value;
+    const headerRow = sheetName === "结算业务报表" ? 3 : 1;
+    return sheet.getRow(headerRow + 1).getCell(sheet.getRow(headerRow).values.indexOf(heading)).value;
   };
   const main = "结算业务报表";
   assert.equal(cell(main, "当前生效结算方式"), "按项目总额");
@@ -210,4 +211,24 @@ test("settlement report distinguishes current approval from a revision and expor
   assert.equal(cell("生效需求解决量", "需求编号"), demand.demand_no);
   assert.equal(cell("生效需求解决量", "解决量"), "2.0000");
   assert.equal(cell("生效需求解决量", "计量单位"), "套");
+});
+
+test("the same workbook finds its prior result and two pending uploads cannot create duplicate settlement drafts", async t => {
+  const { s, user, project } = approvedFixture(t);
+  const exchange = createExchange(s);
+  const input = await makeWorkbook("settlements", { documents: [{ amount_fen: 5500 }] });
+  const context = { projectId: project.id };
+  const first = await exchange.preview(user, "settlements", input, context);
+  const concurrent = await exchange.preview(user, "settlements", input, context);
+  assert.equal(first.summary.created, 1);
+  const record = exchange.commit(user, first.token, { request_key: "duplicate-xlsx-first" });
+  assert.throws(() => exchange.commit(user, concurrent.token, { request_key: "duplicate-xlsx-concurrent" }), /已被导入/);
+  const repeated = await exchange.preview(user, "settlements", input, context);
+  assert.deepEqual(repeated.previous, record);
+  assert.equal(repeated.documents.length, 0);
+  assert.equal(s.finance.settlements(project.id).length, 1);
+  const next = await exchange.preview(user, "settlements", input, { ...context, newSettlement: true });
+  assert.equal(next.summary.created, 1);
+  exchange.commit(user, next.token, { request_key: "duplicate-xlsx-next-period" });
+  assert.equal(s.finance.settlements(project.id).length, 2);
 });

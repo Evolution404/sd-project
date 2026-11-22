@@ -1,457 +1,349 @@
 <script setup lang="ts">
-import { useAccess } from "../../shared/composables/use-access";
-const can = useAccess();
-import { ref, computed, inject, onUnmounted } from "vue";
-import { guideCenterKey } from "../../guides/core/guide-center";
-const openGuide = inject(guideCenterKey, null);
-import { ElMessage, type UploadFile } from "element-plus";
-import type { AssetExchangeKind, ExchangePreviewDocument, ExchangeCommitResult, WorkbookIssue, ExchangeMode } from "../../../../server/shared/types/exchange";
+import { computed, inject, onUnmounted, ref, shallowRef } from "vue";
+import { ElMessage, ElMessageBox, type UploadFile } from "element-plus";
+import type {
+  AssetExchangeKind, WorkbookKind, ExchangePreviewDocument, ExchangeCommitResult, WorkbookIssue,
+  ExchangeMode, ExchangePreview,
+} from "../../../../server/shared/types/exchange";
+import { issueDetails } from "../../../../server/shared/exchange-display";
 import { api, download } from "../../shared/api/client";
+import { useAccess } from "../../shared/composables/use-access";
+import { guideCenterKey } from "../../guides/core/guide-center";
 import { newClientId } from "../../shared/utils/id";
 import { fieldName, factText, visibleFact } from "../../shared/utils/display";
+import { formatBeijingDateTime } from "../../shared/utils/datetime";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
+import { downloadExport } from "./download-export";
+
 const props = defineProps<{
-  kind: "demands" | "settlements" | "assets";
-  selectedIds?: string[];
+  kind: WorkbookKind;
+  selectedIds?: readonly string[];
   appliedQuery?: string;
-  assetKind?: "lines" | "physical" | "towers" | "spans";
+  total?: number;
+  assetKind?: AssetExchangeKind;
   projectId?: string;
-  readonly?: boolean;
+  blockedReason?: string;
 }>();
-interface ExchangePreviewResponse {
-  token: string;
-  documents: ExchangePreviewDocument[];
-  issues: WorkbookIssue[];
-  timings_ms: { parse: number; total: number };
-  summary: {
-    documents: number;
-    invalid_documents: number;
-    duplicate_issues: number;
-    created: number;
-    updated: number;
-    unchanged: number;
-    conflicts: number;
-    missing_devices:number;
-    ambiguous_locations:number;
-    format_errors:number;
-    precision_errors:number;
-  };
-}
-type ExchangeDisplayRow = ExchangePreviewDocument | WorkbookIssue;
-function rowField(row: ExchangeDisplayRow, key: string): unknown {
-  if (key === "number" && "changes" in row) return previewReference(row);
-  return Object.entries(row).find(([field]) => field === key)?.[1];
-}
-function previewReference(row: ExchangePreviewDocument) {
-  if (props.kind === "settlements" && row.action === "create" && row.row)
+const emit = defineEmits<{ changed: []; inspect: [id: string, kind?: AssetExchangeKind] }>();
+const can = useAccess();
+const openGuide = inject(guideCenterKey, null);
+const canImport = computed(() => !props.blockedReason && can(props.kind === "assets" ? "admin" : "write"));
+const mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const selection = computed(() => props.selectedIds !== undefined);
+const count = computed(() => selection.value ? props.selectedIds?.length ?? 0 : props.total);
+const scope = computed(() => selection.value ? `已选 ${count.value} 条`
+  : `当前筛选（全部页）共 ${count.value ?? 0} 条`);
+
+type PreparedFile = {
+  file: File; preview: ExchangePreview; requestKey: string; mode: ExchangeMode; atomic: boolean;
+};
+const open = ref(false);
+const intent = ref<"import" | "edit">("import");
+const file = shallowRef<File>();
+const previousFile = shallowRef<PreparedFile>();
+const preview = shallowRef<ExchangePreview>();
+const result = shallowRef<ExchangeCommitResult>();
+const reopened = ref(false);
+const requestKey = ref("");
+const advanced = ref(false);
+const mode = ref<ExchangeMode>("mixed");
+const atomic = ref(true);
+const showChanges = ref(false);
+const phase = ref<"" | "checking" | "saving">("");
+const busy = computed(() => phase.value !== "");
+const error = ref("");
+let controller: AbortController | undefined;
+
+const issuePage = ref(1);
+const diffPage = ref(1);
+const diffFilters = ref<Record<string, string>>({});
+const diffSort = ref({ key: "", order: "" });
+const issues = computed(() => result.value?.issues ?? preview.value?.issues ?? []);
+const correctionAvailable = computed(() => !result.value?.results.some(row => !row.sheet || !row.row));
+const issueRows = computed(() => issues.value.slice((issuePage.value - 1) * 30, issuePage.value * 30));
+const issueColumns: TableColumn[] = [
+  { key: "position", label: "位置", minWidth: 160 }, { key: "field", label: "字段", minWidth: 116 },
+  { key: "reason", label: "问题", minWidth: 210 }, { key: "suggestion", label: "修改建议", minWidth: 210 },
+  { key: "raw_value", label: "输入值", minWidth: 135 },
+];
+const documentColumns: TableColumn[] = [
+  { key: "number", label: "业务记录", minWidth: 165 },
+  { key: "action", label: "改动", minWidth: 95, filterable: false, sortable: false },
+  { key: "changes", label: "内容", minWidth: 310, filterable: false, sortable: false },
+];
+function reference(row: ExchangePreviewDocument) {
+  if (props.kind === "settlements" && row.action === "create")
     return `${row.sheet} · 第 ${row.row} 行`;
   return row.number;
 }
-function issueField(key: string) {
-  const name = fieldName(key);
-  return name === key && /^[a-zA-Z_][\w.]*$/.test(key) ? "工作表字段" : name;
-}
-function issueValue(issue: WorkbookIssue) {
-  const raw = issue.raw_value;
-  const value = raw && typeof raw === "object" && !Array.isArray(raw)
-    ? Object.entries(raw).find(([key]) => key === issue.field)?.[1]
-    : raw;
-  if (value === undefined || (value !== null && typeof value === "object"))
-    return "见工作表对应行";
-  return factText(value, issue.field);
-}
-const emit = defineEmits<{changed:[];inspect:[id:string, kind?: AssetExchangeKind]}>();
-const exchangeSections=ref(["template","upload"]);
-const dialog = ref(false),
-  mode = ref<ExchangeMode>("mixed"),
-  atomic = ref(props.kind === "assets"),
-  preview = ref<ExchangePreviewResponse | null>(null),
-  busy = ref(false),
-  result = ref<ExchangeCommitResult | null>(null),
-  requestKey = ref("");
-const phase = ref(""),
-  elapsedSeconds = ref(0),
-  canCancelPreview = ref(false);
-let timer: number | undefined;
-let phaseStarted = 0;
-let previewController: AbortController | null = null;
-function beginPhase(title: string) {
-  busy.value = true;
-  phase.value = title;
-  elapsedSeconds.value = 0;
-  phaseStarted = performance.now();
-  if (timer !== undefined) window.clearInterval(timer);
-  timer = window.setInterval(() => {
-    elapsedSeconds.value = Math.floor(
-      (performance.now() - phaseStarted) / 1000,
-    );
-  }, 500);
-}
-function endPhase() {
-  busy.value = false;
-  phase.value = "";
-  canCancelPreview.value = false;
-  if (timer !== undefined) window.clearInterval(timer);
-  timer = undefined;
-}
-function cancelPreview() {
-  previewController?.abort();
-}
-onUnmounted(() => {
-  previewController?.abort();
-  if (timer !== undefined) window.clearInterval(timer);
+const filteredChanges = computed(() => {
+  const value = (diffFilters.value.number ?? "").trim().toLocaleLowerCase("zh-CN");
+  const rows = (preview.value?.documents ?? []).filter(row => reference(row).toLocaleLowerCase("zh-CN").includes(value));
+  if (diffSort.value.key === "number") rows.sort((left, right) =>
+    reference(left).localeCompare(reference(right), "zh-CN", { numeric: true }) *
+    (diffSort.value.order === "ascending" ? 1 : -1));
+  return rows;
 });
-const documentPage = ref(1),
-  issuePage = ref(1),
-  activePreviewTab = ref<'documents' | 'issues'>('documents');
-const previewReferenceLabel = {
-  demands: "导入关联号",
-  settlements: "单据或工作表位置",
-  assets: "业务记录",
-};
-const documentColumns: TableColumn[] = [
-  { key: "number", label: previewReferenceLabel[props.kind], minWidth: 155 },
-  { key: "action", label: "动作", minWidth: 105 },
-  { key: "expectedResult", label: "预计结果", minWidth: 150, sortable: false, filterable: false },
-  { key: "changes", label: "逐字段变化", minWidth: 335, sortable: false, filterable: false },
-];
-const issueColumns: TableColumn[] = [
-  {key:"import_ref",label:"导入关联号",minWidth:135},
-  {key:"demand_no",label:"正式需求编号",minWidth:155},
-  {key:"location_ref",label:"位置关联号",minWidth:130},
-  { key: "sheet", label: "工作表", minWidth: 120 },
-  { key: "row", label: "行号", minWidth: 95 },
-  { key: "field", label: "字段", minWidth: 155, sortable: false, filterable: false },
-  { key: "raw_value", label: "原始值", minWidth: 175, sortable: false, filterable: false },
-  { key: "reason", label: "问题", minWidth: 220 },
-  { key: "suggestion", label: "建议", minWidth: 220 },
-];
-const documentFilters = ref<Record<string, string>>({}),
-  issueFilters = ref<Record<string, string>>({}),
-  documentSort = ref({ key: "", order: "" }),
-  issueSort = ref({ key: "", order: "" });
-function filteredSorted<T extends ExchangeDisplayRow>(items: T[], filters: Record<string, string>, sort: { key: string; order: string }): T[] {
-  const active = Object.entries(filters).filter(([, value]) => value.trim());
-  const result = items.filter(item => active.every(([key, value]) =>
-    String(rowField(item, key) ?? "").toLocaleLowerCase("zh-CN")
-      .includes(value.trim().toLocaleLowerCase("zh-CN"))));
-  if (sort.key && sort.order) result.sort((left, right) => {
-    const a = rowField(left, sort.key);
-    const b = rowField(right, sort.key);
-    const diff = typeof a === "number" && typeof b === "number"
-      ? a - b : String(a ?? "").localeCompare(String(b ?? ""), "zh-CN", { numeric: true });
-    return sort.order === "ascending" ? diff : -diff;
-  });
-  return result;
+const changeRows = computed(() => filteredChanges.value.slice((diffPage.value - 1) * 30, diffPage.value * 30));
+const settlementRepeatAllowed = computed(() => reopened.value && props.kind === "settlements" &&
+  !!result.value?.results.length && !issues.value.length && result.value.results.every(row => row.action === "create"));
+const saveLabel = computed(() => props.kind === "settlements" ? "保存结算草稿"
+  : `保存 ${preview.value?.documents.length ?? 0} 条${props.kind === "demands" ? "需求" : "台账"}`);
+const uploadLabel = computed(() => preview.value || error.value ? "重新上传" : "选择 Excel 文件");
+const importHint = computed(() => props.kind === "settlements"
+  ? "只填本次金额即可保存草稿。批准后计入项目已结金额。"
+  : props.kind === "assets" ? "下载模板，填写本次需要录入的设备表，然后上传检查。"
+    : "下载模板，填写需求和对应的作业位置，然后上传检查。");
+
+function start(next: "import" | "edit") {
+  if (!canImport.value) return;
+  intent.value = next;
+  file.value = undefined; preview.value = undefined; result.value = undefined;
+  reopened.value = false; advanced.value = false; error.value = "";
+  mode.value = next === "edit" ? "update" : "mixed";
+  atomic.value = true;
+  resetDetails();
+  open.value = true;
 }
-const allDocuments = computed<ExchangePreviewDocument[]>(() => preview.value?.documents || []);
-const allIssues = computed<WorkbookIssue[]>(() => result.value?.issues || preview.value?.issues || []);
-const filteredDocuments = computed(() =>
-  filteredSorted(allDocuments.value, documentFilters.value, documentSort.value));
-const filteredIssues = computed(() =>
-  filteredSorted(allIssues.value, issueFilters.value, issueSort.value));
-const displayedDocuments = computed(() => filteredDocuments.value.slice((documentPage.value - 1) * 30, documentPage.value * 30));
-const displayedIssues = computed(() => filteredIssues.value.slice((issuePage.value - 1) * 30, issuePage.value * 30));
-function onDocumentsSort(value: { key: string; order: string }) {
-  documentSort.value = value;
-  documentPage.value = 1;
+function resetDetails() {
+  showChanges.value = false;
+  issuePage.value = 1; diffPage.value = 1; diffFilters.value = {};
+  diffSort.value = { key: "", order: "" };
 }
-function onIssuesSort(value: { key: string; order: string }) {
-  issueSort.value = value;
-  issuePage.value = 1;
+function remember() {
+  if (file.value && preview.value && !result.value)
+    previousFile.value = { file: file.value, preview: preview.value, requestKey: requestKey.value,
+      mode: mode.value, atomic: atomic.value };
 }
-function onDocumentsFilter(value: Record<string, string>) {
-  documentFilters.value = value;
-  documentPage.value = 1;
+function resume() {
+  const saved = previousFile.value;
+  if (!saved) return;
+  file.value = saved.file; preview.value = saved.preview; requestKey.value = saved.requestKey;
+  mode.value = saved.mode; atomic.value = saved.atomic; error.value = "";
+  previousFile.value = undefined;
 }
-function onIssuesFilter(value: Record<string, string>) {
-  issueFilters.value = value;
-  issuePage.value = 1;
-}
-function predictedResult(row: ExchangePreviewDocument) {
-  if (row.action === "unchanged") return "保持原值";
-  if (props.kind === "assets") return "保存完整台账";
-  if (props.kind === "settlements") return "保存结算草稿";
-  const previous = row.payload.expected_version;
-  return "需求第 " + ((typeof previous === "number" ? previous : 0) + 1) + " 版";
-}
-const exportScope = computed(() => {
-  if (!props.appliedQuery) return "正在读取列表范围";
-  const query = new URLSearchParams(props.appliedQuery);
-  const filters: unknown = JSON.parse(query.get("filters") || "{}");
-  const names = filters && typeof filters === "object" ? Object.entries(filters)
-    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && !!entry[1])
-    .map(([key, value]) => (key === "display_status" ? "状态" : fieldName(key)) + " · " + value) : [];
-  return [query.get("q") ? "检索 · " + query.get("q") : "", ...names,
-    query.get("deleted") === "true" ? "包含已删除" : ""].filter(Boolean).join("，") || "当前分类全部记录";
-});
-async function exportFile(report = false, selected = false) {
-  const query = new URLSearchParams(selected ? "" : props.appliedQuery);
-  query.delete("page");
-  query.set("report", String(report));
+function workbookContext(query = new URLSearchParams()) {
   if (props.projectId) query.set("project_id", props.projectId);
   if (props.assetKind) query.set("asset_kind", props.assetKind);
-  if (selected)
-    for (const id of props.selectedIds || []) query.append("id", id);
-  try { await download(`/exchange/${props.kind}/export?${query}`); }
+  return query;
+}
+async function getFile(path: string, filename?: string, options?: RequestInit) {
+  try { await download(path, filename, options); }
   catch (failure) { ElMessage.error((failure as Error).message); }
 }
-async function upload(file: UploadFile) {
-  beginPhase("正在上传和预检 Excel 数据");
-  previewController = new AbortController();
-  canCancelPreview.value = true;
-  preview.value = null;
-  result.value = null;
-  documentPage.value = 1;
-  activePreviewTab.value = 'documents';
-  issuePage.value = 1;
-  documentFilters.value = {};
-  issueFilters.value = {};
-  documentSort.value = { key: "", order: "" };
-  issueSort.value = { key: "", order: "" };
+async function downloadEdit() {
+  const query = workbookContext(new URLSearchParams(selection.value ? "" : props.appliedQuery));
+  query.delete("page");
+  try { await downloadExport(`/exchange/${props.kind}/export?${query}`, props.selectedIds); }
+  catch (failure) { ElMessage.error((failure as Error).message); }
+}
+async function check(raw: File, newSettlement = false) {
+  if (!canImport.value || busy.value) return;
+  previousFile.value = undefined;
+  phase.value = "checking";
+  file.value = raw;
+  preview.value = undefined; result.value = undefined;
+  reopened.value = false; error.value = "";
+  resetDetails();
+  controller = new AbortController();
+  const query = workbookContext(new URLSearchParams({ mode: mode.value }));
+  if (newSettlement) query.set("new_settlement", "true");
   try {
-    const response = await fetch(
-      `/api/exchange/${props.kind}/preview?mode=${mode.value}&project_id=${props.projectId || ""}`,
-      {
-        method: "POST",
-        credentials: "same-origin",
-        headers: {
-          "Content-Type":
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        },
-        body: file.raw,
-        signal: previewController.signal,
-      },
-    );
+    const response = await fetch(`/api/exchange/${props.kind}/preview?${query}`, {
+      method: "POST", credentials: "same-origin", headers: { "Content-Type": mime },
+      body: raw, signal: controller.signal,
+    });
     const value = await response.json();
     if (!response.ok) throw new Error(value.message);
-    preview.value = value as ExchangePreviewResponse;
-    exchangeSections.value=["preview"];
+    const checked = value as ExchangePreview;
+    preview.value = checked;
+    result.value = checked.previous;
+    reopened.value = !!checked.previous;
     requestKey.value = newClientId();
-    // Show errors immediately instead of leaving them hidden behind the first tab.
-    activePreviewTab.value = value.issues?.length ? 'issues' : 'documents';
-  } catch (e) {
-    if ((e as Error).name === "AbortError")
-      ElMessage.info("已取消上传或预检请求；不会提交业务数据");
-    else ElMessage.error((e as Error).message);
+  } catch (failure) {
+    error.value = (failure as Error).name === "AbortError" ? "已取消检查，可以重新选择文件。" : (failure as Error).message;
   } finally {
-    previewController = null;
-    endPhase();
+    controller = undefined; phase.value = "";
   }
+}
+function chooseFile(entry: UploadFile) {
+  if (entry.raw) void check(entry.raw);
+}
+async function importNextSettlement() {
+  if (!file.value || !settlementRepeatAllowed.value) return;
+  try {
+    await ElMessageBox.confirm("系统会新增一期结算草稿。请核对这笔金额属于另一期结算。",
+      "作为新一期结算", { type: "warning", confirmButtonText: "检查新一期", cancelButtonText: "取消" });
+  } catch { return; }
+  await check(file.value, true);
 }
 async function commit() {
-  beginPhase("正在原子提交业务单据");
+  const checked = preview.value;
+  if (!checked?.documents.length || !canImport.value || busy.value || result.value ||
+      (atomic.value && checked.issues.length)) return;
+  phase.value = "saving"; error.value = "";
   try {
-    result.value = await api<ExchangeCommitResult>(
-      `/exchange/${preview.value!.token}/commit`,
-      "POST",
-      { request_key: requestKey.value, atomic: atomic.value },
-    );
-    exchangeSections.value=["result"];
-    ElMessage.success("导入结果已保存");
+    result.value = await api<ExchangeCommitResult>(`/exchange/${checked.token}/commit`, "POST", {
+      request_key: requestKey.value, atomic: atomic.value,
+    });
+    previousFile.value = undefined; issuePage.value = 1;
     emit("changed");
-  } catch (e) {
-    ElMessage.error((e as Error).message);
-  } finally {
-    endPhase();
-  }
+  } catch (failure) { error.value = (failure as Error).message; }
+  finally { phase.value = ""; }
+}
+function correctedCopy() {
+  if (!preview.value || !file.value) return;
+  return getFile(`/exchange/${preview.value.token}/correction`, undefined, {
+    method: "POST", headers: { "Content-Type": mime }, body: file.value,
+  });
+}
+onUnmounted(() => controller?.abort());
+function position(issue: WorkbookIssue) {
+  return issue.sheet + (issue.row ? ` · 第 ${issue.row} 行` : "");
 }
 </script>
+
 <template>
-  <ElButton data-guide-action="excel.import" @click="dialog = true">Excel 批量处理</ElButton>
-  <ElDialog append-to-body
-    v-model="dialog"
-    :title="kind === 'assets' ? '设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）' : 'Excel 数据交换'"
-    width="1060px"
-    :close-on-click-modal="false"
-    :close-on-press-escape="!busy"
-    :show-close="!busy"
-  >
+  <template v-if="canImport">
+    <ElButton v-if="!selection" data-guide-action="excel.import" @click="start('import')">导入 Excel</ElButton>
+    <ElButton v-if="count && count <= 5000 && appliedQuery !== ''" @click="start('edit')">用 Excel 批量修改</ElButton>
+  </template>
+  <ElDialog append-to-body v-model="open" :title="intent === 'edit' ? '用 Excel 批量修改' : '导入 Excel'"
+    width="min(960px, 94vw)" :close-on-click-modal="false" :close-on-press-escape="!busy"
+    :show-close="!busy" @close="remember">
     <template #header>
-      <div class="exchange-guide-heading">
-        <strong>{{ kind === 'assets' ? "设备台账 Excel（线路／物理杆塔／逻辑杆塔／档距）" : 'Excel 数据交换' }}</strong>
+      <div class="exchange-heading">
+        <strong>{{ intent === "edit" ? "用 Excel 批量修改" : "导入 Excel" }}</strong>
         <ElButton v-if="openGuide" data-guide-modal-help size="small" text @click="openGuide">使用指引</ElButton>
       </div>
     </template>
-    <ElAlert
-      v-if="busy"
-      :title="phase + ' · ' + elapsedSeconds + ' 秒'"
-      :description="
-        canCancelPreview
-          ? '预检尚未写入正式业务数据，可以取消当前请求。'
-          : '正在提交完整业务单据。为保护原子性，提交期间不可中断；完成后将显示实际结果。'
-      "
-      type="info"
-      :closable="false"
-      show-icon
-    />
-    <ElButton data-guide-action="excel.cancel-preview"
-      v-if="busy && canCancelPreview"
-      type="warning"
-      @click="cancelPreview"
-      >取消预检</ElButton
-    >
-    <ElCollapse v-model="exchangeSections">
-    <ElCollapseItem title="下载模板与维护导出" name="template">
-    <p class="muted">筛选范围 · {{ exportScope }}（全部页）。勾选范围 · {{ selectedIds?.length || 0 }} 条。</p>
-    <div class="toolbar">
-      <ElButton data-guide-action="excel.template"
-        @click="
-          download(
-            `/exchange/${kind}/template?project_id=${projectId || ''}`,
-          )
-        "
-        >空白模板</ElButton
-      ><ElButton data-guide-action="excel.export-filtered" :disabled="appliedQuery === ''" @click="exportFile()">筛选结果维护导出</ElButton
-      ><ElButton data-guide-action="excel.export-selected"
-        :disabled="!selectedIds?.length"
-        @click="exportFile(false, true)"
-        >勾选项维护导出</ElButton
-      ><ElButton :disabled="appliedQuery === ''" @click="exportFile(true)">业务报表</ElButton>
-    </div>
-    </ElCollapseItem>
-    <ElCollapseItem title="上传并预检" name="upload">
-    <ElAlert
-      :title="
-        kind === 'assets'
-          ? '统一工作簿包含线路、物理杆塔、逻辑杆塔、档距。普通新建杆塔只填逻辑杆塔表；独立实物维护使用物理杆塔表。系统按真实关联与依赖顺序办理。'
-          : kind === 'settlements'
-            ? '导入仅保存结算草稿，提交与审核需分别确认。金额与本次新增解决量独立填写。'
-            : '需求更新生成新的正式内容版本。缺少位置或物资行保持原值，删除须明确标记。'
-      "
-      type="info"
-      :closable="false"
-    />
-    <div class="toolbar" style="margin-top: 18px">
-      <ElSelect v-model="mode" style="width: 180px"
-        ><ElOption label="仅新增" value="create" /><ElOption
-          label="仅更新"
-          value="update" /><ElOption
-          label="混合新增与更新"
-          value="mixed" /></ElSelect
-      ><ElUpload
-        :disabled="readonly || !can('write') || busy"
-        accept=".xlsx"
-        :auto-upload="false"
-        :show-file-list="false"
-        :on-change="upload"
-        ><ElButton :data-guide-action="preview?.issues.length ? 'excel.retry' : 'excel.preview'" :disabled="readonly || !can('write')" type="primary" :loading="busy"
-          >上传并预检</ElButton
-        ></ElUpload
-      >
-    </div>
-    </ElCollapseItem>
-    <ElCollapseItem title="查看差异并确认提交" name="preview">
-    <template v-if="preview"
-      ><ElCheckbox :data-guide-action="atomic ? 'excel.atomic' : 'excel.partial'" v-model="atomic" :disabled="busy">整个批次全部成功或全部回滚</ElCheckbox><div class="toolbar">
-        <ElTag>共 {{ preview.summary.documents }} 张单据</ElTag
-        ><ElTag type="success">有效 {{ preview.documents.length }}</ElTag
-        ><ElTag type="danger"
-          >无效 {{ preview.summary.invalid_documents }}</ElTag
-        ><ElTag type="warning"
-          >重复 {{ preview.summary.duplicate_issues }} / 版本冲突
-          {{ preview.summary.conflicts }}</ElTag
-        ><ElTag>新增 {{ preview.summary.created }}</ElTag
-        ><ElTag>更新 {{ preview.summary.updated }}</ElTag
-        ><ElTag type="info">无变化 {{ preview.summary.unchanged }}</ElTag
-        ><ElTag type="danger">缺失设备 {{preview.summary.missing_devices||0}} / 位置歧义 {{preview.summary.ambiguous_locations||0}} / 格式 {{preview.summary.format_errors||0}} / 精度 {{preview.summary.precision_errors||0}}</ElTag
-        ><ElTag type="danger">问题 {{ preview.issues.length }}</ElTag
-        ><ElButton data-guide-action="excel.issues"
-          @click="
-            download(`/exchange/${preview.token}/errors`, '导入问题.xlsx')
-          "
-          >下载问题清单</ElButton
-        >
+
+    <ElAlert v-if="phase === 'checking'" title="正在检查文件" type="info" :closable="false" show-icon />
+    <ElAlert v-if="phase === 'saving'" title="正在保存，请稍候" type="info" :closable="false" show-icon />
+    <ElAlert v-if="error" :title="error" type="error" :closable="false" show-icon />
+
+    <template v-if="!file">
+      <p>{{ intent === "edit" ? scope + "。下载后修改需要更新的内容，再上传检查。" : importHint }}</p>
+      <div class="toolbar">
+        <ElButton v-if="intent === 'import'" data-guide-action="excel.template"
+          @click="getFile('/exchange/' + kind + '/template?' + workbookContext())">下载模板</ElButton>
+        <ElButton v-else :data-guide-action="selection ? 'excel.export-selected' : 'excel.export-filtered'"
+          @click="downloadEdit">下载要修改的记录</ElButton>
+        <ElButton v-if="previousFile" link type="primary" @click="resume">继续检查 {{ previousFile.file.name }}</ElButton>
       </div>
-      <ElTabs v-model="activePreviewTab"
-        ><ElTabPane label="单据与逐字段变化" name="documents"
-          ><BusinessTable :key="requestKey + ':documents'" :table-key="'exchange:' + kind + ':documents'"
-              :rows="displayedDocuments" :columns="documentColumns" :max-height="380" compact
-              sort-mode="remote" filter-mode="remote"
-              @sort-change="onDocumentsSort" @filter-change="onDocumentsFilter">
-              <template #cell="{ row, column }">
-                <span v-if="column.key === 'action'">{{ row.action === 'create' ? '新增' : row.action === 'update' ? '修改' : '保持原值' }}</span>
-                <span v-else-if="column.key === 'expectedResult'">{{ predictedResult(row) }}</span>
-                <div v-else-if="column.key === 'changes'">
-                  <div v-for="change in (row.changes || []).filter((item: {field:string}) => visibleFact(item.field))" :key="change.field">
-                    <strong>{{ fieldName(change.field) }}</strong>
-                    {{ factText(change.before, change.field) }} → {{ factText(change.after, change.field) }}
-                  </div>
-                </div>
-                <span v-else>{{ rowField(row, column.key) ?? '—' }}</span>
-              </template>
-            </BusinessTable><ElPagination
-            v-model:current-page="documentPage"
-            :total="filteredDocuments.length"
-            :page-size="30"
-            layout="prev,pager,next,total"
-          /> </ElTabPane
-        ><ElTabPane label="问题清单" name="issues"
-          ><BusinessTable :key="requestKey + ':issues'" :table-key="'exchange:' + kind + ':issues'"
-              :rows="displayedIssues" :columns="issueColumns" :max-height="380" compact
-              sort-mode="remote" filter-mode="remote"
-              @sort-change="onIssuesSort" @filter-change="onIssuesFilter">
-              <template #cell="{ row, column }">
-                <span v-if="column.key === 'field'">{{ issueField(row.field) }}</span>
-                <span v-else-if="column.key === 'raw_value'">{{ issueValue(row) }}</span>
-                <span v-else>{{ rowField(row, column.key) ?? '—' }}</span>
-              </template>
-            </BusinessTable><ElPagination
-            v-model:current-page="issuePage"
-            :total="filteredIssues.length"
-            :page-size="30"
-            layout="prev,pager,next,total" /></ElTabPane></ElTabs
-    ></template>
-    </ElCollapseItem>
-    <ElCollapseItem title="下载结果与回查" name="result">
-    <ElAlert
-      v-if="result"
-      class="error-banner"
-      :title="`已处理 ${result.results.length} 张单据，失败 ${result.issues.length} 项`"
-      :type="result.issues.length ? 'warning' : 'success'"
-      :closable="false"
-    />
-    <p v-if="preview" class="muted">
-      解析 {{ (preview.timings_ms.parse / 1000).toFixed(2) }} 秒 · 预检共
-      {{ (preview.timings_ms.total / 1000).toFixed(2) }} 秒<span v-if="result">
-        · 正式校验 {{ (result.timings_ms.revalidation / 1000).toFixed(2) }} 秒 ·
-        逐单据写入
-        {{ (result.timings_ms.business_writes / 1000).toFixed(2) }} 秒</span
-      >
-    </p>
-    <ElButton data-guide-action="excel.result"
-      v-if="result"
-      @click="download(`/exchange/${preview!.token}/results`, '导入结果.xlsx')"
-      >下载导入结果</ElButton
-    >
-    <BusinessTable v-if="result" :rows="result.results"
-      :columns="[...(kind === 'demands' ? [{key:'import_ref',label:'导入关联号'}] : []), {key:'number',label:'业务记录'}, {key:'action',label:'处理结果'}]"
-      :table-key="'exchange:results:' + kind" client-side :max-height="300">
-      <template #cell="{row,column}">
-        <ElButton v-if="column.key === 'number'" link type="primary" class="cell-link" @click="dialog = false; emit('inspect', row.id, row.entity_kind)">{{ row.number }}</ElButton>
-        <span v-else>{{ column.key === 'import_ref' ? row.import_ref : row.action === 'create' ? '已新增' : row.action === 'update' ? '已更新' : '保持原值' }}</span>
-      </template>
-    </BusinessTable>
-    </ElCollapseItem></ElCollapse>
-    <template #footer
-      ><ElButton :disabled="busy" @click="dialog = false">关闭</ElButton
-      ><ElButton data-guide-action="excel.commit"
-        type="primary"
-        :disabled="
-          readonly || !can('write') ||
-          !preview?.documents.length ||
-          !!result ||
-          (atomic && preview.issues.length > 0)
-        "
-        :loading="busy"
-        @click="commit"
-        >确认提交有效单据</ElButton
-      ></template
-    >
+    </template>
+    <p v-else class="current-file">文件 <strong>{{ file.name }}</strong></p>
+
+    <template v-if="preview && !result">
+      <ElAlert type="info" :closable="false"
+        :title="`新增 ${preview.summary.created} 条，修改 ${preview.summary.updated} 条，${preview.summary.invalid_documents || issues.length} 条需处理`" />
+      <p v-if="preview.summary.unchanged" class="muted">{{ preview.summary.unchanged }} 条无需修改。</p>
+      <ElButton v-if="preview.documents.length" link type="primary" :aria-expanded="showChanges"
+        @click="showChanges = !showChanges">{{ showChanges ? "收起改动" : "查看改动" }}</ElButton>
+      <BusinessTable v-if="showChanges" :key="requestKey" :rows="changeRows" :columns="documentColumns"
+        :table-key="'exchange:' + kind + ':changes'" filter-mode="remote" sort-mode="remote" :max-height="320" compact
+        @filter-change="diffFilters = $event; diffPage = 1" @sort-change="diffSort = $event; diffPage = 1">
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'number'">{{ reference(row) }}</span>
+          <span v-else-if="column.key === 'action'">{{ row.action === "create" ? "新增" : row.action === "update" ? "修改" : "保持原值" }}</span>
+          <div v-else>
+            <p v-for="change in row.changes.filter(item => visibleFact(item.field))" :key="change.field" class="change">
+              <strong>{{ fieldName(change.field) }}</strong> {{ factText(change.before, change.field) }} → {{ factText(change.after, change.field) }}
+            </p>
+          </div>
+        </template>
+      </BusinessTable>
+      <ElPagination v-if="showChanges && filteredChanges.length > 30" v-model:current-page="diffPage"
+        :total="filteredChanges.length" :page-size="30" layout="prev,pager,next,total" />
+    </template>
+
+    <template v-if="result">
+      <ElAlert :type="issues.length ? 'warning' : 'success'" :closable="false" show-icon
+        :title="reopened ? '此文件已经导入，以下为上次结果' : `已处理 ${result.results.length} 条`"
+        :description="reopened ? formatBeijingDateTime(result.submitted_at) : issues.length ? '还有记录需要处理，下载待处理记录后继续。' : undefined"
+        />
+      <BusinessTable v-if="result.results.length" :rows="result.results"
+        :columns="[{key:'number',label:'业务记录'}, {key:'action',label:'处理结果'}]"
+        :table-key="'exchange:results:' + kind" client-side :max-height="260">
+        <template #cell="{row,column}">
+          <ElButton v-if="column.key === 'number'" link type="primary" class="cell-link"
+            @click="open = false; emit('inspect', row.id, row.entity_kind)">{{ row.number }}</ElButton>
+          <span v-else>{{ row.action === "create" ? "已新增" : row.action === "update" ? "已更新" : "保持原值" }}</span>
+        </template>
+      </BusinessTable>
+      <ElButton data-guide-action="excel.result" @click="getFile('/exchange/' + preview!.token + '/results')">下载导入结果</ElButton>
+      <ElButton v-if="settlementRepeatAllowed && canImport" @click="importNextSettlement">作为新一期结算</ElButton>
+    </template>
+
+    <section v-if="issues.length && preview" class="exchange-issues" aria-label="需要处理">
+      <div class="toolbar">
+        <h3>需要处理</h3>
+        <ElButton v-if="correctionAvailable" type="primary" plain @click="correctedCopy">
+          {{ result ? "下载待处理记录" : "下载标出错误的原表" }}
+        </ElButton>
+        <ElButton data-guide-action="excel.issues" @click="getFile('/exchange/' + preview.token + '/errors')">下载问题清单</ElButton>
+      </div>
+      <p v-if="!correctionAvailable" class="muted">请按问题清单，在新表中只填写待处理记录。</p>
+      <BusinessTable :rows="issueRows" :columns="issueColumns" :max-height="320" hide-toolbar
+        :table-key="'exchange:' + kind + ':issues'" sort-mode="off" filter-mode="off" compact>
+        <template #cell="{ row, column }">
+          <span v-if="column.key === 'position'">{{ position(row) }}</span>
+          <span v-else-if="column.key === 'field'">{{ issueDetails(row).label }}</span>
+          <span v-else-if="column.key === 'raw_value'">{{ issueDetails(row).value }}</span>
+          <span v-else-if="column.key === 'suggestion'">{{ issueDetails(row).suggestion }}</span>
+          <span v-else>{{ row.reason }}</span>
+        </template>
+      </BusinessTable>
+      <ElPagination v-if="issues.length > 30" v-model:current-page="issuePage"
+        :total="issues.length" :page-size="30" layout="prev,pager,next,total" />
+    </section>
+
+    <div v-if="canImport && (!result || issues.length)" class="toolbar exchange-upload">
+      <ElUpload :disabled="busy" accept=".xlsx" :auto-upload="false" :show-file-list="false"
+        :on-change="chooseFile" :data-guide-action="preview || error ? 'excel.retry' : 'excel.preview'">
+        <span class="upload-label">{{ uploadLabel }}</span>
+      </ElUpload>
+      <ElButton v-if="phase === 'checking'" data-guide-action="excel.cancel-preview" @click="controller?.abort()">取消检查</ElButton>
+      <ElButton v-if="!busy && !result" text :aria-expanded="advanced" @click="advanced = !advanced">导入选项</ElButton>
+    </div>
+    <ElForm v-if="advanced && !busy && !result" label-position="top" novalidate>
+      <ElFormItem v-if="!preview" label="允许修改的记录">
+        <ElSelect v-model="mode" aria-label="允许修改的记录" style="max-width: 240px">
+          <ElOption value="mixed" label="允许新增和修改" />
+          <ElOption value="create" label="只新增记录" />
+          <ElOption value="update" label="只修改已有记录" />
+        </ElSelect>
+      </ElFormItem>
+      <ElCheckbox v-if="preview" :data-guide-action="atomic ? 'excel.atomic' : 'excel.partial'" v-model="atomic">
+        有问题时，整批暂不保存
+      </ElCheckbox>
+    </ElForm>
+    <template #footer>
+      <ElButton :disabled="busy" @click="open = false">{{ result ? "完成" : "关闭" }}</ElButton>
+      <ElButton v-if="preview && !result" data-guide-action="excel.commit" type="primary"
+        :disabled="!preview.documents.length || !canImport || (atomic && !!issues.length)"
+        :loading="phase === 'saving'" @click="commit">{{ saveLabel }}</ElButton>
+    </template>
   </ElDialog>
 </template>
 
 <style scoped>
-.exchange-guide-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-right:30px}
-.exchange-guide-heading strong{font-weight:600;font-size:16px}
+.exchange-heading, .exchange-upload { display: flex; align-items: center; gap: 10px; }
+.exchange-upload { margin: 14px 0 5px; }
+.current-file { overflow-wrap: anywhere; margin: 10px 0; }
+.exchange-issues { margin-top: 14px; }
+.change { margin: 0; }
+.upload-label {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  border: 1px solid var(--el-color-primary);
+  border-radius: var(--el-border-radius-base);
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+:deep(.el-upload:focus-visible .upload-label), :deep(.el-upload:hover .upload-label) {
+  background: var(--el-color-primary-light-9);
+  outline: 1px solid var(--el-color-primary);
+}
 </style>
