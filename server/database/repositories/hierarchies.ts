@@ -9,6 +9,7 @@ import type {
   TreeAudit,
 } from "../../shared/types/trees.js";
 import { integer } from "../../shared/errors/business-error.js";
+import { PROJECT_DISPLAY_STATUS_SQL } from "../queries/project-status-sql.js";
 
 export function hierarchyRepository(store: ReturnType<typeof createStore>) {
   const costRowsSql = `SELECT c.*, e.cost_node_id, adopted.name AS cost_node_name,
@@ -168,7 +169,7 @@ export function hierarchyRepository(store: ReturnType<typeof createStore>) {
     },
     organizationDetail(id: string): OrganizationDetail {
       const projects = store.query(
-        `SELECT p.id,p.code,p.status,m.name,adopted.name AS adopted_name,
+        `SELECT p.id,p.code,p.status,${PROJECT_DISPLAY_STATUS_SQL} AS display_status,m.name,adopted.name AS adopted_name,
         adopted.version_no AS adopted_version FROM v_project_management_current m JOIN projects p ON p.id=m.project_id
         JOIN organizational_unit_versions adopted ON adopted.id=m.managing_unit_version_id
         WHERE m.managing_unit_id=? AND NOT EXISTS(SELECT 1 FROM audit_events a

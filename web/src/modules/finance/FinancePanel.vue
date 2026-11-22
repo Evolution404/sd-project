@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
+import { settlementStatusLabels } from "../../../../server/shared/types/finance-workflows";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { closedWriteReason } from "../../../../server/shared/project-lifecycle";
 import CostCategoryWorkspace from "./components/CostCategoryWorkspace.vue";
@@ -27,6 +28,7 @@ import FieldControl from "../../shared/ui/FieldControl.vue";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import { readAdoptedQuantityPrecision } from "../../shared/api/quantity-precision";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
+import { costStatusOptions, filterOptions, reconciliationStatusOptions } from "../../shared/utils/filter-options";
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
 import type { ProjectDetail } from "../../../../server/shared/types/project-api";
@@ -260,21 +262,21 @@ const financeColumns: Record<string, TableColumn[]> = {
     // Keep operational state and amount visible beside the fixed action
     // column even in a 760px project-detail dialog.
     { key: "title", label: "事项", minWidth: 165 },
-    { key: "status", label: "状态", minWidth: 105 },
+    { key: "status", label: "状态", minWidth: 105, filterOptions: costStatusOptions },
     { key: "amount_fen", label: "实际金额", minWidth: 125 },
     { key: "occurred_on", label: "发生日期", minWidth: 115 },
   ],
   bills: [
     { key: "amount_fen", label: "本次金额", minWidth: 135 },
     { key: "effective_amount_fen", label: "当前生效", minWidth: 135, sortable: false, filterable: false },
-    { key: "number", label: "结算编号", minWidth: 175 },
-    { key: "status", label: "结算状态", minWidth: 180, sortable: false },
+    { key: "number", label: "结算编号", minWidth: 175, hideable: false },
+    { key: "status", label: "结算状态", minWidth: 180, sortable: false, filterOptions: filterOptions(settlementStatusLabels) },
   ],
   reconciliations: [
     { key: "reconciled_cost_fen", label: "实际费用份额", minWidth: 165 },
     { key: "reconciled_settlement_fen", label: "结算核定额", minWidth: 165 },
     { key: "evidence", label: "核对依据", minWidth: 180 },
-    { key: "status", label: "状态" },
+    { key: "status", label: "状态", filterOptions: reconciliationStatusOptions },
   ],
   demands: [
     { key: "demand_no", label: "需求编号", minWidth: 190 },

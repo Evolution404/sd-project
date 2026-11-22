@@ -76,6 +76,9 @@ try {
   await page.getByRole("tab", { name: "承接需求" }).click();
   await detail.getByText("当前定位").waitFor();
   await page.screenshot({ path: join(output, "project-linked-scope.png") });
+  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await detail.getByText(waiting.demand_no, { exact: true }).waitFor();
+  assert.match(new URL(page.url()).hash, /#\/demands\?/);
 
   // A second active demand starts another project and links atomically.
   await page.goto(base + "/#/demands?demand=" + another.id);

@@ -12,12 +12,14 @@ export function projectFinanceContext(projectId: string, returnTo: string, focus
 export function projectContext(
   projectId: string, section: ProjectSection = "overview",
   target?: { focus: BusinessFocus; record: string },
+  returnTo?: string,
 ): RouteLocationRaw {
   return {
     name: "projects",
     query: {
       project: projectId, tab: section,
       ...(target ? { focus: target.focus, record: target.record } : {}),
+      ...(returnTo ? { returnTo } : {}),
     },
   };
 }

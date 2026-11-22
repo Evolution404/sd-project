@@ -94,8 +94,11 @@ async function linkSelectedProject() {
 function openLinkedProject() {
   if (detail.value?.binding?.project_id) {
     void router.push(projectContext(detail.value.binding.project_id,
-      "scope", { focus: "demand", record: detail.value.id }));
+      "scope", { focus: "demand", record: detail.value.id }, demandDetailsPath()));
   }
+}
+function demandDetailsPath() {
+  return router.resolve({ path: route.path, query: { ...route.query, demand: detail.value?.id } }).fullPath;
 }
 function openAdoptedOperation() {
   if (!detail.value?.operation_id || !detail.value.operation_version) return;
@@ -105,7 +108,7 @@ function openAdoptedOperation() {
     query: {
       record: detail.value.operation_id,
       adoptedVersion: String(detail.value.operation_version),
-      returnTo: route.fullPath,
+      returnTo: demandDetailsPath(),
     },
   });
 }
@@ -122,7 +125,7 @@ function openLocationRecord(location: {location_kind:string;span_id?:string|null
   void router.push({
     name: "ledger",
     params: { kind: target.kind },
-    query: { record: target.id, history: "true", returnTo: route.fullPath },
+    query: { record: target.id, history: "true", returnTo: demandDetailsPath() },
   });
 }
 function createProjectAndLink() {
@@ -258,7 +261,7 @@ const demandLocationColumns: TableColumn[] = [
 const projectPickerColumns: TableColumn[] = [
   { key: "name", label: "项目名称", minWidth: 210 },
   { key: "code", label: "项目编号", minWidth: 150 },
-  { key: "status", label: "阶段", minWidth: 115 },
+  { key: "display_status", label: "项目状态", minWidth: 115 },
 ];
 const demandMaterialColumns: TableColumn[] = [
   { key: "material_name", label: "物资名称", minWidth: 165 },
@@ -271,9 +274,9 @@ function resetListPage() {
   void load();
 }
 const demandColumns: TableColumn[] = [
-  { key: "problem_description", label: "问题描述", minWidth: 230 },
+  { key: "problem_description", label: "问题描述", minWidth: 230, hideable: false },
   { key: "line_summary", label: "涉及线路", minWidth: 180 },
-  { key: "display_status", filterable: false, label: "需求状态", minWidth: 130 },
+  { key: "display_status", filterable: false, label: "需求状态", minWidth: 130, hideable: false },
   { key: "expected_on", label: "预计解决时间", minWidth: 155 },
   { key: "quantity_scaled", label: "工作量" },
   { key: "unit_snapshot", label: "计量单位" },
@@ -418,7 +421,7 @@ async function remove(row: DemandListItem | DemandRecord) {
     await api("/demands/" + row.id, "DELETE", {
       expected_version: row.current_version,
     });
-    await detailDialog.close();
+    closeDetails();
     await load();
   } catch (e) {
     if (e instanceof Error) ElMessage.error(e.message);
@@ -426,6 +429,14 @@ async function remove(row: DemandListItem | DemandRecord) {
 }
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "demands" && !editorRoute.value);
 const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = false; quoteOpen.value = false; });
+function closeDetails() {
+  detailDialog.close();
+  if (typeof route.query.demand === "string") {
+    const query = { ...route.query };
+    delete query.demand;
+    void router.replace({ query });
+  }
+}
 watch(() => route.query.demand, demandId => {
   if (!editorRoute.value && typeof demandId === "string" && demandId && demandId !== detail.value?.id)
     void detailDialog.open(demandId);
@@ -532,7 +543,7 @@ onMounted(async () => {
   >
   </div>
   <BusinessDetailDialog :open="detailOpen && !editorRoute" title="需求详情" :loading="detailLoading" :error="detailError"
-    @close="detailDialog.close" @retry="detailDialog.reload">
+    @close="closeDetails" @retry="detailDialog.reload">
     <template v-if="detail"><div class="detail-header" :data-guide-record="'demand/' + detail.id">
       <div>
         <h1>{{ detail.operation_snapshot }} · {{ detail.problem_description }}</h1>
@@ -691,7 +702,7 @@ onMounted(async () => {
       table-key="demand:project-picker" client-side :loading="projectLoading"
       :actions-width="100" max-height="400">
       <template #cell="{ row, column }">
-        <span v-if="column.key === 'status'">{{ row.display_status || statusText[row.status] || row.status }}</span>
+        <span v-if="column.key === 'display_status'">{{ row.display_status }}</span>
         <span v-else>{{ valueAt(row,column.key) || '—' }}</span>
       </template>
       <template #actions="{ row }">

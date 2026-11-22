@@ -5,12 +5,14 @@ import Sortable from "sortablejs";
 import type { TableInstance } from "element-plus";
 import type { Row } from "../api/client";
 import { formatVisibleDateTime } from "../utils/datetime";
+import { fixedListValue, listDisplayScale } from "../../../../server/shared/list-filter-values";
 export type TableColumn = {
   key: string; label: string; minWidth?: number;
   sortable?: boolean; filterable?: boolean; hideable?: boolean;
   customHeader?: boolean;
   /** Stable server whitelist keys; capabilities are never inferred from a display label. */
   sortKey?: string; filterKey?: string;
+  filterOptions?: readonly { value: string; label: string }[];
   /** Hidden on a new per-entity preference profile until explicitly selected. */
   defaultVisible?: boolean;
 };
@@ -78,9 +80,13 @@ const filteringEnabled = computed(() => props.filterMode === "off" ? false
   : props.filterMode === "remote" || props.filterMode === "local" ? true
     : props.clientSide || props.filterState !== undefined);
 const filters = ref<Record<string, string>>({});
+function filterLabel(column: TableColumn, value: string) {
+  return column.filterOptions?.find(option => option.value === value)?.label ?? value;
+}
 const appliedFilters = computed(() => props.columns.flatMap(column => {
   const value = filters.value[column.key]?.trim();
-  return value && !props.fixedFilterKeys?.includes(column.key) ? [{ label: column.label, value }] : [];
+  return value && !props.fixedFilterKeys?.includes(column.key)
+    ? [{ label: column.label, value: filterLabel(column, value) }] : [];
 }));
 const activeFilterCount = computed(() => appliedFilters.value.length);
 const hasActiveFilters = computed(() => props.searchActive ||
@@ -113,8 +119,18 @@ const localSort = ref({ key: "", order: "" });
 const tableRows = computed(() => {
   if (!props.clientSide) return props.rows;
   const activeFilters = Object.entries(filters.value).filter(([, value]) => !!value?.trim());
-  const result = props.rows.filter(row => activeFilters.every(([key, value]) =>
-    String(valueAt(row, key) ?? "").toLocaleLowerCase("zh-CN").includes(value.trim().toLocaleLowerCase("zh-CN"))));
+  const choiceKeys = new Set(props.columns.filter(column => column.filterOptions).map(column => column.key));
+  const criteria = activeFilters.map(([key, value]) => {
+    const places = listDisplayScale(key);
+    return { key, value, numeric: places !== null, fixed: places === null ? null : fixedListValue(value, places) };
+  });
+  const result = props.rows.filter(row => criteria.every(({ key, value, numeric, fixed }) => {
+    const raw = valueAt(row, key);
+    if (numeric) return fixed !== null && raw === fixed;
+    const displayed = String(formatVisibleDateTime(raw, key) ?? "");
+    return choiceKeys.has(key) ? displayed === value
+      : displayed.toLocaleLowerCase("zh-CN").includes(value.trim().toLocaleLowerCase("zh-CN"));
+  }));
   const { key, order } = localSort.value;
   if (key && order) result.sort((a, b) => {
     const va = valueAt(a, key), vb = valueAt(b, key);
@@ -135,7 +151,10 @@ const orderedColumns = computed(() => {
   const keys = [...new Set([...pref.value.order, ...props.columns.map(c => c.key)])];
   return keys.map(key => props.columns.find(c => c.key === key)).filter((v): v is TableColumn => !!v);
 });
-const shownColumns = computed(() => orderedColumns.value.filter(c => c.hideable === false || !pref.value.hidden.includes(c.key)));
+function isRequired(column: TableColumn) {
+  return column.hideable === false || column.key === props.detailColumn;
+}
+const shownColumns = computed(() => orderedColumns.value.filter(c => isRequired(c) || !pref.value.hidden.includes(c.key)));
 // Element Plus requires a bordered table for its native column resize handler.
 function defaultColumnWidth(col: TableColumn) {
   // Chinese characters occupy approximately one full 14px em; use extra
@@ -166,7 +185,8 @@ function persist() {
   localStorage.setItem("sd-columns:" + props.tableKey, JSON.stringify(pref.value));
 }
 function show(key: string, value: boolean) {
-  if (props.columns.find(c => c.key === key)?.hideable === false) return;
+  const column = props.columns.find(c => c.key === key);
+  if (!column || isRequired(column)) return;
   pref.value.hidden = value ? pref.value.hidden.filter(k => k !== key) : [...pref.value.hidden, key];
   persist();
 }
@@ -236,7 +256,7 @@ function reset() {
 }
 function filter() {
   if (filteringEnabled.value && !props.clientSide)
-    emit("filter-change", Object.fromEntries(Object.entries(filters.value).filter(([, value]) => value.trim())));
+    emit("filter-change", Object.fromEntries(Object.entries(filters.value).filter(([, value]) => typeof value === "string" && value.trim())));
 }
 function handleSort(value: { prop?: string | null; order?: string | null }) {
   if (!sortingEnabled.value) return;
@@ -292,7 +312,11 @@ watch(() => props.tableKey, async () => {
           <template v-else>
             <span class="business-column-title" :title="col.label">{{ col.label }}</span>
             <ElPopover v-if="filteringEnabled && col.filterable !== false" trigger="click" width="220" placement="bottom">
-              <ElInput v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" @keyup.enter="filter" />
+              <ElSelect v-if="col.filterOptions" v-model="filters[col.key]" clearable size="small" value-on-clear=""
+                :aria-label="'按' + col.label + '筛选'" :placeholder="'选择' + col.label" @change="filter">
+                <ElOption v-for="option in col.filterOptions" :key="option.value" :value="option.value" :label="option.label" />
+              </ElSelect>
+              <ElInput v-else v-model="filters[col.key]" clearable size="small" :placeholder="'筛选' + col.label" @change="filter" @clear="filter" @keyup.enter="filter" />
               <template #reference><ElButton class="business-filter-button" :class="{ 'is-active-filter': !!filters[col.key]?.trim() }" text size="small" :aria-label="'筛选' + col.label" :aria-pressed="!!filters[col.key]?.trim()" @click.stop><ElIcon><Filter /></ElIcon></ElButton></template>
             </ElPopover>
           </template>
@@ -322,7 +346,7 @@ watch(() => props.tableKey, async () => {
       <div v-for="(col, i) in orderedColumns" :key="col.key" :data-column-key="col.key" class="column-setting-item">
         <ElButton class="column-drag-handle" text size="small" :aria-label="'调整' + col.label + '顺序'"
           title="拖动排序，或使用上下方向键" @keydown="reorderByKeyboard($event, col.key, i)"><ElIcon><Rank /></ElIcon></ElButton>
-        <ElCheckbox :model-value="col.hideable === false || !pref.hidden.includes(col.key)" :disabled="col.hideable === false || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
+        <ElCheckbox :model-value="isRequired(col) || !pref.hidden.includes(col.key)" :disabled="isRequired(col) || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
           @change="show(col.key, Boolean($event))">{{ col.label }}</ElCheckbox>
         <div class="column-setting-actions"><ElButton text size="small" @click="toggleFixed(col.key)">{{ pref.fixed.includes(col.key) ? '取消固定' : '固定列' }}</ElButton></div>
       </div>

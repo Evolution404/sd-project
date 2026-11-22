@@ -264,7 +264,7 @@ function position(issue: WorkbookIssue) {
         />
       <BusinessTable v-if="result.results.length" :rows="result.results"
         :columns="[{key:'number',label:'业务记录'}, {key:'action',label:'处理结果'}]"
-        :table-key="'exchange:results:' + kind" client-side :max-height="260">
+        :table-key="'exchange:results:' + kind" hide-toolbar sort-mode="off" filter-mode="off" :max-height="260">
         <template #cell="{row,column}">
           <ElButton v-if="column.key === 'number'" link type="primary" class="cell-link"
             @click="open = false; emit('inspect', row.id, row.entity_kind)">{{ row.number }}</ElButton>

@@ -165,6 +165,9 @@ function expand(id: string) {
   height: 36px;
   border-radius: 7px;
 }
+:deep(.el-tree-node__children) {
+  transition: none;
+}
 :deep(.el-tree-node.is-current > .el-tree-node__content) {
   background: var(--brand-soft);
 }

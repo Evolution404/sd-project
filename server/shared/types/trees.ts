@@ -1,3 +1,5 @@
+import type { ProjectDisplayStatus } from "../project-display-status.js";
+
 export interface HierarchyNode {
   id: string;
   parent_id: string | null;
@@ -30,6 +32,7 @@ export interface AssociatedProject {
   code: string;
   name: string;
   status: string;
+  display_status: ProjectDisplayStatus;
   adopted_name: string;
   adopted_version: number;
 }

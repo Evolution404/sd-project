@@ -49,6 +49,8 @@ try {
   await page.getByRole("button", { name: "列设置" }).click();
   const dialog = page.getByRole("dialog", { name: "自定义表格列" });
   await dialog.waitFor();
+  assert.equal(await dialog.getByRole("checkbox", { name: "线路名称", exact: true }).isDisabled(), true,
+    "the only details link must stay available");
   await page.waitForTimeout(350); // Wait for dialog opening and Sortable attachment.
   const handle = dialog.getByRole("button", { name: "调整线路名称顺序", exact: true });
   const destination = dialog.locator('.column-setting-item').filter({ hasText: "线路类型" });

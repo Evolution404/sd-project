@@ -4,6 +4,7 @@ import type { FinanceListItem, FinanceListKind } from "../../shared/types/financ
 import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
+import { fixedListValue, listDisplayScale } from "../../shared/list-filter-values.js";
 
 interface QueryStore {
   query(sql: string, ...parameters: SQLInputValue[]): unknown[];
@@ -109,7 +110,8 @@ const financeSources: Record<FinanceListKind, ListSource> = {
     sql: `SELECT s.id, s.project_id, p.name AS project_name, root.code AS project_code, s.number AS label,
       COALESCE(json_extract(draft.draft_json,'$.amount_fen'), v.amount_fen) AS amount_fen,
       effective.amount_fen AS effective_amount_fen,
-      v.settlement_on AS occurred_on, v.version_no, s.created_at,
+      CASE WHEN draft.settlement_id IS NOT NULL THEN json_extract(draft.draft_json,'$.settlement_on')
+        ELSE v.settlement_on END AS occurred_on, v.version_no, s.created_at,
       ${settlementStatusSql("draft", "v", "r")} AS status
       FROM settlements s JOIN projects root ON root.id=s.project_id
       JOIN v_project_management_current p ON p.project_id=s.project_id
@@ -124,14 +126,19 @@ const financeSources: Record<FinanceListKind, ListSource> = {
   reconciliations: {
     sql: `SELECT r.record_id AS id, entry.project_id, p.name AS project_name, root.code AS project_code,
       cost.title AS label, r.reconciled_settlement_fen AS amount_fen, cost.occurred_on,
-      r.status, r.version_no, r.created_at FROM v_cost_reconciliation_current r
+      CASE WHEN r.status='active' AND applied.id IS NULL THEN 'stale' ELSE r.status END AS status,
+      r.version_no, r.created_at FROM v_cost_reconciliation_current r
       JOIN cost_versions cost ON cost.id=r.cost_version_id JOIN cost_entries entry ON entry.id=cost.entry_id
+      LEFT JOIN v_effective_cost_reconciliations applied ON applied.id=r.id
       JOIN projects root ON root.id=entry.project_id
       JOIN v_project_management_current p ON p.project_id=entry.project_id`,
     columns: ["id", "project_id", "project_name", "project_code", "label", "amount_fen", "occurred_on", "status", "version_no", "created_at", "deleted"],
     search: ["label", "project_name", "project_code", "status"],
   },
 };
+
+const exactFilters = new Set(["id", "status", "display_status", "role", "object_position",
+  "attribution_unit", "pricing_mode", "scope", "work_mode"]);
 
 export function searchPage<T>(store: QueryStore, entity: string, source: ListSource, query: ListQuery): Page<T> {
   const statement = `WITH list_rows AS (SELECT source.*, EXISTS(SELECT 1 FROM audit_events a
@@ -144,12 +151,16 @@ export function searchPage<T>(store: QueryStore, entity: string, source: ListSou
   }
   for (const [key, value] of Object.entries(query.filters)) {
     if (!source.columns.includes(key)) continue;
-    // Status filters are exact enum decisions. Substring matching would
-    // include "inactive" when the UI asks for "active".
-    predicates.push(key === "status" || key === "display_status"
-      ? `lower(COALESCE(CAST("${key}" AS TEXT),''))=lower(?)`
-      : `instr(lower(COALESCE(CAST("${key}" AS TEXT),'')),lower(?))>0`);
-    parameters.push(value);
+    const places = listDisplayScale(key);
+    if (places !== null) {
+      predicates.push(`"${key}"=?`);
+      parameters.push(fixedListValue(value, places));
+    } else {
+      predicates.push(key === "id" ? `"${key}"=?` : exactFilters.has(key)
+        ? `lower(COALESCE(CAST("${key}" AS TEXT),''))=lower(?)`
+        : `instr(lower(COALESCE(CAST("${key}" AS TEXT),'')),lower(?))>0`);
+      parameters.push(value);
+    }
   }
   const where = predicates.length ? " WHERE " + predicates.join(" AND ") : "";
   const count = store.get(statement + "SELECT COUNT(*) AS total FROM list_rows" + where, ...parameters) as { total: number };

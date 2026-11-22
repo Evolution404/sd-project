@@ -82,7 +82,7 @@ function openTask(task: QueueTask, row: QueueRow) {
     const reviewing = task.action === "review";
     void router.push({ name: "projects", params: { projectId: row.projectId, work: reviewing ? "settlements" : "finance",
       recordId: reviewing ? row.id : "", recordAction: reviewing ? "review" : "" },
-      query: { returnTo: "/dashboard", ...(reviewing ? {} : { focus: "settlement", record: row.id }) } });
+      query: { returnTo: "/dashboard", ...(reviewing ? { source: "task" } : { focus: "settlement", record: row.id }) } });
   } else if (task.path === "/demands") {
     void router.push({ path: "/demands", query: { filters: taskFilters(task), demand: row.id } });
   } else {
@@ -220,7 +220,7 @@ onMounted(refreshDashboard);
   </div>
   <div class="metric-grid dashboard-metrics" v-loading="loading">
     <ElButton v-for="metric in metrics" :key="metric.key" class="metric metric-action" plain
-      :data-metric="metric.key" :aria-label="'查看' + metric.label" @click="openMetric(metric.key)">
+      :data-metric="metric.key" :aria-label="'查看' + metric.label" :disabled="loading" @click="openMetric(metric.key)">
       <span class="metric-icon"><ElIcon><component :is="metric.icon" /></ElIcon></span>
       <span class="metric-text">
         <span>{{ metric.label }}</span>

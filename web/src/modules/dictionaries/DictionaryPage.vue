@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { activeOptions } from "../../shared/utils/filter-options";
 import { computed, onMounted, ref, shallowRef } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { resumeTask } from "../../shared/navigation/business-context";
@@ -204,7 +205,7 @@ onMounted(load);
       :columns="[
         { key: 'name', label: '名称', minWidth: 190 },
         ...(kind === 'units' ? [{ key: 'quantity_precision', label: '数量格式', minWidth: 130 }] : []),
-        { key: 'status', label: '状态' },
+        { key: 'status', label: '状态', filterOptions: activeOptions },
       ]"
       :table-key="'catalog:' + kind"
       :filter-state="filters"

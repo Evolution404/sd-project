@@ -25,6 +25,7 @@ const can = useAccess();
 import { ref, onMounted, computed, watch, nextTick } from "vue";
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { demandContext, fundContext, projectContext } from "../../shared/navigation/business-context";
+import { projectDisplayStatuses } from "../../../../server/shared/project-display-status";
 import { ElMessage, ElMessageBox } from "element-plus";
 import FieldControl from "../../shared/ui/FieldControl.vue";
 import { readAdoptedQuantityPrecision, readCurrentMaterialPrecision }
@@ -98,9 +99,12 @@ function goToProjectWork(work: string, recordId = "", recordAction = "", focus =
 }
 let returningToProjectDetail = false;
 async function returnFromProjectWork() {
-  if (projectWork.value === "finance" && typeof route.query.returnTo === "string") {
+  if (typeof route.query.returnTo === "string") {
     const origin = router.resolve(route.query.returnTo);
-    if (["finance", "dashboard", "frameworks", "agreements", "funding"].includes(String(origin.name))) return workRoute.exit(origin.fullPath);
+    if (projectWork.value === "finance" && ["finance", "dashboard", "frameworks", "agreements"].includes(String(origin.name)))
+      return workRoute.exit(origin.fullPath);
+    if (projectWork.value === "settlements" && origin.name === "dashboard" && route.query.source === "task")
+      return workRoute.exit(origin.fullPath);
   }
   if (projectWork.value === "settlements") return workRoute.exit({ name: "projects",
     params: { projectId: workProjectId.value, work: "finance", recordId: "", recordAction: "" }, query: route.query,
@@ -115,14 +119,20 @@ async function returnFromProjectWork() {
   } finally { returningToProjectDetail = false; }
 }
 function closeProjectDetails() {
-  if (route.query.focus === "funding" && typeof route.query.returnTo === "string") {
+  if (typeof route.query.returnTo === "string") {
     const from = router.resolve(route.query.returnTo);
-    if (from.name === "frameworks" || from.name === "agreements") {
+    if ((route.query.focus === "funding" && ["frameworks", "agreements"].includes(String(from.name))) ||
+        (route.query.focus === "demand" && from.name === "demands")) {
       void workRoute.exit(from.fullPath);
       return;
     }
   }
   detailDialog.close();
+  if (typeof route.query.project === "string") {
+    const query = { ...route.query };
+    for (const key of ["project", "tab", "focus", "record", "returnTo"]) delete query[key];
+    void router.replace({ query });
+  }
 }
 const projectActions = ref<ProjectAction[]>([]);
 const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
@@ -314,7 +324,7 @@ function resetListPage() {
   page.value = 1;
   void load();
 }
-const projectStatuses = ["储备", "已入库", "立项中", "已批准", "变更中", "已结项"] as const;
+const projectStatuses = projectDisplayStatuses;
 // One visible status and one authoritative derived filter source.
 // The formal four-stage lifecycle remains unchanged for business rules.
 const listStatus = computed({
@@ -330,7 +340,7 @@ const listStatus = computed({
   },
 });
 const projectColumns: TableColumn[] = [
-  { key: "name", label: "项目名称", minWidth: 220 },
+  { key: "name", label: "项目名称", minWidth: 220, hideable: false },
   { key: "display_status", filterable: false, label: "项目状态", minWidth: 155, hideable: false },
   { key: "approval", filterable: false, label: "批准预算", sortable: false },
   { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
@@ -1032,7 +1042,7 @@ onMounted(async () => {
       <BusinessTable :search-active="!!query" @clear-search="clearSearchAndColumns" :fixed-filter-keys="['display_status']" :loading="listLoading" :rows="rows" :columns="projectColumns" table-key="project:list" selectable :selected-ids="selectedIds" @selection-change="selection.updatePage" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
         @sort-change="sortTable" @filter-change="filterTable">
-        <template #toolbar="{ openSettings, clearFilters, hasActiveFilters, appliedFilters }">
+        <template #toolbar="{ openSettings, hasActiveFilters, appliedFilters }">
       <div v-if="selected.length" class="toolbar selection-toolbar" aria-label="子项目批量操作">
         <span role="status">已选 {{ selected.length }} 条</span>
         <span class="muted">共 {{ total }} 条</span>
@@ -1056,8 +1066,10 @@ onMounted(async () => {
           >包含已删除</ElCheckbox
         >
               <span role="status" class="muted">共 {{ total }} 条</span>
+              <ElTag v-if="columnFilters.status === 'approved'" effect="plain">在办项目 · 已批准及变更中</ElTag>
               <ElTag v-for="condition in appliedFilters" :key="condition.label" effect="plain">{{ condition.label }} · {{ condition.value }}</ElTag>
-              <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
+              <ElButton v-if="hasActiveFilters || columnFilters.status === 'approved'" link type="primary"
+                @click="clearSearchAndColumns">清除检索与列筛选</ElButton>
             </div>
             <div class="toolbar page-heading-actions">
               <ElButton :loading="listLoading" @click="load">刷新</ElButton>

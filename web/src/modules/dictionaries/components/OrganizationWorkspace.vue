@@ -265,11 +265,7 @@ const projectDialog = useEntityDialog(
   <div class="panel organization-workspace">
     <div class="unified-list-tools">
       <div class="toolbar">
-        <ElPopover trigger="click" placement="bottom-start" :width="200">
-          <template #reference><ElButton>筛选</ElButton></template>
-          <ElCheckbox data-guide-action="dictionaries.show-deleted" v-model="includeDeleted">包含已删除单位</ElCheckbox>
-        </ElPopover>
-        <ElTag v-if="includeDeleted" effect="plain">包含已删除单位</ElTag>
+        <ElCheckbox data-guide-action="dictionaries.show-deleted" v-model="includeDeleted">包含已删除单位</ElCheckbox>
       </div>
       <div class="toolbar page-heading-actions">
         <ElButton :loading="loading" @click="load">刷新组织</ElButton>
@@ -338,24 +334,16 @@ const projectDialog = useEntityDialog(
         <h3>当前关联子项目</h3>
         <BusinessTable
           client-side
+          detail-column="name" @open-detail="row => projectDialog.open(row.id)"
           table-key="organization:projects"
           :rows="detail?.projects || []"
           :columns="[
             { key: 'name', label: '子项目' },
-            { key: 'status', label: '阶段' },
+            { key: 'display_status', label: '项目状态' },
             { key: 'adopted_name', label: '采用单位名称' },
             { key: 'adopted_version', label: '采用正式版本' },
           ]"
-          ><template #cell="{ row, column, value }"
-            ><span>{{
-              column.key === "status" ? statusText[row.status] : value
-            }}</span></template
-          ><template #actions="{ row }">
-            <ElButton size="small" @click="projectDialog.open(String(row.id))"
-              >查看项目</ElButton
-            >
-          </template></BusinessTable
-        >
+        />
       </section>
       <ElEmpty v-else description="选择单位查看组织资料" :image-size="70" />
     </div>

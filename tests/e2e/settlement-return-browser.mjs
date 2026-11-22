@@ -69,9 +69,16 @@ try {
   assert.equal(resubmitted.version.id, original.version.id);
   assert.equal(resubmitted.review.event_seq, 3);
   assert.equal(s.finance.summary(project.id).settlement_fen, 0);
-  assert.deepEqual(errors, []);
   await page.screenshot({ path: join(out, "resubmitted.png"), fullPage: true });
-  console.log("SETTLEMENT_RETURN_BROWSER_OK return reason, review lock, same immutable version resubmission");
+  await page.goto(base + "/#/dashboard");
+  const task = page.getByRole("button", { name: project.name + " · " + draft.number, exact: true });
+  await task.click();
+  await review.getByRole("heading", { name: "审核结算", exact: true }).waitFor();
+  await review.getByRole("button", { name: "← 返回", exact: true }).click();
+  await page.getByRole("heading", { name: "工作台", exact: true }).waitFor();
+  await task.waitFor();
+  assert.deepEqual(errors, []);
+  console.log("SETTLEMENT_RETURN_BROWSER_OK return reason, review lock, same immutable version resubmission, original dashboard task");
 } catch (error) {
   await page.screenshot({ path: join(out, "failure.png"), fullPage: true });
   throw error;

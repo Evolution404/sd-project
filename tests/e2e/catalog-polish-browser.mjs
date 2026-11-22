@@ -12,6 +12,8 @@ const cleanup = [], { s, save } = fixture({ after: action => cleanup.push(action
 const voltage = save('voltages', { name: '500kV' });
 for (const name of ['01线路', '02线路']) save('lines', { name, voltage_level_id: voltage.id });
 const spanUnit = save('units', { name: '处' });
+save('materials', { name: '筛选使用中的物资', unit_id: spanUnit.id, status: 'active' });
+save('materials', { name: '筛选已停用的物资', unit_id: spanUnit.id, status: 'inactive' });
 const spanObject = save('objects', { name: '导线', object_position: 'corridor', attribution_unit: 'logical_tower' });
 const spanOperation = save('operations', {
   name: '处理导线缺陷', work_object_id: spanObject.id, default_unit_id: spanUnit.id,
@@ -62,6 +64,13 @@ try {
   await editor.waitFor({ state: 'hidden' });
   assert.equal(s.catalog.list('towers')[0].tower_nature, 'tension');
   await page.getByRole('cell', { name: '耐张', exact: true }).waitFor();
+  await selectNavigation(page, '物资管理');
+  await page.getByRole('button', { name: '筛选使用中的物资', exact: true }).waitFor();
+  await page.getByRole('button', { name: '筛选状态', exact: true }).click();
+  await page.getByRole('combobox', { name: '按状态筛选', exact: true }).press('ArrowDown');
+  await page.getByRole('option', { name: '有效', exact: true }).click();
+  await page.getByRole('button', { name: '筛选已停用的物资', exact: true }).waitFor({ state: 'hidden' });
+  assert.equal(await page.getByRole('button', { name: '筛选使用中的物资', exact: true }).count(), 1);
   await selectNavigation(page, '作业标准');
   await page.getByRole('columnheader', { name: /固定计量单位/ }).waitFor();
   assert.equal(await page.getByRole('columnheader',{name:/默认作业位置/}).count(),0,

@@ -29,13 +29,14 @@ const scopeLabel = computed(() => {
 });
 const rows = ref<AccessRecord[]>([]), total = ref(0), loading = ref(false), exporting = ref(false);
 const detail = ref<AccessRecord | null>(null), dialog = ref(false), technicalOpen = ref(false), diagnostic = ref("");
+const listError = ref("");
 const retention = ref(30), maxBytes = ref(0);
 const columns: TableColumn[] = [
   { key: "time", label: "北京时间", minWidth: 190 },
   { key: "ip", label: "客户端IP", minWidth: 150 },
   { key: "username", label: "账号", minWidth: 130 },
   { key: "method", label: "请求方法", minWidth: 120 },
-  { key: "path", label: "请求路径", minWidth: 230 },
+  { key: "path", label: "请求路径", minWidth: 230, hideable: false },
   { key: "status", label: "状态码", minWidth: 100 },
   { key: "duration_ms", label: "耗时（毫秒）", minWidth: 140 },
   { key: "outcome", label: "访问结果", minWidth: 130 },
@@ -53,6 +54,7 @@ let sequence = 0;
 async function load() {
   const request = ++sequence;
   loading.value = true;
+  listError.value = "";
   try {
     const result = await api<{ items: AccessRecord[]; total: number; diagnostic: string; retention_days: number; max_file_bytes: number }>("/access-logs?" + search());
     if (request !== sequence) return;
@@ -61,7 +63,7 @@ async function load() {
     diagnostic.value = result.diagnostic;
     retention.value = result.retention_days;
     maxBytes.value = result.max_file_bytes;
-  } catch (error) { ElMessage.error((error as Error).message); }
+  } catch (error) { if (request === sequence) listError.value = (error as Error).message; }
   finally { if (request === sequence) loading.value = false; }
 }
 function refreshFirstPage() { page.value = 1; void load(); }
@@ -91,6 +93,10 @@ onMounted(load);
 <template>
   <ElAlert v-if="diagnostic" :title="diagnostic" type="error" :closable="false" show-icon />
   <div class="panel access-logs">
+    <ElAlert v-if="listError" title="访问日志读取失败" type="error" :closable="false" show-icon>
+      <p>{{ listError }}{{ rows.length ? '。当前显示上次结果。' : '' }}</p>
+      <ElButton link type="primary" @click="load">重试</ElButton>
+    </ElAlert>
     <ElForm :id="filterFormId" label-position="top" novalidate @submit.prevent="apply">
       <div class="log-filters">
         <ElFormItem label="开始时间（北京时间）"><ElDatePicker v-model="draft.from" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" format="YYYY-MM-DD HH:mm:ss" /></ElFormItem>

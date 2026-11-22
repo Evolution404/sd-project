@@ -125,10 +125,14 @@ export function financeListRepository(store: Store) {
           JOIN cost_entries entry ON entry.id=cost.entry_id${projectId ? " WHERE entry.project_id=?" : ""}`,
         parameters: projectId ? [projectId] : [], deletionKey: "record_id",
         columns: ["id", "record_id", "evidence", "status", "version_no", "reconciled_cost_fen",
-          "reconciled_settlement_fen", "created_at"],
+          "reconciled_settlement_fen", "created_at", "effective"],
         search: ["evidence"],
       };
-      const page = searchPage<ReconciliationVersion & { deleted: boolean; effective: number }>(store, "reconciliations", source, query);
+      const status = query.filters.status;
+      const applied = status === "stale" || status === "active"
+        ? { ...query, filters: { ...query.filters, status: "active", effective: status === "stale" ? "0" : "1" } }
+        : query;
+      const page = searchPage<ReconciliationVersion & { deleted: boolean; effective: number }>(store, "reconciliations", source, applied);
       return { ...page, items: page.items.map(row => ({ ...row, deleted: Boolean(row.deleted), effective: Boolean(row.effective) })) };
     },
   };

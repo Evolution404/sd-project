@@ -1,8 +1,8 @@
 import type { ProjectStage, ProjectApprovalStatus } from "./types/projects.js";
 
 /** Exactly one user-facing project state, derived from formal stage + live approval draft. */
-export type ProjectDisplayStatus =
-  | "储备" | "已入库" | "立项中" | "已批准" | "变更中" | "已结项";
+export const projectDisplayStatuses = ["储备", "已入库", "立项中", "已批准", "变更中", "已结项"] as const;
+export type ProjectDisplayStatus = (typeof projectDisplayStatuses)[number];
 
 export function projectDisplayStatus(
   stage: ProjectStage,

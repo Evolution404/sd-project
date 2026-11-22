@@ -56,9 +56,17 @@ try {
   await detail.getByRole("button", { name: "关闭详情" }).click();
   await detail.waitFor({ state: "hidden" });
   await page.getByRole("tab", { name: "结算单", exact: true }).click();
-  await page.getByRole("row").filter({ hasText: "JS-" }).first()
-    .locator(".cell-link:visible").first().click();
-  await detail.getByText("当前正式事实", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "筛选本次金额", exact: true }).click();
+  const amount = page.getByPlaceholder("筛选本次金额", { exact: true });
+  await amount.fill("¥166.00");
+  await amount.press("Enter");
+  await page.getByRole("heading", { name: "费用与结算", exact: true }).click();
+  await page.getByRole("row").filter({ hasText: "草稿" }).getByRole("button", { name: /^JS-/ }).click();
+  await detail.getByRole("heading", { name: "当前草稿", exact: true }).waitFor();
+  assert.equal(await detail.getByText("待审核", { exact: true }).count(), 0);
+  const billNumber = await detail.getByRole("heading", { name: /^JS-/ }).innerText();
+  const listedBills = page.locator("main .business-table-grid").getByRole("row").filter({ hasText: /JS-\d+/ });
+  assert.equal(await listedBills.count(), 1);
   await detail.getByText("当前生效金额", { exact: true }).waitFor();
   await page.screenshot({ path: join(out, "cross-settlement-detail.png") });
   await detail.getByRole("button", { name: /查看所属项目/ }).click();
@@ -66,6 +74,14 @@ try {
   await page.getByRole("heading", { name: "定位独立结算单", exact: true }).waitFor();
   await page.getByText(/JS-\d{6}/, { exact: false }).first().waitFor();
   await page.screenshot({ path: join(out, "settlement-target-inside-project.png") });
+  await page.getByRole("button", { name: "← 返回", exact: true }).click();
+  await detail.getByRole("heading", { name: billNumber, exact: true }).waitFor();
+  assert.equal(await listedBills.count(), 1);
+  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await page.waitForURL(url => !url.hash.includes("record="));
+  await page.reload();
+  await page.getByRole("button", { name: billNumber, exact: true }).waitFor();
+  assert.equal(await detail.isVisible(), false);
   assert.deepEqual(errors, []);
   console.log("FINANCE_DIRECT_RECORD_BROWSER_OK project-first, direct cost/settlement view, target-project finance context");
 } finally {

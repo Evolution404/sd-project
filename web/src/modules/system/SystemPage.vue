@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { statusOptions } from "../../shared/utils/filter-options";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import { useRoute, useRouter } from "vue-router";
@@ -77,6 +78,7 @@ const tab = computed({
 const
   rows = ref<SystemRow[]>([]),
   listLoading = ref(false),
+  listError = ref(""),
   total = ref(0),
   page = ref(1),
   sortKey = ref(""),
@@ -90,21 +92,26 @@ const selectedAudit = ref<SystemRow | null>(null);
 const tableColumns = computed<TableColumn[]>(() => {
   if (tab.value === "users") return [
     { key: "username", label: "账号", minWidth: 170 },
-    { key: "role", label: "角色" },
-    { key: "status", label: "状态" },
+    { key: "role", label: "角色", filterOptions: statusOptions("admin", "editor", "verifier", "viewer") },
+    { key: "status", label: "状态", filterOptions: statusOptions("active", "disabled") },
   ];
   if (tab.value === "ips") return [
     { key: "ip", label: "IP 地址", minWidth: 180 },
     { key: "note", label: "说明", minWidth: 220 },
   ];
   return [
-    { key: "created_at", label: "登记时间", minWidth: 190 },
+    { key: "created_at", label: "登记时间", minWidth: 190, hideable: false },
     { key: "entity_label", label: "业务对象" },
     { key: "action_label", label: "操作" },
     { key: "actor_username", label: "操作人", minWidth: 190 },
   ];
 });
 watch(tab, () => {
+  ++loadSequence;
+  rows.value = [];
+  total.value = 0;
+  listError.value = "";
+  selectedAudit.value = null;
   void load();
   if (tab.value === "ips") void loadAccessPolicy();
 });
@@ -124,6 +131,7 @@ async function load() {
   if (tab.value === "access-logs") return;
   const sequence = ++loadSequence;
   listLoading.value = true;
+  listError.value = "";
   try {
     const q = new URLSearchParams({
       page_size: "30", page: String(page.value),
@@ -135,7 +143,7 @@ async function load() {
     rows.value = response.items;
     total.value = response.total;
   } catch (error) {
-    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+    if (sequence === loadSequence) listError.value = (error as Error).message;
   } finally {
     if (sequence === loadSequence) listLoading.value = false;
   }
@@ -234,6 +242,10 @@ onMounted(() => {
   </div>
   <AccessLogs v-if="tab === 'access-logs'" />
   <div v-else class="panel" :data-guide-action="tab === 'audit' ? 'system.audit' : undefined">
+    <ElAlert v-if="listError" title="列表读取失败" type="error" :closable="false" show-icon>
+      <p>{{ listError }}{{ rows.length ? '。当前显示上次结果。' : '' }}</p>
+      <ElButton link type="primary" @click="load">重试</ElButton>
+    </ElAlert>
     <BusinessTable :loading="listLoading" :rows="rows" :columns="tableColumns" :table-key="'system:' + tab" :filter-state="columnFilters"
         :sort-state="{ prop: sortKey, order: sortKey ? (sortDirection === 'asc' ? 'ascending' : 'descending') : null }"
       @sort-change="tableSort" @filter-change="tableFilter">

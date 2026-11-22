@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { statusOptions } from "../../shared/utils/filter-options";
 import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -77,14 +78,19 @@ const fields = computed(() =>
       !(kind.value === "towers" && field.key === "sort_rank"),
   ),
 );
-const columns = computed<TableColumn[]>(() =>
+const columns = computed<TableColumn[]>(() => (
   kind.value === "voltages"
     ? [
         { key: "name", label: "名称", minWidth: 190 },
         { key: "status", label: "状态" },
       ]
-    : equipmentColumns[kind.value],
-);
+    : equipmentColumns[kind.value]
+).map(column => ({
+  ...column,
+  filterOptions: column.key === "status"
+    ? statusOptions(...(fields.value.find(field => field.key === "status")?.options ?? []))
+    : column.key === "line_kind" ? statusOptions("main", "branch") : undefined,
+})));
 const selection = usePageSelection(rows, () => JSON.stringify([kind.value, query.value, deleted.value, columnFilters.value]));
 const { selectedIds, selected } = selection;
 const appliedQuery = ref("");
@@ -317,7 +323,7 @@ onMounted(async () => {
             <ElInput
         v-model="query"
         clearable
-        :placeholder="kind === 'lines' ? '搜索线路名称' : kind === 'towers' ? '搜索线路名称或杆塔号' : kind === 'spans' ? '搜索线路或起止杆塔' : '搜索铭牌号或杆塔型号'"
+        :placeholder="voltage ? '搜索电压等级名称' : kind === 'lines' ? '搜索线路名称' : kind === 'towers' ? '搜索线路名称或杆塔号' : kind === 'spans' ? '搜索线路或起止杆塔' : '搜索铭牌号或杆塔型号'"
         @change="
           page = 1;
           load();

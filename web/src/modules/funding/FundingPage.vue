@@ -2,6 +2,7 @@
 const relatedDrawerScroll = new Map<string, number>();
 </script>
 <script setup lang="ts">
+import { activeOptions } from "../../shared/utils/filter-options";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
@@ -55,6 +56,7 @@ const amountYuan = computed({
 const rows = ref<FundingRecord[]>([]);
 const total = ref(0), page = ref(1), query = ref(""), sort = ref(""), direction = ref("");
 const filters = ref<Record<string, string>>({}), deleted = ref(false), loading = ref(false);
+const listError = ref("");
 const saving = ref(false), editing = ref<FundingRecord | null>(null), editorOpen = ref(false);
 const editorRef = ref(), errors = ref<Record<string, string>>({});
 const selectedId = ref(""), details = ref<FundingDetails | null>(null);
@@ -89,6 +91,11 @@ function closeDetails() {
     }
   }
   detailsOpen.value = false;
+  if (typeof route.query.record === "string") {
+    const query = { ...route.query };
+    delete query.record;
+    void router.replace({ query });
+  }
 }
 
 
@@ -96,7 +103,7 @@ const linkedAgreementColumns: TableColumn[] = [
   { key: "name", label: "协议名称", minWidth: 175 },
   { key: "contract_number", label: "合同编号", minWidth: 155 },
   { key: "limit_fen", label: "协议额度", minWidth: 155 },
-  { key: "status", label: "状态", minWidth: 110 },
+  { key: "status", label: "状态", filterOptions: activeOptions, minWidth: 110 },
 ];
 const linkedProjectColumns = computed<TableColumn[]>(() => [
   { key: "name", label: "子项目名称", minWidth: 220 },
@@ -116,12 +123,12 @@ const columns = computed<TableColumn[]>(() => isAgreement.value ? [
   { key: "limit_fen", label: "协议额度", minWidth: 150 },
   { key: "effective_from", label: "生效日期", minWidth: 136 },
   { key: "effective_to", label: "截止日期", minWidth: 136 },
-  { key: "status", label: "状态", minWidth: 96 },
+  { key: "status", label: "状态", filterOptions: activeOptions, minWidth: 96 },
 ] : [
   { key: "name", label: "框架名称", minWidth: 210 },
   { key: "fiscal_year", label: "年度", minWidth: 105 },
   { key: "limit_fen", label: "框架额度", minWidth: 160 },
-  { key: "status", label: "状态", minWidth: 110 },
+  { key: "status", label: "状态", filterOptions: activeOptions, minWidth: 110 },
 ]);
 function relatedAgreementCell(row: FundingRecord, column: TableColumn): string {
   if (column.key === "limit_fen") return amountText(row.limit_fen);
@@ -149,6 +156,7 @@ let loadSequence = 0;
 async function load() {
   const sequence = ++loadSequence;
   loading.value = true;
+  listError.value = "";
   try {
     const params = new URLSearchParams({
       page: String(page.value), q: query.value, deleted: String(deleted.value),
@@ -160,7 +168,7 @@ async function load() {
     if (sequence !== loadSequence) return;
     rows.value = result.items; total.value = result.total;
   } catch (error) {
-    if (sequence === loadSequence) ElMessage.error((error as Error).message);
+    if (sequence === loadSequence) listError.value = (error as Error).message;
   } finally {
     if (sequence === loadSequence) loading.value = false;
   }
@@ -289,6 +297,10 @@ onMounted(() => void load());
 
   </div>
   <div class="panel">
+    <ElAlert v-if="listError" :title="title + '列表读取失败'" type="error" :closable="false" show-icon>
+      <p>{{ listError }}{{ rows.length ? '。当前显示上次结果。' : '' }}</p>
+      <ElButton link type="primary" @click="load">重试</ElButton>
+    </ElAlert>
 
     <BusinessTable detail-column="name" :detail-guide-action="isAgreement ? undefined : 'frameworks.detail'" @open-detail="openDetails" :rows="rows" :columns="columns" :table-key="'funding:' + kind"
       :loading="loading" :actions-width="170" :search-active="!!query"

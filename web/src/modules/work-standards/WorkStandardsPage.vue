@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { statusOptions } from "../../shared/utils/filter-options";
 import { useWorkRoute } from "../../shared/navigation/use-work-route";
 import BusinessWorkSurface from "../../shared/ui/BusinessWorkSurface.vue";
 import { computed, onMounted, ref, shallowRef, watch } from "vue";
@@ -127,6 +128,7 @@ const columns = computed<TableColumn[]>(() =>
     .map((field) => ({
       key: field.key,
       label: field.label,
+      filterOptions: field.type === "select" && field.options?.length ? statusOptions(...field.options) : undefined,
       minWidth: ["name", "title"].includes(field.key) ? 190 : 130,
     })),
 );

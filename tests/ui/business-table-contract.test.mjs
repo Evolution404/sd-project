@@ -31,7 +31,8 @@ test("all business data tables use the single customizable BusinessTable adapter
   assert.match(app, /@pointerdown="startSidebarResize"/);
   assert.match(app, /@keydown="resizeSidebarByKeyboard"/);
 
-  assert.match(shared, /c\.hideable === false/);
+  assert.match(shared, /column\.hideable === false \|\| column\.key === props\.detailColumn/);
+  assert.match(shared, /filter\(c => isRequired\(c\) \|\| !pref\.value\.hidden\.includes\(c\.key\)\)/);
   const project = readFileSync(join(root, "modules/projects/ProjectPage.vue"), "utf8");
   const block = project.split("const approvalEditorColumns")[1].split("const projectScopeColumns")[0];
   assert.equal((block.match(/hideable: false/g) || []).length, 2,

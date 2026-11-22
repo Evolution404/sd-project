@@ -285,7 +285,7 @@ try {
     });
   }
   await detail.getByRole("button", { name: "← 返回", exact: true }).click();
-  // Restore desktop viewport before exercising tree actions; mobile uses a list/detail switch.
+  // Restore a wider desktop window for simultaneous tree and detail actions.
   await page.setViewportSize({ width: 1100, height: 1050 });
   checkpoint("organization-entry");
   await page.goto(base + "/#/dictionaries/organizations");
@@ -295,6 +295,8 @@ try {
     .getByRole("button", { name: "展开全部", exact: true })
     .click();
   await selectNode(organization, "运检部");
+  await organization.locator(".el-tree-node.is-current > .el-tree-node__content .tree-node-label")
+    .filter({ hasText: /^运检部$/ }).waitFor();
   await organization
     .getByRole("button", { name: "新增直属下级", exact: true })
     .click();
@@ -381,7 +383,7 @@ try {
     .waitFor();
   const organizationUrl = page.url();
   await organization
-    .getByRole("button", { name: "查看项目", exact: true })
+    .getByRole("button", { name: project.name, exact: true })
     .click();
   const linkedProject = page.getByRole("dialog", {
     name: "关联子项目资料",

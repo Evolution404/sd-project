@@ -5,6 +5,7 @@ import type {
   EquipmentRecord,
 } from "../../shared/types/equipment.js";
 import type { Page } from "../../shared/types/contracts.js";
+import { fixedListValue, listDisplayScale } from "../../shared/list-filter-values.js";
 // Indexed, parameterized pagination for the high-volume equipment catalogs.
 // SQL stays in the Repository layer; client-controlled identifiers are never interpolated.
 function searchableColumn(key: string) {
@@ -122,7 +123,7 @@ export function searchEquipment(
     definition.sql +
     ") source) ";
   const where = [options.deleted ? "1=1" : "deleted=0"];
-  const parameters: (string | number)[] = [];
+  const parameters: (string | number | null)[] = [];
   const q = String(options.q || "")
     .slice(0, 160)
     .trim();
@@ -154,10 +155,15 @@ export function searchEquipment(
   }
   for (const [key, value] of Object.entries(filters).slice(0, 20)) {
     if (!allowed.has(key) || typeof value !== "string") continue;
-    if (key === "status") {
-      // "inactive" contains "active" as a substring; this is a state filter.
-      where.push("status=?");
+    if (key === "status" || key === "line_kind") {
+      where.push(key + "=?");
       parameters.push(value.slice(0, 128));
+      continue;
+    }
+    const places = listDisplayScale(key);
+    if (places !== null) {
+      where.push(key + "=?");
+      parameters.push(fixedListValue(value.slice(0, 128), places));
       continue;
     }
     where.push(

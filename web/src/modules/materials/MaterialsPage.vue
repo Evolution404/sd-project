@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { activeOptions } from "../../shared/utils/filter-options";
 import { computed, onMounted, ref, shallowRef } from "vue";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
 import type {
@@ -52,6 +53,7 @@ const fields: (CatalogField & { key: keyof MaterialForm })[] = [
 const columns = fields.map((field) => ({
   key: field.key,
   label: field.label,
+  filterOptions: field.key === "status" ? activeOptions : undefined,
   minWidth: field.key === "name" ? 190 : 130,
 }));
 const can = useAccess(),

@@ -84,7 +84,7 @@ try {
     assert.equal((await (await response).json()).items.length, 10);
   });
   for (const [kind, label, heading] of [
-    ["costs", "真实费用", "真实费用记录"], ["settlements", "结算单", "当前正式事实"],
+    ["costs", "真实费用", "真实费用记录"], ["settlements", "结算单", "当前草稿"],
   ]) {
     await page.goto(base + "/#/finance/" + kind);
     await page.getByRole("tab", { name: label, exact: true }).waitFor();
