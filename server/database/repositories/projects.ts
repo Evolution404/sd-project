@@ -2,6 +2,7 @@ import { PROJECT_DISPLAY_STATUS_SQL } from "../queries/project-status-sql.js";
 import type { createStore } from "./store.js";
 import type { ProjectIdentity, ProjectProfileVersion, ProjectFundingVersion,
   ProjectApprovalVersion, ProjectApprovalCandidateProposal } from "../../shared/types/projects.js";
+import type { NormalizedDemand } from "../../shared/types/demands.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
 
@@ -13,7 +14,10 @@ export interface CurrentProjectBinding {
   linked_by: string;
   linked_at: string;
 }
-export interface ProjectScopeProjection {
+type ScopeDemandContent = Pick<NormalizedDemand,
+  "operation_snapshot" | "problem_description" | "unit_snapshot" | "work_locations" | "expected_on" | "quantity_scaled">;
+
+export interface ProjectScopeProjection extends Omit<ScopeDemandContent, "work_locations"> {
   id: string;
   project_id: string;
   demand_id: string;
@@ -24,8 +28,9 @@ export interface ProjectScopeProjection {
   created_at: string;
   demand_no: string;
   demand_status: string;
-  binding: CurrentProjectBinding | null;  expected_on: string | null;
-
+  binding: CurrentProjectBinding | null;
+  line_summary: string;
+  location_count: number;
 }
 
 export interface ProjectScopeMaterialLink {
@@ -34,8 +39,14 @@ export interface ProjectScopeMaterialLink {
   material_id: string;
   created_at: string;
 }
-interface ScopeRow extends Omit<ProjectScopeProjection, "binding"> {
+interface ScopeRow extends Omit<ProjectScopeProjection, keyof ScopeDemandContent | "binding" | "line_summary" | "location_count"> {
+  full_definition_json: string;
   binding_json: string | null;
+}
+function scopeDemandContent(json: string): ScopeDemandContent {
+  const { operation_snapshot, problem_description, unit_snapshot, work_locations, expected_on, quantity_scaled } =
+    JSON.parse(json) as ScopeDemandContent;
+  return { operation_snapshot, problem_description, unit_snapshot, work_locations, expected_on, quantity_scaled };
 }
 export interface ApprovedMaterialSnapshot {
   id: string;
@@ -93,7 +104,7 @@ export interface ProjectCostNode {
   deleted: boolean;
 }
 
-export interface ApprovalCandidate {
+export interface ApprovalCandidate extends ScopeDemandContent {
   project_scope_id: string;
   id: string;
   current_version: number;
@@ -101,15 +112,6 @@ export interface ApprovalCandidate {
   status: string;
   unit_id: string;
   unit_version: number;
-  work_locations: Array<{
-    location_snapshot_json: {
-      location_label?: string; physical_code?: string; tower_no?: string
-    };
-    item_no: number;
-    quantity_scaled: number;
-    span_id?: string | null;
-    [field: string]: unknown;
-  }>;
 }
 interface ApprovalCandidateRow {
   project_scope_id: string;
@@ -233,7 +235,7 @@ export function projectReadRepository(store: Store) {
         "ORDER BY demand.demand_no,demand.id", approvalId);
     },
     projectScopes(projectId: string): ProjectScopeProjection[] {
-      const rows = store.query(`SELECT sc.*, d.demand_no, dc.expected_on,
+      const rows = store.query(`SELECT sc.*, d.demand_no, dc.full_definition_json,
         COALESCE(dc.status, 'pending') AS demand_status,
         CASE WHEN b.project_scope_id IS NULL THEN NULL ELSE json_object(
           'project_scope_id', b.project_scope_id,
@@ -244,13 +246,18 @@ export function projectReadRepository(store: Store) {
           'linked_at', b.linked_at) END AS binding_json
         FROM project_demand_scopes sc
         JOIN demands d ON d.id=sc.demand_id
-        LEFT JOIN v_demand_current dc ON dc.id=sc.demand_id
+        JOIN v_demand_current dc ON dc.id=sc.demand_id
         LEFT JOIN v_project_demand_binding_current b ON b.project_scope_id=sc.id
         WHERE sc.project_id=? ORDER BY sc.rowid`, projectId) as ScopeRow[];
-      return rows.map(({ binding_json, ...scope }) => ({
-        ...scope,
-        binding: binding_json ? JSON.parse(binding_json) as CurrentProjectBinding : null,
-      }));
+      return rows.map(({ binding_json, full_definition_json, ...scope }) => {
+        const { work_locations, ...content } = scopeDemandContent(full_definition_json);
+        const lines = new Set(work_locations.map(location => location.location_snapshot_json.line_name).filter(Boolean));
+        return {
+          ...scope, ...content,
+          line_summary: [...lines].join("、"), location_count: work_locations.length,
+          binding: binding_json ? JSON.parse(binding_json) as CurrentProjectBinding : null,
+        };
+      });
     },
     projectApprovalHistory(projectId: string, currentOnly = false, ids?: string[]): ProjectApprovalHistory[] {
       // Only the current approval and pending draft are needed for live
@@ -329,12 +336,9 @@ export function projectReadRepository(store: Store) {
         JOIN v_demand_current current ON current.id=d.id
         WHERE scope.project_id=?
         ORDER BY scope.created_at,scope.id`, projectId) as ApprovalCandidateRow[];
-      return rows.map(({ full_definition_json, ...row }) => {
-        const definition = JSON.parse(full_definition_json) as {
-          work_locations: ApprovalCandidate["work_locations"];
-        };
-        return { ...row, work_locations: definition.work_locations };
-      });
+      return rows.map(({ full_definition_json, ...row }) => ({
+        ...row, ...scopeDemandContent(full_definition_json),
+      }));
     },
     projectDashboardPortfolio(ids?: string[], includeDeleted = false): ProjectDashboardBase[] {
       return store.query(`SELECT p.id,p.code,m.name,p.status,${PROJECT_DISPLAY_STATUS_SQL} AS display_status,p.framework_id,

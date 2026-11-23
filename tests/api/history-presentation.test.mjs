@@ -98,7 +98,7 @@ test("formal settlement history distinguishes approved versions, returns, resubm
   assert.equal(fact(history.context, "当前生效版本"), "第 2 版");
   assert.deepEqual(fact(history.context, "当前生效金额"), money(3600000));
   assert.deepEqual(fact(history.selected.facts, "对项目已批准结算的净影响"), money(600000));
-  assert.equal(s.finance.summary(project.id).settlement_progress_percent, 36);
+  assert.equal(s.finance.summary(project.id).settlement_progress_percent, 3000);
   assert.deepEqual(history.selected.tables, []);
   const all = s.history.get(user, target, { page: 1 });
   assert.equal(all.items.filter(row => row.title === "原版本重新送审").length, 1);

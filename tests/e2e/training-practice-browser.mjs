@@ -93,7 +93,7 @@ async function approveDraft(change=false) {
 }
 async function bill(itemized=false) {
   await finance.getByRole("tab", { name: "结算单", exact: true }).click();
-  await finance.getByRole("button",{name:"新增结算草稿",exact:true}).click();
+  await finance.getByRole("button",{name:"新增结算",exact:true}).click();
   if(itemized) {
     await editor.getByText("按子费用",{exact:true}).click();
     await choice("费用科目","人工费");
@@ -170,6 +170,8 @@ try {
   await closeDetail();
   await showPractice("核定实际费用");
   await proceed();
+  await finance.getByRole("tab",{name:"实际费用",exact:true}).click();
+  await finance.getByRole("button",{name:"费用科目",exact:true}).click();
   await finance.getByRole("button",{name:"新增科目",exact:true}).click();
   await editor.getByLabel("名称",{exact:true}).fill("人工费");
   await save();
@@ -197,11 +199,11 @@ try {
   assert.equal(system.finance.settlement(first.document.id).version.id,version);
   await approveSettlement(page,first.row);
   await first.row.getByText(/已批准/).waitFor();
-  assert.equal(snapshot().progressPercent,60);
+  assert.equal(snapshot().progressPercent,46.15);
   const second=await bill(true);
   await approveSettlement(page,second.row);
   await second.row.getByText(/已批准/).waitFor();
-  assert.equal(snapshot().progressPercent,98);
+  assert.equal(snapshot().progressPercent,75.38);
   await page.goto(base+"/#/projects?project="+snapshot().facts.projectId);
   await detail.getByRole("button",{name:"结项核对",exact:true}).click();
   const closure=page.getByRole("dialog",{name:"结项前业务核对",exact:true});
@@ -212,7 +214,7 @@ try {
   await page.reload();
   await showPractice();
   await guide.getByText("全流程已完成。可以回查批准版本和结项结果。",{exact:true}).waitFor();
-  await guide.getByText("98%",{exact:true}).waitFor();
+  await guide.getByText("75.38%",{exact:true}).waitFor();
   await page.screenshot({path:join(out,"全流程完成.png")});
   await guide.getByRole("button",{name:"查看结项历史",exact:true}).click();
   await detail.getByRole("heading",{name:"结项结果",exact:true}).waitFor();
@@ -231,7 +233,7 @@ try {
       const panel=restricted.locator(".business-detail-dialog:visible");
       await panel.getByRole("heading",{name:"青禾线防鸟治理训练项目"}).waitFor();
       await panel.getByRole("tab", { name: "承接需求", exact: true }).click();
-      await panel.getByRole("columnheader", { name: /^需求编号/ }).waitFor();
+      await panel.getByRole("region", { name: "当前关联需求" }).getByRole("columnheader", { name: /^需求编号/ }).waitFor();
       const release=panel.locator('[data-guide-action="projects.release"]:visible');
       if (role === "editor") {
         await release.waitFor({timeout:10000});
@@ -249,7 +251,7 @@ try {
   }
   assert.deepEqual(errors,[]);
   assert.equal(snapshot().facts.demandVersion,2);
-  console.log("TRAINING_PRACTICE_BROWSER_OK ten persisted checkpoints, same demand/project, two settlement modes, 98%");
+  console.log("TRAINING_PRACTICE_BROWSER_OK ten persisted checkpoints, same demand/project, two settlement modes, 75.38%");
 } catch(error) {
   await page.screenshot({path:join(out,"failure.png")});
   throw error;

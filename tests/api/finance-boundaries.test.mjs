@@ -229,9 +229,9 @@ test("project totals and itemized installments share one effective ledger and pr
   assert.equal(bill.version.amount_fen, 5000);
   assert.deepEqual(bill.items, []);
   assert.deepEqual(bill.resolutions, []);
-  assert.equal(summary.settlement_progress_percent, null);
+  assert.equal(summary.settlement_progress_percent, 4.17);
   assert.equal(summary.demands[0].resolved_quantity_scaled, 0);
-  assert.equal(s.funding.details("frameworks", framework.id).summary.projects_without_cost_basis, 1);
+  assert.equal(s.funding.details("frameworks", framework.id).summary.projects_without_budget_basis, 0);
 
   s.finance.cost(user, project.id, { cost_node_id: node.id, amount_fen: 8000,
     title: "核定实际费用", occurred_on: "2026-11-11", evidence: "费用凭据" });
@@ -242,8 +242,9 @@ test("project totals and itemized installments share one effective ledger and pr
   summary = s.finance.summary(project.id);
   assert.equal(summary.settlement_fen, 9000);
   assert.equal(summary.project_total_settlement_fen, 5000);
-  assert.equal(summary.settlement_progress_percent, 112.5);
+  assert.equal(summary.settlement_progress_percent, 7.5);
   assert.equal(summary.excess_settlement_fen, 1000);
+  assert.equal(summary.settlement_budget_difference_fen, -111000);
   assert.equal(s.finance.costTree(user, project.id).find(item => item.id === node.id).settlement_fen, 4000);
 
   bill = submit(s.finance.saveDraft(user, project.id, { ...request, amount_fen: 3000,
@@ -256,11 +257,27 @@ test("project totals and itemized installments share one effective ledger and pr
   assert.equal(bill.version.version_no, 2);
   bill = approve(bill);
   assert.equal(bill.effective_amount_fen, 3000);
-  assert.equal(s.finance.summary(project.id).settlement_progress_percent, 87.5);
+  assert.equal(s.finance.summary(project.id).settlement_progress_percent, 5.83);
   const funded = s.funding.details("frameworks", framework.id).summary;
-  assert.equal(funded.settlement_progress_percent, 87.5);
-  assert.equal(funded.projects_without_cost_basis, 0);
+  assert.equal(funded.settlement_progress_percent, 5.83);
+  assert.equal(funded.projects_without_budget_basis, 0);
   assert.equal(s.projectClosure.blockReason(project.id), "");
   const closed = s.projectClosure.commit(user, project.id, { preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version: project.version, reason: "确认实际差额" });
   assert.equal(closed.status, "closed");
+});
+
+test("budget progress remains visible with zero actual costs, and portfolios use only usable approved budgets", async () => {
+  const { settlementProgress, portfolioSettlementProgress } =
+    await import("../../dist/server/shared/settlement-progress.js");
+  assert.equal(settlementProgress(null, 1000).settlement_progress_percent, null);
+  assert.equal(settlementProgress(0, 1000).settlement_progress_percent, null);
+  assert.equal(settlementProgress(100000, 1000).settlement_progress_percent, 1);
+  assert.equal(settlementProgress(100000, 120000).settlement_progress_percent, 120);
+  assert.equal(settlementProgress(100000, 120000).settlement_budget_difference_fen, 20000);
+  assert.deepEqual(portfolioSettlementProgress([
+    { approved_budget_fen: 100000, settlement_fen: 10000 },
+    { approved_budget_fen: 300000, settlement_fen: 150000 },
+    { approved_budget_fen: null, settlement_fen: 0 },
+    { approved_budget_fen: 0, settlement_fen: 10000 },
+  ]), { projects_without_budget_basis: 2, settlement_progress_percent: 40 });
 });

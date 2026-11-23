@@ -303,6 +303,9 @@ async function postRejected(path, input, expectedStatus) {
 const amountInput = fen => (fen / 100).toFixed(2);
 const displayAmount = fen => (fen / 100).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 async function createNode(record, name) {
+  await detail.getByRole("tab", { name:"实际费用", exact:true }).click();
+  const categories = detail.getByRole("button", { name:"费用科目", exact:true });
+  if (await categories.count()) await categories.click();
   await detail.getByRole("button", { name: "新增科目", exact: true }).click();
   await editor.getByLabel("名称", { exact: true }).fill(name);
   await saveEditor();
@@ -321,7 +324,7 @@ async function createCost(record, node, title, amount) {
 }
 async function createBill(record, node, evidence, amount, resolved, candidate, itemized = false) {
   await detail.getByRole("tab", { name: "结算单", exact: true }).click();
-  await detail.getByRole("button", { name: "新增结算草稿", exact: true }).click();
+  await detail.getByRole("button", { name: "新增结算", exact: true }).click();
   if (itemized) {
     await editor.getByText("按子费用", { exact: true }).click();
     await choose("费用科目", node.name);
@@ -330,6 +333,8 @@ async function createBill(record, node, evidence, amount, resolved, candidate, i
   }
   await editor.getByLabel("本次金额（元）", { exact: true }).fill(amountInput(amount));
   await editor.getByLabel("结算依据", { exact: true }).fill(evidence);
+  if (resolved > 0 || candidate)
+    await editor.getByRole("button", { name: "本次完成工作量（选填）", exact: true }).click();
   if (resolved > 0) {
     await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
     await choose("项目需求", system.demands.get(record.demandId).problem_description);
@@ -370,8 +375,13 @@ async function submitBill(bill, returned = false) {
   await row.getByText(/已批准/).waitFor();
   return system.finance.settlement(bill.id);
 }
+async function openReconciliation(number) {
+  await detail.getByRole("tab", { name: "结算单", exact: true }).click();
+  await detail.getByRole("button", { name: number, exact: true }).click();
+  await detail.getByRole("button", { name: "逐笔对账", exact: true }).click();
+}
 async function reconcile(record, cost, bill, suffix) {
-  await detail.getByRole("tab", { name: "费用核对", exact: true }).click();
+  await openReconciliation(bill.number);
   await detail.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await choose("实际费用", cost.title + " · ¥" + displayAmount(cost.amount_fen));
   const choice = editor.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});
@@ -444,7 +454,7 @@ async function financialFlow(record, candidate) {
   assert.equal(system.finance.summary(record.projectId).settlement_fen, firstTarget);
   assert.equal(system.finance.summary(record.projectId).reconciled_cost_fen, 0);
   if (oldReconciliation) {
-    await detail.getByRole("tab", { name: "费用核对", exact: true }).click();
+    await openReconciliation(firstBill.number);
     const staleRow = detail.getByRole("row").filter({ hasText:"模拟双金额核对原送审版" }).first();
     await rowAction(staleRow, "删除");
     await confirm();

@@ -22,6 +22,11 @@ const draft=s.finance.saveDraft(actors.editor,project.id,{
     evidence:"已核查完成范围"}],
 });
 s.finance.submit(actors.editor,draft.id,{expected_version:0,expected_edit_version:1});
+const prior = s.finance.saveDraft(actors.editor, project.id, {
+  mode:"itemized", items:[{ cost_node_id:node.id, amount_fen:1000, evidence:"对账权限验收" }],
+});
+s.finance.submit(actors.editor, prior.id, {expected_version:0,expected_edit_version:1});
+s.finance.review(actors.verifier, prior.id, {expected_version:1,expected_event_seq:1,action:"approve"});
 
 const server=httpServer(s);
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
@@ -42,20 +47,28 @@ async function as(role) {
   await page.getByRole("button",{name:"登录",exact:true}).click();
   const detail=page.locator(".business-detail-page:visible");
   await detail.getByText(project.name,{exact:true}).first().waitFor();
-  await detail.getByRole("button",{name:"核定费用",exact:true}).waitFor();
   await detail.getByRole("tab", { name: "结算单", exact: true }).click();
-  if (role === "admin" || role === "editor") await detail.getByRole("button",{name:"新增结算草稿",exact:true}).waitFor();
+  if (role === "admin" || role === "editor") await detail.getByRole("button",{name:"新增结算",exact:true}).waitFor();
   const bill=detail.getByRole("row").filter({hasText:draft.number}).first();
   await bill.waitFor();
   return {page,detail,bill};
 }
 function button(area,name) {return area.getByRole("button",{name,exact:true});}
 const section = (actor, name) => actor.detail.getByRole("tab", { name, exact: true }).click();
+async function openReconciliation(actor) {
+  await section(actor, "结算单");
+  await button(actor.detail, prior.number).click();
+  await button(actor.detail, "逐笔对账").click();
+}
+async function closeReconciliation(actor) {
+  await button(actor.detail, "关闭单据详情").click();
+}
 try {
   const owner=await as("admin");
-  assert.equal(await button(owner.detail,"新增结算草稿").isEnabled(),true);
-  await section(owner, "费用核对");
+  assert.equal(await button(owner.detail,"新增结算").isEnabled(),true);
+  await openReconciliation(owner);
   assert.equal(await button(owner.detail,"新增正式核对").isEnabled(),true);
+  await closeReconciliation(owner);
   await section(owner, "实际费用");
   assert.equal(await button(owner.detail,"核定费用").isEnabled(),true);
   await owner.page.screenshot({path:join(output,"01-admin.png"),fullPage:true});
@@ -88,13 +101,14 @@ try {
   await owner.detail.locator(".el-alert--error").filter({hasText:"费用数据读取失败"}).waitFor({state:"hidden"});
 
   const editor=await as("editor");
-  assert.equal(await button(editor.detail,"新增结算草稿").isEnabled(),true);
+  assert.equal(await button(editor.detail,"新增结算").isEnabled(),true);
   await section(editor, "实际费用");
   assert.equal(await button(editor.detail,"核定费用").isDisabled(),true);
   await editor.detail.getByText("费用核定须由具备审核权限的人员办理").waitFor();
-  await section(editor, "费用核对");
+  await openReconciliation(editor);
   assert.equal(await button(editor.detail,"新增正式核对").isDisabled(),true);
   await editor.detail.getByText("正式费用核对须由具备审核权限的人员办理").waitFor();
+  await closeReconciliation(editor);
   await section(editor, "结算单");
   assert.equal(await button(editor.bill,"审核结算").count(),0);
   const directReview = new URL(editor.page.url());
@@ -108,10 +122,11 @@ try {
   const viewer=await as("viewer");
   await section(viewer, "实际费用");
   assert.equal(await button(viewer.detail,"核定费用").isDisabled(),true);
-  await section(viewer, "费用核对");
+  await openReconciliation(viewer);
   assert.equal(await button(viewer.detail,"新增正式核对").isDisabled(),true);
+  await closeReconciliation(viewer);
   await section(viewer, "结算单");
-  assert.equal(await button(viewer.detail,"新增结算草稿").count(),0);
+  assert.equal(await button(viewer.detail,"新增结算").count(),0);
   await viewer.detail.getByText("当前账号可查看及导出结算").waitFor();
   assert.equal(await button(viewer.bill,"审核结算").count(),0,
     "read-only viewers have no review action");
@@ -126,12 +141,13 @@ try {
   assert.equal(s.finance.settlement(draft.id).review.action,"submit");
 
   const verifier=await as("verifier");
-  assert.equal(await button(verifier.detail,"新增结算草稿").count(),0);
+  assert.equal(await button(verifier.detail,"新增结算").count(),0);
   await verifier.detail.getByText("当前账号可查看及导出结算").waitFor();
   await section(verifier, "实际费用");
   assert.equal(await button(verifier.detail,"核定费用").isEnabled(),true);
-  await section(verifier, "费用核对");
+  await openReconciliation(verifier);
   assert.equal(await button(verifier.detail,"新增正式核对").isEnabled(),true);
+  await closeReconciliation(verifier);
   await section(verifier, "结算单");
   const documentPath = url => url.pathname === `/api/projects/${project.id}/settlements/${draft.id}`;
   await verifier.page.route(documentPath, route => route.abort(), {times:1});
@@ -152,7 +168,7 @@ try {
   const reviewed=s.finance.settlement(draft.id);
   assert.equal(reviewed.review.action,"approve");
   assert.equal(reviewed.review.actor_id,actors.verifier.id);
-  assert.equal(s.finance.summary(project.id).settlement_fen,12500);
+  assert.equal(s.finance.summary(project.id).settlement_fen,13500);
   await verifier.page.screenshot({path:join(output,"04-verifier-approved.png"),fullPage:true});
 
   await viewer.page.reload();

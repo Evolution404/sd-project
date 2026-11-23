@@ -3,6 +3,7 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter, type RouteLocationRaw } from "vue-router";
 import type { ScenarioStep, TrainingScenario } from "../../../../server/shared/types/training";
+import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { api } from "../../shared/api/client";
 import { hasActiveGuideWorkspace, isGuideRecordOpen } from "../core/target-resolver";
 
@@ -19,7 +20,7 @@ const labels: Record<ScenarioStep, { title: string; instructions: string }> = {
   link: { title:"创建子项目并承接", instructions:"以当前需求创建子项目，选择「【训练】输电检修年度框架」，保存并承接整条需求。" },
   approve: { title:"入库并完成首次立项", instructions:"先办理入库，进入立项与变更。纳入完整需求范围，编制并批准立项。可用 12,000 元作为批准预算。" },
   change: { title:"批准一次项目变更", instructions:"在立项与变更中发起新变更。可将批准预算改为 13,000 元，填写依据，保留原需求并正式批准。" },
-  cost: { title:"核定实际费用", instructions:"进入项目财务，新增末级费用科目，例如「人工费」，再核定一笔实际费用。建议登记 10,000 元。" },
+  cost: { title:"核定实际费用", instructions:"进入项目财务，在「实际费用」打开「费用科目」，新增末级费用科目，例如「人工费」，再核定一笔实际费用。建议登记 10,000 元。" },
   review: { title:"按项目总额结算并原版重提", instructions:"新增结算，按项目总额填 6,000 元并送审。审核时退回并说明原因，然后在原单使用原版本重提，最后批准。" },
   itemized: { title:"再做一期按子费用结算", instructions:"用同一项目的最新批准范围再新增一张结算，切换到按子费用，选择人工费并录入 3,800 元。送审并批准，核对累计结算进度。" },
   close: { title:"核对差额并结项", instructions:"返回项目概览，在结项核对页查看真实费用、累计批准结算和差额。确认后可回到项目历史查看结项结果。" },
@@ -113,7 +114,7 @@ onMounted(refresh);
         <template v-if="facts.projectNumber">
           <div><dt>核定实际费用</dt><dd>{{ money.format(facts.actualCost / 100) }}</dd></div>
           <div><dt>累计已批准结算</dt><dd>{{ money.format(facts.approvedAmount / 100) }}</dd></div>
-          <div><dt>结算进度</dt><dd>{{ percent === null ? "待核定费用基数" : percent + "%" }}</dd></div>
+          <div><dt>结算进度</dt><dd>{{ settlementProgressText(percent) }}</dd></div>
         </template>
       </dl>
       <ElAlert v-if="feedback" :title="feedback" type="warning" :closable="false" />

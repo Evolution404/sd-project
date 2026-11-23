@@ -1,3 +1,5 @@
+import type { FinanceSummary } from "../../../../../server/shared/types/finance-api";
+
 /** UI read projections: derived from Schema113 formal facts, never persisted. */
 export interface ProjectApprovedSnapshot {
   version_no: number;
@@ -19,22 +21,6 @@ export interface ProjectOverviewFacts {
   manager_username: string | null;
   preliminary_estimate_fen: number | null;
 }
-export interface ProjectCloseDemandFact {
-  demand_no: string;
-  approved_quantity_scaled: number;
-  resolved_quantity_scaled: number;
-  remaining_quantity_scaled: number;
-  excess_quantity_scaled: number;
-}
-export interface ProjectFinanceSnapshot {
-  actual_cost_fen: number;
-  settlement_fen: number;
-  settlement_progress_percent: number | null;
-  project_total_settlement_fen: number;
-  unsettled_cost_fen: number | null;
-  excess_settlement_fen: number | null;
-  unreconciled_cost_fen: number;
-  budget_difference_fen: number | null;
-  demands: ProjectCloseDemandFact[];
-}
+export type ProjectFinanceSnapshot = FinanceSummary;
+export type ProjectCloseDemandFact = FinanceSummary["demands"][number];
 export interface ProjectReference { id: string; name: string }

@@ -181,8 +181,16 @@ function columnMinWidth(col: TableColumn) {
   return columnWidth(col) === undefined ? savedColumnWidth(col) ?? defaultColumnWidth(col) : 80;
 }
 
+const preferenceEvent = "sd-table-column-preferences";
 function persist() {
   localStorage.setItem("sd-columns:" + props.tableKey, JSON.stringify(pref.value));
+  window.dispatchEvent(new CustomEvent(preferenceEvent, { detail: { key: props.tableKey, source: pref } }));
+}
+function syncPreferences(event: Event) {
+  const { key, source } = (event as CustomEvent<{ key: string; source: unknown }>).detail;
+  if (key !== props.tableKey || source === pref) return;
+  pref.value = readPref();
+  void restoreColumnLayout();
 }
 function show(key: string, value: boolean) {
   const column = props.columns.find(c => c.key === key);
@@ -242,6 +250,7 @@ async function reorderByKeyboard(event: KeyboardEvent, key: string, index: numbe
   row?.querySelector<HTMLButtonElement>(".column-drag-handle")?.focus();
 }
 onUnmounted(stopColumnDrag);
+onUnmounted(() => window.removeEventListener(preferenceEvent, syncPreferences));
 function resize(newWidth: number, _oldWidth: number, column: { property?: string; label?: string }) {
   const key = column.property || (column.label === "操作" ? "__actions" : null);
   if (!key || !Number.isFinite(newWidth)) return;
@@ -272,6 +281,7 @@ async function restoreColumnLayout() {
   table.value?.doLayout();
 }
 onMounted(async () => {
+  window.addEventListener(preferenceEvent, syncPreferences);
   pref.value = readPref();
   await restoreColumnLayout();
 });

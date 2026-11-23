@@ -30,14 +30,14 @@ test("concurrent cost changes invalidate a close preview and leave no closure", 
   });
   review(s, user, submit(s, user, bill), "approve");
   const reviewed = s.projectClosure.preview(user, project.id);
-  assert.equal(reviewed.summary.settlement_progress_percent, 50);
+  assert.equal(reviewed.summary.settlement_progress_percent, 4.17);
   s.finance.cost(user, project.id, { ...expense, title: "并发核定费用" });
   assert.throws(() => s.projectClosure.commit(user, project.id, reviewed), { status: 409 });
   assert.equal(s.projects.history(project.id).closures.length, 0);
   const fresh = s.projectClosure.preview(user, project.id);
   s.projectClosure.commit(user, project.id, fresh);
   assert.equal(JSON.parse(s.projects.history(project.id).closures.at(-1).close_snapshot_json)
-    .settlement_progress_percent, 25);
+    .settlement_progress_percent, 4.17);
 });
 
 test("effective statement lines survive return, cost corrections cannot over-apply, and void status matches both lists", t => {

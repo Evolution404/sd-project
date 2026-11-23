@@ -38,6 +38,16 @@ export interface ProjectListRecord {
   scopes_json: string;
   funding_json: string | null;
   display_status: string;
+  category_name: string | null;
+  managing_unit_name: string | null;
+  owner_username: string | null;
+  manager_username: string | null;
+  planned_start_on: string | null;
+  planned_end_on: string | null;
+  preliminary_estimate_fen: number | null;
+  framework_name: string;
+  agreement_name: string | null;
+  created_at: string;
   deleted: number;
 }
 
@@ -75,6 +85,7 @@ const projectSource: ListSource = {
     m.managing_unit_id, m.owner_id, m.manager_id, m.planned_start_on, m.planned_end_on,
     m.preliminary_estimate_fen, category.name AS category_name, organization.name AS managing_unit_name,
     owner.username AS owner_username, manager.username AS manager_username,
+    framework.name AS framework_name, agreement.name AS agreement_name,
     CASE WHEN approval.approval_version_id IS NOT NULL THEN json_object('id', approval.approval_version_id,
       'version_no', approval.approval_version_no, 'approved_budget_fen', approval.approved_budget_fen) END AS approval_json,
     (SELECT json_group_array(json_object('id', sc.id, 'project_id', sc.project_id, 'demand_id', sc.demand_id,
@@ -91,10 +102,14 @@ const projectSource: ListSource = {
     LEFT JOIN v_project_current_approval approval ON approval.project_id=p.id
     LEFT JOIN dictionary_item_versions category ON category.item_id=m.category_id AND category.version=m.category_version
     LEFT JOIN organizational_unit_versions organization ON organization.id=m.managing_unit_version_id
-    LEFT JOIN users owner ON owner.id=m.owner_id LEFT JOIN users manager ON manager.id=m.manager_id`,
+    LEFT JOIN users owner ON owner.id=m.owner_id LEFT JOIN users manager ON manager.id=m.manager_id
+    JOIN v_framework_current framework ON framework.id=p.framework_id
+    LEFT JOIN v_agreement_current agreement ON agreement.id=(SELECT f.agreement_id FROM project_funding_versions f
+      WHERE f.project_id=p.id ORDER BY f.version_no DESC LIMIT 1)`,
   columns: ["id", "code", "name", "status", "display_status", "framework_id", "category_name", "managing_unit_name",
-    "planned_start_on", "planned_end_on", "preliminary_estimate_fen", "created_at", "deleted"],
-  search: ["code", "name", "status", "category_name", "managing_unit_name"],
+    "planned_start_on", "planned_end_on", "preliminary_estimate_fen", "created_at", "owner_username", "manager_username",
+    "framework_name", "agreement_name", "deleted"],
+  search: ["code", "name", "status", "category_name", "managing_unit_name", "framework_name", "agreement_name"],
 };
 
 const financeSources: Record<FinanceListKind, ListSource> = {

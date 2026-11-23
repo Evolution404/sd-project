@@ -1,4 +1,4 @@
-import { portfolioSettlementProgress } from "../../shared/settlement-progress.js";
+import { noSettlementBudgetText, portfolioSettlementProgress } from "../../shared/settlement-progress.js";
 import { authorize } from "../../platform/auth/service.js";
 import { safeAmount } from "../pricing/calculation.js";
 import type { Actor } from "../../shared/types/contracts.js";
@@ -100,10 +100,12 @@ export function createReporting(
     });
     const alerts: DashboardAlert[] = items.flatMap(project => {
       const issues: DashboardAlert[] = [];
+      if (project.settlement_budget_difference_fen !== null && project.settlement_budget_difference_fen > 0)
+        issues.push({ project_id: project.id, project: project.name, kind: "结算超出预算", difference_fen: project.settlement_budget_difference_fen });
       if (project.excess_settlement_fen)
-        issues.push({ project_id: project.id, project: project.name, kind: "超结算", difference_fen: project.excess_settlement_fen });
+        issues.push({ project_id: project.id, project: project.name, kind: "结算超出实际费用", difference_fen: project.excess_settlement_fen });
       if (project.settlement_fen && project.settlement_progress_percent === null)
-        issues.push({ project_id: project.id, project: project.name, kind: "待核定费用基数" });
+        issues.push({ project_id: project.id, project: project.name, kind: noSettlementBudgetText });
       if (project.budget_difference_fen !== null && project.budget_difference_fen > 0)
         issues.push({
           project_id: project.id,

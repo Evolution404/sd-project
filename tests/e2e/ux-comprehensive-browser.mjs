@@ -155,6 +155,8 @@ try {
   await page.getByRole("row").filter({ hasText: existingProject.name })
     .locator(".cell-link:visible").first().click();
   const projectDetail = page.locator(".business-work-surface:visible");
+  await projectDetail.getByRole("tab", { name: "实际费用", exact:true }).click();
+  await projectDetail.getByRole("button", { name: "费用科目", exact:true }).click();
   await projectDetail.getByRole("button", { name: "新增科目" }).click();
   await editor.getByLabel("名称", { exact: true }).fill("尚未保存的费用科目");
   await editor.getByRole("button", { name: "取消", exact: true }).click();

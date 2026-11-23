@@ -1,5 +1,6 @@
 import type { createProjects } from "../projects/service.js";
 import type { HistoryEntry } from "../../shared/types/history.js";
+import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
 import { document, event, facts, label, lifecycle, money, percent, quantity, readVersions,
   rows, string, table, text } from "./core.js";
 import { actualCostHistory } from "./finance.js";
@@ -115,11 +116,15 @@ export function projectHistoryDetail(id: string, { records: raw, approvals }: De
   }
   for (const record of rows(raw.closures)) {
     const snapshot = document(record.close_snapshot_json);
+    const usesBudget = snapshot.settlement_progress_basis === "approved_budget";
     entries.push(event("结项结果", "确认项目结项", "办理", record, {
       time: string(record.closed_at) ?? null, actor: string(record.closed_by), tone: "success",
-      facts: facts(["实际费用", money(snapshot.actual_cost_fen)], ["已批准结算", money(snapshot.settlement_fen)],
-        ["结算进度", percent(snapshot.settlement_progress_percent) ?? "待核定费用基数"],
-        ["预算差额", money(snapshot.budget_difference_fen)], ["超结算差额", money(snapshot.excess_settlement_fen)],
+      facts: facts(["批准预算", money(snapshot.approved_budget_fen)],
+        ["实际费用", money(snapshot.actual_cost_fen)], ["已批准结算", money(snapshot.settlement_fen)],
+        [usesBudget ? "结算进度" : "结算进度（当时按实际费用）",
+          percent(snapshot.settlement_progress_percent) ?? (usesBudget ? noSettlementBudgetText : "当时无核定实际费用基数")],
+        ["结算与批准预算差额", money(snapshot.settlement_budget_difference_fen)],
+        ["实际费用与批准预算差额", money(snapshot.budget_difference_fen)], ["结算超出实际费用", money(snapshot.excess_settlement_fen)],
         ["待核对费用", money(snapshot.unreconciled_cost_fen)]),
       tables: table("结项时需求解决情况", ["需求编号", "已解决工作量", "未解决工作量", "超出批准工作量"], rows(snapshot.demands).map(demand => [
         text(demand.demand_no), quantity(demand.resolved_quantity_scaled, string(demand.unit)),

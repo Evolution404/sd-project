@@ -85,9 +85,10 @@ async function auditLayout(name, width) {
 }
 async function auditDialog(name, button, width) {
   await page.setViewportSize({ width, height: 700 });
-  if (button === "新增结算草稿") await page.getByRole("tab", { name: "结算单", exact: true }).click();
+  if (button === "核定费用") await page.getByRole("tab", { name: "实际费用", exact: true }).click();
+  if (button === "新增结算") await page.getByRole("tab", { name: "结算单", exact: true }).click();
   await page.getByRole('button', { name: button, exact: true }).click();
-  const workTitles = { 新增需求: "新增专业需求", 新增结算草稿: "编制结算草稿", 新增操作类型: "新增操作类型",
+  const workTitles = { 新增需求: "新增专业需求", 新增结算: "编制结算草稿", 新增操作类型: "新增操作类型",
     新增作业对象: "新增作业对象", 新增参考价格规则: "新增参考价格规则" };
   const routed = Boolean(workTitles[button]);
   const dialog = routed ? page.getByRole("region", { name: workTitles[button], exact: true })
@@ -149,7 +150,7 @@ try {
       ['line', 'ledger', '新增线路'], ['tower', 'ledger/towers', '新增逻辑杆塔'],
       ['operation', 'standards', '新增操作类型'], ['demand', 'demands', '新增需求'],
       ['project', 'projects', '新增子项目'], ['user', 'system', '新增用户'],
-      ['cost', `finance/${project.id}`, '核定费用'], ['settlement', `finance/${project.id}`, '新增结算草稿'],
+      ['cost', `finance/${project.id}`, '核定费用'], ['settlement', `finance/${project.id}`, '新增结算'],
     ]) {
       await visit(path);
       for (const width of widths) await auditDialog(`${theme}-${name}`, button, width);

@@ -1,3 +1,4 @@
+import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
 import { exchangeReportScope } from "../../shared/exchange-display.js";
 import type {Actor} from "../../shared/types/contracts.js";
 import type { ExchangePorts } from "./ports.js";
@@ -96,11 +97,11 @@ function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[], opt
     return {
       项目编号: project.code,
       项目名称: project.name,
+      "批准预算（元）": summary.approved_budget_fen == null ? null : summary.approved_budget_fen / 100,
       "核定实际费用（元）": summary.actual_cost_fen / 100,
       "累计生效结算（元）": summary.settlement_fen / 100,
-      结算进度: summary.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent / 100,
-      "待结算（元）": summary.unsettled_cost_fen == null ? null : summary.unsettled_cost_fen / 100,
-      "超结算（元）": summary.excess_settlement_fen == null ? null : summary.excess_settlement_fen / 100,
+      结算进度: summary.settlement_progress_percent == null ? noSettlementBudgetText : summary.settlement_progress_percent / 100,
+      "结算与批准预算差额（元）": summary.settlement_budget_difference_fen == null ? null : summary.settlement_budget_difference_fen / 100,
     };
   }));
 }

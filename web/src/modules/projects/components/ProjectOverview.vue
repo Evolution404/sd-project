@@ -37,8 +37,8 @@ const emit = defineEmits<{
       <div><span>批准预算</span><strong>{{ project.approval ? '¥' + money(project.approval.approved_budget_fen) : '未批准' }}</strong></div>
       <div><span>真实费用</span><strong>{{ summary ? '¥' + money(summary.actual_cost_fen) : '查询中' }}</strong></div>
       <div><span>已批准结算</span><strong>{{ summary ? '¥' + money(summary.settlement_fen) : '查询中' }}</strong></div>
-      <div><span>结算进度</span><strong>{{ summary ? settlementProgressText(summary.settlement_progress_percent) : '查询中' }}</strong></div>
-      <div v-if="summary?.excess_settlement_fen"><span>超结算</span><strong>¥{{ money(summary.excess_settlement_fen) }}</strong></div>
+      <div><span>结算进度</span><strong>{{ summary ? settlementProgressText(summary.settlement_progress_percent, summary.approved_budget_fen) : '查询中' }}</strong></div>
+      <div v-if="(summary?.settlement_budget_difference_fen ?? 0) > 0"><span>结算超出预算</span><strong>¥{{ money(summary?.settlement_budget_difference_fen) }}</strong></div>
       <div><span>待核对费用</span><strong>{{ summary ? '¥' + money(summary.unreconciled_cost_fen) : '查询中' }}</strong></div>
     </div>
     <ElDescriptions :column="descriptionColumns" border class="project-context-descriptions">

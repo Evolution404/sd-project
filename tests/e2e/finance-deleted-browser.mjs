@@ -33,6 +33,8 @@ try {
   await page.locator(".cell-link:visible").first().click();
   const detail = page.locator(".business-work-surface:visible");
   await detail.waitFor();
+  await detail.getByRole("tab", {name:"实际费用", exact:true}).click();
+  await detail.getByRole("button", {name:"费用科目", exact:true}).click();
   const treeWorkspace = detail.locator('.cost-category-workspace');
   await treeWorkspace.getByRole("button", { name: "筛选科目", exact: true }).click();
   const deletedCategories = page.getByRole("checkbox", { name: "包含已删除科目", exact: true });

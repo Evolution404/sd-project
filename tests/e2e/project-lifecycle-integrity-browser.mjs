@@ -54,6 +54,11 @@ try {
   assert.equal(f.s.demands.get(f.demand.id).binding, null);
   const approved = f.s.projects.get(f.project.id);
   assert.equal(approved.approvals.find(ap => ap.id === f.approval.id).scopes.length, 1);
+  const bill = f.s.finance.saveDraft(f.user, approved.id, {
+    mode:"itemized", items:[{cost_node_id:f.node.id, amount_fen:3000, evidence:"结项后核对冻结验收"}],
+  });
+  f.s.finance.submit(f.user, bill.id, {expected_version:0, expected_edit_version:1});
+  f.s.finance.review(f.user, bill.id, {expected_version:1, expected_event_seq:1, action:"approve"});
   f.s.projectClosure.commit(f.user, approved.id, { preview_hash: f.s.projectClosure.preview(f.user, approved.id).preview_hash, expected_version: approved.version });
   await page.reload();
   await workspace.waitFor();
@@ -61,11 +66,13 @@ try {
   await workspace.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
   const financial = page.getByRole("region", { name: "费用与结算", exact: true });
   await financial.getByText("项目已结项，普通费用、科目、结算及核对写入已冻结", { exact: true }).first().waitFor();
+  await financial.getByRole("tab", { name: "实际费用", exact: true }).click();
   assert.equal(await financial.getByRole("button", { name: "核定费用", exact: true }).isDisabled(), true);
   await financial.getByRole("tab", { name: "结算单", exact: true }).click();
   assert.equal(await financial.getByRole("button", { name: "导入 Excel", exact: true }).count(), 0);
-  assert.equal(await financial.getByRole("button", { name: "新增结算草稿", exact: true }).count(), 0);
-  await financial.getByRole("tab", { name: "费用核对", exact: true }).click();
+  assert.equal(await financial.getByRole("button", { name: "新增结算", exact: true }).count(), 0);
+  await financial.getByRole("button", { name:bill.number, exact:true }).click();
+  await financial.getByRole("button", { name:"逐笔对账", exact:true }).click();
   assert.equal(await financial.getByRole("button", { name: "新增正式核对", exact: true }).isDisabled(), true);
   await financial.screenshot({ path: join(out, "结项财务冻结.png") });
   assert.deepEqual(errors, []);

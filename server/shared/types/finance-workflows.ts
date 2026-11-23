@@ -159,6 +159,7 @@ export interface SettlementWorkflow {
   status: SettlementListStatus;
   reconciliation_impact?: {count: number; cost_fen: number};
   effective_amount_fen: number | null;
+  effective_mode: SettlementMode | null;
   id: string;
   project_id: string;
   number: string;

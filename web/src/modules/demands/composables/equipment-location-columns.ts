@@ -43,8 +43,8 @@ const schemas: Readonly<Record<DemandLocationKind, readonly LocationTableColumn[
     selection,
     sortable("line_name", "所属线路", 195),
     display("span", "档距", 170),
-    { ...sortable("start_tower_no", "起点杆号", 130), defaultVisible: false },
-    { ...sortable("end_tower_no", "终点杆号", 130), defaultVisible: false },
+    { ...sortable("start_tower_no", "起点杆号", 130) },
+    { ...sortable("end_tower_no", "终点杆号", 130) },
     sortable("transmission_center_length_mm", "中心管辖长度（米）", 210),
   ],
 };

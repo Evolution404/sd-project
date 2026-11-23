@@ -54,9 +54,11 @@ const columns: TableColumn[] = [
         </ElDescriptionsItem>
         <ElDescriptionsItem label="真实费用">¥{{ money(summary.actual_cost_fen) }}</ElDescriptionsItem>
         <ElDescriptionsItem label="已批准结算">¥{{ money(summary.settlement_fen) }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="结算进度">{{ settlementProgressText(summary.settlement_progress_percent) }}</ElDescriptionsItem>
-        <ElDescriptionsItem v-if="summary.unsettled_cost_fen" label="待结算">¥{{ money(summary.unsettled_cost_fen) }}</ElDescriptionsItem>
-        <ElDescriptionsItem v-if="summary.excess_settlement_fen" label="超结算">¥{{ money(summary.excess_settlement_fen) }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="批准预算">{{ summary.approved_budget_fen == null ? "尚未批准" : "¥" + money(summary.approved_budget_fen) }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="结算进度">{{ settlementProgressText(summary.settlement_progress_percent, summary.approved_budget_fen) }}</ElDescriptionsItem>
+        <ElDescriptionsItem v-if="(summary.settlement_budget_difference_fen ?? 0) > 0" label="结算超出预算">¥{{ money(summary.settlement_budget_difference_fen) }}</ElDescriptionsItem>
+        <ElDescriptionsItem v-if="summary.unsettled_cost_fen" label="实际费用未结差额">¥{{ money(summary.unsettled_cost_fen) }}</ElDescriptionsItem>
+        <ElDescriptionsItem v-if="summary.excess_settlement_fen" label="结算超出实际费用">¥{{ money(summary.excess_settlement_fen) }}</ElDescriptionsItem>
         <ElDescriptionsItem label="待核对费用">¥{{ money(summary.unreconciled_cost_fen) }}</ElDescriptionsItem>
         <ElDescriptionsItem label="实际与预算差额">
           {{ summary.budget_difference_fen == null ? '尚未批准' : '¥' + money(summary.budget_difference_fen) }}

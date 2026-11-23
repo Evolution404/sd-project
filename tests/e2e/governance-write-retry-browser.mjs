@@ -27,6 +27,7 @@ try {
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.getByRole("tab", { name:"实际费用", exact:true }).click();
   await page.getByRole("button", { name: "核定费用", exact: true }).click();
   const editor = page.getByRole("dialog", { name: "核定真实费用" });
   await editor.getByLabel("费用事项", { exact: true }).fill("断线重试费用");

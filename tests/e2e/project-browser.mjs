@@ -79,6 +79,17 @@ try {
   await page.getByRole("button", { name: "编制立项", exact: true }).click();
   await page.getByLabel("批准预算（元）", { exact: true }).fill("1200");
   const approvalDialog=workPage(page);
+  for (const name of ["线路", "操作类型", "作业位置", "需求数量", "计量单位", "作业方式", "位置类型", "设备规格"])
+    await approvalDialog.getByRole("columnheader", { name, exact:true }).waitFor();
+  await approvalDialog.getByText(demand.problem_description, { exact:true }).waitFor();
+  await approvalDialog.getByRole("cell", { name:demand.operation_snapshot, exact:true }).first().waitFor();
+  await approvalDialog.getByRole("button", { name:"列设置", exact:true }).click();
+  await page.locator("label.el-checkbox").filter({ hasText:/^设备规格$/ }).click();
+  await approvalDialog.getByRole("columnheader", { name:"设备规格", exact:true }).waitFor({ state:"hidden" });
+  await page.getByRole("button", { name:"恢复默认", exact:true }).click();
+  await approvalDialog.getByRole("columnheader", { name:"设备规格", exact:true }).waitFor();
+  assert.equal(await approvalDialog.getByRole("checkbox", { name:demand.demand_no, exact:true }).isChecked(),true);
+  await page.getByRole("button", { name:"完成", exact:true }).click();
   assert.equal(await approvalDialog.locator(".el-table__body-wrapper .el-checkbox").count(),0,
     "full-demand approval must not permit selecting individual locations");
   await approvalDialog.getByRole("button", { name: "保存批准草稿", exact: true }).click();
@@ -95,6 +106,8 @@ try {
   await confirmProjectApproval(page);
   await page.getByRole("tab", { name: "费用与结算", exact: true }).click();
   await page.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
+  await page.getByRole("tab", { name:"实际费用", exact:true }).click();
+  await page.getByRole("button", { name:"费用科目", exact:true }).click();
   await page.getByRole("button", { name: "新增科目", exact: true }).click();
   await page
     .locator(".el-overlay:not(.business-detail-overlay) > .el-overlay-dialog:visible")
@@ -119,13 +132,14 @@ try {
   const generatedBills = [];
   for (const [index, resolved] of [2, 3, 0].entries()) {
     await page
-      .getByRole("button", { name: "新增结算草稿", exact: true })
+      .getByRole("button", { name: "新增结算", exact: true })
       .click();
     await workPage(page).getByText("按子费用", { exact: true }).click();
     await select("费用科目", "人工费");
     await select("关联需求（共同费用可不选）", demand.problem_description);
     await page.getByLabel("本次金额（元）", { exact: true }).fill("400");
     await page.getByLabel("依据", { exact: true }).fill("本期结算依据" + index);
+    await workPage(page).getByRole("button", { name: "本次完成工作量（选填）", exact: true }).click();
     await page
       .getByRole("button", { name: "添加解决需求", exact: true })
       .click();
@@ -149,7 +163,8 @@ try {
     await submitSettlement(page, row);
     await approveSettlement(page, row);
   }
-  await page.getByRole("tab", { name: "费用核对", exact: true }).click();
+  await page.getByRole("button", { name: generatedBills[0], exact:true }).click();
+  await page.getByRole("button", { name:"逐笔对账", exact:true }).click();
   await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
   await select("实际费用", "浏览器真实费用 · ¥1,400.00");
   const choice = page.locator(".el-form-item").filter({has:page.getByText("已批准结算明细",{exact:true})});
@@ -185,6 +200,7 @@ try {
   assert.equal(s.finance.reconciliations(project.id).length, 0);
   assert.equal(s.finance.reconciliations(project.id, true).length, 1);
   assert.equal(s.finance.summary(project.id).settlement_fen, 120000);
+  assert.equal(s.finance.summary(project.id).settlement_progress_percent, 100);
   assert.equal(
     s.finance.summary(project.id).demands[0].resolved_quantity_scaled,
     50000,

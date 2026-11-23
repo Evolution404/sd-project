@@ -131,7 +131,7 @@ export function createFunding(
       "资金关联汇总金额超出安全范围");
     return {
       item, projects: projects.map(project => ({
-        ...project, ...settlementProgress(project.actual_cost_fen, project.settlement_fen),
+        ...project, ...settlementProgress(project.approved_budget_fen, project.settlement_fen),
       })),
       agreements: kind === "frameworks"
         ? repository.list("agreements", true).filter(agreement => agreement.framework_id === key).map(readable)

@@ -128,7 +128,7 @@ const portfolioColumns: TableColumn[] = [
   { key: "settlement_fen", label: "已批准结算", minWidth: 140 },
   { key: "settlement_progress_percent", label: "结算进度", minWidth: 155 },
   { key: "unreconciled_cost_fen", label: "待核对费用", minWidth: 140 },
-  { key: "code", label: "项目编号", minWidth: 150, defaultVisible: false },
+  { key: "code", label: "项目编号", minWidth: 150 },
 ];
 const alertColumns: TableColumn[] = [
   { key: "project", label: "子项目", minWidth: 170 },
@@ -140,8 +140,8 @@ const frameworkColumns: TableColumn[] = [
   { key: "limit_fen", label: "额度", minWidth: 155 },
   { key: "approved_budget_fen", label: "已批准预算", minWidth: 155 },
   { key: "actual_cost_fen", label: "实际费用", minWidth: 155 },
-  { key: "settlement_progress_percent", label: "有基数项目结算进度", minWidth: 178 },
-  { key: "projects_without_cost_basis", label: "待核定基数项目", minWidth: 145 },
+  { key: "settlement_progress_percent", label: "有预算项目结算进度", minWidth: 178 },
+  { key: "projects_without_budget_basis", label: "无可用批准预算的项目", minWidth: 145 },
 ];
 const monthColumns: TableColumn[] = [
   { key: "month", label: "月份", minWidth: 160 },

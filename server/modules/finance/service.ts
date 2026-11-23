@@ -186,11 +186,13 @@ export function createFinance(
       ? repo.settlementResults(version.id)
       : [];
     const review = version ? repo.latestReview(version.id) || null : null;
+    const effective = repo.effectiveSettlement(key);
     return {
       ...root,
       status: draft ? "draft" : version?.change_type === "void" && review?.action === "approve"
         ? "voided" : review?.action ?? "draft",
-      effective_amount_fen: repo.effectiveSettlement(key)?.amount_fen ?? null,
+      effective_amount_fen: effective?.amount_fen ?? null,
+      effective_mode: effective?.change_type !== "void" ? effective?.mode ?? null : null,
       version: version || null,
       items,
       resolutions,

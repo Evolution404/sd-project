@@ -114,6 +114,8 @@ try {
   await detail.getByRole("tab", { name: "费用与结算", exact: true }).click();
   await detail.getByRole("button", { name: "打开项目财务工作区", exact: true }).click();
   detail = page.locator(".business-detail-page:visible");
+  await detail.getByRole("tab", { name:"实际费用", exact:true }).click();
+  await detail.getByRole("button", { name:"费用科目", exact:true }).click();
   const workspace = detail.locator(".cost-category-workspace");
   await workspace
     .locator(".tree-node-label")

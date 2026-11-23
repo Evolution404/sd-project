@@ -41,7 +41,7 @@ type FundingDetails = {
   agreements: FundingRecord[];
   summary: { project_count: number; approved_budget_fen: number;
     actual_cost_fen: number; settlement_fen: number; capacity_difference_fen: number;
-    settlement_progress_percent: number | null; projects_without_cost_basis: number };
+    settlement_progress_percent: number | null; projects_without_budget_basis: number };
 };
 function emptyDraft(): FundingDraft {
   return {
@@ -103,6 +103,9 @@ const linkedAgreementColumns: TableColumn[] = [
   { key: "name", label: "协议名称", minWidth: 175 },
   { key: "contract_number", label: "合同编号", minWidth: 155 },
   { key: "limit_fen", label: "协议额度", minWidth: 155 },
+  { key: "counterparty_name", label: "合同对方", minWidth: 155 },
+  { key: "effective_from", label: "生效日期", minWidth: 136 },
+  { key: "effective_to", label: "截止日期", minWidth: 136 },
   { key: "status", label: "状态", filterOptions: activeOptions, minWidth: 110 },
 ];
 const linkedProjectColumns = computed<TableColumn[]>(() => [
@@ -115,11 +118,14 @@ const linkedProjectColumns = computed<TableColumn[]>(() => [
   { key: "actual_cost_fen", label: "真实费用", minWidth: 155 },
   { key: "settlement_fen", label: "已批准结算", minWidth: 155 },
   { key: "settlement_progress_percent", label: "结算进度", minWidth: 155 },
+  { key: "code", label: "项目编号", minWidth: 140 },
 ]);
 const columns = computed<TableColumn[]>(() => isAgreement.value ? [
   { key: "name", label: "协议名称", minWidth: 190 },
   { key: "framework_id_label", label: "所属年度框架", minWidth: 200 },
   { key: "contract_number", label: "合同编号", minWidth: 170 },
+  { key: "counterparty_name", label: "合同对方", minWidth: 170 },
+  { key: "signed_on", label: "签订日期", minWidth: 136, filterable: false, sortable: false },
   { key: "limit_fen", label: "协议额度", minWidth: 150 },
   { key: "effective_from", label: "生效日期", minWidth: 136 },
   { key: "effective_to", label: "截止日期", minWidth: 136 },
@@ -128,6 +134,7 @@ const columns = computed<TableColumn[]>(() => isAgreement.value ? [
   { key: "name", label: "框架名称", minWidth: 210 },
   { key: "fiscal_year", label: "年度", minWidth: 105 },
   { key: "limit_fen", label: "框架额度", minWidth: 160 },
+  { key: "version_no", label: "正式版本", minWidth: 130, filterable: false, sortable: false },
   { key: "status", label: "状态", filterOptions: activeOptions, minWidth: 110 },
 ]);
 function relatedAgreementCell(row: FundingRecord, column: TableColumn): string {
@@ -136,7 +143,7 @@ function relatedAgreementCell(row: FundingRecord, column: TableColumn): string {
   return String(row[column.key as keyof FundingRecord] ?? "—");
 }
 function relatedProjectCell(row: FundingDetails["projects"][number], column: TableColumn): string {
-  if (column.key === "settlement_progress_percent") return settlementProgressText(row.settlement_progress_percent);
+  if (column.key === "settlement_progress_percent") return settlementProgressText(row.settlement_progress_percent, row.approved_budget_fen);
   if (column.key === "approved_budget_fen" || column.key === "actual_cost_fen" || column.key === "settlement_fen")
     return amountText(row[column.key]);
   if (column.key === "display_status") return row.display_status;
@@ -360,8 +367,8 @@ onMounted(() => void load());
           <div><span>批准预算合计</span><strong>{{ amountText(details.summary.approved_budget_fen) }}</strong></div>
           <div><span>真实费用合计</span><strong>{{ amountText(details.summary.actual_cost_fen) }}</strong></div>
           <div><span>已批准结算合计</span><strong>{{ amountText(details.summary.settlement_fen) }}</strong></div>
-          <div><span>有基数项目结算进度</span><strong>{{ settlementProgressText(details.summary.settlement_progress_percent) }}</strong></div>
-          <div><span>待核定费用基数</span><strong>{{ details.summary.projects_without_cost_basis }} 个项目</strong></div>
+          <div><span>有预算项目结算进度</span><strong>{{ settlementProgressText(details.summary.settlement_progress_percent) }}</strong></div>
+          <div><span>无可用批准预算</span><strong>{{ details.summary.projects_without_budget_basis }} 个项目</strong></div>
         </div>
         <p class="funding-caption">额度减关联项目批准预算：
           <strong>{{ amountText(details.summary.capacity_difference_fen) }}</strong>。

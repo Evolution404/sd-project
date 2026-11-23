@@ -2,7 +2,7 @@
 import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import { projectStatusTag } from "../../shared/utils/project-status";
 import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
-import { settlementProgressText } from "../../shared/utils/settlement-progress";
+import SettlementProgressSummary from "../finance/components/SettlementProgressSummary.vue";
 import HandlingReviewDialog from "../../shared/ui/HandlingReviewDialog.vue";
 import { useHandlingReview } from "../../shared/composables/use-handling-review";
 import { usePageSelection } from "../../shared/composables/use-page-selection";
@@ -42,7 +42,7 @@ import ProjectArchiveFields from "./components/ProjectArchiveFields.vue";
 import ProjectApprovalFields from "./components/ProjectApprovalFields.vue";
 import ProjectDemandPicker from "./components/ProjectDemandPicker.vue";
 import type { ProjectOverviewFacts, ProjectFinanceSnapshot, ProjectReference } from "./components/types";
-import { ApiError, api, money, quantity } from "../../shared/api/client";
+import { ApiError, api, money, quantity, statusText } from "../../shared/api/client";
 import { formatVisibleDateTime } from "../../shared/utils/datetime";
 import type { ApprovedScope, ProjectScopeProjection, ApprovalCandidate, ProjectAction, ProjectDetail,
   ProjectListItem, ProjectDeletionImpact } from "../../../../server/shared/types/project-api";
@@ -56,13 +56,15 @@ interface ApprovalEditorRow {
   demand_version: number;
   demand_no: string;
   demand_status: string;
+  problem_description: string;
+  expected_on: string | null;
   previous_demand_version?: number;
   unit_id: string;
   unit_version: number;
   quantity_precision?: number;
   precision_error?: string;
   selected: boolean;
-  locations: Array<{location_item_no: number; approved_quantity_scaled: number; label?: string | null}>;
+  locations: ReturnType<typeof approvalEditorLocations>;
   materials: Array<{material_id: string; quantity_scaled: number}>;
 }
 interface ProjectForm extends ProjectManagementInput {
@@ -157,6 +159,7 @@ function openRelatedFunding(kind: "frameworks" | "agreements", id: string) {
 }
 const projectActions = ref<ProjectAction[]>([]);
 const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
+const overviewError = ref("");
 const overviewFramework = ref<ProjectReference | null>(null);
 const overviewAgreement = ref<ProjectReference | null>(null);
 const overviewLoading = ref(false);
@@ -322,22 +325,91 @@ watch(
   },
 );
 
-// Approval decision fields must remain visible: column customization cannot
-// hide a selected scope or its approved quantity during a formal submission.
+function approvalEditorLocations(demand: Pick<ApprovalCandidate, "work_locations" | "operation_snapshot" | "unit_snapshot">) {
+  return demand.work_locations.map((location, index) => {
+    const snapshot = location.location_snapshot_json;
+    return {
+      location_item_no: location.item_no || index + 1,
+      approved_quantity_scaled: location.quantity_scaled,
+      line_name: snapshot.line_name,
+      label: location.location_kind === "span" ? snapshot.location_label : snapshot.tower_no || snapshot.asset_no || snapshot.location_label,
+      operation_snapshot: demand.operation_snapshot,
+      unit_snapshot: demand.unit_snapshot,
+      work_mode: statusText[location.work_mode],
+      location_type: location.location_kind === "span" ? "档距" : "杆塔",
+      specification: snapshot.specification,
+    };
+  });
+}
 const approvalEditorColumns: TableColumn[] = [
-  { key: "label", label: "完整需求作业位置", minWidth: 210, sortable: false, filterable: false, hideable: false },
-  { key: "approved_quantity_scaled", label: "需求数量（只读）", minWidth: 180, sortable: false, filterable: false, hideable: false },
+  { key: "line_name", label: "线路", minWidth: 150 },
+  { key: "operation_snapshot", label: "操作类型", minWidth: 150 },
+  { key: "label", label: "作业位置", minWidth: 160, hideable: false },
+  { key: "approved_quantity_scaled", label: "需求数量", minWidth: 100, hideable: false },
+  { key: "unit_snapshot", label: "计量单位", minWidth: 100 },
+  { key: "work_mode", label: "作业方式", minWidth: 105 },
+  { key: "location_type", label: "位置类型", minWidth: 105 },
+  { key: "specification", label: "设备规格", minWidth: 135 },
+];
+const demandContentColumns: TableColumn[] = [
+  { key: "operation_snapshot", label: "操作类型", minWidth: 170 },
+  { key: "line_summary", label: "涉及线路", minWidth: 170 },
+  { key: "quantity_scaled", label: "需求数量", minWidth: 110 },
+  { key: "unit_snapshot", label: "计量单位", minWidth: 105 },
+  { key: "location_count", label: "位置数", minWidth: 90 },
+  { key: "expected_on", label: "预计解决时间", minWidth: 150 },
 ];
 const projectScopeColumns: TableColumn[] = [
-  { key: "demand_no", label: "需求编号", minWidth: 215 },
-  { key: "expected_on", label: "预计解决时间", minWidth: 175 },
-  { key: "binding", label: "状态", sortable: false, filterable: false },
+  { key: "demand_no", label: "需求编号", minWidth: 140, hideable: false },
+  { key: "problem_description", label: "问题描述", minWidth: 215 },
+  ...demandContentColumns,
+  { key: "binding", label: "承接关系", minWidth: 110, sortable: false, filterable: false },
+  { key: "created_at", label: "关联登记时间", minWidth: 175 },
 ];
 const projectApprovalColumns: TableColumn[] = [
-  { key: "demand_no", label: "需求", minWidth: 185 },
-  { key: "quantity_scaled", label: "承接数量" },
-  { key: "locations", label: "位置数", sortable: false, filterable: false },
+  { key: "demand_no", label: "需求编号", minWidth: 140 },
+  { key: "problem_description", label: "问题描述", minWidth: 215 },
+  ...demandContentColumns,
+  { key: "locations_display", label: "作业位置", minWidth: 160 },
+  { key: "demand_version", label: "采用需求版本", minWidth: 140 },
+  { key: "material_count", label: "批准物资项数", minWidth: 145 },
 ];
+function approvalDemandSummary(demand: Pick<DemandRecord,
+  "problem_description" | "work_locations" | "operation_snapshot" | "unit_snapshot" | "expected_on">) {
+  const locations = approvalEditorLocations(demand);
+  return {
+    problem_description: demand.problem_description,
+    operation_snapshot: demand.operation_snapshot,
+    unit_snapshot: demand.unit_snapshot,
+    expected_on: demand.expected_on,
+    line_summary: [...new Set(locations.map(row => row.line_name).filter(Boolean))].join("、"),
+    locations_display: locations.map(row => row.label).filter(Boolean).join("、"),
+    location_count: locations.length,
+  };
+}
+function approvedScopeRow(scope: ApprovedScope) {
+  return { ...scope, ...approvalDemandSummary(JSON.parse(scope.snapshot_json) as DemandRecord),
+    material_count: scope.materials.length };
+}
+function candidateScopeRow(candidate: ApprovalDetail["pending_scopes"][number]) {
+  return { ...approvalDemandSummary(candidate.snapshot), demand_no: candidate.snapshot.demand_no,
+    quantity_scaled: candidate.snapshot.quantity_scaled, demand_version: candidate.snapshot.current_version,
+    material_count: candidate.materials?.length ?? 0 };
+}
+const completionColumns: TableColumn[] = [
+  { key: "demand_no", label: "需求编号", minWidth: 140 },
+  { key: "problem_description", label: "问题描述", minWidth: 215 },
+  { key: "operation_snapshot", label: "操作类型", minWidth: 165 },
+  { key: "unit_snapshot", label: "计量单位", minWidth: 105 },
+  { key: "approved_quantity_scaled", label: "批准工作量" },
+  { key: "resolved_quantity_scaled", label: "已完成" },
+  { key: "remaining_quantity_scaled", label: "未完成" },
+  { key: "excess_quantity_scaled", label: "超出批准工作量", minWidth: 150 },
+];
+const completionRows = computed(() => {
+  const scopeDetails = new Map(currentApproval.value?.scopes.map(scope => [scope.project_scope_id, approvedScopeRow(scope)]));
+  return overviewSummary.value?.demands.map(row => ({ ...scopeDetails.get(row.project_scope_id), ...row })) || [];
+});
 const projectChargeColumns: TableColumn[] = [
   { key: "rule_title", label: "批次或项目参考费用", minWidth: 210 },
   { key: "amount_fen", label: "金额", minWidth: 140 },
@@ -367,6 +439,16 @@ const projectColumns: TableColumn[] = [
   { key: "approval", filterable: false, label: "批准预算", sortable: false },
   { key: "scopes", filterable: false, label: "关联需求数", sortable: false },
   { key: "code", label: "项目编号", minWidth: 150 },
+  { key: "framework_name", label: "年度框架", minWidth: 165 },
+  { key: "agreement_name", label: "执行协议", minWidth: 165, filterable: false },
+  { key: "category_name", label: "项目类别", minWidth: 135 },
+  { key: "managing_unit_name", label: "归口单位", minWidth: 145 },
+  { key: "owner_username", label: "项目负责人", minWidth: 145 },
+  { key: "manager_username", label: "项目经办人", minWidth: 145 },
+  { key: "planned_start_on", label: "计划开始时间", minWidth: 150 },
+  { key: "planned_end_on", label: "计划结束时间", minWidth: 150 },
+  { key: "preliminary_estimate_fen", label: "初步估算", minWidth: 145 },
+  { key: "created_at", label: "创建时间", minWidth: 175 },
 ];
 function sortTable(value: { key: string; order: string }) {
   sortKey.value = value.key;
@@ -541,10 +623,9 @@ async function addApprovalCandidates(records: DemandRecord[]) {
       project_scope_id: "candidate:" + demand.id, demand_id: demand.id,
       demand_version: demand.current_version, demand_no: demand.demand_no,
       demand_status: demand.status, unit_id: demand.unit_id, unit_version: demand.unit_version,
+      problem_description: demand.problem_description, expected_on: demand.expected_on,
       quantity_precision: precision, selected: true, materials: [],
-      locations: demand.work_locations.map(location => ({ location_item_no: location.item_no,
-        approved_quantity_scaled: location.quantity_scaled,
-        label: location.location_snapshot_json.location_label || location.location_snapshot_json.physical_code || "—" })),
+      locations: approvalEditorLocations(demand),
     });
   }
 }
@@ -593,21 +674,14 @@ async function openDialog(type: string) {
         approvalRows.value.push({
           project_scope_id: scope.id,
           demand_version: demand.current_version,
-          demand_no: demand.demand_no,        demand_status: demand.status,
+          demand_no: demand.demand_no, demand_status: demand.status,
+          problem_description: demand.problem_description, expected_on: demand.expected_on,
           unit_id: demand.unit_id,
           unit_version: demand.unit_version,
           quantity_precision: undefined,
           selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
           previous_demand_version: baseline?.demand_version,
-          locations: demand.work_locations.map((loc, index) => {
-            return {
-              location_item_no: loc.item_no || index + 1,
-              approved_quantity_scaled: loc.quantity_scaled,
-              label: loc.location_snapshot_json.location_label ||
-                loc.location_snapshot_json.physical_code ||
-                loc.location_snapshot_json.tower_no || loc.span_id,
-            };
-          }),
+          locations: approvalEditorLocations(demand),
           materials: baseline?.materials?.map((item) => ({
             material_id: item.material_id,
             quantity_scaled: item.approved_quantity_scaled,
@@ -731,9 +805,13 @@ async function save() {
         scopes: approvalRows.value
           .filter((x) => x.selected)
           .map((x) => ({
-            ...x,
+            demand_id: x.demand_id,
             project_scope_id: x.demand_id ? undefined : x.project_scope_id,
-            locations: x.locations,
+            demand_version: x.demand_version,
+            materials: x.materials,
+            locations: x.locations.map(({ location_item_no, approved_quantity_scaled }) => ({
+              location_item_no, approved_quantity_scaled,
+            })),
           })),
       });
     }
@@ -923,6 +1001,7 @@ async function loadOverview() {
   if (!id) return;
   const sequence = ++overviewSequence;
   overviewLoading.value = true;
+  overviewError.value = "";
   try {
     const [summary, actions, framework, agreement] = await Promise.all([
       api<ProjectFinanceSnapshot>("/projects/" + id + "/summary"),
@@ -937,7 +1016,7 @@ async function loadOverview() {
     overviewFramework.value = framework;
     overviewAgreement.value = agreement;
   } catch (error) {
-    if (sequence === overviewSequence) ElMessage.error((error as Error).message);
+    if (sequence === overviewSequence) overviewError.value = (error as Error).message;
   } finally {
     if (sequence === overviewSequence) overviewLoading.value = false;
   }
@@ -1003,7 +1082,7 @@ watch(() => detail.value, () => {
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "projects" && !projectWork.value);
 const detailDialog = useEntityDialog(detail, id => api<ProjectDetail>('/projects/' + id + '?deleted=true'), () => {
   dialog.value = ''; historyRevision.value = 0; quoteOpen.value = false; closeReviewOpen.value = false;
-  projectActions.value = []; overviewSummary.value = null; overviewFramework.value = null; overviewAgreement.value = null;
+  projectActions.value = []; overviewSummary.value = null; overviewError.value = ""; overviewFramework.value = null; overviewAgreement.value = null;
 });
 const { isOpen: detailOpen, loading: detailLoading, error: detailError } = detailDialog;
 watch(() => [route.query.action, route.query.demand], async () => {
@@ -1120,6 +1199,8 @@ onMounted(async () => {
             :type="projectStatusTag(row.display_status)">{{ row.display_status }}</ElTag>
           <span v-else-if="column.key === 'approval'">{{ row.approval ? '¥' + money(row.approval.approved_budget_fen) : '尚未批准' }}</span>
           <span v-else-if="column.key === 'scopes'">{{ row.scopes?.filter((x) => x.binding).length || 0 }}</span>
+          <span v-else-if="column.key === 'preliminary_estimate_fen'">{{ row.preliminary_estimate_fen == null ? '—' : '¥' + money(row.preliminary_estimate_fen) }}</span>
+          <span v-else-if="column.key === 'agreement_name'">{{ row.agreement_name || '直接归属年度框架' }}</span>
           <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
         </template>
       </BusinessTable>
@@ -1134,11 +1215,11 @@ onMounted(async () => {
   </div>
   <HandlingReviewDialog :workflow="handling" />
   <div v-show="projectWork !== 'settlements'">
-  <BusinessDetailDialog :open="detailOpen && !approvalEditorPage" :page="approvalReviewPage || projectFinancePage"
+  <BusinessDetailDialog :class="{ 'project-detail-drawer': !projectWork }" :open="detailOpen && !approvalEditorPage" :page="approvalReviewPage || projectFinancePage"
     :title="approvalReviewPage ? approvalReviewTitle : projectFinancePage ? '费用与结算' : '子项目详情'"
     :subtitle="projectWork ? detail?.name : undefined" bare :loading="detailLoading" :error="detailError"
     @close="projectWork ? returnFromProjectWork() : closeProjectDetails()" @retry="detailDialog.reload">
-    <template v-if="detail"><div v-if="!projectWork" class="detail-header" :data-guide-record="'project/' + detail.id">
+    <template v-if="detail"><div v-if="!projectWork" class="detail-header project-drawer-heading" :data-guide-record="'project/' + detail.id">
       <h1>{{ detail.name }}</h1>
       <ElTag :type="projectStatusTag(detail.display_status)">{{ detail.display_status }}</ElTag
       ><ElTooltip :content="detail.code" placement="top">
@@ -1152,6 +1233,9 @@ onMounted(async () => {
       <ElTabPane name="finance" label="费用与结算" />
       <ElTabPane name="history" label="历史记录" />
     </ElTabs>
+    <ElAlert v-if="overviewError && !projectFinancePage && tab !== 'finance'" :title="overviewError" type="error" :closable="false">
+      <ElButton text @click="loadOverview">重新读取项目数据</ElButton>
+    </ElAlert>
     <template v-if="tab === 'overview' && overviewProject">
       <ProjectWorkflowHeader :message="overviewStep.message" :label="overviewStep.label" @proceed="runOverviewStep"
         :action-id="overviewStep.action === 'stock' ? 'projects.stock' : overviewStep.action === 'approval' ? 'projects.approval-draft'
@@ -1165,7 +1249,7 @@ onMounted(async () => {
         @edit="editProject(detail || undefined)" @remove="removeProject" @close="openCloseReview" />
     </template>
     <template v-if="tab === 'scope'"
-      ><div class="panel">
+      ><section class="panel" aria-label="当前关联需求">
         <div class="toolbar">
           <h2>当前关联需求</h2>
           <ElButton data-guide-action="projects.link"
@@ -1194,6 +1278,7 @@ onMounted(async () => {
               <ElButton link type="primary" @click="openRelatedDemand(row.demand_id)">{{ row.demand_no }}</ElButton>
               <ElTag v-if="row.demand_id === focusedDemandId" size="small" type="info">当前定位</ElTag>
             </template>
+            <span v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
             <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
           </template>
           <template #actions="{ row }">
@@ -1202,7 +1287,16 @@ onMounted(async () => {
               @click="release(row)">解除承接</ElButton>
           </template>
         </BusinessTable>
-      </div>
+      </section>
+      <section v-if="detail.approval" class="panel" aria-label="工作完成情况">
+        <h2>工作完成情况</h2>
+        <BusinessTable client-side table-key="project:completed-work" :rows="completionRows" :columns="completionColumns">
+          <template #cell="{ row, column, value }">
+            {{ column.key.endsWith('_quantity_scaled') && typeof value === 'number'
+              ? quantity(value) : formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}
+          </template>
+        </BusinessTable>
+      </section>
     </template>
     <template v-if="tab === 'approval'">
       <ElAlert v-if="approvalReviewPage && !approvalDraft" type="info" :closable="false" title="当前没有待审核的立项或变更草稿" />
@@ -1290,11 +1384,10 @@ onMounted(async () => {
               : "未完整计价，已计价小计 ¥" +
                 money(approval.reference.subtotal_fen)
           }}</ElDescriptionsItem></ElDescriptions
-        ><BusinessTable client-side table-key="project:approval-scopes" :rows="approval.scopes || []"
+        ><BusinessTable client-side table-key="project:approval-scopes" :rows="approval.scopes.map(approvedScopeRow)"
           :columns="projectApprovalColumns" :actions-width="170">
           <template #cell="{ row, column }">
             <span v-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
-            <span v-else-if="column.key === 'locations'">{{ row.locations?.length || 0 }}</span>
             <span v-else>{{ formatVisibleDateTime(row[column.key as keyof typeof row], column.key) ?? '—' }}</span>
           </template>
           <template v-if="approval.status === 'draft'" #actions="{ row }">
@@ -1305,14 +1398,10 @@ onMounted(async () => {
           <h3>新增候选需求</h3>
           <ElAlert title="正式变更批准时建立承接关系，提交前仍须核对需求版本和当前归属" type="info" :closable="false" />
           <BusinessTable client-side table-key="project:approval-candidates"
-            :rows="approval.pending_scopes.map(candidate => ({
-              demand_no:candidate.snapshot.demand_no, quantity_scaled:candidate.snapshot.quantity_scaled,
-              locations:candidate.locations,
-            }))" :columns="projectApprovalColumns">
-            <template #cell="{row,column}">
-              <span v-if="column.key === 'demand_no'">{{row.demand_no}}</span>
-              <span v-else-if="column.key === 'quantity_scaled'">{{quantity(row.quantity_scaled)}}</span>
-              <span v-else>{{row.locations.length}}</span>
+            :rows="approval.pending_scopes.map(candidateScopeRow)" :columns="projectApprovalColumns">
+            <template #cell="{ row, column, value }">
+              {{ column.key === 'quantity_scaled' ? quantity(row.quantity_scaled)
+                : formatVisibleDateTime(value, column.key) ?? '—' }}
             </template>
           </BusinessTable>
         </template>
@@ -1332,14 +1421,14 @@ onMounted(async () => {
         </BusinessTable>
       </div></template
     >
-    <ElDescriptions v-if="tab === 'finance' && !projectFinancePage && overviewSummary" border :column="descriptionColumns">
-      <ElDescriptionsItem label="核定实际费用">¥{{ money(overviewSummary.actual_cost_fen) }}</ElDescriptionsItem>
-      <ElDescriptionsItem label="已批准结算">¥{{ money(overviewSummary.settlement_fen) }}</ElDescriptionsItem>
-      <ElDescriptionsItem label="结算进度">{{ settlementProgressText(overviewSummary.settlement_progress_percent) }}</ElDescriptionsItem>
-      <ElDescriptionsItem v-if="overviewSummary.excess_settlement_fen" label="超结算">¥{{ money(overviewSummary.excess_settlement_fen) }}</ElDescriptionsItem>
-    </ElDescriptions>
-    <ElButton v-if="tab === 'finance' && !projectFinancePage && !detail.deleted" link type="primary"
-      @click="goToProjectWork('finance')">打开项目财务工作区</ElButton>
+    <template v-if="tab === 'finance' && !projectFinancePage">
+      <SettlementProgressSummary :summary="overviewSummary" :loading="overviewLoading" :error="overviewError"
+        @retry="loadOverview">
+        <template #actions v-if="!detail.deleted">
+          <ElButton type="primary" @click="goToProjectWork('finance')">打开项目财务工作区</ElButton>
+        </template>
+      </SettlementProgressSummary>
+    </template>
     <ElAlert
       v-if="detail.deleted && tab === 'finance'"
       title="项目已归档删除，费用与结算记录可在档案历史中查询。"
@@ -1450,17 +1539,22 @@ onMounted(async () => {
       <template v-if="dialog === 'approval'">
         <ElButton v-if="detail?.status === 'approved'" @click="linkPickerOpen = true" data-guide-action="projects.add-candidate">新增候选需求</ElButton>
         <p v-if="detail?.status === 'approved'" class="muted">新增候选在正式批准时建立归属，移出原批准需求在同一事务中解绑。</p>
+        <h2 class="subheading">纳入批准的需求</h2>
+        <p class="muted">勾选一条需求即纳入它的全部作业位置和数量。调整工作量请先修订或拆分专业需求。</p>
         <div
           v-for="scope in approvalRows"
           :key="scope.project_scope_id"
-          class="panel"
+          class="panel approval-scope-card"
         >
-          <ElCheckbox v-model="scope.selected" :disabled="scope.demand_status !== 'active'">
-            {{ scope.demand_no }}
-            {{ scope.demand_status !== 'active' ? ' · 需求待确认，暂不可纳入批准' : '' }}
-          </ElCheckbox>
-          <p class="muted">按需求当前正式版本完整纳入全部位置及数量。要调整工作量，请先修订或拆分专业需求。</p>
-          <BusinessTable :table-key="'project:approval-editor:' + scope.project_scope_id"
+          <div class="approval-scope-heading">
+            <ElCheckbox v-model="scope.selected" :disabled="scope.demand_status !== 'active'">
+              {{ scope.demand_no }}
+              {{ scope.demand_status !== 'active' ? ' · 需求待确认，暂不可纳入批准' : '' }}
+            </ElCheckbox>
+            <span class="approval-scope-description">{{ scope.problem_description }}</span>
+            <span class="muted">预计解决时间 {{ scope.expected_on || '未填写' }}</span>
+          </div>
+          <BusinessTable table-key="project:approval-editor"
             :rows="scope.locations" :columns="approvalEditorColumns"
             sort-mode="off" filter-mode="off" compact>
             <template #cell="{ row, column }">
@@ -1532,6 +1626,12 @@ onMounted(async () => {
 .approval-comparison {display:grid;gap:12px}
 .approval-comparison h2 {margin:0}
 .closed-project-summary {margin-bottom:12px}
+:global(.project-detail-drawer .el-drawer__body) {background:var(--page-background)}
+.project-drawer-heading {padding:12px 0 8px;min-height:44px;gap:10px 14px}
+.project-workflow-tabs :deep(.el-tabs__header) {margin-bottom:16px}
+.approval-scope-card {background:var(--surface);margin-bottom:16px}
+.approval-scope-heading {display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 14px;margin-bottom:10px}
+.approval-scope-description {font-weight:600;overflow-wrap:anywhere}
 .project-code {
   display: inline-block;
   max-width: min(260px, 37vw);

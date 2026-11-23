@@ -289,7 +289,11 @@ const demandColumns: TableColumn[] = [
   { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
   { key: "demand_no", label: "需求编号", minWidth: 150 },
   { key: "project_name", label: "承接项目", minWidth: 170 },
-  { key: "last_handled_at", label: "最近办理时间", minWidth: 200 },
+  { key: "target_object", label: "作业对象", minWidth: 150 },
+  { key: "completion_standard", label: "完成标准", minWidth: 190 },
+  { key: "current_version", label: "正式版本", minWidth: 120 },
+  { key: "created_at", label: "登记时间", minWidth: 175 },
+  { key: "last_handled_at", label: "最近办理时间", minWidth: 180 },
 ];
 function sortTable(value: { key: string; order: string }) {
   sortKey.value = value.key;

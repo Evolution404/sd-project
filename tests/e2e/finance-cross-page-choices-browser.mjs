@@ -39,15 +39,17 @@ try {
   await page.getByLabel("用户名", { exact: true }).fill("admin");
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.getByRole("tab", { name: "费用核对", exact: true }).click();
-  await page.getByRole("button", { name: "新增正式核对", exact: true }).click();
-  const editor = page.getByRole("dialog", { name: "正式费用核对" });
   const params = new URLSearchParams("page=1&page_size=30&sort=created_at&direction=desc");
   const costVisible = new Set(memoryPage(s.finance.costs(project.id), params).items.map(item => item.id));
   const billVisible = new Set(memoryPage(s.finance.settlements(project.id), params).items.map(item => item.id));
   const cost = costs.find(item => !costVisible.has(item.id));
   const bill = bills.find(item => !billVisible.has(item.id));
   assert.ok(cost && bill, "both selections must be absent from the first 30-row list page");
+  await page.goto("http://127.0.0.1:" + server.address().port
+    + "/#/projects/" + project.id + "/finance?focus=settlement&record=" + bill.id);
+  await page.getByRole("button", { name: "逐笔对账", exact:true }).click();
+  await page.getByRole("button", { name: "新增正式核对", exact:true }).click();
+  const editor = page.getByRole("dialog", { name: "正式费用核对" });
   await selectFormChoice(page, "实际费用", cost.title + " · ¥" + (cost.amount_fen / 100).toFixed(2), editor);
   await selectFormChoice(page, "已批准结算明细", "人工费 · ¥" + (bill.items[0].amount_fen / 100).toFixed(2), editor);
   await editor.getByLabel("费用份额（元）").fill("50");

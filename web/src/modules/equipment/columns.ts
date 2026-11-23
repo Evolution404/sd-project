@@ -7,6 +7,7 @@ export const equipmentColumns: Record<EquipmentKind, TableColumn[]> = {
     { key: "line_kind", label: "线路类型" },
     { key: "parent_line_name", label: "所属主线", minWidth: 150 },
     { key: "junction_tower_no", label: "接入杆塔" },
+    { key: "line_code", label: "线路编号", minWidth: 145 },
     { key: "status", label: "状态" },
   ],
   physical: [
@@ -19,6 +20,7 @@ export const equipmentColumns: Record<EquipmentKind, TableColumn[]> = {
     { key: "related_lines", label: "关联线路", minWidth: 190 },
     { key: "related_towers", label: "关联杆塔号", minWidth: 150 },
     { key: "current_circuits", label: "关联回路数" },
+    { key: "purpose", label: "用途", minWidth: 155 },
     { key: "status", label: "状态" },
   ],
   towers: [
@@ -28,6 +30,8 @@ export const equipmentColumns: Record<EquipmentKind, TableColumn[]> = {
     { key: "tower_nature", label: "杆塔性质" },
     { key: "operations_team", label: "运维班组" },
     { key: "management_department", label: "管辖部门" },
+    { key: "display_name", label: "杆塔名称", minWidth: 155, sortable: false, filterable: false },
+    { key: "circuit_position", label: "回路位置", minWidth: 135, sortable: false, filterable: false },
     { key: "status", label: "状态" },
   ],
   spans: [

@@ -21,7 +21,7 @@ const scenarios = [
   ["demand", "demands", "新增需求"],
   ["project", "projects", "新增子项目"],
   ["cost", "finance", "核定费用"],
-  ["settlement", "finance", "新增结算草稿"],
+  ["settlement", "finance", "新增结算"],
 ];
 async function inspect(dialog, kind, width) {
   const details = await dialog.evaluate(element => {
@@ -82,6 +82,7 @@ try {
     if (path === "finance") {
       await page.locator(".cell-link:visible").first().click();
       await page.locator(".business-detail-page:visible").waitFor();
+      await page.getByRole("tab", {name:"实际费用", exact:true}).click();
       await page.locator(".business-detail-page:visible")
         .getByRole("button", { name: "核定费用", exact: true }).waitFor();
       const alignment = await page.evaluate(() => [...document.querySelectorAll(".business-detail-page .panel > .toolbar")]

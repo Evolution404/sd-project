@@ -72,7 +72,7 @@ test("settlement workbook creates draft only, preserves independent resolution a
   const second = s.finance.saveDraft(user, project.id, { mode: "project_total", amount_fen: 7000 });
   s.finance.cost(user, project.id, {
     cost_node_id: node.id, title: "实际核定费用", occurred_on: "2026-11-11",
-    amount_fen: 50000, evidence: "结算基数",
+    amount_fen: 50000, evidence: "费用核定依据",
   });
   const businessReport = new ExcelJS.Workbook();
   await businessReport.xlsx.load(
@@ -93,7 +93,8 @@ test("settlement workbook creates draft only, preserves independent resolution a
   const totalCell = header => projectTotals.getRow(4).getCell(projectTotals.getRow(3).values.indexOf(header));
   assert.equal(projectTotals.rowCount, 4);
   assert.equal(totalCell("累计生效结算（元）").value, 300.01);
-  assert.equal(totalCell("结算进度").value, 0.6);
+  assert.equal(totalCell("批准预算（元）").value, 1200);
+  assert.equal(totalCell("结算进度").value, 0.25);
   assert.equal(totalCell("结算进度").numFmt, "0.00%");
   bill = s.finance.submit(user, bill.id, {
     expected_version: 1,
