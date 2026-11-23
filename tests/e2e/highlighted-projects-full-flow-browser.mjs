@@ -127,8 +127,13 @@ async function createDemand(record) {
     await picker.getByRole("checkbox", { name:"选择物资：" + material.name + " 演练规格", exact:true }).locator("xpath=ancestor::label[1]").click();
   await picker.getByRole("button", { name: "添加已选物资（2）", exact: true }).click();
   await picker.waitFor({ state: "hidden" });
-  for (const [index, quantity] of [record.tension_pieces, record.jumper_pieces].entries())
-    await editor.getByRole("row").filter({ hasText: materials[index].name }).locator("input:visible").last().fill(String(quantity));
+  for (const [index, quantity] of [record.tension_pieces, record.jumper_pieces].entries()) {
+    const materialCell = editor.locator(".business-draft-grid .tabulator-row").filter({ hasText: materials[index].name })
+      .locator(".tabulator-cell[tabulator-field='quantity_text']");
+    await materialCell.dblclick();
+    await materialCell.locator("input").fill(String(quantity));
+    await materialCell.locator("input").press("Enter");
+  }
   await editor.getByRole("tab", { name: "来源及其他信息", exact: true }).click();
   await editor.getByLabel("来源说明", { exact: true }).fill(`${source.source_file}「大修」${record.source_range}，逐塔按1基综合修理；型号与后续变更为模拟测试`);
   await saveEditor("保存需求版本");

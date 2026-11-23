@@ -11,7 +11,7 @@ function vueFiles(folder) {
   });
 }
 
-test("all business data tables use the single customizable BusinessTable adapter", () => {
+test("all business data tables use audited legacy BusinessTable or specialized Tabulator adapters", () => {
   const root = resolve("web/src");
   const files = vueFiles(root).filter(file => !file.endsWith("/BusinessTable.vue"));
   assert.ok(files.length > 8, "the audit scope must contain the real application");
@@ -49,8 +49,18 @@ test("multi-action rows use one primary action and an accessible shared menu", (
     "work-standards/WorkStandardsPage", "pricing/PricingPage", "funding/FundingPage"]) {
     const layout = readFileSync(resolve("web/src/modules", name + ".vue"), "utf8");
     assert.match(layout, /detail-column=/);
-    assert.match(layout, /#toolbar=/);
+    if (name === "materials/MaterialsPage") {
+      assert.match(layout, /<TabulatorGrid\b/, "materials must use the authorized specialized grid");
+      assert.match(layout, /@filter-change="applyGridFilters"/);
+      assert.match(layout, /@open-detail="detailDialog\.open/);
+    } else assert.match(layout, /#toolbar=/);
     assert.doesNotMatch(layout, /<RowActions\b|label: ['"]查看['"]/);
+  }
+  for (const file of vueFiles(resolve("web/src"))) {
+    const name = file.replaceAll(String.fromCharCode(92), "/");
+    if (name.endsWith("/shared/ui/TabulatorGrid.vue") || name.endsWith("/shared/ui/BusinessDraftGrid.vue")) continue;
+    assert.doesNotMatch(readFileSync(file, "utf8"), /new Tabulator\(/,
+      "business pages may only use centrally maintained Tabulator adapters");
   }
   const source = readFileSync(resolve("web/src/shared/ui/RowActions.vue"), "utf8");
   assert.match(source, /placement="bottom-end"/);

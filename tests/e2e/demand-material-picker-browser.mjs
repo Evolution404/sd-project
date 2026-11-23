@@ -77,11 +77,53 @@ try {
   await editor.locator(".editor-content").getByText("物资测试031").waitFor();
   await editor.locator(".editor-content").getByText("物资测试065").waitFor();
   await page.screenshot({path:join(output,"demand-added-materials.png"),fullPage:true});
+  const edited=editor.locator(".business-draft-grid .tabulator-row").filter({ hasText:"物资测试031" })
+    .locator(".tabulator-cell[tabulator-field='quantity_text']");
+  await edited.dblclick();
+  await edited.locator("input").fill("2");
+  await edited.locator("input").press("Enter");
+  await page.waitForTimeout(200);
+  assert.equal((await edited.textContent())?.trim(),"2");
+  // Clipboard paste must update all three material draft rows before a formal Save.
+  const first = editor.locator(".business-draft-grid .tabulator-row").first()
+    .locator(".tabulator-cell[tabulator-field='quantity_text']");
+  await first.click();
+  assert.equal(await editor.locator(".tabulator-range").count(),1,"single-cell range is active");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  await page.evaluate(async () => navigator.clipboard.writeText("2\n3\n4"));
+  await page.keyboard.press("ControlOrMeta+V");
+  await page.waitForTimeout(400);
+  assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"]);
+  await first.click();
+  await page.evaluate(async () => navigator.clipboard.writeText("9\t非法单位"));
+  await page.keyboard.press("ControlOrMeta+V");
+  await page.getByText(/粘贴范围包含只读字段或超出已有明细/).waitFor();
+  assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"],
+    "paste crossing a readonly business column must be rejected atomically");
+  const last=editor.locator(".business-draft-grid .tabulator-row").last()
+    .locator(".tabulator-cell[tabulator-field='quantity_text']");
+  await last.dblclick();
+  await last.locator("input").fill("1.5");
+  await last.locator("input").press("Enter");
+  await editor.getByText("只能填写整数数量").waitFor();
+  await editor.getByRole("button",{name:"保存需求版本",exact:true}).click();
+  await editor.getByRole("button",{name:"保存需求版本",exact:true}).waitFor();
+  assert.equal(s.demands.get(demand.id).current_version,1,"invalid fractional quantity must never save");
+  await last.dblclick();
+  await last.locator("input").fill("4");
+  await last.locator("input").press("Enter");
+  await editor.getByText("只能填写整数数量").waitFor({state:"hidden"});
+  await last.dblclick();
+  await last.locator("input").fill("5");
+  await last.locator("input").press("Enter");
+  await editor.getByRole("button",{name:"撤销单元格编辑"}).click();
+  await page.waitForTimeout(100);
+  assert.equal((await last.textContent())?.trim(),"4","single-cell editing supports undo");
   await editor.getByRole("button",{name:"保存需求版本",exact:true}).click();
   await editor.waitFor({state:"hidden"});
   const saved=s.demands.get(demand.id);
   assert.equal(saved.materials.length,3);
-  assert.ok(saved.materials.every(item => item.quantity_scaled === 10000));
+  assert.deepEqual(saved.materials.map(item=>item.quantity_scaled),[20000,30000,40000]);
   assert.deepEqual(exceptions,[]);
   console.log("DEMAND_MATERIAL_PICKER_OK scroll-sync, server-search, 65-material pagination, cross-page selection, active-only, precision, formal revision");
 } catch(error) {

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { activeOptions } from "../../shared/utils/filter-options";
 import { computed, onMounted, ref, shallowRef } from "vue";
 import { ElMessage, ElMessageBox, type FormInstance } from "element-plus";
 import type {
@@ -18,7 +17,8 @@ import { useEntityDialog } from "../../shared/composables/use-entity-dialog";
 import { useAccess } from "../../shared/composables/use-access";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
-import BusinessTable from "../../shared/ui/BusinessTable.vue";
+import TabulatorGrid, { type GridColumn } from "../../shared/ui/TabulatorGrid.vue";
+import type { FacetPage, FacetValue } from "../../shared/ui/ExcelColumnFilter.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import FieldControl from "../../shared/ui/FieldControl.vue";
@@ -50,12 +50,18 @@ const fields: (CatalogField & { key: keyof MaterialForm })[] = [
   { key: "specification", label: "规格", type: "text" },
   { key: "note", label: "备注", type: "text" },
 ];
-const columns = fields.map((field) => ({
+const columns: GridColumn[] = fields.map(field => ({
   key: field.key,
   label: field.label,
-  filterOptions: field.key === "status" ? activeOptions : undefined,
   minWidth: field.key === "name" ? 190 : 130,
 }));
+const grid = ref<{ openSettings: () => void } | null>(null);
+type GridFilters = Record<string, FacetValue[]>;
+const gridState = ref("{}");
+const gridFilters = computed<GridFilters>(() => {
+  try { return JSON.parse(gridState.value) as GridFilters; }
+  catch { return {}; }
+});
 const can = useAccess(),
   descriptionColumns = useDescriptionColumns();
 const rows = ref<MaterialRecord[]>([]),
@@ -65,7 +71,6 @@ const rows = ref<MaterialRecord[]>([]),
   deleted = ref(false),
   sort = ref(""),
   direction = ref(""),
-  filters = ref<Record<string, string>>({}),
   loading = ref(false),
   error = ref("");
 const detailState = shallowRef<MaterialDetail | null>(null),
@@ -96,7 +101,8 @@ async function load() {
     deleted: String(deleted.value),
     sort: sort.value || "created_at",
     direction: direction.value || "desc",
-    filters: JSON.stringify(filters.value),
+    filters: "{}",
+    grid_filters: gridState.value,
   });
   try {
     const result = await api<Page<MaterialRecord>>(
@@ -111,6 +117,29 @@ async function load() {
   } finally {
     if (current === sequence) loading.value = false;
   }
+}
+async function filterValues(field: string, term: string, offset: number): Promise<FacetPage> {
+  const params = new URLSearchParams({
+    column: field,
+    term,
+    offset: String(offset),
+    q: query.value,
+    deleted: String(deleted.value),
+    filters: "{}",
+    grid_filters: gridState.value,
+  });
+  return api<FacetPage>("/catalog/materials/filter-values?" + params);
+}
+function applyGridFilters(value: GridFilters) {
+  gridState.value = JSON.stringify(value);
+  page.value = 1;
+  void load();
+}
+function applyGridSort(value: { key: string; direction: "asc" | "desc" | "" }) {
+  sort.value = value.key;
+  direction.value = value.direction;
+  page.value = 1;
+  void load();
 }
 async function fetchDetail(id: string): Promise<MaterialDetail> {
   return api<MaterialDetail>(`/catalog/materials/${id}?deleted=true&history=true`);
@@ -193,11 +222,11 @@ function fieldError(key: string) {
 }
 function clear() {
   query.value = "";
-  filters.value = {};
+  gridState.value = "{}";
   page.value = 1;
   void load();
 }
-useListRoute({ q: query, page, deleted, sort, direction, filters }, load);
+useListRoute({ q: query, page, deleted, sort, direction, grid: gridState }, load);
 onMounted(load);
 </script>
 <template>
@@ -213,83 +242,26 @@ onMounted(load);
   >
   <div class="panel">
 
-    <BusinessTable detail-column="name" @open-detail="detailDialog.open($event.id)"
-      :rows="rows"
-      :loading="loading"
-      :columns="columns"
-      table-key="catalog:materials"
-      :filter-state="filters"
-      :sort-state="{
-        prop: sort,
-        order: sort ? (direction === 'asc' ? 'ascending' : 'descending') : null,
-      }"
-      :search-active="!!query"
-      @clear-search="clear"
-      @sort-change="
-        (value) => {
-          sort = value.key;
-          direction = value.order === 'ascending' ? 'asc' : 'desc';
-          page = 1;
-          load();
-        }
-      "
-      @filter-change="
-        (value) => {
-          filters = value;
-          page = 1;
-          load();
-        }
-      "
-    >
-      <template #toolbar="{ openSettings, clearFilters, hasActiveFilters }">
-        <div class="unified-list-tools">
-          <div class="toolbar">
-            <ElInput
-        v-model="query"
-        clearable
-        placeholder="搜索物资名称、型号或规格"
-        @change="
-          page = 1;
-          load();
-        "
-      />
-            <ElCheckbox data-guide-action="materials.show-deleted"
-        v-model="deleted"
-        @change="
-          page = 1;
-          load();
-        "
-        >包含已删除</ElCheckbox
-      >
-            <ElButton v-if="hasActiveFilters" link type="primary" @click="clearFilters">清除检索与列筛选</ElButton>
-          </div>
-          <div class="toolbar page-heading-actions">
-      <ElButton :loading="loading" @click="load">刷新</ElButton>
-      <ElButton class="business-column-setting-trigger" @click="openSettings">列设置</ElButton>
-      <ElButton data-guide-action="materials.create" type="primary" v-if="can('admin')" @click="edit()"
-        >新增物资</ElButton
-      >
+    <div class="unified-list-tools">
+      <div class="toolbar">
+        <ElInput v-model="query" clearable placeholder="搜索物资名称、型号或规格"
+          @change="page = 1;load()" />
+        <ElCheckbox data-guide-action="materials.show-deleted" v-model="deleted"
+          @change="page = 1;load()">包含已删除</ElCheckbox>
+        <ElButton v-if="Object.keys(gridFilters).length || query" link type="primary" @click="clear">清除检索与列筛选</ElButton>
+      </div>
+      <div class="toolbar page-heading-actions">
+        <ElButton :loading="loading" @click="load">刷新</ElButton>
+        <ElButton class="business-column-setting-trigger" @click="grid?.openSettings()">列设置</ElButton>
+        <ElButton data-guide-action="materials.create" type="primary" v-if="can('admin')" @click="edit()">新增物资</ElButton>
+      </div>
     </div>
-        </div>
-      </template>
-      <template #cell="{ row, column, value }"
-        ><ElTag
-          v-if="column.key === 'status'"
-          :type="
-            row.deleted
-              ? 'danger'
-              : row.status === 'active'
-                ? 'success'
-                : 'info'
-          "
-          effect="plain"
-          >{{ row.deleted ? "已删除" : statusText[row.status] }}</ElTag
-        ><span v-else>{{
-          column.key === "unit_id" ? row.unit_id_label : value || "—"
-        }}</span></template
-      >
- </BusinessTable
-    ><ElPagination
+    <TabulatorGrid ref="grid" detail-column="name" :rows="rows" :loading="loading"
+      :columns="columns" table-key="catalog:materials" :filters="gridFilters"
+      :sort-key="sort" :sort-direction="direction === 'asc' ? 'asc' : direction === 'desc' ? 'desc' : ''"
+      :get-values="filterValues" @open-detail="detailDialog.open($event.id)"
+      @filter-change="applyGridFilters" @sort-change="applyGridSort" />
+    <ElPagination
       v-model:current-page="page"
       :page-size="30"
       :total="total"

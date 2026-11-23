@@ -5,6 +5,7 @@ import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
 import type { ListQuery, Page } from "../../shared/types/contracts.js";
 import { fixedListValue, listDisplayScale } from "../../shared/list-filter-values.js";
+import { requireValue } from "../../shared/errors/business-error.js";
 
 interface QueryStore {
   query(sql: string, ...parameters: SQLInputValue[]): unknown[];
@@ -162,7 +163,8 @@ const financeSources: Record<FinanceListKind, ListSource> = {
 const exactFilters = new Set(["id", "status", "display_status", "role", "object_position",
   "attribution_unit", "pricing_mode", "scope", "work_mode"]);
 
-export function searchPage<T>(store: QueryStore, entity: string, source: ListSource, query: ListQuery): Page<T> {
+/** The list and facet endpoints share exactly one server-side predicate builder. */
+function listPredicate(entity: string, source: ListSource, query: ListQuery, excludeFacet?: string) {
   const statement = `WITH list_rows AS (SELECT source.*, EXISTS(SELECT 1 FROM audit_events a
     WHERE a.entity=? AND a.entity_id=source.${source.deletionKey || "id"} AND a.action='delete') AS deleted FROM (${source.sql}) source) `;
   const predicates = query.deleted ? [] : ["deleted=0"];
@@ -172,7 +174,7 @@ export function searchPage<T>(store: QueryStore, entity: string, source: ListSou
     parameters.push(...source.search.map(() => query.q));
   }
   for (const [key, value] of Object.entries(query.filters)) {
-    if (!source.columns.includes(key)) continue;
+    if (key === excludeFacet || !source.columns.includes(key)) continue;
     const places = listDisplayScale(key);
     if (places !== null) {
       predicates.push(`"${key}"=?`);
@@ -184,13 +186,50 @@ export function searchPage<T>(store: QueryStore, entity: string, source: ListSou
       parameters.push(value);
     }
   }
-  const where = predicates.length ? " WHERE " + predicates.join(" AND ") : "";
+  for (const [key, values] of Object.entries(query.grid_filters ?? {})) {
+    requireValue(source.columns.includes(key), "表格筛选列不存在：" + key, 400);
+    if (key === excludeFacet) continue;
+    if (!values.length) {
+      predicates.push("0=1");
+      continue;
+    }
+    const filled = values.filter((v): v is string => v !== null);
+    const pieces: string[] = [];
+    if (filled.length) {
+      pieces.push(`CAST("${key}" AS TEXT) IN (${filled.map(() => "?").join(",")})`);
+      parameters.push(...filled);
+    }
+    if (values.includes(null)) pieces.push(`("${key}" IS NULL OR CAST("${key}" AS TEXT)='')`);
+    predicates.push("(" + pieces.join(" OR ") + ")");
+  }
+  return { statement, where: predicates.length ? " WHERE " + predicates.join(" AND ") : "", parameters };
+}
+
+export function searchPage<T>(store: QueryStore, entity: string, source: ListSource, query: ListQuery): Page<T> {
+  const { statement, where, parameters } = listPredicate(entity, source, query);
   const count = store.get(statement + "SELECT COUNT(*) AS total FROM list_rows" + where, ...parameters) as { total: number };
   const sort = source.columns.includes(query.sort) ? query.sort : source.defaultSort || "created_at";
   const direction = query.direction === "asc" ? "ASC" : "DESC";
   const items = store.query(statement + `SELECT * FROM list_rows${where} ORDER BY "${sort}" ${direction}, id ASC LIMIT ? OFFSET ?`,
     ...parameters, query.page_size, (query.page - 1) * query.page_size) as T[];
   return { items, total: count.total, page: query.page, page_size: query.page_size };
+}
+
+export function searchFacets(store: QueryStore, entity: string, source: ListSource, query: ListQuery,
+  key: string, search = "", offset = 0, limit = 100) {
+  requireValue(source.columns.includes(key) && key !== "id", "不支持筛选字段：" + key, 400);
+  const { statement, where, parameters } = listPredicate(entity, source, query, key);
+  const normalized = `CASE WHEN "${key}" IS NULL OR CAST("${key}" AS TEXT)='' THEN NULL ELSE CAST("${key}" AS TEXT) END`;
+  const matching = search ? ` WHERE instr(lower(COALESCE(value,'')),lower(?))>0` : "";
+  const bindings: SQLInputValue[] = [...parameters, ...(search ? [search.slice(0, 128)] : [])];
+  const queryBase = statement + `SELECT value, SUM(frequency) AS count FROM
+    (SELECT ${normalized} AS value,COUNT(*) AS frequency FROM list_rows${where} GROUP BY ${normalized})${matching}
+    GROUP BY value`;
+  const rows = store.query(queryBase + " ORDER BY value IS NOT NULL, value COLLATE NOCASE LIMIT ? OFFSET ?",
+    ...bindings, limit, offset) as { value: string | null; count: number }[];
+  const total = store.get("SELECT COUNT(*) AS total FROM (" + queryBase + ")",
+    ...bindings) as { total: number };
+  return { items: rows, total: total.total, offset, limit };
 }
 
 export function businessLists(store: QueryStore) {

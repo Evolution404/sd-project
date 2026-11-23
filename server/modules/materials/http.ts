@@ -25,6 +25,14 @@ export async function handleMaterials(
     url.searchParams.get("history") === "true"
   )
     return { result: system.materials.detail(sub) };
+  if (read && sub === "filter-values") {
+    const key = url.searchParams.get("column") ?? "";
+    const term = url.searchParams.get("term") ?? "";
+    const offset = Math.max(0, Math.min(100000, Number(url.searchParams.get("offset")) || 0));
+    requireValue(term.length <= 128, "筛选搜索内容过长", 400);
+    requireValue(/^[a-z_]{1,60}$/.test(key), "请选择有效的筛选字段", 400);
+    return { result: system.materials.facets(parseListQuery(url.searchParams), key, term, offset) };
+  }
   if (read && subKey === "deletion-impact")
     return { result: system.materials.impact(sub) };
   if (read)

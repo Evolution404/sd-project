@@ -22,6 +22,8 @@ export interface ListQuery {
   sort: string;
   direction: "asc" | "desc";
   filters: Record<string, string>;
+  /** Excel-style selected distinct values, where null represents empty or missing. */
+  grid_filters?: Record<string, (string | null)[]>;
   deleted: boolean;
 }
 

@@ -6,7 +6,7 @@ import type {
   MaterialRecord,
   MaterialVersion,
 } from "../../shared/types/master-data.js";
-import { searchPage, type ListSource } from "../queries/business-lists.js";
+import { searchFacets, searchPage, type ListSource } from "../queries/business-lists.js";
 const sql = `SELECT c.*,v.material_id,v.reason,v.recorded_at,COALESCE(unit.name,'历史计量单位待核对') AS unit_id_label
   FROM v_material_current c JOIN material_versions v ON v.id=c.material_version_id
   LEFT JOIN v_dictionary_current unit ON unit.id=c.unit_id`;
@@ -42,6 +42,9 @@ export function materialRepository(store: ReturnType<typeof createStore>) {
       countBusinessReferences(store, "materials", key),
     current: (id: string) => rows(id)[0],
     all: () => rows(),
+    facets(query: ListQuery, key: string, search: string, offset: number) {
+      return searchFacets(store, "materials", source, query, key === "unit_id" ? "unit_id_label" : key, search, offset);
+    },
     search(query: ListQuery) {
       const columns = Object.fromEntries(
         Object.entries(query.filters).map(([key, value]) => [
@@ -53,6 +56,8 @@ export function materialRepository(store: ReturnType<typeof createStore>) {
         ...query,
         sort: query.sort === "unit_id" ? "unit_id_label" : query.sort,
         filters: columns,
+        grid_filters: Object.fromEntries(Object.entries(query.grid_filters ?? {}).map(([key, values]) =>
+          [key === "unit_id" ? "unit_id_label" : key, values])),
       });
     },
     create(identity: {

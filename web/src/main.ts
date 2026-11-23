@@ -1,5 +1,6 @@
 import { createApp } from "vue";
 import "./styles/element-plus";
+import "tabulator-tables/dist/css/tabulator.min.css";
 import "./styles/theme.css";
 import App from "./app/App.vue";
 import { router } from "./app/router";

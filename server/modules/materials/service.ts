@@ -141,6 +141,8 @@ export function createMaterials(
         .all()
         .filter((row) => includeDeleted || !row.deleted)
         .map(decorate),
+    facets: (query: ListQuery, key: string, search: string, offset: number) =>
+      repository.facets(query, key, search, offset),
     search: (query: ListQuery) => {
       const page = repository.search(query);
       return { ...page, items: page.items.map(decorate) };
