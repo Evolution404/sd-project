@@ -94,6 +94,7 @@ function buildColumn(column:GridColumn):ColumnDefinition {
     field:viewKey,title:column.label,minWidth:column.minWidth ?? 125,
     width:pref.value.widths[viewKey],visible:column.hideable===false || !pref.value.hidden.includes(viewKey),
     headerSort:false,resizable:true,editable:false,
+    widthGrow:column.key==="name"?1.8:column.key==="note"?1.7:column.key==="unit_id"||column.key==="status"?0.8:1.15,
     titleFormatter:()=>{
       const root=document.createElement("span");root.className="grid-header-title";
       const text=document.createElement("span");text.textContent=column.label;root.append(text);
@@ -176,8 +177,8 @@ onMounted(async()=>{
     columns:allColumns.value.map(buildColumn),
     layout:"fitColumns",placeholder:"暂无记录",
     height:"auto",
-    selectableRange:1,selectableRangeColumns:true,selectableRangeRows:true,
-    clipboard:"copy",clipboardCopyRowRange:"range",clipboardCopyConfig:{columnHeaders:false},
+    // Standard list view must never behave like a spreadsheet editor.
+    selectableRows:false,selectableRange:false,clipboard:false,
     renderVerticalBuffer:150,
   });
   instance.on("columnResized",column=>{
@@ -227,21 +228,55 @@ defineExpose({openSettings:()=>{settings.value=true;},reset});
 <style scoped>
 .business-tabulator{position:relative;width:100%;min-width:0}
 .grid-loading{position:absolute;right:10px;top:10px;color:var(--muted);z-index:3;background:var(--surface)}
-.grid-host{min-width:0;border-radius:7px;border:1px solid var(--edge);font-size:13px}
+.grid-host{min-width:0;overflow:hidden;border-radius:8px;border:1px solid var(--edge);font-size:13px}
 .excel-grid-popup{position:fixed;z-index:3000}
 .grid-column-setting{display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--edge)}
 .grid-column-setting .el-checkbox{margin-right:auto}
-.business-tabulator :deep(.tabulator){background:var(--surface);border:0;color:var(--ink);font-family:inherit}
-.business-tabulator :deep(.tabulator-header){background:var(--table-heading);border-bottom:1px solid var(--edge);color:var(--table-heading-ink)}
-.business-tabulator :deep(.tabulator-col){background:var(--table-heading)!important;border-color:var(--edge)}
-.business-tabulator :deep(.tabulator-row){background:var(--surface);color:var(--ink);border-bottom:1px solid var(--edge)}
-.business-tabulator :deep(.tabulator-row.tabulator-row-even){background:var(--surface-subtle)}
-.business-tabulator :deep(.tabulator-row:hover){background:var(--table-row-hover)}
-.business-tabulator :deep(.tabulator-cell){border-color:var(--edge)}
-.business-tabulator :deep(.grid-header-title){display:flex;align-items:center;justify-content:space-between;gap:6px;min-width:0}
+.business-tabulator :deep(.tabulator){
+  background:var(--surface);border:0;color:var(--ink);font-family:inherit;font-size:13px;
+}
+.business-tabulator :deep(.tabulator-header){
+  background:var(--table-heading)!important;border-bottom:1px solid var(--edge)!important;
+  color:var(--table-heading-ink)!important;
+}
+.business-tabulator :deep(.tabulator-header .tabulator-col){
+  background:var(--table-heading)!important;border-right:1px solid var(--edge)!important;
+  color:var(--table-heading-ink)!important;
+}
+.business-tabulator :deep(.tabulator-header .tabulator-col .tabulator-col-title),
+.business-tabulator :deep(.tabulator-header .tabulator-col .grid-header-title){
+  color:var(--table-heading-ink)!important;font-size:13px;font-weight:600;
+}
+.business-tabulator :deep(.tabulator .tabulator-row){
+  background:var(--surface)!important;color:var(--ink)!important;
+  border-bottom:1px solid var(--edge)!important;min-height:42px;
+}
+.business-tabulator :deep(.tabulator .tabulator-row.tabulator-row-even){
+  background:var(--surface-subtle)!important;
+}
+.business-tabulator :deep(.tabulator .tabulator-row:hover){
+  background:var(--table-row-hover)!important;
+}
+.business-tabulator :deep(.tabulator .tabulator-cell){
+  background:transparent!important;color:var(--ink)!important;
+  border-right:1px solid var(--edge)!important;
+  padding:10px 12px;vertical-align:middle;
+}
+.business-tabulator :deep(.tabulator .tabulator-cell:focus-visible){
+  outline:2px solid var(--brand-primary);outline-offset:-2px;
+}
+.business-tabulator :deep(.grid-header-title){
+  display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;
+}
 .business-tabulator :deep(.grid-header-title>span){overflow:hidden;text-overflow:ellipsis}
-.business-tabulator :deep(.grid-filter-trigger){border:0;background:transparent;color:var(--muted);font:inherit;font-size:15px;cursor:pointer;padding:2px 5px;border-radius:4px}
-.business-tabulator :deep(.grid-filter-trigger.is-active){color:var(--brand-primary);background:var(--brand-soft)}
-.business-tabulator :deep(.grid-detail-link){color:var(--brand-primary);border:0;padding:0;background:transparent;font:inherit;cursor:pointer}
-.business-tabulator :deep(.grid-status){display:inline-block;padding:2px 7px;border-radius:4px;background:var(--brand-soft)}
+.business-tabulator :deep(.grid-filter-trigger){
+  color:var(--table-heading-ink)!important;font-size:15px;cursor:pointer;
+  padding:2px 5px;border-radius:4px;
+}
+.business-tabulator :deep(.grid-filter-trigger.is-active){color:var(--brand-primary)!important;background:var(--brand-soft)}
+.business-tabulator :deep(.grid-detail-link){color:var(--brand-primary)!important;padding:0;font-weight:500}
+.business-tabulator :deep(.grid-status){
+  display:inline-block;padding:3px 9px;border-radius:5px;
+  background:var(--brand-soft);color:var(--brand-primary);
+}
 </style>

@@ -1,7 +1,7 @@
 import type { MaterialRepository } from "../../database/repositories/materials.js";
 import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
-import type { Actor, ListQuery } from "../../shared/types/contracts.js";
+import { isObject, type Actor, type ListQuery } from "../../shared/types/contracts.js";
 import type { MaterialRecord } from "../../shared/types/master-data.js";
 import type { DictionaryService } from "../dictionaries/service.js";
 import { definitionName, definitionStatus } from "../dictionaries/service.js";
@@ -129,6 +129,34 @@ export function createMaterials(
     },
     get,
     save,
+    saveBatch(actor: Actor, raw: unknown) {
+      authorize(actor, "admin");
+      requireValue(Array.isArray(raw) && raw.length>=1 && raw.length<=100,
+        "批量修改必须包含1～100条物资", 400);
+      const allowed=new Set(["name","model","specification","note"]);
+      const seen=new Set<string>();
+      const updates=raw.map((item: unknown) => {
+        requireValue(isObject(item) && typeof item.id==="string" && item.id.trim()
+          && Number.isInteger(item.expected_version) && Number(item.expected_version)>0
+          && isObject(item.changes), "批量修改条目缺少身份、正式版本或修改字段", 400);
+        requireValue(!seen.has(String(item.id)), "批量修改不允许重复物资", 400);
+        seen.add(String(item.id));
+        const entries=Object.entries(item.changes);
+        requireValue(entries.length>0 && entries.every(([key,value])=>
+          allowed.has(key) && typeof value==="string"),
+          "批量修改只允许物资名称、型号、规格、备注四个字段", 400);
+        return {id:String(item.id),expected_version:Number(item.expected_version),
+          changes:Object.fromEntries(entries)};
+      });
+      // Each original save() still performs domain validation, versioning and audit.
+      // The outer transaction ensures the entire batch rolls back on any conflict.
+      return database.transaction(() => {
+        const records=updates.map(item=>save(actor,{
+          ...item.changes,expected_version:item.expected_version,
+        },item.id));
+        return {count:records.length,ids:records.map(row=>row.id)};
+      });
+    },
     impact: (key: string) => {
       const row = get(key);
       return {

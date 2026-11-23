@@ -19,6 +19,7 @@ const props = defineProps<{
   columns: DraftGridColumn[];
   errors?: Record<string,string>;
   gridKey: string;
+  mode?: "view" | "edit";
 }>();
 const emit = defineEmits<{
   (e:"change", id:string, field:string, value:string):void;
@@ -45,7 +46,7 @@ function snapshot(rows:DraftGridRow[]) {
   baseline=new Map(rows.map(row=>[row.id,Object.fromEntries(editables.value.map(field=>[field,String(row[field]??"")]))]));
 }
 function syncChanges(data:unknown[]){
-  if(!initialized)return;
+  if(!initialized || props.mode!=="edit")return;
   for(const item of data) {
     if(!item || typeof item!=="object" || !("id" in item))continue;
     const row=item as DraftGridRow;
@@ -61,7 +62,7 @@ function syncChanges(data:unknown[]){
   }
 }
 function onRowSelectPointer(event:PointerEvent) {
-  if(event.button!==0)return;
+  if(event.button!==0 || props.mode!=="edit")return;
   const button=(event.target as HTMLElement).closest<HTMLElement>("[data-grid-select-id]");
   if(!button)return;
   event.preventDefault();
@@ -76,6 +77,7 @@ function onRowSelectPointer(event:PointerEvent) {
 }
 /** Only permit paste into existing, contiguous writable draft columns and rows. */
 function guardPaste(event:ClipboardEvent){
+  if(props.mode!=="edit")return;
   const instance=table.value;
   const range=instance?.getRanges()[0];
   const clipboard=event.clipboardData?.getData("text/plain");
@@ -113,13 +115,13 @@ function columns():ColumnDefinition[] {
       return container;
     }
   };
-  return [selector,...props.columns.map((column):ColumnDefinition=>({
+  return [...(props.mode==="edit"?[selector]:[]),...props.columns.map((column):ColumnDefinition=>({
     field:column.field,title:column.title,
     width:column.width,minWidth:column.minWidth??125,
-    resizable:true,headerSort:false,editable:column.editable ?? false,
-    editor:column.editable?"input":undefined,
-    formatter:column.editable?undefined:"plaintext",
-    cssClass:column.editable?"business-draft-editable":"business-draft-readonly",
+    resizable:true,headerSort:false,editable:props.mode==="edit"&&Boolean(column.editable),
+    editor:props.mode==="edit"&&column.editable?"input":undefined,
+    formatter:props.mode==="edit"&&column.editable?undefined:"plaintext",
+    cssClass:props.mode==="edit"&&column.editable?"business-draft-editable":"business-draft-readonly",
   }))];
 }
 function replaceRows(){
@@ -139,11 +141,14 @@ onMounted(async()=>{
   const instance=new Tabulator(host.value,{
     index:"id",data:rows,columns:columns(),layout:"fitColumns",
     height:"auto",placeholder:"暂无明细",editTriggerEvent:"dblclick",
-    selectableRange:1,selectableRangeColumns:true,selectableRangeRows:true,
+    selectableRows:false,
+    selectableRange:props.mode==="edit"?1:false,
+    selectableRangeColumns:props.mode==="edit",selectableRangeRows:props.mode==="edit",
     selectableRangeClearCells:false,
-    clipboard:true,clipboardCopyRowRange:"range",clipboardPasteParser:"range",clipboardPasteAction:"range",
+    clipboard:props.mode==="edit",clipboardCopyRowRange:"range",
+    clipboardPasteParser:"range",clipboardPasteAction:"range",
     clipboardCopyConfig:{columnHeaders:false,rowHeaders:false},clipboardCopyStyled:false,
-    history:true,
+    history:props.mode==="edit",
   });
   instance.on("dataChanged",data=>syncChanges(data));
   instance.on("historyUndo",()=>syncChanges(instance.getData()));
@@ -155,7 +160,7 @@ watch(signature,replaceRows);
 defineExpose({undo,redo});
 </script>
 <template>
-  <div class="business-draft-grid" :data-grid-key="gridKey">
+  <div class="business-draft-grid" :class="mode === 'edit' ? 'is-editing' : 'is-viewing'" :data-grid-key="gridKey">
     <div ref="host" class="business-draft-host" aria-label="Excel式草稿编辑表" @pointerdown.capture="onRowSelectPointer" @paste.capture="guardPaste"></div>
     <div v-if="errors && Object.keys(errors).length" class="business-draft-errors" role="alert">
       <div v-for="(error,id) in errors" :key="id">{{ rows.find(row=>row.id===id)?.name??id }} · {{ error }}</div>
@@ -164,15 +169,50 @@ defineExpose({undo,redo});
 </template>
 <style scoped>
 .business-draft-grid{width:100%;min-width:0}
-.business-draft-host{width:100%;border:1px solid var(--edge);border-radius:7px;font-size:13px}
-.business-draft-grid :deep(.tabulator){background:var(--surface);color:var(--ink);border:0;font-family:inherit}
-.business-draft-grid :deep(.tabulator-header),.business-draft-grid :deep(.tabulator-col){background:var(--table-heading)!important;color:var(--table-heading-ink);border-color:var(--edge)}
-.business-draft-grid :deep(.tabulator-row){background:var(--surface);color:var(--ink);border-bottom:1px solid var(--edge)}
-.business-draft-grid :deep(.tabulator-row-even){background:var(--surface-subtle)}
-.business-draft-grid :deep(.tabulator-row:hover){background:var(--table-row-hover)}
-.business-draft-grid :deep(.tabulator-cell){border-color:var(--edge)}
-.business-draft-grid :deep(.business-draft-editable){color:var(--brand-primary);font-weight:600;background:var(--brand-soft)}
-.business-draft-grid :deep(.tabulator-cell[tabulator-field="quantity_text"]){font-variant-numeric:tabular-nums}
-.business-draft-grid :deep(.draft-select-row){border:0;background:transparent;color:var(--brand-primary);padding:2px 8px;font-size:18px;cursor:pointer}
+.business-draft-host{width:100%;overflow:hidden;border:1px solid var(--edge);border-radius:8px;font-size:13px}
+.business-draft-grid :deep(.tabulator){
+  background:var(--surface);color:var(--ink);border:0;font:inherit;
+}
+.business-draft-grid :deep(.tabulator-header),
+.business-draft-grid :deep(.tabulator-header .tabulator-col){
+  background:var(--table-heading)!important;
+  color:var(--table-heading-ink)!important;
+  border-color:var(--edge)!important;
+}
+.business-draft-grid :deep(.tabulator-col-title){
+  color:var(--table-heading-ink)!important;
+  font-size:13px;font-weight:600;
+}
+.business-draft-grid :deep(.tabulator .tabulator-row){
+  background:var(--surface)!important;color:var(--ink)!important;
+  border-bottom:1px solid var(--edge)!important;min-height:42px;
+}
+.business-draft-grid :deep(.tabulator .tabulator-row-even){
+  background:var(--surface-subtle)!important;
+}
+.business-draft-grid :deep(.tabulator .tabulator-row:hover){
+  background:var(--table-row-hover)!important;
+}
+.business-draft-grid :deep(.tabulator .tabulator-cell){
+  background:transparent!important;color:var(--ink)!important;
+  border-right:1px solid var(--edge)!important;
+  padding:10px 12px;vertical-align:middle;
+}
+.business-draft-grid.is-editing :deep(.business-draft-editable){
+  background:transparent!important;color:var(--ink)!important;
+  font-weight:400;cursor:cell;
+}
+.business-draft-grid.is-editing :deep(.business-draft-editable:hover){
+  background:var(--brand-soft)!important;
+}
+.business-draft-grid.is-editing :deep(.tabulator .tabulator-cell.tabulator-range-selected){
+  outline:2px solid var(--brand-primary);outline-offset:-2px;
+}
+.business-draft-grid :deep(.tabulator-cell[tabulator-field="quantity_text"]){
+  font-variant-numeric:tabular-nums;
+}
+.business-draft-grid :deep(.draft-select-row){
+  color:var(--brand-primary);padding:2px 8px;font-size:18px;
+}
 .business-draft-errors{color:var(--el-color-danger);font-size:12px;padding:8px 2px}
 </style>

@@ -77,6 +77,14 @@ try {
   await editor.locator(".editor-content").getByText("物资测试031").waitFor();
   await editor.locator(".editor-content").getByText("物资测试065").waitFor();
   await page.screenshot({path:join(output,"demand-added-materials.png"),fullPage:true});
+  assert.equal(await editor.locator(".business-draft-grid.is-viewing").count(),1,
+    "material detail must default to normal viewing mode");
+  assert.equal(await editor.locator(".business-draft-grid .tabulator-range").count(),0,
+    "view mode must not display an Excel selection");
+  assert.equal(await editor.getByRole("button",{name:"撤销",exact:true}).count(),0);
+  await editor.getByRole("button",{name:"批量编辑",exact:true}).click();
+  await editor.locator(".business-draft-grid.is-editing").waitFor();
+  assert.equal(await editor.getByRole("button",{name:"完成编辑",exact:true}).count(),1);
   const edited=editor.locator(".business-draft-grid .tabulator-row").filter({ hasText:"物资测试031" })
     .locator(".tabulator-cell[tabulator-field='quantity_text']");
   await edited.dblclick();
@@ -116,9 +124,14 @@ try {
   await last.dblclick();
   await last.locator("input").fill("5");
   await last.locator("input").press("Enter");
-  await editor.getByRole("button",{name:"撤销单元格编辑"}).click();
+  await editor.getByRole("button",{name:"撤销",exact:true}).click();
   await page.waitForTimeout(100);
   assert.equal((await last.textContent())?.trim(),"4","single-cell editing supports undo");
+  await editor.getByRole("button",{name:"完成编辑",exact:true}).click();
+  await editor.locator(".business-draft-grid.is-viewing .tabulator-row").first().waitFor();
+  assert.equal(await editor.locator(".business-draft-grid .tabulator-range").count(),0);
+  assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"]);
+  await page.screenshot({path:join(output,"demand-materials-readonly-mode.png"),fullPage:true});
   await editor.getByRole("button",{name:"保存需求版本",exact:true}).click();
   await editor.waitFor({state:"hidden"});
   const saved=s.demands.get(demand.id);

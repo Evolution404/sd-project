@@ -32,6 +32,25 @@ try {
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.getByRole("heading", { name: "物资管理" }).waitFor();
   await page.locator(".tabulator-row").first().waitFor();
+  assert.equal(await page.locator(".tabulator-range").count(),0,"ordinary list never displays Excel selection");
+  await page.locator(".tabulator-row").first().locator('.tabulator-cell[tabulator-field="model"]').click();
+  assert.equal(await page.locator(".tabulator-range").count(),0,"clicking a normal cell does not activate a spreadsheet range");
+  const computedAppearance=await page.evaluate(()=>{
+    const head=document.querySelector(".tabulator-col-title");
+    const body=document.querySelector(".tabulator-row");
+    const first=document.querySelector('.tabulator-cell[tabulator-field="name"]');
+    return {header:getComputedStyle(head).color,headerBackground:getComputedStyle(head.closest(".tabulator-header")).backgroundColor,
+      row:getComputedStyle(body).color,rowBackground:getComputedStyle(body).backgroundColor,
+      cellBackground:getComputedStyle(first).backgroundColor,
+      range:document.querySelectorAll(".tabulator-range-selected").length};
+  });
+  assert.equal(computedAppearance.header,"rgb(66, 83, 107)");
+  assert.equal(computedAppearance.headerBackground,"rgb(244, 247, 251)");
+  assert.equal(computedAppearance.row,"rgb(23, 34, 52)");
+  assert.ok(["rgb(255, 255, 255)","rgb(243, 247, 255)"].includes(computedAppearance.rowBackground),
+    "list row only uses normal or hover background, not spreadsheet selection");
+  assert.equal(computedAppearance.range,0);
+  await page.screenshot({path:join(output,"material-normal-view-light.png")});
   assert.equal(await page.locator(".tabulator-row").count(), 30, "server page contains 30 materials");
   await page.locator('[data-grid-filter="model"]').click();
   const dialog = page.getByRole("dialog", { name: "型号筛选与排序" });

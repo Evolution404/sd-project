@@ -692,6 +692,7 @@ async function save(duplicate?: string[], duplicateReason?: string, tokens?: Rec
                 (row) => !$event.includes(row.id),
               )
             "
+            @replace="draft.materials = $event"
             @invalid="(id, value) => (invalid[id] = value)"
           />
         </section>

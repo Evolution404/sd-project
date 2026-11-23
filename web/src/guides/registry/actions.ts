@@ -29,6 +29,8 @@ const records: ReadonlyArray<readonly [GuideModuleId|"excel",readonly CompactAct
   ["demands.batch","批量填写共同信息","统一填写已选位置的数量与附加属性","明确选中位置","批量更新草稿各位置","每处可独立修正，避免误覆盖",write],
   ["demands.source","维护需求来源","记录巡视、工单及其他证据来源","有正式需求草稿","形成可追溯来源","不可静默删除未涉及的来源",write],
   ["demands.material","预计物资","记录计划物资和采用单位","物资有合法版本","保存需求预计物资","不得静默折算或舍入",write],
+  ["demands.material-batch-edit","批量编辑预计物资","主动开启预计物资数量的 Excel 式草稿编辑","需求草稿已有预计物资","支持粘贴、填充与撤销草稿","禁止修改计量单位，最终仍需保存需求正式版本",write],
+  ["demands.material-finish-edit","完成预计物资批量编辑","关闭 Excel 编辑区域并回到正常查看表格","草稿数量通过计量单位精度校验","保留尚未正式保存的草稿修改","点击完成编辑本身不提交正式版本",write],
   ["demands.confirm","确认需求有效","审核现场依据后正式确认","需求待确认或已退回","需求进入有效状态并记审计事件","需要审核权限和版本检查",verify,["pending","returned"]],
   ["demands.return","退回修改","把已确认但未承接的需求退回补正","在需求详情的「其他处理」中选择「退回修改」。已承接的需求不能直接退回，需先正式修订或办理解绑","保留原版本和退回办理事件","退回后经修订和重新确认才能承接",verify,["active"]],
   ["demands.cancel","取消需求","终止未承接需求","在需求详情的「其他处理」中办理。须核对承接关系","需求进入已取消，可查看历史","已有承接时须先按项目规则处理关联",verify],
@@ -101,6 +103,8 @@ const records: ReadonlyArray<readonly [GuideModuleId|"excel",readonly CompactAct
  ]],
  ["materials",[
   ["materials.create","新增物资","创建型号规格和计量单位","计量单位已经配置","新增物资主数据","作业对象与物资不是同一身份",admin,["empty"],".page-heading-actions"],
+  ["materials.batch-edit","批量编辑物资","切换到 Excel 式批量编辑草稿","管理员且物资列表非空，不包含已删除记录","进入当前页的可编辑草稿","未点击确认保存不会写入正式物资版本，计量单位和状态不能直接改动",admin],
+  ["materials.batch-save","保存批量修改","逐条校验后事务性保存物资新正式版本","当前页有合法编辑变更且管理员确认","全部变更成功或全部回滚","每条仍检查正式版本，不允许部分成功",admin],
   ["materials.edit","维护物资版本","修订名称、型号和规格","当前物资存在","保存新版本","既有需求采用的物资版本不受改写",admin],
   ["materials.disable","停用或删除物资","限制未来选择但保留历史关联","完成引用保护","不再正常可选","已引用物资不能抹除历史",admin],
   ["materials.history","物资历史","查看历史采用版本","物资存在","只读历史版本",immutable,all],

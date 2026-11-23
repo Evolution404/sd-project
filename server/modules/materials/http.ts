@@ -56,6 +56,9 @@ export async function handleMaterials(
       ),
     };
   requireValue(method === "POST", "物资写入请求方法无效", 405);
+  if (sub === "bulk") return {
+    result: mutate("admin", () => system.materials.saveBatch(actor,input.rows)),
+  };
   return {
     result: mutate("admin", () =>
       system.materials.save(actor, input, sub || undefined),

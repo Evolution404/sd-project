@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { ElMessage } from "element-plus";
 import { exactScaledDecimalText, formatScaledDecimal, quantityFitsUnitPrecision } from "../../../shared/utils/fixed-scale";
 import type { MaterialDraft } from "../types/demand";
 import BusinessDraftGrid, { type DraftGridColumn } from "../../../shared/ui/BusinessDraftGrid.vue";
@@ -9,10 +10,13 @@ const props = defineProps<{ rows: MaterialDraft[] }>();
 const emit = defineEmits<{
   add: [rows: MaterialDraft[]];
   remove: [ids: string[]];
+  replace: [rows: MaterialDraft[]];
   invalid: [id: string, value: boolean];
 }>();
 const selected = ref<string[]>([]);
 const opening = ref(false);
+const editing = ref(false);
+const beforeEdit = ref<MaterialDraft[]>([]);
 const grid = ref<{undo:()=>void;redo:()=>void}|null>(null);
 const invalidTexts=ref<Record<string,string>>({});
 const draftRows=computed(()=>props.rows.map(row=>({
@@ -45,21 +49,53 @@ function onChange(id:string,field:string,text:string) {
   }
   emit("invalid",id,Boolean(error));
 }
+function enterEdit() {
+  beforeEdit.value = props.rows.map(row=>({...row}));
+  selected.value = [];
+  editing.value = true;
+}
+function finishEdit() {
+  if (Object.keys(invalidTexts.value).length) {
+    ElMessage.error("请先修正预计物资数量错误，再结束批量编辑");
+    return;
+  }
+  editing.value = false;
+  selected.value = [];
+}
+function cancelEdit() {
+  const allIds = new Set([...beforeEdit.value.map(row=>row.id),...props.rows.map(row=>row.id)]);
+  for(const id of allIds)emit("invalid",id,false);
+  emit("replace",beforeEdit.value.map(row=>({...row})));
+  invalidTexts.value={};
+  selected.value=[];
+  editing.value=false;
+}
 function removeSelection() {
   emit("remove",selected.value);
   selected.value=[];
 }
 </script>
 <template>
-  <div class="toolbar">
+  <div class="toolbar demand-material-actions">
     <ElButton data-guide-action="demands.material" @click="opening=true">添加预计物资</ElButton>
-    <ElButton data-guide-action="demands.material-remove" :disabled="!selected.length" type="danger" plain
-      @click="removeSelection">移除选中物资</ElButton>
-    <ElButton :disabled="!rows.length" @click="grid?.undo()">撤销单元格编辑</ElButton>
-    <ElButton :disabled="!rows.length" @click="grid?.redo()">重做单元格编辑</ElButton>
-    <span class="muted">双击预计数量编辑 · 支持从 Excel 粘贴多行数据 · 保存时生成正式需求版本</span>
+    <template v-if="!editing">
+      <ElButton type="primary" :disabled="!rows.length" data-guide-action="demands.material-batch-edit"
+        @click="enterEdit">批量编辑</ElButton>
+      <span class="muted">正常查看模式 · 批量填写或从 Excel 粘贴时进入编辑模式</span>
+    </template>
+    <template v-else>
+      <ElButton type="primary" data-guide-action="demands.material-finish-edit" @click="finishEdit">完成编辑</ElButton>
+      <ElButton @click="cancelEdit">取消本次编辑</ElButton>
+      <ElButton data-guide-action="demands.material-remove" :disabled="!selected.length"
+        type="danger" plain @click="removeSelection">移除选中物资</ElButton>
+      <ElButton @click="grid?.undo()">撤销</ElButton>
+      <ElButton @click="grid?.redo()">重做</ElButton>
+      <span class="muted">编辑模式 · 仅修改草稿；请通过“保存需求版本”正式提交</span>
+    </template>
   </div>
-  <BusinessDraftGrid ref="grid" :rows="draftRows" :columns="columns" :errors="invalidTexts"
-    grid-key="demand:materials-editor" @change="onChange" @selection-change="selected=$event"/>
+  <BusinessDraftGrid :key="editing ? 'material-edit' : 'material-view'"
+    ref="grid" :rows="draftRows" :columns="columns" :mode="editing ? 'edit' : 'view'"
+    :errors="invalidTexts" grid-key="demand:materials-editor"
+    @change="onChange" @selection-change="selected=$event"/>
   <DemandMaterialPicker v-model:open="opening" :existing="rows" @add="emit('add',$event)"/>
 </template>

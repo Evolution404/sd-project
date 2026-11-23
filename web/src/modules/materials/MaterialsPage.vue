@@ -18,6 +18,7 @@ import { useAccess } from "../../shared/composables/use-access";
 import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
 import TabulatorGrid, { type GridColumn } from "../../shared/ui/TabulatorGrid.vue";
+import BusinessDraftGrid, { type DraftGridColumn, type DraftGridRow } from "../../shared/ui/BusinessDraftGrid.vue";
 import type { FacetPage, FacetValue } from "../../shared/ui/ExcelColumnFilter.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
@@ -56,6 +57,85 @@ const columns: GridColumn[] = fields.map(field => ({
   minWidth: field.key === "name" ? 190 : 130,
 }));
 const grid = ref<{ openSettings: () => void } | null>(null);
+const bulkEditing = ref(false);
+const bulkSaving = ref(false);
+const bulkOriginal = ref<MaterialRecord[]>([]);
+const bulkRows = ref<DraftGridRow[]>([]);
+const bulkColumns: DraftGridColumn[] = [
+  { field: "code", title: "物资编号", minWidth: 116 },
+  { field: "name", title: "物资名称", minWidth: 165, editable: true },
+  { field: "model", title: "型号", minWidth: 130, editable: true },
+  { field: "specification", title: "规格", minWidth: 140, editable: true },
+  { field: "note", title: "备注", minWidth: 170, editable: true },
+  { field: "unit_id_label", title: "计量单位", minWidth: 100 },
+  { field: "status_text", title: "状态", minWidth: 90 },
+];
+const editableFields = ["name","model","specification","note"] as const;
+const bulkChanges = computed(() => bulkOriginal.value.flatMap(original => {
+  const draft = bulkRows.value.find(row => row.id===original.id);
+  if (!draft) return [];
+  const changes = Object.fromEntries(editableFields.filter(key =>
+    String(draft[key]??"") !== String(original[key]??""))
+    .map(key => [key,String(draft[key]??"")]));
+  return Object.keys(changes).length
+    ? [{id:original.id,expected_version:original.version_no,changes}] : [];
+}));
+function startBulkEdit() {
+  bulkOriginal.value = rows.value.map(row=>({...row}));
+  bulkRows.value = rows.value.map(row=>({
+    id:row.id,code:row.code,name:row.name,model:row.model,
+    specification:row.specification,note:row.note,
+    unit_id_label:row.unit_id_label,status_text:statusText[row.status],
+  }));
+  bulkEditing.value=true;
+}
+function updateBulkCell(id:string, field:string, value:string) {
+  const draft = bulkRows.value.find(row=>row.id===id);
+  if (draft && editableFields.some(item=>item===field)) draft[field]=value;
+}
+async function discardBulkEdit() {
+  if (bulkChanges.value.length) {
+    try {
+      await ElMessageBox.confirm(
+        "当前批量编辑的修改尚未保存，确定放弃全部修改吗？",
+        "放弃批量修改", {type:"warning"},
+      );
+    } catch { return; }
+  }
+  bulkEditing.value=false;
+  bulkOriginal.value=[];
+  bulkRows.value=[];
+}
+async function saveBulkEdit() {
+  const changes=bulkChanges.value;
+  if (!changes.length) {
+    ElMessage.info("没有需要保存的修改");
+    return;
+  }
+  if (changes.some(item=>item.changes.name!==undefined && !String(item.changes.name).trim())) {
+    ElMessage.error("物资名称不能为空，请修正后再保存");
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      `本次将修改 ${changes.length} 条物资，并分别产生新的正式版本。任一条验证失败将整批回滚，确定保存吗？`,
+      "确认批量保存", {type:"warning"},
+    );
+  } catch { return; }
+  bulkSaving.value=true;
+  try {
+    const result=await api<{count:number}>("/catalog/materials/bulk","POST",{rows:changes});
+    bulkEditing.value=false;
+    bulkOriginal.value=[];
+    bulkRows.value=[];
+    await load();
+    ElMessage.success(`已保存 ${result.count} 条物资的正式版本`);
+  } catch (failure) {
+    ElMessage.error((failure as Error).message);
+  } finally {
+    bulkSaving.value=false;
+  }
+}
 type GridFilters = Record<string, FacetValue[]>;
 const gridState = ref("{}");
 const gridFilters = computed<GridFilters>(() => {
@@ -242,7 +322,20 @@ onMounted(load);
   >
   <div class="panel">
 
-    <div class="unified-list-tools">
+    <div v-if="bulkEditing" class="unified-list-tools">
+      <div class="toolbar">
+        <strong>批量编辑模式 · 当前页 {{ bulkOriginal.length }} 条</strong>
+        <span class="muted">只允许修改名称、型号、规格、备注；其他字段及跨页数据均受保护</span>
+      </div>
+      <div class="toolbar page-heading-actions">
+        <span class="muted">待保存 {{ bulkChanges.length }} 条</span>
+        <ElButton @click="discardBulkEdit">取消编辑</ElButton>
+        <ElButton type="primary" data-guide-action="materials.batch-save"
+          :loading="bulkSaving" :disabled="!bulkChanges.length"
+          @click="saveBulkEdit">保存批量修改</ElButton>
+      </div>
+    </div>
+    <div v-else class="unified-list-tools">
       <div class="toolbar">
         <ElInput v-model="query" clearable placeholder="搜索物资名称、型号或规格"
           @change="page = 1;load()" />
@@ -253,16 +346,21 @@ onMounted(load);
       <div class="toolbar page-heading-actions">
         <ElButton :loading="loading" @click="load">刷新</ElButton>
         <ElButton class="business-column-setting-trigger" @click="grid?.openSettings()">列设置</ElButton>
+        <ElButton v-if="can('admin') && !deleted && rows.length"
+          data-guide-action="materials.batch-edit" @click="startBulkEdit">批量编辑</ElButton>
         <ElButton data-guide-action="materials.create" type="primary" v-if="can('admin')" @click="edit()">新增物资</ElButton>
       </div>
     </div>
-    <TabulatorGrid ref="grid" detail-column="name" :rows="rows" :loading="loading"
+    <BusinessDraftGrid v-if="bulkEditing" mode="edit" grid-key="catalog:materials-batch"
+      :rows="bulkRows" :columns="bulkColumns" @change="updateBulkCell"/>
+    <TabulatorGrid v-else ref="grid" detail-column="name" :rows="rows" :loading="loading"
       :columns="columns" table-key="catalog:materials" :filters="gridFilters"
       :sort-key="sort" :sort-direction="direction === 'asc' ? 'asc' : direction === 'desc' ? 'desc' : ''"
       :get-values="filterValues" @open-detail="detailDialog.open($event.id)"
       @filter-change="applyGridFilters" @sort-change="applyGridSort" />
     <ElPagination
       v-model:current-page="page"
+      :disabled="bulkEditing"
       :page-size="30"
       :total="total"
       layout="prev,pager,next,total"
