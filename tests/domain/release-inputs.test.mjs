@@ -22,10 +22,14 @@ test("release input fingerprint includes build configuration and detects source 
   }
   assert.deepEqual(sourceSnapshot(root), snapshot);
 });
-test("package verification fails early when the host runtime is outside Node24", () => {
+test("release rejects Node24 and requires Node26", () => {
   const module = new URL("../../scripts/release/source-snapshot.mjs", import.meta.url).href;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e",
-    `Object.defineProperty(process,'version',{value:'v26.0.0'}); const {requireNode24}=await import(${JSON.stringify(module)}); requireNode24();`], {encoding:"utf8"});
+    `Object.defineProperty(process,'version',{value:'v24.22.2'}); const {requireNode26}=await import(${JSON.stringify(module)}); requireNode26();`], {encoding:"utf8"});
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Node24/);
+  assert.match(result.stderr, /Node26/);
+});
+test("release accepts the actual Node26 host", async () => {
+  const { requireNode26 } = await import("../../scripts/release/source-snapshot.mjs");
+  assert.doesNotThrow(requireNode26);
 });

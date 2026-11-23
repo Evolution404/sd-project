@@ -1,4 +1,4 @@
-import { requireNode24, sourceSnapshot } from "./source-snapshot.mjs";
+import { requireNode26, sourceSnapshot } from "./source-snapshot.mjs";
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
 import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 
-requireNode24();
+requireNode26();
 const root = resolve(import.meta.dirname, "../..");
 const zip = join(root, "dist/sd-project-win10-x64-demo.zip");
 const receipt = JSON.parse(readFileSync(join(root, "dist/DEMO-RELEASE-MANIFEST.json"), "utf8"));
@@ -31,6 +31,8 @@ z.extractall(out)
   assert.equal(unzip.status,0,unzip.stderr);
   const manifest = JSON.parse(readFileSync(join(stage,"BUILD-MANIFEST.json"),"utf8"));
   assert.equal(manifest.package_mode,"demo");
+  assert.match(manifest.runtime,/^v26\.\d+\.\d+$/);
+  assert.equal(manifest.runtime,receipt.runtime);
   assert.equal(typeof manifest.worktree_dirty,"boolean");
   assert.match(manifest.build_input_sha256,/^[0-9a-f]{64}$/);
   assert.equal(manifest.worktree_dirty,receipt.worktree_dirty);
@@ -162,7 +164,7 @@ z.extractall(out)
     restart_persistence: true, access_logs_rotation_restart: true,
   };
   writeFileSync(join(root,"dist/DEMO-RELEASE-MANIFEST.json"), JSON.stringify(receipt,null,2) + "\n");
-  console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node24, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
+  console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node26, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
 } finally {
   if(server && server.exitCode===null)server.kill("SIGTERM");
   rmSync(temp,{recursive:true,force:true});

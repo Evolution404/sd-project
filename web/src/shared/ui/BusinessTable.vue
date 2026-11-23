@@ -195,7 +195,10 @@ function syncPreferences(event: Event) {
 function show(key: string, value: boolean) {
   const column = props.columns.find(c => c.key === key);
   if (!column || isRequired(column)) return;
-  pref.value.hidden = value ? pref.value.hidden.filter(k => k !== key) : [...pref.value.hidden, key];
+  const hidden = new Set(pref.value.hidden);
+  if (value) hidden.delete(key);
+  else hidden.add(key);
+  pref.value.hidden = [...hidden];
   persist();
 }
 function toggleFixed(key: string) {
@@ -357,7 +360,8 @@ watch(() => props.tableKey, async () => {
       <div v-for="(col, i) in orderedColumns" :key="col.key" :data-column-key="col.key" class="column-setting-item">
         <ElButton class="column-drag-handle" text size="small" :aria-label="'调整' + col.label + '顺序'"
           title="拖动排序，或使用上下方向键" @keydown="reorderByKeyboard($event, col.key, i)"><ElIcon><Rank /></ElIcon></ElButton>
-        <ElCheckbox :model-value="isRequired(col) || !pref.hidden.includes(col.key)" :disabled="isRequired(col) || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
+        <ElCheckbox :key="col.key + ':' + String(isRequired(col) || !pref.hidden.includes(col.key))"
+          :model-value="isRequired(col) || !pref.hidden.includes(col.key)" :disabled="isRequired(col) || (shownColumns.length === 1 && !pref.hidden.includes(col.key))"
           @change="show(col.key, Boolean($event))">{{ col.label }}</ElCheckbox>
         <div class="column-setting-actions"><ElButton text size="small" @click="toggleFixed(col.key)">{{ pref.fixed.includes(col.key) ? '取消固定' : '固定列' }}</ElButton></div>
       </div>

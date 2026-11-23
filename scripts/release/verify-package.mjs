@@ -1,4 +1,4 @@
-import { requireNode24, sourceSnapshot } from "./source-snapshot.mjs";
+import { requireNode26, sourceSnapshot } from "./source-snapshot.mjs";
 import {
   mkdtempSync,
   rmSync,
@@ -13,7 +13,7 @@ import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
-requireNode24();
+requireNode26();
 const root = resolve(import.meta.dirname, "../.."),
   zip = join(root, "dist/sd-project-win10-x64.zip"),
   temporary = mkdtempSync(join(tmpdir(), "sd113-package-")),
@@ -76,6 +76,8 @@ for(const file of ["scripts/training/instance.mjs",
     "docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md"])
   assert.ok(existsSync(join(stage,file)),"离线包缺少P10及杆塔字典资源："+file);
 assert.equal(manifest.schema_version, 113);
+assert.match(manifest.runtime,/^v26\.\d+\.\d+$/);
+assert.equal(manifest.runtime,receipt.runtime);
   for (const config of ["vite.config.ts", "tsconfig.json", "tsconfig.server.json"])
     assert.match(manifest.build_input_files_sha256[config], /^[a-f0-9]{64}$/);
 assert.equal(manifest.git_commit, receipt.git_commit);

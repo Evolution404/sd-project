@@ -84,7 +84,9 @@ async function expectHeader(name){
     "Expected column "+name+": "+(await getHeaders()).join(","));
 }
 async function noHeader(name){
-  assert.ok(!(await getHeaders()).some(x=>x.includes(name)),
+  // Standalone forbidden headings must be compared exactly: span endpoints
+  // legitimately contain the suffix of the logical tower column.
+  assert.ok(!(await getHeaders()).some(x=>x===name),
     "Forbidden column "+name+": "+(await getHeaders()).join(","));
 }
 async function awaitSort(key, direction, headerName) {
@@ -189,6 +191,15 @@ try {
   assert.ok((await rows().allInnerTexts()).some(x=>x.includes("10 ~ 11")));
   await picker.getByRole("button",{name:"列设置"}).click();
   await settings.waitFor();
+  // Defaults may already expose this useful span column. Verify both
+  // visibility transitions, not a blind toggle with assumed defaults.
+  if ((await getHeaders()).includes("起点杆号")) {
+    await settings.getByText("起点杆号",{exact:true}).click();
+    await settings.getByRole("button",{name:"完成",exact:true}).click();
+    await noHeader("起点杆号");
+    await picker.getByRole("button",{name:"列设置"}).click();
+    await settings.waitFor();
+  }
   await settings.getByText("起点杆号",{exact:true}).click();
   await settings.getByRole("button",{name:"完成",exact:true}).click();
   await expectHeader("起点杆号");

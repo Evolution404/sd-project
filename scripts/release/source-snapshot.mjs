@@ -23,6 +23,6 @@ export function sourceSnapshot(root) {
   }
   return { sha256: hash.digest("hex"), files };
 }
-export function requireNode24() {
-  if (!/^v24\./.test(process.version)) throw Error("构建与发布验收须使用Node24，当前为" + process.version);
+export function requireNode26() {
+  if (!/^v26\./.test(process.version)) throw Error("构建与发布验收须使用Node26，当前为" + process.version);
 }

@@ -329,7 +329,7 @@ async function readWorkbook(buffer: Buffer) {
   }
   const workbook = new ExcelJS.Workbook();
   try {
-    // ExcelJS declares a pre-Node24 Buffer signature; the bytes have already passed ZIP checks.
+    // ExcelJS declares an older Buffer signature; the bytes have already passed ZIP checks.
     const compatibleBytes = buffer as unknown as Parameters<typeof workbook.xlsx.load>[0];
     await workbook.xlsx.load(compatibleBytes);
   } catch {

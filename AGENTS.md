@@ -43,7 +43,7 @@
 
 数据库模块唯一允许SQL、SQLite驱动、事务及备份。HTTP仅负责请求和响应、身份上下文及路由，应用服务处理权限、事务和业务编排。领域层保持无副作用。禁止通用Repository任意表操作穿透业务层、跨模块循环依赖和无类型万能业务模型。
 
-Node24，后端严格TypeScript正式编译后运行。前端Vue3、TypeScript、Vue Router和Element Plus。Element Plus为唯一业务UI。禁止原生业务输入、浏览器弹窗或ElInput的date/number/file绕行，ElForm声明novalidate，官方CSS完整加载。
+Node26，后端严格TypeScript正式编译后运行。前端Vue3、TypeScript、Vue Router和Element Plus。Element Plus为唯一业务UI。禁止原生业务输入、浏览器弹窗或ElInput的date/number/file绕行，ElForm声明novalidate，官方CSS完整加载。
 
 详情使用右侧抽屉，短表单和单步确认使用紧凑模态框。专业需求录入与修订、项目立项与变更、结算编制与审核采用正式办理路由。快速查看保持列表地址。返回办理来源时恢复列表、筛选、分页、滚动和当前会话内勾选。列表状态写URL，表单草稿独立。
 
@@ -61,7 +61,7 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 
 执行 `npm run check`、`npm run check:schema`、`npm run test:browser`、`npm run test:performance`、`npm run package:win`、`npm run test:package`。Schema变更还要单独跑三项Python结构验收。
 
-前端仅清理dist/web，编译服务端仅清理dist/server。Windows10 x64包固定dist/sd-project-win10-x64.zip，包含Node24运行时、编译服务端、前端和生产依赖。data固定解压根目录，不进ZIP。正式版和Demo允许在存在未提交改动时打包，不强制先Git提交。包内外Manifest须记录Git基线提交、实际工作区dirty标记、全部构建输入SHA256及发布ZIP SHA256；构建期间受控源码不得变化，不能把dirty包宣称为对应提交的纯净产物。Mac宿主验证与Windows实机验收分别记录。
+前端仅清理dist/web，编译服务端仅清理dist/server。Windows10 x64包固定dist/sd-project-win10-x64.zip，包含Node26运行时、编译服务端、前端和生产依赖。data固定解压根目录，不进ZIP。正式版和Demo允许在存在未提交改动时打包，不强制先Git提交。包内外Manifest须记录Git基线提交、实际工作区dirty标记、全部构建输入SHA256及发布ZIP SHA256；构建期间受控源码不得变化，不能把dirty包宣称为对应提交的纯净产物。Mac宿主验证与Windows实机验收分别记录。
 
 并行开发前检查Git、worktree、进程和活跃任务。禁止覆盖其他开发者未提交修改。本重构独立分支codex/full-rewrite-20261110，恢复标签codex/pre-full-rewrite-20261110。未另授权不推送远程。
 
@@ -121,12 +121,17 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 
 用户明确确认，已结项也禁止解绑最新版正式批准范围内的需求。原有结项后解绑例外作废，界面、服务端和数据库均执行此规则。结项项目保留批准、结算及承接关系和连续历史。在办项目须先完成正式范围变更并移出需求。尚无正式批准范围的合法解绑继续按草稿和关联版本校验。
 
+## 2026-11-23 Node 26 运行环境裁决
+
+- 本日用户明确取消 Node 24 依赖；开发、严格 TypeScript 编译、自动测试、Windows 正式与演示打包、包验收一律采用 Node 26。宿主默认版本 v26.12.0，Windows 内置同版本并必须验官方 SHA256。`@types/node` 使用 26 系列。历史报告中的 Node 24 为当时测试记录，不再构成当前要求。
+- Windows 10 实机启动、CMD／PowerShell 与文件锁验收继续独立暂缓，不能用 macOS 包验证代替。
+
 ## 2026-11-16 审计修复后的执行约束
 
 - 已批准项目普通关联入口禁止写入。新增候选保存在变更草稿完整快照，批准时原子关联新增需求并释放移出范围，重新检查独占归属和正式版本。候选阶段不占用需求。
 - 初次批准草稿须先入库。批准前需求完整正式版本必须与草稿采用版本一致。
 - 已结项项目冻结普通科目、费用、结算及核对写入。任何未提交的结算草稿或修订草稿均阻止结项，操作提示提前展示原因。
-- 发布通过 scripts/release/build-and-package.mjs，在构建前后和封包结束复核完整输入及三项根配置的指纹。构建封包与包验收使用 Node24，dirty 打包授权继续有效。
+- 发布通过 scripts/release/build-and-package.mjs，在构建前后和封包结束复核完整输入及三项根配置的指纹。构建封包与包验收使用 Node26，dirty 打包授权继续有效。
 - 本轮实现与验收记录见 docs/implementation/2026-11-16_审计问题修复与交付验收.md。
 
 ## 2026-11-16 标黄双项目全流程回归

@@ -161,13 +161,16 @@ Windows离线目录可在停止服务后执行 `runtime\node.exe scripts\upgrade
 
 ## Windows 离线包
 
+当前唯一支持的构建、测试及打包 Node 主版本为 **26**。发布脚本拒绝其他主版本，默认将宿主同版 Node 26 官方 Windows x64 运行时纳入压缩包并验证 SHA256。以前项目文件记录的 Node 24 是历史验收事实，不是现行依赖。
+
+
 ```sh
 npm run package:win
 ```
 
-交付时提交全部源码和文档。允许在开发中打包未提交输入，清单记录基线提交、工作区状态和完整构建输入指纹，构建及封包期间输入发生变化即拒绝发布。前端只清理 `dist/web/`，后续构建保留已生成ZIP。输出 `dist/sd-project-win10-x64.zip`，内置 Node.js 24.13.0 x64、生产依赖、编译服务端和前端资源。服务端入口为 `dist/server/main.js`，包内不包含服务端TS源目录。包内不含 `data/`。在 Windows 10/11 x64 的可写目录解压后，运行 `初始化管理员.cmd` 和 `启动服务.cmd`。运行数据位于解压根目录的 `data/`。恢复可执行 `runtime\node.exe scripts\restore.mjs 备份目录 全新恢复目录`，验证后以对应DATA_DIR启动。
+交付时提交全部源码和文档。允许在开发中打包未提交输入，清单记录基线提交、工作区状态和完整构建输入指纹，构建及封包期间输入发生变化即拒绝发布。前端只清理 `dist/web/`，后续构建保留已生成ZIP。输出 `dist/sd-project-win10-x64.zip`，内置 Node.js 26.x x64（默认与打包宿主 Node 26 版本一致）、生产依赖、编译服务端和前端资源。服务端入口为 `dist/server/main.js`，包内不包含服务端TS源目录。包内不含 `data/`。在 Windows 10/11 x64 的可写目录解压后，运行 `初始化管理员.cmd` 和 `启动服务.cmd`。运行数据位于解压根目录的 `data/`。恢复可执行 `runtime\node.exe scripts\restore.mjs 备份目录 全新恢复目录`，验证后以对应DATA_DIR启动。
 
-打包检查包含官方运行时 SHA256、ZIP完整性、PowerShell UTF-8 BOM、CMD ASCII编码和数据排除。`test:package` 解压实际ZIP，复核源码提交和文件哈希，执行一次前端重建验证ZIP字节保持，再用 Node24 验证初始化、登录、临时需求、附件、备份、恢复和重启。服务端源码与编译文件分别记录SHA256。最终大小、SHA256、时间和Git提交号保存在 `dist/RELEASE-MANIFEST.json`。Windows系统自身的CMD、PowerShell、防火墙和文件锁行为需要Windows实机验收。
+打包检查包含官方运行时 SHA256、ZIP完整性、PowerShell UTF-8 BOM、CMD ASCII编码和数据排除。`test:package` 解压实际ZIP，复核源码提交和文件哈希，执行一次前端重建验证ZIP字节保持，再用 Node26 验证初始化、登录、临时需求、附件、备份、恢复和重启。服务端源码与编译文件分别记录SHA256。最终大小、SHA256、时间和Git提交号保存在 `dist/RELEASE-MANIFEST.json`。Windows系统自身的CMD、PowerShell、防火墙和文件锁行为需要Windows实机验收。
 
 ## 当前记录
 

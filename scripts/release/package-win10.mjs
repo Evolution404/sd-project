@@ -1,4 +1,4 @@
-import { sourceSnapshot as captureSourceSnapshot, requireNode24 } from "./source-snapshot.mjs";
+import { sourceSnapshot as captureSourceSnapshot, requireNode26 } from "./source-snapshot.mjs";
 import {
   mkdirSync,
   rmSync,
@@ -19,15 +19,15 @@ import { createSystem } from "../../dist/server/bootstrap.js";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-requireNode24();
+requireNode26();
 const root = resolve(import.meta.dirname, "..", "..");
 const mode = process.env.SD_PACKAGE_MODE || "production";
 if (!["production", "demo"].includes(mode))
   throw Error("无效的 Windows 打包模式");
 const demoMode = mode === "demo";
-const version = process.env.SD_NODE_VERSION || "v24.13.0";
-if (!/^v24\.\d+\.\d+$/.test(version))
-  throw Error("Windows 运行时仅允许经过测试的 Node 24.x");
+const version = process.env.SD_NODE_VERSION || process.version;
+if (!/^v26\.\d+\.\d+$/.test(version))
+  throw Error("Windows 运行时仅允许Node 26.x");
 const archive = `node-${version}-win-x64.zip`;
 const nodeBase = `https://nodejs.org/download/release/${version}`;
 const work = join(root, "dist");
@@ -129,6 +129,8 @@ for (const [src, dest] of [
     "docs/implementation/P10_实施与验收_2026-11-12.md",
     "docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md",
     "docs/implementation/访问日志与最终交付_2026-11-13.md",
+    "docs/implementation/费用结算与立项桌面交付.md",
+    "docs/implementation/2026-11-23_Node26与费用立项最终验收.md",
   ].map((path) => [path, path]),
   ["package.json", "package.json"],
 ]) {

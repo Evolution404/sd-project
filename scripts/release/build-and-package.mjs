@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
-import { sourceSnapshot, requireNode24 } from "./source-snapshot.mjs";
-requireNode24();
+import { sourceSnapshot, requireNode26 } from "./source-snapshot.mjs";
+requireNode26();
 const root = resolve(import.meta.dirname, "../..");
 const head = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
 if (head.status !== 0) throw Error("无法读取构建基线");
