@@ -99,6 +99,27 @@ try {
     .locator(".tabulator-cell[tabulator-field='quantity_text']");
   await first.click();
   assert.equal(await editor.locator(".tabulator-range").count(),1,"single-cell range is active");
+  const draftGrid = editor.locator(".business-draft-grid");
+  const selectionAppearance = () => draftGrid.evaluate(root => {
+    const activeTitle = root.querySelector(".tabulator-col.tabulator-range-highlight");
+    const otherTitle = root.querySelector(".tabulator-col:not(.tabulator-range-highlight)");
+    const rowHeader = root.querySelector(".tabulator-row.tabulator-range-highlight .tabulator-range-row-header");
+    const range = root.querySelector(".tabulator-range");
+    return {
+      titleMatches: getComputedStyle(activeTitle).backgroundColor === getComputedStyle(otherTitle).backgroundColor,
+      rowHeader: getComputedStyle(rowHeader).backgroundColor,
+      border: getComputedStyle(range).borderBottomWidth,
+    };
+  });
+  const expectedSelection = {titleMatches:true,rowHeader:"rgba(0, 0, 0, 0)",border:"2px"};
+  assert.deepEqual(await selectionAppearance(), expectedSelection);
+  await draftGrid.screenshot({path:join(output,"active-quantity-light.png")});
+  await page.getByRole("button",{name:"切换为深色",exact:true}).click();
+  await first.click();
+  assert.deepEqual(await selectionAppearance(), expectedSelection);
+  await draftGrid.screenshot({path:join(output,"active-quantity-dark.png")});
+  await page.getByRole("button",{name:"切换为浅色",exact:true}).click();
+  await first.click();
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
   await page.evaluate(async () => navigator.clipboard.writeText("2\n3\n4"));
   await page.keyboard.press("ControlOrMeta+V");

@@ -258,7 +258,15 @@ defineExpose({ undo, redo, canUndo, canRedo });
 .business-draft-grid.is-editing :deep(.business-draft-editable:hover){
   background:var(--brand-soft);
 }
-/* Keep the native range geometry and draw one border for the whole selection. */
+/* The range border is the selection cue. The headers keep their normal theme. */
+.business-draft-host.tabulator :deep(.tabulator-header .tabulator-col:is(.tabulator-range-highlight, .tabulator-range-selected)) {
+  background-color: var(--table-heading);
+  color: var(--table-heading-ink);
+}
+.business-draft-host.tabulator :deep(.tabulator-row:is(.tabulator-range-highlight, .tabulator-range-selected) .tabulator-range-row-header) {
+  background-color: transparent;
+  color: inherit;
+}
 .business-draft-host.tabulator :deep(.tabulator-range-overlay .tabulator-range) {
   border: 2px solid var(--brand-primary);
 }
