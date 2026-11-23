@@ -253,7 +253,7 @@ async function reviseLocations(record) {
   recordStep("已批准需求新增位置，旧批准保持16基", { project: record.source_reference });
 }
 async function createCandidate() {
-  const description = "模拟变更新增的独立登塔检查需求，可在正式移出后转承";
+  const description = "模拟变更新增的独立登塔检查需求，结项后接续";
   await visit("demands");
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
   await choose("操作类型", inspectionOperation.name);
@@ -273,7 +273,7 @@ async function createCandidate() {
   await activateDemand(record);
   return system.demands.get(demand.id);
 }
-async function changeApproval(record, { addCandidate, removeDemandId, budgetFen, changeMaterials } = {}) {
+async function changeApproval(record, { candidates = [], rejectRemoval, budgetFen, changeMaterials } = {}) {
   await openProject(record, "approval");
   await detail.getByRole("button", { name: "编制变更", exact: true }).click();
   await editor.getByLabel("批准预算（元）", { exact: true }).fill(
@@ -281,21 +281,29 @@ async function changeApproval(record, { addCandidate, removeDemandId, budgetFen,
   if (changeMaterials) {
     await editor.locator(".approval-material-row").first().locator(".approval-material-field").nth(1).locator("input").fill(String(record.tension_pieces + 1));
   }
-  if (addCandidate) {
+  if (candidates.length) {
     await editor.getByRole("button", { name: "新增候选需求", exact: true }).click();
     const picker = page.getByRole("dialog", { name: "选择变更新增需求", exact: true });
-    await picker.getByLabel("选择需求：" + addCandidate.demand_no).check();
-    await picker.getByRole("button", { name: "加入变更草稿（1）", exact: true }).click();
+    for (const demand of candidates)
+      await picker.getByRole("checkbox", { name: "选择需求：" + demand.demand_no, exact: true }).locator("xpath=ancestor::label[1]").click();
+    await picker.getByRole("button", { name: `加入变更草稿（${candidates.length}）`, exact: true }).click();
     await picker.waitFor({ state: "hidden" });
   }
-  if (removeDemandId) {
-    const number = system.demands.get(removeDemandId).demand_no;
-    await editor.locator("label.el-checkbox").filter({ hasText: number }).click();
-  }
+  if (rejectRemoval)
+    await editor.locator("label.el-checkbox").filter({ hasText: rejectRemoval.demand_no }).click();
   await editor.getByRole("button", { name: "核对并保存变更草稿", exact: true }).click();
+  if (rejectRemoval) {
+    await page.getByText("在办项目不能通过变更移出已批准需求；应在项目结项后释放未完成需求", {exact:true}).waitFor();
+    assert.equal(system.projects.get(record.projectId).approvals.some(ap => ap.status === "draft"), false);
+    assert.equal(system.demands.get(rejectRemoval.id).binding.project_id, record.projectId);
+    await editor.getByRole("button", {name:"取消", exact:true}).click();
+    await page.getByRole("button", {name:"放弃修改", exact:true}).click();
+    await editor.waitFor({state:"hidden"});
+    return;
+  }
   await editor.waitFor({ state: "hidden" });
   const draft = system.projects.get(record.projectId).approvals.find(ap => ap.status === "draft");
-  if (addCandidate) assert.equal(system.demands.get(addCandidate.id).binding, null);
+  for (const demand of candidates) assert.equal(system.demands.get(demand.id).binding, null);
   return draft;
 }
 async function postRejected(path, input, expectedStatus) {
@@ -340,20 +348,33 @@ async function createBill(record, node, evidence, amount, resolved, candidate, i
   }
   await editor.getByLabel("本次金额（元）", { exact: true }).fill(amountInput(amount));
   await editor.getByLabel("结算依据", { exact: true }).fill(evidence);
-  if (resolved > 0 || candidate)
+  if (resolved > 0 || candidate) {
     await editor.getByRole("button", { name: "本次完成工作量（选填）", exact: true }).click();
-  if (resolved > 0) {
-    await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
-    await choose("项目需求", system.demands.get(record.demandId).problem_description);
-    await editor.locator(".el-form-item").filter({ has:page.getByText("本次新增解决量", {exact:true}) })
-      .locator("input").fill(String(resolved));
-  }
-  if (candidate) {
-    await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
-    const last = editor.locator(".finance-editor-line").last();
-    await choose("项目需求", candidate.problem_description, last);
-    await last.locator(".el-form-item").filter({ has:page.getByText("本次新增解决量", {exact:true}) })
-      .locator("input").fill("0");
+    const project = system.projects.get(record.projectId);
+    const approval = project.approvals.find(version => version.id === project.approval.id);
+    async function resolvePosition(demand, location, value) {
+      await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
+      const line = editor.locator(".finance-editor-line").last();
+      await choose("项目需求", demand.problem_description, line);
+      const position = JSON.parse(location.frozen_location);
+      const label = position.location_label || position.tower_no || position.asset_no || location.location_object;
+      await choose("作业位置", label + " · 批准 " + String(location.approved_quantity_scaled / 10000), line);
+      await line.locator(".el-form-item").filter({ has:page.getByText("本次新增解决量", {exact:true}) })
+        .locator("input").fill(String(value));
+    }
+    const mainScope = approval.scopes.find(scope => scope.demand_id === record.demandId);
+    const firstIndex = evidence === "模拟第二期" ? (record.index === 0 ? 10 : 7) : 0;
+    const positions = mainScope.locations.slice(firstIndex, firstIndex + resolved);
+    for (const [index, position] of positions.entries())
+      await resolvePosition(system.demands.get(record.demandId), position,
+        index === positions.length - 1 ? resolved - index : 1);
+    if (candidate) {
+      const candidateScope = approval.scopes.find(scope => scope.demand_id === candidate.id);
+      await resolvePosition(candidate, candidateScope.locations[0], 0);
+      const continued = approval.scopes.find(scope => scope.demand_id === cases[0].demandId);
+      assert.equal(continued.locations.length, 1);
+      await resolvePosition(system.demands.get(continued.demand_id), continued.locations[0], 1);
+    }
   }
   await saveEditor("保存草稿");
   const bill = system.finance.settlements(record.projectId).find(item => item.draft?.document.basis === evidence);
@@ -471,7 +492,7 @@ async function financialFlow(record, candidate) {
   recordStep("结算修订替代及原核对撤销再核对", { project:record.source_reference, first_bill:firstBill.number });
 
   const second = await createBill(record, laborNode, "模拟第二期", record.approved_settlement_fen - firstTarget - 10000,
-    record.index === 0 ? 7 : 5);
+    record.index === 0 ? 6 : 5);
   await submitBill(second);
   const third = await createBill(record, laborNode, "模拟第三期仅补结费用", 10000, 0);
   await submitBill(third);
@@ -481,10 +502,11 @@ async function financialFlow(record, candidate) {
   assert.equal(summary.project_total_settlement_fen, record.index === 0 ? summary.settlement_fen : summary.settlement_fen - firstTarget);
   assert.equal(system.finance.settlement(third.id).resolutions.length, 0);
   const mainResult = summary.demands.find(d => d.demand_id === record.demandId);
-  assert.equal(mainResult.resolved_quantity_scaled, record.index === 0 ? 170000 : 120000);
+  assert.equal(mainResult.resolved_quantity_scaled, record.index === 0 ? 160000 : 120000);
   if (candidate) {
     assert.equal(mainResult.excess_quantity_scaled, 10000);
     assert.equal(summary.demands.find(d => d.demand_id === candidate.id).remaining_quantity_scaled, 10000);
+    assert.equal(summary.demands.find(d => d.demand_id === cases[0].demandId).resolved_quantity_scaled, 10000);
   }
   recordStep("三期结算与零新增解决量", { project:record.source_reference, summary });
 
@@ -507,6 +529,12 @@ async function financialFlow(record, candidate) {
   await detail.getByRole("button", { name:"结项核对", exact:true }).click();
   const closeDialog = page.getByRole("dialog", { name:"结项前业务核对", exact:true });
   await closeDialog.getByText("待核对费用", { exact:true }).waitFor();
+  const preview = system.projectClosure.preview(user, record.projectId);
+  record.closeSnapshot = JSON.parse(JSON.stringify(preview.summary));
+  if (record.index === 0) {
+    assert.equal(preview.release_demands.length, 2);
+    assert.deepEqual(preview.release_demands.map(item => item.remaining_quantity_scaled), [10000, 10000]);
+  } else assert.deepEqual(preview.release_demands.map(item => item.demand_id), [candidate.id]);
   await closeDialog.getByRole("button", { name:"已核对差异，正式结项", exact:true }).click();
   await page.getByText("确认审核结项成功，正在刷新业务状态", { exact:true }).last().waitFor();
   assert.equal(system.projects.get(record.projectId).status, "closed");
@@ -580,25 +608,35 @@ try {
   await reviseLocations(cases[0]);
   await changeApproval(cases[0], { changeMaterials: true });
   await quoteAndApprove(cases[0]);
-  assert.equal(system.projects.get(cases[0].projectId).approvals.at(-1).scopes[0].quantity_scaled, 170000);
+  assert.equal(system.projects.get(cases[0].projectId).approvals.at(-1).scopes[0].quantity_scaled, 160000);
   assert.equal(system.projects.get(cases[0].projectId).approvals.at(-1).scopes[0].materials
     .reduce((sum, item) => sum + item.approved_quantity_scaled, 0), 33910000);
-  recordStep("项目正式变更采用17基需求新版及模拟增加1片批准物资", { project:cases[0].source_reference });
+  recordStep("在办项目批准范围仍为16基，变更增加1片批准物资", { project:cases[0].source_reference });
   const candidate = await createCandidate();
-  const added = await changeApproval(cases[0], {addCandidate:candidate});
+  const added = await changeApproval(cases[0], {candidates:[candidate]});
   await quoteAndApprove(cases[0]);
   assert.equal(system.demands.get(candidate.id).binding.project_id, cases[0].projectId);
   await postRejected(`/projects/${cases[1].projectId}/link`, {demand_id:candidate.id,expected_version:candidate.current_version}, 409);
   recordStep("正式变更新增候选及独占保护", { candidate:candidate.demand_no });
-  await changeApproval(cases[0], {removeDemandId:candidate.id});
-  await quoteAndApprove(cases[0]);
+  await changeApproval(cases[0], {rejectRemoval:candidate});
+  recordStep("拒绝在办项目变更移出已批准需求", { candidate:candidate.demand_no });
+  await financialFlow(cases[0], null);
   assert.equal(system.demands.get(candidate.id).binding, null);
+  const released = system.demands.get(cases[0].demandId);
+  assert.equal(released.binding, null);
+  assert.deepEqual(released.work_locations.filter(location => location.remaining_quantity_scaled > 0)
+    .map(location => location.remaining_quantity_scaled), [10000]);
   assert.equal(system.projects.get(cases[0].projectId).approvals.find(ap => ap.id === added.id).scopes.length, 2);
-  await changeApproval(cases[1], {addCandidate:candidate});
+  await changeApproval(cases[1], {candidates:[candidate, released]});
   await quoteAndApprove(cases[1]);
   assert.equal(system.demands.get(candidate.id).binding.project_id, cases[1].projectId);
-  recordStep("正式移出、释放并由另项目正式转承", { candidate:candidate.demand_no });
-  for (const record of cases) await financialFlow(record, record.index === 1 ? candidate : null);
+  assert.equal(system.demands.get(released.id).binding.project_id, cases[1].projectId);
+  const resumed = system.projects.get(cases[1].projectId).approvals.at(-1).scopes.find(scope => scope.demand_id === released.id);
+  assert.equal(resumed.quantity_scaled, 10000);
+  assert.equal(resumed.locations.length, 1);
+  assert.equal(JSON.parse(resumed.locations[0].frozen_location).tower_no, "20");
+  recordStep("正式结项释放，另项目承接原需求全部剩余位置", { candidate:candidate.demand_no });
+  await financialFlow(cases[1], candidate);
   const finalSummaries = cases.map(record => system.finance.summary(record.projectId));
   assert.equal(finalSummaries.reduce((sum, item) => sum + item.settlement_fen, 0), 29491251);
   await new Promise(resolve => server.shutdown(resolve));
@@ -619,9 +657,10 @@ try {
       (record.tension_pieces + record.jumper_pieces) * 10000);
     const history = system.projects.history(record.projectId);
     assert.equal(history.closures.length, 1);
-    assert.deepEqual(JSON.parse(history.closures[0].close_snapshot_json), finalSummaries[record.index]);
+    assert.deepEqual(JSON.parse(history.closures[0].close_snapshot_json), record.closeSnapshot);
     assert.equal(system.finance.summary(record.projectId).settlement_fen, record.approved_settlement_fen);
-    assert.equal(system.demands.get(record.demandId).binding.project_id, record.projectId);
+    assert.equal(system.demands.get(record.demandId).binding.project_id, cases[1].projectId);
+    assert.ok(system.demands.get(record.demandId).work_locations.every(location => location.remaining_quantity_scaled === 0));
     await openProject(record, "finance");
     await detail.getByText("¥" + displayAmount(record.approved_settlement_fen), { exact: true }).first().waitFor();
   }

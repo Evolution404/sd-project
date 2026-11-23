@@ -66,9 +66,10 @@ try {
   await page.getByRole('cell', { name: '耐张', exact: true }).waitFor();
   await selectNavigation(page, '物资管理');
   await page.getByRole('button', { name: '筛选使用中的物资', exact: true }).waitFor();
-  await page.getByRole('button', { name: '筛选状态', exact: true }).click();
-  await page.getByRole('combobox', { name: '按状态筛选', exact: true }).press('ArrowDown');
-  await page.getByRole('option', { name: '有效', exact: true }).click();
+  await page.getByRole('button', { name: '状态：筛选和排序', exact: true }).click();
+  const statusMenu = page.getByRole('dialog', { name: '状态筛选与排序', exact: true });
+  await statusMenu.getByRole('checkbox', { name: '停用', exact: true }).locator('xpath=ancestor::label[1]').click();
+  await statusMenu.getByRole('button', { name: '确定', exact: true }).click();
   await page.getByRole('button', { name: '筛选已停用的物资', exact: true }).waitFor({ state: 'hidden' });
   assert.equal(await page.getByRole('button', { name: '筛选使用中的物资', exact: true }).count(), 1);
   await selectNavigation(page, '作业标准');

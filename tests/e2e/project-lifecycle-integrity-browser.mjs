@@ -43,6 +43,10 @@ try {
   await editor.locator("label.el-checkbox").filter({ hasText: f.demand.demand_no }).click();
   assert.equal(await editor.getByRole("checkbox", { name: f.demand.demand_no, exact: true }).isChecked(), false);
   await editor.getByRole("button", { name: "核对并保存变更草稿", exact: true }).click();
+  await editor.getByText("在办项目不能通过变更移出已批准需求；应在项目结项后释放未完成需求", {exact:true}).waitFor();
+  assert.equal(f.s.projects.get(f.project.id).approvals.some(ap => ap.status === "draft"), false);
+  await editor.locator("label.el-checkbox").filter({ hasText: f.demand.demand_no }).click();
+  await editor.getByRole("button", { name: "核对并保存变更草稿", exact: true }).click();
   await editor.waitFor({ state: "hidden" });
   assert.equal(f.s.demands.get(candidate.id).binding, null);
   assert.equal(f.s.projects.get(f.project.id).approval.id, f.approval.id);
@@ -51,7 +55,7 @@ try {
   await confirmProjectApproval(page);
   await page.getByText("确认正式批准成功，正在刷新业务状态", { exact: true }).waitFor();
   assert.equal(f.s.demands.get(candidate.id).binding.project_id, f.project.id);
-  assert.equal(f.s.demands.get(f.demand.id).binding, null);
+  assert.equal(f.s.demands.get(f.demand.id).binding.project_id, f.project.id);
   const approved = f.s.projects.get(f.project.id);
   assert.equal(approved.approvals.find(ap => ap.id === f.approval.id).scopes.length, 1);
   const bill = f.s.finance.saveDraft(f.user, approved.id, {
@@ -60,6 +64,8 @@ try {
   f.s.finance.submit(f.user, bill.id, {expected_version:0, expected_edit_version:1});
   f.s.finance.review(f.user, bill.id, {expected_version:1, expected_event_seq:1, action:"approve"});
   f.s.projectClosure.commit(f.user, approved.id, { preview_hash: f.s.projectClosure.preview(f.user, approved.id).preview_hash, expected_version: approved.version });
+  assert.equal(f.s.demands.get(f.demand.id).binding, null);
+  assert.equal(f.s.demands.get(candidate.id).binding, null);
   await page.reload();
   await workspace.waitFor();
   await workspace.getByRole("tab", { name: "费用与结算", exact: true }).click();
@@ -76,7 +82,7 @@ try {
   assert.equal(await financial.getByRole("button", { name: "新增正式核对", exact: true }).isDisabled(), true);
   await financial.screenshot({ path: join(out, "结项财务冻结.png") });
   assert.deepEqual(errors, []);
-  console.log("PROJECT_LIFECYCLE_INTEGRITY_BROWSER_OK candidate proposal, atomic add/release, frozen closed finance and immutable history");
+  console.log("PROJECT_LIFECYCLE_INTEGRITY_BROWSER_OK candidate proposal, atomic add, early removal rejected, release on formal close, frozen closed finance and immutable history");
 } catch (error) {
   await page.screenshot({path:join(out,"failure.png")});
   throw error;
