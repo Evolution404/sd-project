@@ -62,7 +62,15 @@ export function createDemands(
       ...definition,
       ...row,
       deleted: repo.isDeleted(key),
-      work_locations: definition.work_locations,
+      work_locations: (() => {
+        const progress = new Map(repo.locationProgress(key).map(position =>
+          [position.item_no, position]));
+        return definition.work_locations.map(position => ({
+          ...position,
+          remaining_quantity_scaled: progress.get(position.item_no)?.remaining_quantity_scaled ?? 0,
+          resolved_quantity_scaled: progress.get(position.item_no)?.resolved_quantity_scaled ?? 0,
+        }));
+      })(),
       materials: repo.materials(key, row.current_version),
       sources: currentSources(repo, key),
       binding:
@@ -614,7 +622,7 @@ export function createDemands(
           ...JSON.parse(row.full_definition_json),
           ...row,
           binding: binding_json ? JSON.parse(binding_json) : null,
-          display_status: demandDisplayStatus(row.status, Boolean(binding_json)),
+          display_status: demandDisplayStatus(row.status, Boolean(binding_json), row.remaining_quantity_scaled),
           deleted: Boolean(row.deleted),
         }));
     },

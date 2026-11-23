@@ -63,19 +63,19 @@ test("a quantity revision after drafting blocks approval and preserves the origi
   assert.equal(f.s.projects.get(p.id).approval.id,f.approval.id);
   assert.equal(inspect(f.s).find("project_change_orders","id",draft.change_order_id).status,"draft");
 });
-test("change candidates do not reserve ownership, withdrawal is clean, approval adds and releases atomically",t=>{
+test("change candidates do not reserve ownership, withdrawal is clean, approval adds without early release",t=>{
   const f=approvedFixture(t),addition=candidate(f);
-  let p=change(f,[addition]);let draft=p.approvals.find(a=>a.status==="draft");
+  let p=change(f,[scopeInput(f),addition]);let draft=p.approvals.find(a=>a.status==="draft");
   assert.equal(draft.pending_scopes.length,1);assert.equal(f.s.demands.get(addition.demand_id).binding,null);
   assert.equal(p.approval.id,f.approval.id);
   p=f.s.projects.discardApproval(f.user,p.id,draft.id);
   assert.equal(f.s.demands.get(addition.demand_id).binding,null);
-  p=change(f,[addition]);draft=p.approvals.find(a=>a.status==="draft");
+  p=change(f,[scopeInput(f),addition]);draft=p.approvals.find(a=>a.status==="draft");
   p=f.s.projects.approve(f.user,p.id,draft.id,{expected_version:p.version});
   assert.equal(f.s.demands.get(addition.demand_id).binding.project_id,p.id);
-  assert.equal(f.s.demands.get(f.demand.id).binding,null);
+  assert.equal(f.s.demands.get(f.demand.id).binding.project_id,p.id);
   assert.equal(p.approvals.find(a=>a.id===f.approval.id).scopes.length,1);
-  assert.equal(p.approvals.find(a=>a.id===draft.id).scopes.length,1);
+  assert.equal(p.approvals.find(a=>a.id===draft.id).scopes.length,2);
   assert.deepEqual(inspect(f.s).integrity().foreignKeys,[]);
 });
 test("competing projects may propose the same candidate but only one approval obtains ownership",t=>{
@@ -91,7 +91,7 @@ test("competing projects may propose the same candidate but only one approval ob
   assert.equal(inspect(f.s).find("project_change_orders","id",firstDraft.change_order_id).status,"draft");
 });
 test("unsubmitted revision of an approved settlement blocks closure in service and database",t=>{
-  const f=approvedFixture(t),input={approval_version_id:f.approval.id,items:[{cost_node_id:f.node.id,project_scope_id:f.scope.id,amount_fen:10000,quantity_scaled:10000,evidence:"回归"}],resolutions:[{project_scope_id:f.scope.id,resolved_quantity_scaled:0,evidence:"仅财务"}]};
+  const f=approvedFixture(t),input={approval_version_id:f.approval.id,items:[{cost_node_id:f.node.id,project_scope_id:f.scope.id,amount_fen:10000,quantity_scaled:10000,evidence:"回归"}],resolutions:[{project_scope_id:f.scope.id, location_item_no: 1,resolved_quantity_scaled:0,evidence:"仅财务"}]};
   let bill=f.s.finance.saveDraft(f.user,f.project.id,input);
   bill=f.s.finance.submit(f.user,bill.id,{expected_version:0,expected_edit_version:1});
   bill=f.s.finance.review(f.user,bill.id,{expected_version:1,expected_event_seq:1,action:"approve"});

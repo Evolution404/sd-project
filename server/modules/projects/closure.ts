@@ -23,12 +23,14 @@ export function createProjectClosure(
     authorize(actor, "project.close");
     const project = projects.workspace(key);
     requireValue(project.status === "approved" && project.approval, "仅已批准项目可以审核结项", 409);
-    const snapshot = finance.summary(key);
+    const snapshot = { ...finance.summary(key), locations: repo.closureLocations(key) };
+    const releases = repo.closeReleases(key);
     const reason = closeBlockReason(key);
     return {
       expected_version: project.version,
       approval_version: project.approval.version_no,
       summary: snapshot,
+      release_demands: releases,
       reason,
       preview_hash: digest(JSON.stringify([
         actor.id, key, project.version, project.approval.id, snapshot, reason, repo.closeFinanceVersions(key),
@@ -67,6 +69,16 @@ export function createProjectClosure(
           created_at: now(),
           reason: input.reason || "",
         });
+        // Ownership release is an immutable link event, never deletion of the
+        // project's frozen approval, settlement or audit history.
+        for (const released of preview.release_demands) {
+          repo.appendDemandLink({
+            id: id(), project_scope_id: released.project_scope_id,
+            event_seq: released.event_seq + 1, action: "released",
+            actor_id: actor.id, recorded_at: now(),
+            reason: input.reason || "项目正式结项，释放需求剩余工作量",
+          });
+        }
         return projects.get(key);
       });
     },

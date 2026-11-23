@@ -13,7 +13,7 @@ for (let index = 0; index < 35; index++) {
   s.finance.saveDraft(user, project.id, {
     items: [{ cost_node_id: node.id, project_scope_id: scope.id, quantity_scaled: 10000,
       amount_fen: 500 + index, evidence: "按需加载结算" }],
-    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000, evidence: "加载验收工程量" }],
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000, evidence: "加载验收工程量" }],
   });
 }
 const server = httpServer(s);

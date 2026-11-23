@@ -82,6 +82,10 @@ export interface DemandLocationInput {
 export interface DemandLocation extends Omit<DemandLocationInput, "attributes" | "location_snapshot_json"> {
   item_no: number;
   work_mode: DemandWorkMode;
+  /** Derived balance, excluded from immutable demand snapshots. */
+  remaining_quantity_scaled?: number;
+  /** Effective approved settlement quantity for this immutable work location. */
+  resolved_quantity_scaled?: number;
   attributes: AttributeValues;
   location_snapshot_json: DemandLocationSnapshot;
 }
@@ -161,7 +165,7 @@ export interface DemandRecord extends Omit<NormalizedDemand, "materials">, Deman
   sources: SourceRow[];
   binding: { project_id: string; project_scope_id: string; demand_id: string } | null;
 }
-export type DemandDisplayStatus = "待确认" | "已退回" | "待承接" | "已承接" | "已取消";
+export type DemandDisplayStatus = "待确认" | "已退回" | "待承接" | "已承接" | "已解决" | "已取消";
 export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand, "materials"> {
   /** Derived at query time, never stored separately from lifecycle and project binding. */
   display_status: DemandDisplayStatus;
@@ -169,6 +173,8 @@ export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand,
   project_name?: string | null;
   last_handled_at?: string;
   location_count?: number;
+  resolved_quantity_scaled?: number;
+  remaining_quantity_scaled?: number;
   deleted: boolean;
   binding: DemandRecord["binding"];
 }

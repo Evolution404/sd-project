@@ -15,7 +15,7 @@ export function detailIdentity(kind: DetailKind, row: DetailRow): unknown {
   if (kind === "materials") return row.material_id;
   if (kind === "items")
     return `${row.cost_node_id}/${row.project_scope_id || ""}`;
-  return row.project_scope_id;
+  return `${row.project_scope_id}/${row.location_item_no}`;
 }
 
 /**

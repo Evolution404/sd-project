@@ -144,6 +144,15 @@ try {
       .getByRole("button", { name: "添加解决需求", exact: true })
       .click();
     await select("项目需求", demand.problem_description);
+    const positionField = workPage(page).locator(".el-form-item")
+      .filter({ has: page.getByText("作业位置", { exact: true }) }).first();
+    await positionField.locator(".el-select__wrapper").click();
+    const positionControl = positionField.locator('input[role="combobox"], [role="combobox"]').first();
+    const positionPopupId = await positionControl.getAttribute("aria-controls");
+    assert.ok(positionPopupId);
+    const positionPopup = page.locator('[id="' + positionPopupId + '"]');
+    await positionPopup.waitFor({ state: "visible" });
+    await positionPopup.getByRole("option").first().click();
     const resolution = workPage(page).getByLabel("本次新增解决量", { exact: true });
     await resolution.fill(String(resolved));
     await resolution.press("Tab");

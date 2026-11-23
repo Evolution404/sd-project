@@ -1210,13 +1210,17 @@ CREATE TABLE settlement_scope_results (
   REFERENCES project_demand_scopes(id) ON DELETE RESTRICT,
  approval_scope_version_id TEXT NOT NULL
   REFERENCES project_approval_scope_versions(id) ON DELETE RESTRICT,
+ location_item_no INTEGER NOT NULL CHECK(location_item_no>0),
  -- Zero = the installment settles/corrects earlier work on this demand,
  -- without claiming NEW completed quantity. Never invent work for a
  -- financial-only installment. Negative quantity is not valid here; formal
  -- corrections to a prior installment replace that document's full version.
  resolved_quantity_scaled INTEGER NOT NULL CHECK(resolved_quantity_scaled>=0),
  evidence TEXT NOT NULL DEFAULT '',
- UNIQUE(settlement_version_id,project_scope_id)
+ UNIQUE(settlement_version_id,project_scope_id,location_item_no),
+ FOREIGN KEY(approval_scope_version_id,location_item_no)
+  REFERENCES project_approval_work_locations(approval_scope_version_id,location_item_no)
+  ON DELETE RESTRICT
 ) STRICT;
 
 
@@ -1408,11 +1412,17 @@ WHERE v.change_type<>'void';
 CREATE VIEW v_effective_demand_resolutions AS
 SELECT r.id,r.settlement_version_id,v.settlement_id,v.project_id,
  r.project_scope_id,sc.demand_id,r.approval_scope_version_id,
+ r.location_item_no,work.demand_location_id,
  r.resolved_quantity_scaled,r.evidence
 FROM settlement_scope_results r
 JOIN v_settlement_effective_versions v ON v.id=r.settlement_version_id
  AND v.change_type<>'void'
-JOIN project_demand_scopes sc ON sc.id=r.project_scope_id;
+JOIN project_demand_scopes sc ON sc.id=r.project_scope_id
+JOIN project_approval_scope_versions approved ON approved.id=r.approval_scope_version_id
+ AND approved.project_scope_id=r.project_scope_id
+JOIN demand_version_work_locations work ON work.demand_id=approved.demand_id
+ AND work.demand_version=approved.demand_version
+ AND work.item_no=r.location_item_no;
 
 CREATE VIEW v_effective_cost_reconciliations AS
 SELECT r.*,historic.entry_id,c.project_id,c.cost_node_id
@@ -2417,9 +2427,10 @@ BEGIN
  -- it never defines an independently editable quantity or old version.
  SELECT CASE WHEN NOT EXISTS(
   SELECT 1 FROM v_demand_current d
-  WHERE d.id=NEW.demand_id AND d.current_version=NEW.demand_version
-   AND d.quantity_scaled=NEW.proposed_quantity_scaled)
- THEN RAISE(ABORT,'关联项目只能完整承接当前正式需求位置和数量') END;
+  WHERE d.id=NEW.demand_id AND d.current_version=NEW.demand_version)
+ OR NEW.proposed_quantity_scaled<>(SELECT COALESCE(SUM(remaining_quantity_scaled),0)
+  FROM v_demand_current_location_progress WHERE demand_id=NEW.demand_id)
+ THEN RAISE(ABORT,'项目必须完整承接原需求当前所有未解决位置及剩余数量') END;
 END;
 CREATE TRIGGER project_demand_scope_seed_link
  AFTER INSERT ON project_demand_scopes
@@ -2509,8 +2520,12 @@ BEGIN
  SELECT CASE WHEN NEW.action='released' AND EXISTS(
   SELECT 1 FROM project_demand_scopes sc JOIN projects p ON p.id=sc.project_id
   JOIN v_approval_scope_current a ON a.project_scope_id=sc.id
-  WHERE sc.id=NEW.project_scope_id)
- THEN RAISE(ABORT,'最新版正式批准范围仍包含需求，不能解绑；在办项目须先完成正式范围变更') END;
+  WHERE sc.id=NEW.project_scope_id
+  AND NOT (p.status='closed' AND EXISTS(
+   SELECT 1 FROM project_closures c WHERE c.project_id=p.id)
+   AND EXISTS(SELECT 1 FROM v_demand_current_location_progress progress
+     WHERE progress.demand_id=sc.demand_id AND progress.remaining_quantity_scaled>0)))
+ THEN RAISE(ABORT,'最新版正式批准范围仍包含需求；只允许未完成需求在项目正式结项后释放') END;
 END;
 CREATE TRIGGER project_demand_link_event_immutable_update
  BEFORE UPDATE ON project_demand_link_events
@@ -3949,6 +3964,9 @@ CREATE TABLE demand_version_work_locations (
  physical_tower_id TEXT REFERENCES physical_towers(id) ON DELETE RESTRICT,
  span_id TEXT REFERENCES line_spans(id) ON DELETE RESTRICT,
  span_version INTEGER,
+ -- Stable identity survives demand revisions and row reordering.
+ demand_location_id TEXT GENERATED ALWAYS AS (
+  location_kind || ':' || COALESCE(logical_tower_id,physical_tower_id,span_id)) VIRTUAL,
  quantity_scaled INTEGER NOT NULL CHECK(quantity_scaled>0),
  work_mode TEXT NOT NULL DEFAULT 'unspecified'
   CHECK(work_mode IN ('outage','non_outage','unspecified')),
@@ -3971,6 +3989,23 @@ CREATE TABLE demand_version_work_locations (
   OR (location_kind='span' AND span_id IS NOT NULL AND span_version>0
    AND logical_tower_id IS NULL AND physical_tower_id IS NULL))
 ) STRICT;
+CREATE UNIQUE INDEX idx_demand_work_location_stable
+ ON demand_version_work_locations(demand_id,demand_version,demand_location_id);
+
+-- Authoritative remaining quantity per immutable equipment location. Only
+-- approved effective settlement versions contribute to completion.
+CREATE VIEW v_demand_current_location_progress AS
+SELECT work.demand_id,work.demand_version,work.item_no,work.demand_location_id,
+ work.quantity_scaled,COALESCE(done.resolved_quantity_scaled,0) AS resolved_quantity_scaled,
+ MAX(0,work.quantity_scaled-COALESCE(done.resolved_quantity_scaled,0)) AS remaining_quantity_scaled
+FROM demand_version_work_locations work
+JOIN v_demand_current current ON current.id=work.demand_id
+ AND current.current_version=work.demand_version
+LEFT JOIN (
+ SELECT demand_id,demand_location_id,SUM(resolved_quantity_scaled) AS resolved_quantity_scaled
+ FROM v_effective_demand_resolutions GROUP BY demand_id,demand_location_id
+) done ON done.demand_id=work.demand_id AND done.demand_location_id=work.demand_location_id;
+
 CREATE TRIGGER demand_version_work_locations_publish
  AFTER INSERT ON demand_versions
 BEGIN
@@ -4111,6 +4146,11 @@ CREATE TRIGGER project_approval_locations_finalize
  WHEN NEW.status='approved' AND OLD.status='draft'
 BEGIN
  SELECT CASE WHEN EXISTS(
+   SELECT 1 FROM project_approval_scope_versions scoped
+   JOIN v_demand_current latest ON latest.id=scoped.demand_id
+   WHERE scoped.approval_version_id=NEW.id AND latest.current_version<>scoped.demand_version
+ ) THEN RAISE(ABORT,'需求正式版本已变化，请重新编制批准草稿') END;
+ SELECT CASE WHEN EXISTS(
   SELECT 1 FROM project_approval_scope_versions sc
   WHERE sc.approval_version_id=NEW.id AND
     ((SELECT COALESCE(SUM(loc.approved_quantity_scaled),0)
@@ -4120,21 +4160,40 @@ BEGIN
       SELECT 1 FROM project_approval_work_locations loc
       WHERE loc.approval_scope_version_id=sc.id))
  ) THEN RAISE(ABORT,'正式项目批准需求的逐位置工作量必须完整且与批准数量一致') END;
- -- A project adopts a full demand: every site and its exact formal quantity.
+ -- An active project must retain its previously adopted demand identities.
+ -- Removing a demand is not an early-release path; release follows closure.
+ SELECT CASE WHEN EXISTS(
+  SELECT 1 FROM v_approval_scope_current old
+  JOIN project_demand_scopes owner ON owner.id=old.project_scope_id
+  WHERE owner.project_id=NEW.project_id
+   AND NOT EXISTS(SELECT 1 FROM project_approval_scope_versions chosen
+    WHERE chosen.approval_version_id=NEW.id
+      AND chosen.project_scope_id=old.project_scope_id)
+ ) THEN RAISE(ABORT,'在办项目不得通过范围变更提前释放需求，必须正式结项') END;
+ -- First adoption (including a follow-on project) must cover precisely
+ -- all outstanding work locations, never a user-selected subset.
  SELECT CASE WHEN EXISTS(
   SELECT 1 FROM project_approval_scope_versions sc
-  WHERE sc.approval_version_id=NEW.id AND
-   (sc.quantity_scaled<>(SELECT COALESCE(SUM(dloc.quantity_scaled),0)
-     FROM demand_version_work_locations dloc
-     WHERE dloc.demand_id=sc.demand_id AND dloc.demand_version=sc.demand_version)
+  WHERE sc.approval_version_id=NEW.id
+   AND NOT EXISTS(SELECT 1 FROM v_approval_scope_current old
+    WHERE old.project_scope_id=sc.project_scope_id)
+   AND (
+    sc.quantity_scaled<>(SELECT COALESCE(SUM(balance.remaining_quantity_scaled),0)
+      FROM v_demand_current_location_progress balance
+      WHERE balance.demand_id=sc.demand_id)
     OR EXISTS(
-      SELECT 1 FROM demand_version_work_locations dloc
+      SELECT 1 FROM v_demand_current_location_progress balance
       LEFT JOIN project_approval_work_locations chosen
-       ON chosen.approval_scope_version_id=sc.id AND chosen.location_item_no=dloc.item_no
-      WHERE dloc.demand_id=sc.demand_id AND dloc.demand_version=sc.demand_version
-       AND (chosen.location_item_no IS NULL
-        OR chosen.approved_quantity_scaled<>dloc.quantity_scaled)))
- ) THEN RAISE(ABORT,'子项目必须完整承接全部需求位置及数量，需调整请先修订需求') END;
+       ON chosen.approval_scope_version_id=sc.id
+        AND chosen.location_item_no=balance.item_no
+      WHERE balance.demand_id=sc.demand_id
+       AND (balance.demand_version<>sc.demand_version
+        OR (balance.remaining_quantity_scaled>0
+          AND chosen.approved_quantity_scaled IS NOT balance.remaining_quantity_scaled)
+        OR (balance.remaining_quantity_scaled=0
+          AND chosen.location_item_no IS NOT NULL)))
+   )
+ ) THEN RAISE(ABORT,'项目必须完整承接当前全部未解决作业位置与剩余数量') END;
  SELECT CASE WHEN EXISTS(
   SELECT 1 FROM project_approval_scope_versions sc
   JOIN project_approval_work_locations loc

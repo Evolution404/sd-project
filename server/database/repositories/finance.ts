@@ -74,16 +74,26 @@ export function financeReadRepository(store: Store) {
       const values = JSON.stringify(ids);
       const versions = store.query<SettlementVersion>(`SELECT * FROM v_settlement_effective_versions
         WHERE settlement_id IN (SELECT value FROM json_each(?))`, values);
-      const resolutions = store.query<{settlement_id:string; demand_no:string; unit:string; resolved_quantity_scaled:number; evidence:string}>(`
+      const resolutions = store.query<{settlement_id:string; demand_no:string; unit:string;
+        location_item_no:number; line_name:string|null; location_label:string|null;
+        tower_no:string|null; asset_no:string|null;
+        resolved_quantity_scaled:number; evidence:string}>(`
         SELECT result.settlement_id, demand.demand_no,
           json_extract(original.snapshot_json,'$.unit_snapshot') AS unit,
+          result.location_item_no,
+          json_extract(work.location_snapshot_json,'$.line_name') AS line_name,
+          json_extract(work.location_snapshot_json,'$.location_label') AS location_label,
+          json_extract(work.location_snapshot_json,'$.tower_no') AS tower_no,
+          json_extract(work.location_snapshot_json,'$.asset_no') AS asset_no,
           result.resolved_quantity_scaled,result.evidence
         FROM v_effective_demand_resolutions result
         JOIN project_approval_scope_versions scope ON scope.id=result.approval_scope_version_id
         JOIN demand_versions original ON original.demand_id=scope.demand_id AND original.version=scope.demand_version
+        JOIN demand_version_work_locations work ON work.demand_id=scope.demand_id
+          AND work.demand_version=scope.demand_version AND work.item_no=result.location_item_no
         JOIN demands demand ON demand.id=scope.demand_id
         WHERE result.settlement_id IN (SELECT value FROM json_each(?))
-        ORDER BY result.settlement_id,demand.demand_no`, values);
+        ORDER BY result.settlement_id,demand.demand_no,result.location_item_no`, values);
       return { versions: new Map(versions.map(version => [version.settlement_id, version])), resolutions };
     },
     settlementReconciliationImpact(settlementId: string) {

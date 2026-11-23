@@ -15,7 +15,7 @@ s.management.saveUser(user, { username: "reader", password: "Reader-test-passwor
 const bill = s.finance.saveDraft(user, project.id, {
   approval_version_id: approval.id,
   items: [{ cost_node_id: node.id, project_scope_id: scope.id, amount_fen: 100, quantity_scaled: 10000, evidence: "菜单验收" }],
-  resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 0, evidence: "仅结费用" }],
+  resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 0, evidence: "仅结费用" }],
 });
 const server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));

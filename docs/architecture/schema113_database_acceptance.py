@@ -111,6 +111,15 @@ def add(t, **data):
                 status='active',reason='测试定义',actor_id='u',
                 recorded_at='2026-11-07T00:00:00.000Z')
         data['cost_node_id']=node_id
+    if t=="settlement_scope_results" and "location_item_no" not in data:
+        # Legacy one-position acceptance fixtures: use the actual approved
+        # position, never infer this value in the production service.
+        locations=db.execute(
+            "SELECT location_item_no FROM project_approval_work_locations "
+            "WHERE approval_scope_version_id=?",
+            (data["approval_scope_version_id"],)).fetchall()
+        assert len(locations)==1, "fixture requires one unambiguous approved position"
+        data["location_item_no"]=locations[0]["location_item_no"]
     if t=="settlement_review_events" and data.get("action")=="submit":
         # TEST FIXTURE ONLY: existing full-accounting fixtures predating
         # settlement_scope_results already had approved project demand scopes,
@@ -144,17 +153,25 @@ def add(t, **data):
                     "WHERE v.id=? ORDER BY a.project_scope_id LIMIT 1",
                     (ver,)).fetchall()
             for i,scope in enumerate(scopes):
-                if not db.execute(
-                    "SELECT 1 FROM settlement_scope_results "
-                    "WHERE settlement_version_id=? AND project_scope_id=?",
-                    (ver,scope["scope_id"])).fetchone():
-                    insert_raw("settlement_scope_results",
-                        id=f"fixture_scope_result_{ver}_{i}",
-                        settlement_version_id=ver,
-                        project_scope_id=scope["scope_id"],
-                        approval_scope_version_id=scope["approval_scope_id"],
-                        resolved_quantity_scaled=10000,
-                        evidence="仅测试样本的需求解决事实")
+                positions=db.execute(
+                    "SELECT location_item_no FROM project_approval_work_locations "
+                    "WHERE approval_scope_version_id=? ORDER BY location_item_no",
+                    (scope["approval_scope_id"],)).fetchall()
+                for position in positions:
+                    number=position["location_item_no"]
+                    if not db.execute(
+                        "SELECT 1 FROM settlement_scope_results "
+                        "WHERE settlement_version_id=? AND project_scope_id=? "
+                        "AND location_item_no=?",
+                        (ver,scope["scope_id"],number)).fetchone():
+                        insert_raw("settlement_scope_results",
+                            id=f"fixture_scope_result_{ver}_{i}_{number}",
+                            settlement_version_id=ver,
+                            project_scope_id=scope["scope_id"],
+                            approval_scope_version_id=scope["approval_scope_id"],
+                            location_item_no=number,
+                            resolved_quantity_scaled=10000,
+                            evidence="仅测试样本的需求解决事实")
     if t in ('cost_versions','settlement_item_versions') and 'cost_node_version_id' not in data:
         if t=='cost_versions':
             cost_node_id=db.execute('SELECT cost_node_id FROM cost_entries WHERE id=?',
@@ -491,8 +508,8 @@ add("dictionary_item_versions",id="unitv2",item_id="unit",version=2,
 ok("historical unit identity independent from newest label",
     row("SELECT unit_snapshot FROM demands WHERE id='d'")["unit_snapshot"]=="套"
     and row("SELECT name FROM v_dictionary_current WHERE id='unit'")["name"]=="组")
-# A newer complete project approval can remove an old approved scope entirely,
-# without deleting actual work/material historical facts.
+# Scope removal is an early release and must fail until the original project
+# formally closes. The next approved version retains every prior demand identity.
 demand("d2")
 activate_demand("d2")
 add("project_demand_scopes",id="scope2",project_id="p",demand_id="d2",
@@ -501,14 +518,20 @@ add("project_demand_scopes",id="scope2",project_id="p",demand_id="d2",
 add("project_approval_scope_versions",id="scopev3",approval_version_id="av3",
     project_scope_id="scope2",demand_id="d2",demand_version=1,quantity_scaled=10000,
     approved_amount_fen=1000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
+blocked("approved active project cannot remove scope before closure",
+    "UPDATE project_approval_versions SET status='approved',"
+    "approved_by='u',approved_at='2026-11-07T00:00:00.000Z' WHERE id='av3'")
+add("project_approval_scope_versions",id="scopev3_original",approval_version_id="av3",
+    project_scope_id="scope",demand_id="d",demand_version=1,quantity_scaled=10000,
+    approved_amount_fen=4000,snapshot_json="{}",created_at="2026-11-07T00:00:00.000Z")
 approve("av3")
-ok("new approved version entirely replaces old effective scope",
+ok("new approved version retains prior scope and adopts new demand",
     row("SELECT COUNT(*) n FROM v_approval_scope_current a "
         "JOIN project_approval_versions ap ON ap.id=a.approval_version_id "
-        "WHERE ap.project_id='p'")["n"]==1
-    and row("SELECT project_scope_id FROM v_approval_scope_current a "
+        "WHERE ap.project_id='p'")["n"]==2
+    and row("SELECT COUNT(*) n FROM v_approval_scope_current a "
         "JOIN project_approval_versions ap ON ap.id=a.approval_version_id "
-        "WHERE ap.project_id='p'")["project_scope_id"]=="scope2")
+        "WHERE ap.project_id='p' AND a.project_scope_id='scope'")["n"]==1)
 ok("old material approval history survives scope retirement",
     row("SELECT COUNT(*) n FROM v_approved_material_current "
         "WHERE project_material_id='mat'")["n"]==0
@@ -1191,7 +1214,7 @@ blocked_reason("approved demand cannot be unlinked before formal project scope c
     "INSERT INTO project_demand_link_events("
     "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
     " VALUES(?,?,?,?,?,?)",
-    "最新版正式批准范围仍包含需求，不能解绑",
+    "最新版正式批准范围仍包含需求；只允许未完成需求在项目正式结项后释放",
     ("illegal_approved_release","snull",2,"released","u",
      "2026-11-07T18:20:00.000Z"))
 add("project_closures",id="close_null",project_id="pnull",
@@ -1201,6 +1224,27 @@ add("project_closures",id="close_null",project_id="pnull",
 stage("pnull","closed",time="2026-11-07T18:32:00.000Z")
 ok("project with no cost or settlement may close without fictional work completion",
     row("SELECT status FROM projects WHERE id='pnull'")["status"]=="closed")
+# Formally closed project releases ONLY the unfinished demand, preserving
+# its original scope, approval and immutable history.
+add("project_demand_link_events",id="close_null_release",
+    project_scope_id="snull",event_seq=2,action="released",
+    actor_id="u",recorded_at="2026-11-07T18:33:00.000Z",
+    reason="正式结项后释放未完成需求")
+ok("closure release preserves historic project approval and removes current owner",
+    row("SELECT COUNT(*) n FROM v_project_demand_binding_current "
+        "WHERE demand_id='dnull'")["n"]==0
+    and row("SELECT COUNT(*) n FROM project_approval_scope_versions "
+            "WHERE project_scope_id='snull'")["n"]==1)
+add("projects",id="pnext",code="PNEXT",name="续建项目",
+    framework_id="f",created_by="u",created_at="2026-11-07T18:35:00.000Z")
+add("project_demand_scopes",id="snext",project_id="pnext",
+    demand_id="dnull",demand_version=1,proposed_quantity_scaled=10000,
+    created_by="u",created_at="2026-11-07T18:35:00.000Z",
+    updated_at="2026-11-07T18:35:00.000Z")
+ok("follow-on project adopts same original demand after formal closure",
+    row("SELECT project_id FROM v_project_demand_binding_current "
+        "WHERE demand_id='dnull'")["project_id"]=="pnext")
+
 
 # Money cannot point to funding recorded after its own ledger event.
 add("settlements",id="st_future",project_id="p",number="FUND-TIME",
@@ -1700,8 +1744,8 @@ ok("no independent preapproval allocation table, projection or evidence FK",
     and not any(x["table"]=="cost_allocation_versions"
                 for x in db.execute("PRAGMA foreign_key_list(evidence_links)")))
 ok("only canonical effective-business-fact views remain",
-    len(present)==27
-    and {'v_demand_reference_quote_current',
+    len(present)==28
+    and {'v_demand_current_location_progress','v_demand_reference_quote_current',
          'v_project_approval_reference_basis_current',
          'v_project_demand_binding_current','v_effective_demand_resolutions',
          'v_organizational_unit_current','v_approval_scope_current',
@@ -3967,10 +4011,10 @@ try:
     blocked_reason("cross-project or unmatched approval scope cannot be a demand result",
         "INSERT INTO settlement_scope_results("
         "id,settlement_version_id,project_scope_id,approval_scope_version_id,"
-        "resolved_quantity_scaled)"
-        " VALUES(?,?,?,?,?)",
+        "location_item_no,resolved_quantity_scaled)"
+        " VALUES(?,?,?,?,?,?)",
         "本次结算需求解决结果须关联同项目当次批准的需求范围",
-        ("r14_bad_scope","r14_sv1","scope","scopev1",10000))
+        ("r14_bad_scope","r14_sv1","scope","scopev1",1,10000))
     add("settlement_scope_results",id="r14_resolved_a1",
         settlement_version_id="r14_sv1",project_scope_id="r14_scope_a",
         approval_scope_version_id="r14_aps_a",
@@ -4008,10 +4052,10 @@ try:
     blocked_reason("demand-result record cannot be inserted after submission",
         "INSERT INTO settlement_scope_results("
         "id,settlement_version_id,project_scope_id,approval_scope_version_id,"
-        "resolved_quantity_scaled)"
-        " VALUES(?,?,?,?,?)",
+        "location_item_no,resolved_quantity_scaled)"
+        " VALUES(?,?,?,?,?,?)",
         "本次结算需求解决结果须关联同项目当次批准的需求范围",
-        ("r14_late_result","r14_sv1","r14_scope_a","r14_aps_a",10000))
+        ("r14_late_result","r14_sv1","r14_scope_a","r14_aps_a",1,10000))
     blocked_reason("published demand resolution cannot be deleted",
         "DELETE FROM settlement_scope_results WHERE id='r14_resolved_b1'",
         "需求解决结果历史不可删除")
@@ -4296,7 +4340,7 @@ try:
         "id,project_id,demand_id,demand_version,proposed_quantity_scaled,"
         "created_by,created_at,updated_at)"
         " VALUES(?,?,?,?,?,?,?,?)",
-        "关联项目只能完整承接当前正式需求位置和数量",
+        "项目必须完整承接原需求当前所有未解决位置及剩余数量",
         ("r15_partial_link","r15_p_b","r15_d",1,20000,"u",
          "2026-11-08T04:00:05.500Z","2026-11-08T04:00:05.500Z"))
     add("project_demand_scopes",id="r15_scope_b",
@@ -4417,67 +4461,30 @@ finally:
     db.execute("ROLLBACK TO r15_demand_link_exclusivity")
     db.execute("RELEASE r15_demand_link_exclusivity")
 
-# A project with an approved scope still owns its demand; it must first
-# formally remove that scope from the current approved version. Closure
-# retains this protection under the 2026-11-13 user decision.
+# A formally approved active project retains exclusive demand ownership.
+# A completed project's historical approved scopes remain immutable, but
+# unfinished demand ownership may be released upon formal closeout.
 db.execute("SAVEPOINT r15_formal_reassignment")
 try:
-    blocked_reason("latest approved active scope cannot be unlinked mid-project",
-        "INSERT INTO project_demand_link_events("
-        "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
-        " VALUES('r15_not_yet_released','scope2',2,'released','u',"
-        "'2026-11-08T04:03:00.000Z')",
-        "最新版正式批准范围仍包含需求，不能解绑")
-    # p's latest approval av3 excludes the ORIGINAL scope d, though old
-    # approval and cost/settlement histories still refer to it.
-    add("project_demand_link_events",id="r15_release_after_change",
-        project_scope_id="scope",event_seq=2,action="released",
-        actor_id="u",recorded_at="2026-11-08T04:04:00.000Z")
-    add("projects",id="r15_successor",code="R15-SUCCESSOR",
-        name="项目正式变更后的承接者",framework_id="f",
-        created_by="u",created_at="2026-11-08T04:04:00.000Z")
-    latest_d=row("SELECT current_version,quantity_scaled FROM v_demand_current WHERE id='d'")
-    add("project_demand_scopes",id="r15_successor_scope",
-        project_id="r15_successor",demand_id="d",
-        demand_version=latest_d["current_version"],
-        proposed_quantity_scaled=latest_d["quantity_scaled"],
-        created_at="2026-11-08T04:05:00.000Z",
-        updated_at="2026-11-08T04:05:00.000Z")
-    add("project_stage_events",id="r15_successor_stock",
-        project_id="r15_successor",stage="stocked",project_version=2,
-        actor_id="u",created_at="2026-11-08T04:05:10.000Z")
-    add("project_approval_versions",id="r15_successor_ap",
-        project_id="r15_successor",version_no=1,approved_budget_fen=6000,
-        snapshot_json="{}",created_at="2026-11-08T04:05:11.000Z")
-    add("project_approval_scope_versions",id="r15_successor_aps",
-        approval_version_id="r15_successor_ap",
-        project_scope_id="r15_successor_scope",
-        demand_id="d",demand_version=latest_d["current_version"],
-        quantity_scaled=latest_d["quantity_scaled"],
-        snapshot_json="{}",created_at="2026-11-08T04:05:12.000Z")
-    db.execute("UPDATE project_approval_versions SET status='approved',"
-        "approved_by='u',approved_at='2026-11-08T04:06:00.000Z'"
-        " WHERE id='r15_successor_ap'")
-    ok("released demand may be officially approved in new project while preserving original historical approval",
-        row("SELECT COUNT(*) n FROM project_approval_scope_versions aps "
-            "JOIN project_approval_versions av ON av.id=aps.approval_version_id "
-            "WHERE aps.demand_id='d' AND av.status='approved'")["n"]>=2
-        and row("SELECT project_id FROM v_project_demand_binding_current "
-            "WHERE demand_id='d'")["project_id"]=="r15_successor")
-    ok("closed project retains its approved demand binding",
+    for scope_id,label in (("scope2","newly approved scope"),("scope","original retained scope")):
+        blocked_reason("active project may not release "+label,
+            "INSERT INTO project_demand_link_events("
+            "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
+            " VALUES(?,?,?,?,?,?)",
+            "最新版正式批准范围仍包含需求；只允许未完成需求在项目正式结项后释放",
+            ("r15_illegal_"+scope_id,scope_id,2,"released","u",
+             "2026-11-08T04:03:00.000Z"))
+    ok("closure released unfinished demand while preserving approved history",
         row("SELECT project_id FROM v_project_demand_binding_current "
-            "WHERE demand_id='dnull'")["project_id"]=="pnull")
-    blocked_reason("closed project cannot release a demand in its latest approved scope",
+            "WHERE demand_id='dnull'")["project_id"]=="pnext"
+        and row("SELECT COUNT(*) n FROM project_approval_scope_versions "
+                "WHERE project_scope_id='snull'")["n"]==1)
+    blocked_reason("closed project's release cannot be repeated",
         "INSERT INTO project_demand_link_events("
         "id,project_scope_id,event_seq,action,actor_id,recorded_at)"
-        " VALUES('r15_closed_release','snull',2,'released','u',"
+        " VALUES('r15_duplicate_close_release','snull',3,'released','u',"
         "'2026-11-08T04:07:00.000Z')",
-        "最新版正式批准范围仍包含需求，不能解绑")
-    ok("closed release denial preserves approval and link history",
-        row("SELECT COUNT(*) n FROM project_demand_link_events "
-            "WHERE project_scope_id='snull'")["n"]==1
-        and row("SELECT COUNT(*) n FROM project_approval_scope_versions "
-            "WHERE project_scope_id='snull'")["n"]==1)
+        "需求关联与解绑必须按当前状态交替")
 finally:
     db.execute("ROLLBACK TO r15_formal_reassignment")
     db.execute("RELEASE r15_formal_reassignment")

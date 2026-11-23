@@ -1,4 +1,5 @@
 import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
+import { approvalPositionLabel } from "../../shared/approval-position-label.js";
 import { exchangeReportScope } from "../../shared/exchange-display.js";
 import type {Actor} from "../../shared/types/contracts.js";
 import type { ExchangePorts } from "./ports.js";
@@ -26,13 +27,24 @@ function scopeDescription(system:ExchangePorts,scopeId:string|null|undefined):st
   requireValue(demandId,"结算已采用需求范围不存在",404);
   return system.demands.get(demandId,true).problem_description;
 }
+function scopePositionLabel(system: ExchangePorts, projectId: string,
+  approvalId: string | undefined, scopeId: string, locationNo: number): string {
+  const project = system.projects.get(projectId);
+  const approval = project.approvals.find(ap => ap.id === approvalId) ||
+    project.approvals.find(ap => ap.id === project.approval?.id);
+  const location = approval?.scopes.find(scope => scope.project_scope_id === scopeId)
+    ?.locations.find(loc => loc.location_item_no === locationNo);
+  return location ? approvalPositionLabel(location) : "";
+}
+
 function reportDemand(system:ExchangePorts,records:DemandRecord[], options: ExchangeExportOptions):Promise<Buffer> {
   return makeBusinessReport("demands",
     records.map(record=>({
       需求编号:record.demand_no,操作类型:record.operation_snapshot,
       作业对象:record.work_object_snapshot,问题描述:record.problem_description,
       验收标准:record.completion_standard,预计解决时间:record.expected_on||"",工作量:decimalText(record.quantity_scaled,4),
-      计量单位:record.unit_snapshot,需求状态:demandDisplayStatus(record.status,Boolean(record.binding)),
+      计量单位:record.unit_snapshot,需求状态:demandDisplayStatus(record.status,Boolean(record.binding),
+        record.work_locations.reduce((sum,location)=>sum+(location.remaining_quantity_scaled??location.quantity_scaled),0)),
       位置数量:record.work_locations.length,正式版本:record.current_version,
       来源依据:record.sources.map(source=>source.description).join("；"),
     })),
@@ -41,7 +53,9 @@ function reportDemand(system:ExchangePorts,records:DemandRecord[], options: Exch
       作业位置:location.location_snapshot_json.location_label||
         location.location_snapshot_json.physical_code||
         location.location_snapshot_json.tower_no||location.span_id,
-      工作量:decimalText(location.quantity_scaled,4),计量单位:record.unit_snapshot,
+      工作量:decimalText(location.quantity_scaled,4),
+      当前未解决量:decimalText(location.remaining_quantity_scaled ?? location.quantity_scaled,4),
+      计量单位:record.unit_snapshot,
       作业方式:location.work_mode==="outage"?"停电":location.work_mode==="non_outage"?"不停电":"未明确",
       附加属性: Object.entries(location.attributes).map(([key,value]) => {
         const field = system.standards.operationAttributes(record.operation_id,record.operation_version).items.find(item=>item.key===key);
@@ -88,6 +102,7 @@ function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[], opt
     结算编号:recordsById.get(row.settlement_id)?.number,
     生效结算版本:versions.get(row.settlement_id)?.version_no,
     需求编号:row.demand_no,
+    作业位置: [row.line_name,row.location_label || row.tower_no || row.asset_no || String(row.location_item_no)].filter(Boolean).join(" · "),
     解决量:decimalText(row.resolved_quantity_scaled,4),
     计量单位:row.unit,
     解决依据:row.evidence,
@@ -163,6 +178,10 @@ function exportSettlements(system:ExchangePorts,records:SettlementWorkflow[],loo
       rows.resolutions.push({
         ...candidate,number:record.number,
         demand_description:typeof scopeId==="string"?scopeDescription(system,scopeId):undefined,
+        location_label: typeof scopeId==="string" && typeof candidate.location_item_no==="number"
+          ? scopePositionLabel(system,record.project_id,
+              (doc as {approval_version_id?:string}).approval_version_id,
+              scopeId,candidate.location_item_no) : undefined,
         action:"upsert",
       });
     }

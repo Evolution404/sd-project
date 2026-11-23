@@ -20,7 +20,7 @@ test("project finance HTTP pages preserve drafts, formal history, deletion and e
     let bill = s.finance.saveDraft(user, project.id, {
       items: [{ cost_node_id: node.id, project_scope_id: scope.id,
         quantity_scaled: 10000, amount_fen: 500 + index, evidence: "分期结算" }],
-      resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000,
+      resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000,
         evidence: "分期完成量" }],
     });
     if (index < 4) {
@@ -36,7 +36,7 @@ test("project finance HTTP pages preserve drafts, formal history, deletion and e
     expected_version: 1, expected_edit_version: 0,
     items: [{ cost_node_id: node.id, project_scope_id: scope.id,
       quantity_scaled: 10000, amount_fen: 700, evidence: "保留旧版的新草稿" }],
-    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000,
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000,
       evidence: "本次修订完成量" }],
   }, bills[0].id);
   const reconciliation = s.finance.reconciliation(user, {

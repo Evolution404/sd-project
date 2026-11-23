@@ -22,7 +22,8 @@ const candidateListSource: ListSource = {
     "json_extract(v.full_definition_json,'$.line_name_snapshot') AS line_name_snapshot " +
     "FROM v_demand_current v JOIN demands d ON d.id=v.id " +
     "WHERE v.status IN ('active','pending') " +
-    "AND NOT EXISTS (SELECT 1 FROM v_project_demand_binding_current b WHERE b.demand_id=v.id)",
+    "AND NOT EXISTS (SELECT 1 FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) " +
+    "AND EXISTS (SELECT 1 FROM v_demand_current_location_progress balance WHERE balance.demand_id=v.id AND balance.remaining_quantity_scaled>0)",
   columns: ["id","demand_no","operation_snapshot","problem_description","line_name_snapshot",
     "status","current_version","quantity_scaled","expected_on","created_at","deleted"],
   search: ["demand_no","operation_snapshot","problem_description","line_name_snapshot"],
@@ -61,6 +62,11 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
     current(key: string): DemandCurrentRow | undefined {
       return store.get("SELECT * FROM v_demand_current WHERE id=?", key) as DemandCurrentRow | undefined;
     },
+    locationProgress(key: string): {item_no:number;remaining_quantity_scaled:number;
+      resolved_quantity_scaled:number;demand_location_id:string}[] {
+      return store.query(`SELECT item_no,remaining_quantity_scaled,resolved_quantity_scaled,demand_location_id
+        FROM v_demand_current_location_progress WHERE demand_id=? ORDER BY item_no`,key);
+    },
     isDeleted: deletedDemand,
     materials(key: string, version: number): DemandMaterialRow[] {
       return store.query(
@@ -81,12 +87,13 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
       return store.get("SELECT * FROM v_project_demand_binding_current WHERE demand_id=?", key) as
         { project_id: string; project_scope_id: string; demand_id: string } | undefined;
     },
-    currentAll(): (DemandCurrentRow & { binding_json: string | null; deleted: number })[] {
+    currentAll(): (DemandCurrentRow & { binding_json: string | null; deleted: number; remaining_quantity_scaled:number })[] {
       return store.query(
-        "SELECT v.*,EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='demands' AND a.entity_id=v.id AND a.action='delete') AS deleted," +
+        "SELECT v.*, (SELECT COALESCE(SUM(balance.remaining_quantity_scaled),0) FROM v_demand_current_location_progress balance WHERE balance.demand_id=v.id) AS remaining_quantity_scaled, " +
+        "EXISTS(SELECT 1 FROM audit_events a WHERE a.entity='demands' AND a.entity_id=v.id AND a.action='delete') AS deleted," +
         "(SELECT json_object('project_id',b.project_id,'project_scope_id',b.project_scope_id,'demand_id',b.demand_id) " +
         "FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) AS binding_json FROM v_demand_current v"
-      ) as (DemandCurrentRow & { binding_json: string | null; deleted: number })[];
+      ) as (DemandCurrentRow & { binding_json: string | null; deleted: number; remaining_quantity_scaled:number })[];
     },
     search: listed,
     eligibleCandidates(query: ListQuery, includePending: boolean): Page<DemandListRecord> {

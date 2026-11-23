@@ -4,7 +4,7 @@ import { computed } from "vue";
 import { money, quantity } from "../../../shared/api/client";
 import BusinessTable, { type TableColumn } from "../../../shared/ui/BusinessTable.vue";
 
-import type { ProjectFinanceSnapshot, ProjectCloseDemandFact } from "./types";
+import type { ProjectFinanceSnapshot, ProjectCloseDemandFact, ProjectClosePositionFact } from "./types";
 function closeCell(row: ProjectCloseDemandFact, key: string): string {
   if (key === "demand_no") return row.demand_no;
   if (key === "approved_quantity_scaled" ||
@@ -34,6 +34,24 @@ const columns: TableColumn[] = [
   { key: "remaining_quantity_scaled", label: "未解决", minWidth: 130 },
   { key: "excess_quantity_scaled", label: "超出批准", minWidth: 130 },
 ];
+const positionColumns: TableColumn[] = [
+  { key: "demand_no", label: "需求编号", minWidth: 130 },
+  { key: "location_name", label: "作业位置", minWidth: 185 },
+  { key: "approved_quantity_scaled", label: "本项目批准", minWidth: 115 },
+  { key: "resolved_quantity_scaled", label: "本项目已解决", minWidth: 120 },
+  { key: "demand_remaining_quantity_scaled", label: "需求实际剩余", minWidth: 120 },
+];
+function closePositionCell(row: ProjectClosePositionFact, key: string): string {
+  if (key === "demand_no") return row.demand_no;
+  if (key === "location_name") return row.location_name;
+  if (key === "approved_quantity_scaled" ||
+      key === "resolved_quantity_scaled" ||
+      key === "demand_remaining_quantity_scaled") return quantity(row[key]);
+  return "—";
+}
+const releasing = computed(() => (props.summary?.locations || [])
+  .reduce((sum, row) => sum + row.demand_remaining_quantity_scaled, 0));
+
 </script>
 <template>
   <ElDialog v-model="model" append-to-body title="结项前业务核对" width="min(820px, 94vw)"
@@ -64,6 +82,19 @@ const columns: TableColumn[] = [
           {{ summary.budget_difference_fen == null ? '尚未批准' : '¥' + money(summary.budget_difference_fen) }}
         </ElDescriptionsItem>
       </ElDescriptions>
+      <ElAlert v-if="releasing > 0" type="warning" :closable="false"
+        :title="'本项目仍有未解决工作量 ' + quantity(releasing) + '。正式结项将释放相关专业需求的当前承接资格，由新项目接续全部剩余工作；本项目批准和结算历史不变。'" />
+      <ElAlert v-else type="info" :closable="false"
+        title="相关需求已全部解决，本项目结项后不会释放需要接续的工作量。" />
+      <h3 v-if="summary.locations?.length">逐位置实际解决与接续核对</h3>
+      <BusinessTable v-if="summary.locations?.length" client-side
+        table-key="project:close-position-check" :rows="summary.locations"
+        :columns="positionColumns">
+        <template #cell="{ row, column }">
+          {{ closePositionCell(row, column.key) }}
+        </template>
+      </BusinessTable>
+
       <BusinessTable v-if="summary.demands?.length" client-side
         table-key="project:close-check" :rows="summary.demands" :columns="columns">
         <template #cell="{ row, column }">

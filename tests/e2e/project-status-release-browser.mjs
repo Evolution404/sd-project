@@ -62,10 +62,11 @@ try {
   await page.getByRole("tab",{name:"已结项",exact:true}).click();
   await page.getByRole("row").filter({hasText:"测试子项目"}).locator(".cell-link:visible").first().click();
   await detail.getByRole("tab",{name:"承接需求"}).click();
-  await detail.getByText("项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。").waitFor();
-  await release.waitFor();
-  assert.ok(await release.isDisabled(),"closed project must retain its approved binding");
-  assert.match((await release.getAttribute("title"))||"",/已结项.*正式批准范围/);
+  await detail.getByText("未完成需求的独占承接资格已经释放，后续项目可以接续全部剩余位置和数量；本项目不可再解除历史关联。").waitFor();
+  assert.equal(await release.count(),0,"closed project may not manually delete historic associations");
+  assert.ok(await detail.getByText("结项释放（历史保留）").count() >= 1,
+    "closed project keeps historic scope label even if the column is hidden");
+  assert.equal(s.demands.get(scope.demand_id).binding,null);
   await page.screenshot({path:join(out,"closed-approved-release-disabled.png"),fullPage:true});
   assert.deepEqual(errors,[]);
   console.log("PROJECT_STATUS_RELEASE_BROWSER_OK four stage tabs, visible status column, approved release disabled and guidance");

@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
 import { fixture, approvedFixture } from "../helpers.mjs";
 import { createExchange } from "../../dist/server/modules/exchange/service.js";
+import { approvalPositionLabel } from "../../dist/server/shared/approval-position-label.js";
 import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 
 test("new demands use business names and stable import references, with protected identity roundtrip", async (t) => {
@@ -165,6 +166,7 @@ test("new settlement workbook needs business descriptions only and maintenance e
     resolutions: [
       {
         demand_description: demand.problem_description,
+        location_label: approvalPositionLabel(project.approvals[0].scopes[0].locations[0]),
         resolved_quantity_scaled: 0,
         evidence: "仅结费用",
       },

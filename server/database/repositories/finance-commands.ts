@@ -27,7 +27,7 @@ export interface SettlementItemVersionWrite {
 }
 export interface SettlementResultWrite {
   id:string; settlement_version_id:string; project_scope_id:string;
-  approval_scope_version_id:string; resolved_quantity_scaled:number; evidence:string;
+  approval_scope_version_id:string; location_item_no:number; resolved_quantity_scaled:number; evidence:string;
 }
 export interface ApprovalReference { id:string; project_id:string; }
 export interface SettlementItemRef { id:string; settlement_item_id:string; }
@@ -109,6 +109,20 @@ export function financeCommandRepository(store:Store) {
     approvalScopes(approvalId:string):SettlementScopeIdentity[] {
       return store.where<SettlementScopeIdentity>("project_approval_scope_versions",
         {approval_version_id:approvalId});
+    },
+    approvalWorkLocations(approvalId:string): {
+      project_scope_id:string; location_item_no:number; approved_quantity_scaled:number;
+      demand_location_id:string; location_kind:string; location_label:string;
+    }[] {
+      return store.query(`SELECT sc.project_scope_id,loc.location_item_no,
+        loc.approved_quantity_scaled,work.demand_location_id,work.location_kind,
+        COALESCE(json_extract(work.location_snapshot_json,'$.location_label'),
+          json_extract(work.location_snapshot_json,'$.tower_no'),'') AS location_label
+        FROM project_approval_scope_versions sc
+        JOIN project_approval_work_locations loc ON loc.approval_scope_version_id=sc.id
+        JOIN demand_version_work_locations work ON work.demand_id=sc.demand_id
+          AND work.demand_version=sc.demand_version AND work.item_no=loc.location_item_no
+        WHERE sc.approval_version_id=? ORDER BY sc.project_scope_id,loc.location_item_no`,approvalId);
     },
     createSettlementItem(row:SettlementItemIdentity):void { store.insert("settlement_items",row); },
     appendSettlementItem(row:SettlementItemVersionWrite):void {

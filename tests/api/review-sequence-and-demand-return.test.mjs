@@ -7,7 +7,7 @@ function draftInput(approval, scope, node, amount = 12500) {
     approval_version_id: approval.id,
     items: [{ cost_node_id: node.id, project_scope_id: scope.id,
       quantity_scaled: 10000, amount_fen: amount, evidence: "正式施工计量凭据" }],
-    resolutions: [{ project_scope_id: scope.id,
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1,
       resolved_quantity_scaled: 10000, evidence: "本次实际完成量" }],
   };
 }

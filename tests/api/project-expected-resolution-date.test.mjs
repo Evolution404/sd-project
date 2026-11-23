@@ -172,10 +172,14 @@ test("approved project cannot acquire an undated demand through the old single-l
   assert.equal(s.projects.get(project.id).scopes.filter(x=>x.binding).length,1);
 });
 
-test("closed project cannot revise a linked demand using ordinary demand edit",t=>{
+test("closed project releases unfinished demand for formal revision without changing signed history",t=>{
   const {s,user,project,demand}=approvedFixture(t);
   s.projectClosure.commit(user,project.id,{preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version:project.version});
-  assert.throws(()=>s.demands.save(user,{
-    expected_version:1,expected_on:"2027-02-25",
-  },demand.id),/已结项/);
+  assert.equal(s.demands.get(demand.id).binding,null);
+  const amended=s.demands.save(user,{
+    expected_version:1,expected_on:"2027-02-25",reason:"结项后重新核定剩余需求计划",
+  },demand.id);
+  assert.equal(amended.current_version,2);
+  assert.equal(amended.expected_on,"2027-02-25");
+  assert.equal(s.projects.get(project.id).approvals[0].scopes[0].demand_version,1);
 });

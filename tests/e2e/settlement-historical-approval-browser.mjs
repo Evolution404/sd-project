@@ -8,7 +8,7 @@ const cleanup = [];
 const f = approvedFixture({ after: fn => cleanup.push(fn) });
 const input = { approval_version_id: f.approval.id,
   items: [{ cost_node_id: f.node.id, project_scope_id: f.scope.id, amount_fen: 10000, evidence: "历史范围测试" }],
-  resolutions: [{ project_scope_id: f.scope.id, resolved_quantity_scaled: 10000 }] };
+  resolutions: [{ project_scope_id: f.scope.id, location_item_no: 1, resolved_quantity_scaled: 10000 }] };
 let bill = f.s.finance.saveDraft(f.user, f.project.id, input);
 bill = f.s.finance.submit(f.user, bill.id, { expected_version: 0, expected_edit_version: 1 });
 f.s.finance.review(f.user, bill.id, { expected_version: 1, expected_event_seq: 1, action: "approve" });

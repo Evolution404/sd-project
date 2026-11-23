@@ -7,7 +7,7 @@ function input(f) {
   return { approval_version_id: f.approval.id,
     items: [{ cost_node_id: f.node.id, project_scope_id: f.scope.id,
       amount_fen: 10000, quantity_scaled: 10000, evidence: "模拟结算" }],
-    resolutions: [{ project_scope_id: f.scope.id, resolved_quantity_scaled: 10000 }] };
+    resolutions: [{ project_scope_id: f.scope.id, location_item_no: 1, resolved_quantity_scaled: 10000 }] };
 }
 function approvedBill(f) {
   let bill = f.s.finance.saveDraft(f.user, f.project.id, input(f));

@@ -18,7 +18,7 @@ test("dashboard batch aggregates preserve exact project finance and formal settl
     approval_version_id: approval.id,
     items: [{ cost_node_id: node.id, project_scope_id: scope.id,
       quantity_scaled: 10000, amount_fen: 60000, evidence: "阶段结算凭据" }],
-    resolutions: [{ project_scope_id: scope.id,
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1,
       resolved_quantity_scaled: 20000, evidence: "完成量现场确认" }],
   });
   bill = s.finance.submit(user, bill.id, {

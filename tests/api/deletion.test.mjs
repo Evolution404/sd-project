@@ -35,7 +35,7 @@ test("logical master deletion cannot be bypassed and formal settlement deletion 
       },
     ],
     resolutions: [
-      { project_scope_id: scope.id, resolved_quantity_scaled: 10000 },
+      { project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000 },
     ],
   });
   bill = s.finance.submit(user, bill.id, {

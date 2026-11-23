@@ -14,7 +14,7 @@ function draft(project, scope, node, qty, resolved = qty) {
       evidence: "真实模拟费用与施工记录",
     }],
     resolutions: [{
-      project_scope_id: scope.id,
+      project_scope_id: scope.id, location_item_no: 1,
       resolved_quantity_scaled: resolved,
       evidence: "现场验收签字依据",
     }],
@@ -56,7 +56,7 @@ test("project linking rejects partial quantity and approvals require complete fo
     }],
   };
   assert.throws(()=>s.projects.approvalDraft(user,project.id,input),
-    problem=>problem.status===422 && /全部位置/.test(problem.message));
+    problem=>problem.status===422 && /全部.*位置/.test(problem.message));
   assert.equal(s.projects.get(project.id).approvals.length,0);
   const valid=s.projects.approvalDraft(user,project.id,{
     ...input,

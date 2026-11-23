@@ -1,4 +1,5 @@
 import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
+import { approvalPositionLabel } from "../../shared/approval-position-label.js";
 import { attributeCells } from "./attribute-cells.js";
 import {
   parseWorkbook,
@@ -31,7 +32,8 @@ export function createExchange(system:ExchangePorts) {
   const assets = createAssetExchange(system);
   let references = createReferences(system);
   let matchingMs = 0;
-  function resolveDetails(kind:string, row:ParsedWorkbookRow, projectId:string|null|undefined, existing:DemandRecord|null) {
+  function resolveDetails(kind:string, row:ParsedWorkbookRow, projectId:string|null|undefined, existing:DemandRecord|null,
+    approvalId?:string|null) {
     const value = { ...row };
     const started = performance.now();
     if (kind === "work_locations") {
@@ -84,6 +86,26 @@ export function createExchange(system:ExchangePorts) {
         value.demand_description,
         value.project_scope_id,
       ).id;
+    }
+    if (kind==="resolutions" && (value.location_label || value.location_item_no != null)) {
+      requireValue(typeof projectId==="string", "解决量必须属于真实子项目");
+      const project = system.projects.get(projectId);
+      const approval = project.approvals.find(x => x.id === approvalId);
+      requireValue(approval, "解决量必须采用本次结算的正式批准版本", 422);
+      const scope = approval.scopes.find(x => x.project_scope_id === value.project_scope_id);
+      requireValue(scope, "解决量须选择当前结算已批准的专业需求", 422);
+      if (value.location_item_no == null && typeof value.location_label==="string") {
+        const matches = scope.locations.filter(position =>
+          approvalPositionLabel(position) === value.location_label);
+        requireValue(matches.length===1, "作业位置名称不存在或存在重名，请从正式批准位置选择");
+        value.location_item_no = matches[0].location_item_no;
+      } else {
+        const position = scope.locations.find(position =>
+          position.location_item_no === value.location_item_no);
+        requireValue(position, "解决量位置不属于本次正式批准范围", 422);
+        requireValue(!value.location_label || value.location_label === approvalPositionLabel(position),
+          "解决量作业位置名称与隐藏的批准位置身份不一致", 422);
+      }
     }
     return value;
   }
@@ -203,6 +225,9 @@ export function createExchange(system:ExchangePorts) {
                   row,
                   typeof payload.project_id==="string" ? payload.project_id : existingSettlement?.project_id,
                   existingDemand,
+                  typeof payload.approval_version_id==="string" ? payload.approval_version_id
+                    : existingSettlement?.draft?.document.approval_version_id ||
+                      existingSettlement?.version?.approval_version_id,
                 ),
               );
             } catch (error) {

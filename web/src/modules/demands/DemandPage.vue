@@ -209,7 +209,7 @@ function reviewBatchLink() {
 }
 const restoredDraft = ref<Record<string, unknown> | null>(null);
 const detailAttributes = ref<OperationAttribute[]>([]);
-const demandStatuses = ["待确认", "已退回", "待承接", "已承接", "已取消"] as const;
+const demandStatuses = ["待确认", "已退回", "待承接", "已承接", "已解决", "已取消"] as const;
 // The tabs and the visible '需求状态' column share one filter source.
 // There is no longer a hidden handling_view column.
 const processing = computed({
@@ -223,8 +223,9 @@ const processing = computed({
     void load();
   },
 });
-function displayStatus(row: Pick<DemandRecord, "status" | "binding">) {
-  return demandDisplayStatus(row.status, Boolean(row.binding));
+function displayStatus(row: Pick<DemandRecord, "status" | "binding" | "work_locations">) {
+  return demandDisplayStatus(row.status, Boolean(row.binding),
+    row.work_locations.reduce((sum,location)=>sum+(location.remaining_quantity_scaled??location.quantity_scaled),0));
 }
 let attributeSequence = 0;
 watch(() => detail.value?.operation_id + "/" + detail.value?.operation_version, async () => {
@@ -264,7 +265,9 @@ async function resumeDemandDraft() {
 }
 const demandLocationColumns: TableColumn[] = [
   { key: "location_snapshot_json", label: "位置", minWidth: 230, sortable: false, filterable: false },
-  { key: "quantity_scaled", label: "数量", minWidth: 135 },
+  { key: "quantity_scaled", label: "需求数量", minWidth: 135 },
+  { key: "resolved_quantity_scaled", label: "已解决", minWidth: 125 },
+  { key: "remaining_quantity_scaled", label: "未解决", minWidth: 125 },
   { key: "work_mode", label: "作业方式", minWidth: 130 },
   { key: "attributes", label: "附加属性", minWidth: 230, sortable: false, filterable: false },
 ];
@@ -289,6 +292,8 @@ const demandColumns: TableColumn[] = [
   { key: "display_status", filterable: false, label: "需求状态", minWidth: 130, hideable: false },
   { key: "expected_on", label: "预计解决时间", minWidth: 155 },
   { key: "quantity_scaled", label: "工作量" },
+  { key: "resolved_quantity_scaled", label: "累计已解决" },
+  { key: "remaining_quantity_scaled", label: "尚未解决" },
   { key: "unit_snapshot", label: "计量单位" },
   { key: "location_count", label: "位置数量" },
   { key: "operation_snapshot", label: "操作类型", minWidth: 160 },
@@ -545,7 +550,7 @@ onMounted(async () => {
         <template #cell="{ row, column }">
           <ElButton v-if="column.key === 'problem_description'" link type="primary" class="cell-link"
             @click="detailDialog.open(row.id)">{{ row.problem_description }}</ElButton>
-          <span v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+          <span v-else-if="['quantity_scaled','resolved_quantity_scaled','remaining_quantity_scaled'].includes(column.key)">{{ quantity(column.key === 'resolved_quantity_scaled' ? (row.resolved_quantity_scaled ?? 0) : column.key === 'remaining_quantity_scaled' ? (row.remaining_quantity_scaled ?? 0) : row.quantity_scaled) }}</span>
           <span v-else-if="column.key === 'work_locations'">{{ row.work_locations?.length || 0 }} 处</span>
           <span v-else-if="column.key === 'binding'">{{ row.binding ? '已关联子项目' : '未关联' }}</span>
           <template v-else-if="column.key === 'display_status'">
@@ -583,7 +588,8 @@ onMounted(async () => {
           <p class="muted">
             {{ detail.status === 'pending' ? '需求尚未确认；确认后进入待承接。' :
               detail.status === 'returned' ? '需求已退回，须核对或修订后重新确认。' :
-              detail.status === 'active' && !detail.binding ? '需求处于待承接状态，下一步可纳入子项目。' :
+              displayStatus(detail) === '已解决' ? '所有作业位置均已解决，不再允许重复承接；历史项目和正式结算仍可追溯。' :
+              detail.status === 'active' && !detail.binding ? '存在未解决工作量，可由新的子项目完整接续承接。' :
               detail.status === 'active' && detail.binding ? '需求已由子项目承接，可继续办理入库和批准。' :
               '需求已取消，正式定义及历史仍可追溯。' }}
           </p>
@@ -595,7 +601,7 @@ onMounted(async () => {
             data-guide-action="demands.confirm" @click="transition(detail,'active')">
             确认并待承接
           </ElButton>
-          <ElButton v-else-if="detail.status === 'active' && !detail.binding && !detail.deleted"
+          <ElButton v-else-if="detail.status === 'active' && !detail.binding && !detail.deleted && displayStatus(detail) !== '已解决'"
             type="primary" :disabled="!can('write')"
             :title="can('write') ? undefined : '关联子项目需要编辑权限'"
             data-guide-action="demands.link" @click="openProjectPicker">
@@ -678,7 +684,7 @@ onMounted(async () => {
             {{ row.location_snapshot_json?.line_name || '' }}
             {{ row.location_snapshot_json?.location_label || row.location_snapshot_json?.tower_no || row.location_snapshot_json?.physical_code || row.span_id }}
           </ElButton>
-          <span v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</span>
+          <span v-else-if="['quantity_scaled','resolved_quantity_scaled','remaining_quantity_scaled'].includes(column.key)">{{ quantity(column.key === 'resolved_quantity_scaled' ? (row.resolved_quantity_scaled ?? 0) : column.key === 'remaining_quantity_scaled' ? (row.remaining_quantity_scaled ?? 0) : row.quantity_scaled) }}</span>
           <span v-else-if="column.key === 'work_mode'">{{ statusText[row.work_mode] || row.work_mode }}</span>
           <span v-else-if="column.key === 'attributes'">{{attributeSummary(row.attributes)}}</span>
           <span v-else>{{ valueAt(row,column.key) ?? '—' }}</span>

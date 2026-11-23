@@ -254,14 +254,17 @@ export function createFinance(
     const scopes = new Set(approval.scopes.map((x) => x.project_scope_id));
     const scopeUnits = quantityUnits.approvedScopeUnits(approval.id);
     requireValue(scopeUnits.size === scopes.size, "批准需求的计量单位正式版本不完整", 404);
-    const results = new Set();
+    const approvedLocations = new Set(repo.approvalWorkLocations(approval.id).map(row =>
+      row.project_scope_id + ":" + row.location_item_no));
+    const results = new Set<string>();
     for (const [index, r] of resolutions.entries()) {
       requireValue(scopes.has(r.project_scope_id), "解决需求不属于本批准范围");
-      requireValue(
-        !results.has(r.project_scope_id),
-        "同一需求不能重复累计解决数量",
-      );
-      results.add(r.project_scope_id);
+      const position = integer(r.location_item_no, "解决需求作业位置序号", 1);
+      const identity = r.project_scope_id + ":" + position;
+      requireValue(approvedLocations.has(identity),
+        "解决量必须关联该批准版本的真实作业位置", 422);
+      requireValue(!results.has(identity), "同一结算单不能重复填写同一需求位置的解决量");
+      results.add(identity);
       const rule = scopeUnits.get(r.project_scope_id);
       requireValue(rule, "解决需求采用的单位不存在", 404);
       assertQuantityPrecision(integer(r.resolved_quantity_scaled, "本次新增解决数量"),
@@ -448,6 +451,7 @@ export function createFinance(
             settlement_version_id: versionId,
             project_scope_id: r.project_scope_id,
             approval_scope_version_id: scope.id,
+            location_item_no: r.location_item_no,
             resolved_quantity_scaled: r.resolved_quantity_scaled,
             evidence: r.evidence || "",
           });

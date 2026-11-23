@@ -97,7 +97,7 @@ test("Schema113 full-demand adoption, exclusive binding, three installments and 
       ],
       resolutions: [
         {
-          project_scope_id: scope.id,
+          project_scope_id: scope.id, location_item_no: 1,
           resolved_quantity_scaled: quantity,
           evidence: "巡视复核",
         },
@@ -121,11 +121,16 @@ test("Schema113 full-demand adoption, exclusive binding, three installments and 
     s.projectClosure.commit(user, p.id, { preview_hash: s.projectClosure.preview(user, p.id).preview_hash, expected_version: 3 }).status,
     "closed",
   );
-  assert.throws(() => s.projects.release(user, p.id, scope.id, { expected_event_seq: 1 }), /已结项.*正式批准范围/);
-  assert.throws(() => s.projects.link(user, other.id, {
-    demand_id: demand.id,
-    expected_version: 1,
-  }), /关联|承接/);
-  assert.equal(s.demands.get(demand.id).binding.project_id, p.id);
+  assert.throws(() => s.projects.release(user, p.id, scope.id, { expected_event_seq: 1 }), /未关联/);
+  assert.equal(s.demands.get(demand.id).binding, null);
+  const outstanding = s.demands.get(demand.id).work_locations.reduce(
+    (sum, location) => sum + location.remaining_quantity_scaled, 0);
+  assert.ok(outstanding > 0, "某位置超量解决不能抵销其他位置的未完成需求");
+  const successor = s.projects.link(user, other.id, {
+    demand_id: demand.id, expected_version: 1,
+  });
+  assert.equal(successor.scopes[0].proposed_quantity_scaled, outstanding);
+  assert.equal(s.demands.get(demand.id).binding?.project_id, other.id);
+  assert.equal(s.projects.get(p.id).approvals[0].scopes[0].demand_id, demand.id);
   assert.equal(inspect(s).integrity().integrity[0].integrity_check, "ok");
 });

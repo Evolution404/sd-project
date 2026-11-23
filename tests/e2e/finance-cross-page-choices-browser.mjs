@@ -21,7 +21,7 @@ for (let n = 0; n < 35; n++) {
     approval_version_id: approval.id,
     items: [{ cost_node_id: node.id, project_scope_id: scope.id,
       amount_fen: 24000 + n, quantity_scaled: 10000, evidence: "结算依据" + n }],
-    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 0, evidence: "不新增解决量" }],
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 0, evidence: "不新增解决量" }],
   });
   bill = s.finance.submit(user, bill.id, { expected_version: 0, expected_edit_version: 1 });
   bills.push(s.finance.review(user, bill.id, {

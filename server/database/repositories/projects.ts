@@ -325,20 +325,42 @@ export function projectReadRepository(store: Store) {
       }));
     },
     /** Batch approval editor candidates from current formal demand versions. */
+    /** Remaining quantities by immutable equipment position, across all closed projects. */
+    demandRemainingLocations(demandId: string): {
+      item_no: number; demand_location_id: string; remaining_quantity_scaled: number;
+      resolved_quantity_scaled: number; quantity_scaled: number;
+    }[] {
+      return store.query(`SELECT item_no,demand_location_id,quantity_scaled,
+        resolved_quantity_scaled,remaining_quantity_scaled
+        FROM v_demand_current_location_progress WHERE demand_id=? ORDER BY item_no`, demandId);
+    },
     projectApprovalCandidates(projectId: string): ApprovalCandidate[] {
       const rows = store.query(`SELECT scope.id AS project_scope_id, d.id,
         current.current_version, d.demand_no, current.status,
-        current.unit_id,current.unit_version,current.full_definition_json
+        current.unit_id,current.unit_version,current.full_definition_json,
+        (SELECT json_group_array(json_object(
+          'item_no',progress.item_no,
+          'remaining_quantity_scaled',progress.remaining_quantity_scaled))
+          FROM v_demand_current_location_progress progress
+          WHERE progress.demand_id=d.id) AS location_balances_json
         FROM project_demand_scopes scope
         JOIN v_project_demand_binding_current bind
           ON bind.project_scope_id=scope.id
         JOIN demands d ON d.id=scope.demand_id
         JOIN v_demand_current current ON current.id=d.id
         WHERE scope.project_id=?
-        ORDER BY scope.created_at,scope.id`, projectId) as ApprovalCandidateRow[];
-      return rows.map(({ full_definition_json, ...row }) => ({
-        ...row, ...scopeDemandContent(full_definition_json),
-      }));
+        ORDER BY scope.created_at,scope.id`, projectId) as (ApprovalCandidateRow & {location_balances_json:string})[];
+      return rows.map(({ full_definition_json, location_balances_json, ...row }) => {
+        const content = scopeDemandContent(full_definition_json);
+        const balances = JSON.parse(location_balances_json || "[]") as {
+          item_no:number; remaining_quantity_scaled:number;
+        }[];
+        const remaining = new Map(balances.map(location =>
+          [location.item_no, location.remaining_quantity_scaled]));
+        return { ...row, ...content, work_locations: content.work_locations.map(location => ({
+          ...location, remaining_quantity_scaled: remaining.get(location.item_no) ?? 0,
+        })) };
+      });
     },
     projectDashboardPortfolio(ids?: string[], includeDeleted = false): ProjectDashboardBase[] {
       return store.query(`SELECT p.id,p.code,m.name,p.status,${PROJECT_DISPLAY_STATUS_SQL} AS display_status,p.framework_id,

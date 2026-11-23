@@ -12,7 +12,7 @@ const draft = s.finance.saveDraft(user, project.id, {
   approval_version_id: approval.id,
   items: [{ cost_node_id: node.id, project_scope_id: scope.id,
     amount_fen: 12000, quantity_scaled: 10000, evidence: "结算交接" }],
-  resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000,
+  resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000,
     evidence: "验收凭据" }],
 });
 const original = s.finance.submit(user, draft.id, {

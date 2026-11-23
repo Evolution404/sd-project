@@ -23,7 +23,7 @@ test("project history groups approvals, costs, settlement installments and cost 
         cost_node_id:node.id,project_scope_id:scope.id,
         amount_fen:6000,quantity_scaled:10000,evidence:"第"+i+"批",
       }],
-      resolutions:[{project_scope_id:scope.id,
+      resolutions:[{project_scope_id:scope.id, location_item_no: 1,
         resolved_quantity_scaled:10000,evidence:"第"+i+"批工程量"}],
     });
     statement=s.finance.submit(user,statement.id,{

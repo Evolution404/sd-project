@@ -109,10 +109,21 @@ export function trainingRepository(store: ReturnType<typeof createStore>) {
         frameworks: count("SELECT COUNT(*) total FROM v_framework_current WHERE status='active'"),
         agreements: count("SELECT COUNT(*) total FROM v_agreement_current WHERE status='active'"),
         fundedLinkedDemands: count(`SELECT COUNT(*) total
-          FROM v_project_demand_binding_current binding
-          JOIN v_project_funding_current funding ON funding.project_id=binding.project_id
+          FROM project_demand_scopes adopted
+          JOIN projects project ON project.id=adopted.project_id
+          JOIN v_project_funding_current funding ON funding.project_id=adopted.project_id
           JOIN v_agreement_current agreement ON agreement.id=funding.agreement_id
-          WHERE agreement.status='active' AND agreement.framework_id=funding.framework_id`),
+          WHERE agreement.status='active' AND agreement.framework_id=funding.framework_id
+          AND (
+            EXISTS (SELECT 1 FROM v_project_demand_binding_current binding
+              WHERE binding.project_scope_id=adopted.id)
+            OR (project.status='closed'
+              AND EXISTS(SELECT 1 FROM project_closures closure
+                WHERE closure.project_id=project.id)
+              AND EXISTS(SELECT 1 FROM project_approval_scope_versions signed
+                JOIN project_approval_versions version ON version.id=signed.approval_version_id
+                WHERE signed.project_scope_id=adopted.id AND version.status='approved'))
+          )`),
         approvedProjects: count("SELECT COUNT(DISTINCT project_id) total FROM project_approval_versions WHERE status='approved'"),
         approvedChanges: count("SELECT COUNT(*) total FROM project_approval_versions WHERE status='approved' AND version_no>1"),
         actualCosts: count("SELECT COUNT(*) total FROM v_cost_current WHERE status='active'"),

@@ -27,7 +27,7 @@ test("settled amounts, independently reported work, over-completion and reconcil
       ],
       resolutions: [
         {
-          project_scope_id: scope.id,
+          project_scope_id: scope.id, location_item_no: 1,
           resolved_quantity_scaled: resolved,
           evidence: "本期现场复核",
         },
@@ -119,9 +119,11 @@ test("settled amounts, independently reported work, over-completion and reconcil
   );
   const closed = s.projects.get(project.id);
   s.projects.remove(user, project.id, { expected_version: closed.version });
-  assert.equal(s.demands.get(scope.demand_id).binding.project_id, project.id);
-  assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }), /已结项.*正式批准范围/);
-  assert.equal(s.demands.get(scope.demand_id).binding.project_id, project.id);
+  assert.equal(s.demands.get(scope.demand_id).binding, null,
+    "结项后未解决位置释放当前承接资格");
+  assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }), /未关联|已结项/);
+  assert.equal(inspect(s).where("project_approval_scope_versions", { project_scope_id: scope.id }).length,1,
+    "原项目签署范围保持冻结可追溯");
   const history = s.projects.history(project.id);
   assert.equal(history.costs.length, 1);
   assert.equal(history.settlements.length, 2);
@@ -161,7 +163,7 @@ test("nested settlement and reconciliation histories enforce owning project for 
     approval_version_id: approval.id,
     items: [{ cost_node_id: node.id, project_scope_id: scope.id,
       quantity_scaled: 10000, amount_fen: 5000, evidence: "结算依据" }],
-    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000, evidence: "核实" }],
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000, evidence: "核实" }],
   });
   bill = s.finance.submit(user, bill.id,
     { expected_version: 0, expected_edit_version: 1 });

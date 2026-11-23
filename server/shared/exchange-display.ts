@@ -4,6 +4,8 @@ import { isObject } from "./types/contracts.js";
 export const exchangeColumnLabels: Record<string,string> = {
   import_ref: "导入关联号",
   location_ref: "位置关联号",
+  location_item_no: "正式批准作业位置序号",
+  location_label: "作业位置",
   primary_source: "主要来源说明",
   primary_source_id: "主要来源身份",
   unit_name: "单位",

@@ -55,6 +55,7 @@ import {
   api, ApiError,
   today,
   money,
+  quantity,
   statusText,
 } from "../../shared/api/client";
 type FocusKind = "cost" | "settlement" | "reconciliation";
@@ -235,6 +236,22 @@ const settlementScopes = computed(() => approvalChoices.value
 const demandScopeLabels = computed(() => choiceLabels(settlementScopes.value.map(scope => ({
   ...scope, id: scope.project_scope_id,
 })), scope => scope.problem_description || "历史需求", scope => [scope.demand_no]));
+/** Position options come from the immutable approval, not the live demand order. */
+function resolutionLocationOptions(scopeId?: string) {
+  const scope = settlementScopes.value.find(row => row.project_scope_id === scopeId);
+  return (scope?.locations || []).map(location => {
+    const snapshot = JSON.parse(location.frozen_location) as {
+      tower_no?: string; location_label?: string; asset_no?: string;
+    };
+    const label = snapshot.location_label || snapshot.tower_no ||
+      snapshot.asset_no || location.location_object;
+    return {
+      item_no: location.location_item_no,
+      label: label + " · 批准 " + quantity(location.approved_quantity_scaled),
+    };
+  });
+}
+
 
 let approvalSequence = 0;
 async function loadApprovalChoices() {
@@ -572,7 +589,9 @@ async function save() {
     if (documents.some(item => item.project_scope_id &&
         scopePrecision.value[item.project_scope_id] === undefined) ||
         resolutions.some(item => !item.project_scope_id ||
-          scopePrecision.value[item.project_scope_id] === undefined) ||
+          scopePrecision.value[item.project_scope_id] === undefined ||
+          !resolutionLocationOptions(item.project_scope_id).some(location =>
+            location.item_no === item.location_item_no)) ||
         documents.some((_, i) => invalidQuantity.value["items." + i]) ||
         resolutions.some((_, i) => invalidQuantity.value["resolutions." + i])) {
       ElMessage.error(scopePrecisionError.value ||
@@ -1155,12 +1174,19 @@ watch(() => props.project.id, () => {
           <div class="form-grid">
             <ElFormItem label="项目需求" required
               ><ElSelect v-model="r.project_scope_id" filterable
+                @change="r.location_item_no = undefined"
                 ><template #label>{{ demandScopeLabels.get(r.project_scope_id || '') || "正在读取需求名称" }}</template>
                 <ElOption
                   v-for="scope in settlementScopes"
                   :key="scope.project_scope_id"
                   :value="scope.project_scope_id"
                   :label="demandScopeLabels.get(scope.project_scope_id) || '历史需求'" /></ElSelect></ElFormItem
+            ><ElFormItem label="作业位置" required
+              ><ElSelect v-model="r.location_item_no" filterable placeholder="选择正式批准的作业位置"
+                :disabled="!r.project_scope_id"
+                ><ElOption v-for="location in resolutionLocationOptions(r.project_scope_id)"
+                  :key="location.item_no" :value="location.item_no"
+                  :label="location.label" /></ElSelect></ElFormItem
             ><ElFormItem label="本次新增解决量" required
               ><FieldControl
                 v-model="r.resolved_quantity_scaled"

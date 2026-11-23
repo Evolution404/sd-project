@@ -19,6 +19,7 @@ function settlementResolution(row:unknown,index:number):SettlementResolutionInpu
   requireValue(isObject(row),"解决量第"+(index+1)+"行必须为对象");
   return {
     project_scope_id:str(row.project_scope_id,"批准需求"),
+    location_item_no:num(row.location_item_no,"作业位置序号"),
     resolved_quantity_scaled:num(row.resolved_quantity_scaled,"解决数量"),
     evidence:optStr(row.evidence,"解决依据"),
   };

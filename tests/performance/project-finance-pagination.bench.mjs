@@ -18,7 +18,7 @@ test("240 costs, 120 settlements and 60 reconciliations use bounded SQL pages", 
       let bill = s.finance.saveDraft(user, project.id, {
         items: [{ cost_node_id: node.id, project_scope_id: scope.id,
           quantity_scaled: 10000, amount_fen: 500, evidence: "分期结算压力测试" }],
-        resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 10000,
+        resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000,
           evidence: "压力测试工程量" }],
       });
       if (index >= 60) continue;

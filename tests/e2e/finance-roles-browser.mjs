@@ -18,7 +18,7 @@ const draft=s.finance.saveDraft(actors.editor,project.id,{
   approval_version_id:approval.id,
   items:[{cost_node_id:node.id,project_scope_id:scope.id,
     amount_fen:12500,quantity_scaled:10000,evidence:"审批交接账单"}],
-  resolutions:[{project_scope_id:scope.id,resolved_quantity_scaled:10000,
+  resolutions:[{project_scope_id:scope.id, location_item_no: 1,resolved_quantity_scaled:10000,
     evidence:"已核查完成范围"}],
 });
 s.finance.submit(actors.editor,draft.id,{expected_version:0,expected_edit_version:1});

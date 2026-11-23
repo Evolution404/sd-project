@@ -76,7 +76,7 @@ test("annual framework and execution agreement aggregate only approved settlemen
     approval_version_id: approval.id,
     items: [{ cost_node_id: node.id, project_scope_id: scope.id,
       amount_fen: 50000, quantity_scaled: 10000, evidence: "分次结算" }],
-    resolutions: [{ project_scope_id: scope.id,
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1,
       resolved_quantity_scaled: 10000, evidence: "实际解决数量" }],
   });
   // Pending and draft records must not increase approved settlements.

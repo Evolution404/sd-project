@@ -58,6 +58,7 @@ const technicalColumns = new Set([
   "material_id",
   "cost_node_id",
   "project_scope_id",
+  "location_item_no",
   "priority_id",
   "number",
   "field_key",
@@ -209,6 +210,8 @@ export const layouts: WorkbookLayouts = {
         "number",
         "action",
         "project_scope_id",
+        "location_item_no",
+        "location_label",
         "resolved_quantity_scaled",
         "evidence",
         "demand_description",
@@ -239,7 +242,7 @@ function businessHeader(key:string, kind:WorkbookKind, sheet?:string):string {
 const requiredColumns: Partial<Record<WorkbookKind,Record<string,string[]>>> = {
   assets: { documents: ["name", "voltage_name"], towers: ["line_name", "tower_no"], spans: ["line_name", "start_tower_no", "end_tower_no"] },
   demands: { documents: ["import_ref", "operation_name", "problem_description"], work_locations: ["import_ref", "location_ref", "location_kind", "quantity_scaled"], materials: ["import_ref", "material_name", "quantity_scaled"], sources: ["import_ref", "description"] },
-  settlements: { items: ["cost_node_path", "amount_fen", "evidence"], resolutions: ["demand_description", "resolved_quantity_scaled", "evidence"] },
+  settlements: { items: ["cost_node_path", "amount_fen", "evidence"], resolutions: ["demand_description", "location_label", "resolved_quantity_scaled", "evidence"] },
 };
 const conditionalColumns = new Set([
   "parent_line_name", "junction_tower_no", "sharing_line_name", "sharing_tower_no",

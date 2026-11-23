@@ -29,7 +29,7 @@ test("settlement workbook creates draft only, preserves independent resolution a
     resolutions: [
       {
         number: "IMPORT-S01",
-        project_scope_id: scope.id,
+        project_scope_id: scope.id, location_item_no: 1,
         resolved_quantity_scaled: 0,
         evidence: "补结费用",
       },
@@ -149,7 +149,7 @@ test("partial success excludes invalid documents, atomic batch rolls back every 
       resolutions: [
         {
           number: "GOOD" + suffix,
-          project_scope_id: scope.id,
+          project_scope_id: scope.id, location_item_no: 1,
           resolved_quantity_scaled: 0,
         },
       ],
@@ -201,7 +201,7 @@ test("settlement report distinguishes current approval from a revision and expor
   let bill = s.finance.saveDraft(user, project.id, {
     mode: "project_total", approval_version_id: approval.id, amount_fen: 10000,
     settlement_on: "2026-11-10", basis: "旧批准依据",
-    resolutions: [{ project_scope_id: scope.id, resolved_quantity_scaled: 20000, evidence: "现场核实" }],
+    resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 20000, evidence: "现场核实" }],
   });
   bill = s.finance.submit(user, bill.id, { expected_version: 0, expected_edit_version: bill.draft.edit_version });
   bill = s.finance.review(user, bill.id, { expected_version: 1, expected_event_seq: 1, action: "approve" });

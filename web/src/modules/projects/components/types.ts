@@ -21,6 +21,21 @@ export interface ProjectOverviewFacts {
   manager_username: string | null;
   preliminary_estimate_fen: number | null;
 }
-export type ProjectFinanceSnapshot = FinanceSummary;
+export interface ProjectClosePositionFact {
+  project_scope_id: string;
+  demand_id: string;
+  demand_no: string;
+  location_item_no: number;
+  demand_location_id: string;
+  location_name: string;
+  approved_quantity_scaled: number;
+  resolved_quantity_scaled: number;
+  remaining_quantity_scaled: number;
+  demand_remaining_quantity_scaled: number;
+}
+export type ProjectFinanceSnapshot = FinanceSummary & {
+  /** Only supplied by formal closure preview, not ordinary finance summary. */
+  locations?: ProjectClosePositionFact[];
+};
 export type ProjectCloseDemandFact = FinanceSummary["demands"][number];
 export interface ProjectReference { id: string; name: string }

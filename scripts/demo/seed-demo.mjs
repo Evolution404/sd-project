@@ -375,7 +375,7 @@ function populate(system, password) {
         evidence: "【演示】第一批结算资料",
       }],
       resolutions: [{
-        project_scope_id: project.scopes[0].id,
+        project_scope_id: project.scopes[0].id, location_item_no: 1,
         resolved_quantity_scaled: 20000,
         evidence: "【演示】第一批完成验收",
       }],

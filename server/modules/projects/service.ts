@@ -89,6 +89,9 @@ export function createProjects(
     requireValue(demand.status === "active" || demand.status === "pending",
       "仅待承接或待确认的有效需求可以关联项目",422);
     requireValue(!demand.binding,"需求已关联其他子项目，请刷新待承接清单",409);
+    const available = repo.demandRemainingLocations(demand.id);
+    requireValue(available.some(row => row.remaining_quantity_scaled > 0),
+      "此需求已全部解决，不可再次承接", 409);
     return {demand,existing:project.scopes.find(scope=>scope.demand_id===demand.id)};
   }
   function writeLink(actor:Actor,key:string,input:ProjectLinkInput,
@@ -109,7 +112,8 @@ export function createProjects(
       repo.createDemandScope({
         id:scopeId,project_id:key,demand_id:demand.id,
         demand_version:demand.current_version,
-        proposed_quantity_scaled:demand.quantity_scaled,
+        proposed_quantity_scaled:repo.demandRemainingLocations(demand.id).reduce(
+          (sum, location) => sum + location.remaining_quantity_scaled, 0),
         created_by:actor.id,created_at:timestamp,updated_at:timestamp,
         demand_snapshot_json:JSON.stringify(demand),
       });
@@ -336,26 +340,38 @@ export function createProjects(
       if (!scope) requireValue(!demand.binding, "候选需求已由其他项目关联，请重新核对变更", 409);
       expectedVersion(demand.current_version, selected.demand_version);
       const locations = selected.locations;
-      requireValue(
-        Array.isArray(locations) && locations.length === demand.work_locations.length,
-        "子项目必须承接需求全部位置；如需部分实施，请先正式修订或拆分专业需求", 422,
-      );
+      const previous = project.approval &&
+        project.approvals.find(row => row.id === project.approval?.id)?.scopes.find(
+          row => row.project_scope_id === scope?.id);
+      const available = repo.demandRemainingLocations(demand.id);
+      const expectedByIdentity = new Map<string, number>(previous
+        ? previous.locations.map(location => [
+          location.location_kind + ":" + location.location_object,
+          location.approved_quantity_scaled] as const)
+        : available.filter(location => location.remaining_quantity_scaled > 0)
+          .map(location => [location.demand_location_id, location.remaining_quantity_scaled] as const));
+      requireValue(Array.isArray(locations) && locations.length === expectedByIdentity.size &&
+        expectedByIdentity.size > 0,
+        "必须完整承接本次全部未解决位置及剩余数量；在办项目变更须保留原已批准范围", 422);
       const unitRule = unitRules.get(demand.id + ":" + demand.current_version);
       requireValue(unitRule, "需求采用的计量单位正式版本不存在", 404);
       const locationItems = new Map(demand.work_locations.map(location =>
-        [location.item_no, location.quantity_scaled]));
+        [location.item_no, location] as const));
       const usedItems = new Set<number>();
       for (const [index, loc] of locations.entries()) {
-        requireValue(locationItems.has(loc.location_item_no) && !usedItems.has(loc.location_item_no),
-          "批准作业位置必须完整且来自需求正式版本，不得重复", 422,
+        const position = locationItems.get(loc.location_item_no);
+        requireValue(position && !usedItems.has(loc.location_item_no),
+          "批准作业位置必须来自需求正式版本，不得重复", 422,
           { [`scopes.${selected.project_scope_id}.locations.${index}`]: "请核对真实作业位置" });
         usedItems.add(loc.location_item_no);
+        const identity = position.location_kind + ":" + (
+          position.logical_tower_id || position.physical_tower_id || position.span_id);
         assertQuantityPrecision(integer(loc.approved_quantity_scaled, "批准位置数量", 1),
           unitRule.fields_json, unitRule.name,
           `scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`);
-        requireValue(loc.approved_quantity_scaled === locationItems.get(loc.location_item_no),
-          "子项目不得调整单个需求位置的数量；请先正式修订或拆分需求", 422,
-          { [`scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`]: "必须与当前需求数量完全一致" });
+        requireValue(expectedByIdentity.get(identity) === loc.approved_quantity_scaled,
+          "批准位置必须采用完整剩余量，不允许自行分割承接数量", 422,
+          { [`scopes.${selected.project_scope_id}.locations.${index}.approved_quantity_scaled`]: "必须等于本次可承接数量" });
       }
 
       const total = locations.reduce(
@@ -487,6 +503,12 @@ export function createProjects(
         409,
       );
       requireValue(Array.isArray(input.scopes) && input.scopes.length > 0, "请明确批准需求范围");
+      if (project.approval) {
+        const original = project.approvals.find(row => row.id === project.approval?.id);
+        requireValue(original?.scopes.every(scope =>
+          input.scopes.some(selected => selected.project_scope_id === scope.project_scope_id)),
+          "在办项目不能通过变更移出已批准需求；应在项目结项后释放未完成需求", 409);
+      }
       const demandIdentities = input.scopes.map(selected => selected.demand_id ||
         project.scopes.find(scope => scope.id === selected.project_scope_id)?.demand_id);
       requireValue(demandIdentities.every(Boolean) && new Set(demandIdentities).size === demandIdentities.length,

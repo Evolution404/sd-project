@@ -100,7 +100,7 @@ test("P10 L01-L12 real isolated training course checkpoints use the full busines
       number:"P10-TRAIN-SETTLE-"+(index+1),approval_version_id:change.id,
       items:[{cost_node_id:node.id,project_scope_id:scope.id,quantity_scaled:10000,
         amount_fen:amount,evidence:"训练分次结算证明"}],
-      resolutions:[{project_scope_id:scope.id,resolved_quantity_scaled:10000,evidence:"训练现场复核"}],
+      resolutions:[{project_scope_id:scope.id, location_item_no: 1,resolved_quantity_scaled:10000,evidence:"训练现场复核"}],
     });
     bill=s.finance.submit(user,bill.id,{expected_version:0,expected_edit_version:1});
     bill=s.finance.review(user,bill.id,{expected_version:1,expected_event_seq:1,action:"approve"});

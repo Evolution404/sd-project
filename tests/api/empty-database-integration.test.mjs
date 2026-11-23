@@ -208,7 +208,7 @@ test("EMPTY DB: demand -> quote -> project -> agreement -> actual cost -> staged
     number: "EMPTY-SETTLE-01", approval_version_id: approval.id,
     items: [{ cost_node_id: node.id, project_scope_id: project.scopes[0].id,
       quantity_scaled: 30000, amount_fen: 18000, evidence: "结算证明" }],
-    resolutions: [{ project_scope_id: project.scopes[0].id,
+    resolutions: [{ project_scope_id: project.scopes[0].id, location_item_no: 1,
       resolved_quantity_scaled: 30000, evidence: "施工复核" }],
   });
   bill = s.finance.submit(user, bill.id, {

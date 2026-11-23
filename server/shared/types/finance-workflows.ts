@@ -66,6 +66,8 @@ export interface SettlementItemInput {
 }
 export interface SettlementResolutionInput {
   project_scope_id: string;
+  /** Position within the frozen approval, not the live demand order. */
+  location_item_no: number;
   resolved_quantity_scaled: number;
   evidence?: string;
 }

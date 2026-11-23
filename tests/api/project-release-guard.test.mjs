@@ -52,16 +52,27 @@ test("approval draft containing a linked demand blocks release before formal app
   assert.ok(s.demands.get(demand.id).binding);
 });
 
-test("closed project retains approved binding through service, HTTP and database enforcement", async t => {
+test("closed project releases unfinished demand without rewriting its approval or link history", async t => {
   const { s, user, project, scope, demand } = approvedFixture(t);
-  s.projectClosure.commit(user, project.id, { preview_hash: s.projectClosure.preview(user, project.id).preview_hash, expected_version: project.version });
-  assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }),
-    error => error.status === 409 && /已结项.*正式批准范围/.test(error.message));
+  const preview = s.projectClosure.preview(user, project.id);
+  assert.equal(preview.release_demands.length, 1);
+  s.projectClosure.commit(user, project.id, {
+    preview_hash: preview.preview_hash, expected_version: project.version,
+  });
+  assert.equal(s.demands.get(demand.id).binding, null);
   const { inspect } = await import("../inspector.mjs");
+  assert.deepEqual(inspect(s).where("project_demand_link_events", {
+    project_scope_id: scope.id,
+  }).map(event => event.action), ["linked", "released"]);
+  assert.equal(inspect(s).where("project_approval_scope_versions", {
+    project_scope_id: scope.id,
+  }).length, 1);
+  assert.throws(() => s.projects.release(user, project.id, scope.id, { expected_event_seq: 1 }),
+    error => error.status === 409 && /未关联|已结项/.test(error.message));
   assert.throws(() => inspect(s).insert("project_demand_link_events", {
-    id: "rejected-closed-release", project_scope_id: scope.id, event_seq: 2, action: "released",
-    actor_id: user.id, recorded_at: new Date().toISOString(), reason: "",
-  }), /正式批准范围仍包含需求/);
+    id: "rejected-closed-release", project_scope_id: scope.id, event_seq: 3,
+    action: "released", actor_id: user.id, recorded_at: new Date().toISOString(),
+  }), /交替|当前未关联/);
   const { httpServer } = await import("../../dist/server/platform/http/server.js");
   const server = httpServer(s);
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
@@ -72,9 +83,10 @@ test("closed project retains approved binding through service, HTTP and database
     body: JSON.stringify({ expected_event_seq: 1 }),
   });
   assert.equal(response.status, 409);
-  const body = await response.text();
-  assert.match(body, /已结项.*正式批准范围/);
-  assert.doesNotMatch(body, /SQLite|constraint|stack/);
-  assert.equal(s.demands.get(demand.id).binding.project_id, project.id);
-  assert.equal(inspect(s).where("project_demand_link_events", { project_scope_id: scope.id }).length, 1);
+  assert.match(await response.text(), /未关联|已结项/);
+  const successor = s.projects.save(user, { name: "接续治理项目", framework_id: project.framework_id });
+  const next = s.projects.link(user, successor.id, { demand_id: demand.id,
+    expected_version: demand.current_version });
+  assert.equal(s.demands.get(demand.id).binding?.project_id, successor.id);
+  assert.equal(next.scopes[0].proposed_quantity_scaled, demand.quantity_scaled);
 });

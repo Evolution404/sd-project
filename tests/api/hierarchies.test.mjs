@@ -294,7 +294,7 @@ test("cost subtree settlement attribution is independent of budgets and other pr
     ],
     resolutions: [
       {
-        project_scope_id: scope.id,
+        project_scope_id: scope.id, location_item_no: 1,
         resolved_quantity_scaled: 10000,
         evidence: "本期解决",
       },

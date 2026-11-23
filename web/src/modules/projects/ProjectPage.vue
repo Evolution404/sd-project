@@ -325,12 +325,26 @@ watch(
   },
 );
 
-function approvalEditorLocations(demand: Pick<ApprovalCandidate, "work_locations" | "operation_snapshot" | "unit_snapshot">) {
-  return demand.work_locations.map((location, index) => {
+function approvalEditorLocations(
+  demand: Pick<ApprovalCandidate, "work_locations" | "operation_snapshot" | "unit_snapshot">,
+  prior?: ApprovedScope["locations"],
+) {
+  const allocated = prior ? new Map(prior.map(location =>
+    [location.location_kind + ":" + location.location_object,
+      location.approved_quantity_scaled])) : null;
+  return demand.work_locations.filter(location => {
+    const key = location.location_kind + ":" +
+      (location.logical_tower_id || location.physical_tower_id || location.span_id);
+    return allocated ? allocated.has(key)
+      : (location.remaining_quantity_scaled ?? location.quantity_scaled) > 0;
+  }).map(location => {
+    const key = location.location_kind + ":" +
+      (location.logical_tower_id || location.physical_tower_id || location.span_id);
     const snapshot = location.location_snapshot_json;
     return {
-      location_item_no: location.item_no || index + 1,
-      approved_quantity_scaled: location.quantity_scaled,
+      location_item_no: location.item_no,
+      approved_quantity_scaled: allocated
+        ? allocated.get(key)! : (location.remaining_quantity_scaled ?? location.quantity_scaled),
       line_name: snapshot.line_name,
       label: location.location_kind === "span" ? snapshot.location_label : snapshot.tower_no || snapshot.asset_no || snapshot.location_label,
       operation_snapshot: demand.operation_snapshot,
@@ -681,7 +695,7 @@ async function openDialog(type: string) {
           quantity_precision: undefined,
           selected: demand.status === "active" && (!detail.value?.approval || !!baseline),
           previous_demand_version: baseline?.demand_version,
-          locations: approvalEditorLocations(demand),
+          locations: approvalEditorLocations(demand, baseline?.locations),
           materials: baseline?.materials?.map((item) => ({
             material_id: item.material_id,
             quantity_scaled: item.approved_quantity_scaled,
@@ -1258,16 +1272,20 @@ onMounted(async () => {
             >关联需求</ElButton
           >
         </div>
-        <ElAlert v-if="(detail.scopes || []).some((scope) =>
+        <ElAlert v-if="detail.status === 'closed' && (detail.scopes || []).length"
+          type="info" :closable="false" show-icon
+          title="项目正式结项，原需求关联及批准历史保留"
+          description="未完成需求的独占承接资格已经释放，后续项目可以接续全部剩余位置和数量；本项目不可再解除历史关联。" />
+        <ElAlert v-else-if="(detail.scopes || []).some((scope) =>
             scope.binding && releaseBlockReason(scope).includes('正式批准范围'))"
           type="info" :closable="false" show-icon
           title="当前正式批准范围内的需求不可直接解绑"
-          :description="detail.status === 'closed' ? '项目已结项，最新版正式批准范围内的需求保持原承接关系及历史。' : '请先进入「立项与变更」办理正式变更。移出需求后，批准时同步解除承接关系。'" />
+          description="在办项目禁止通过正式范围变更提前释放需求；只有正式结项且存在未解决量时才允许新项目接续。" />
         <BusinessTable client-side table-key="project:scopes" :rows="detail.scopes || []"
           :columns="projectScopeColumns" :actions-width="135">
           <template #cell="{ row, column }">
             <ElTag v-if="column.key === 'binding'" :type="row.binding ? 'success' : 'info'" effect="plain">
-              {{ row.binding ? '当前关联' : '已解绑' }}
+              {{ row.binding ? '当前关联' : detail.status === 'closed' ? '结项释放（历史保留）' : '已解除' }}
             </ElTag>
             <template v-else-if="column.key === 'expected_on'">
               <ElTag :type="row.expected_on ? 'success' : 'warning'" effect="plain">
@@ -1538,9 +1556,9 @@ onMounted(async () => {
         title="已继承上一版正式批准的物资、位置、数量和预算；新增需求默认不纳入，需要明确选择。" />
       <template v-if="dialog === 'approval'">
         <ElButton v-if="detail?.status === 'approved'" @click="linkPickerOpen = true" data-guide-action="projects.add-candidate">新增候选需求</ElButton>
-        <p v-if="detail?.status === 'approved'" class="muted">新增候选在正式批准时建立归属，移出原批准需求在同一事务中解绑。</p>
+        <p v-if="detail?.status === 'approved'" class="muted">新增候选仅在正式批准时建立归属；已承接需求不得在项目结项前提前释放。</p>
         <h2 class="subheading">纳入批准的需求</h2>
-        <p class="muted">勾选一条需求即纳入它的全部作业位置和数量。调整工作量请先修订或拆分专业需求。</p>
+        <p class="muted">首次承接自动采用全部剩余工作量；在办项目保留原批准范围，不允许并行或手动分割承接。</p>
         <div
           v-for="scope in approvalRows"
           :key="scope.project_scope_id"

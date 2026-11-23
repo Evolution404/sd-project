@@ -257,18 +257,19 @@
 
 ## `demand_version_work_locations` — 正式需求版本逐作业位置的物理/逻辑塔或档距、数量、停电方式、现场特征字典版本、冻结位置描述；自动从需求版本完整JSON原子投影并保持只读
 
-业务领域：来源、需求和物资。字段数：12；外键分量：7。
+业务领域：来源、需求和物资。字段数：13；外键分量：7。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `demand_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.demand_id（组1） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
-| `demand_version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.version（组1） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
+| `demand_id` | TEXT | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.demand_id（组1） | 专业需求稳定身份 | 保留：独立属性或真实关联 |
+| `demand_version` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>组合唯一<escape>|</escape>外键→demand_versions.version（组1） | 项目所引用的专业需求正式版本号 | 保留：独立属性或真实关联 |
 | `item_no` | INTEGER | 是 | — | 主键<escape>|</escape>组合唯一 | 条目在所属正式清单内的顺序 | 保留：独立属性或真实关联 |
 | `location_kind` | TEXT | 是 | — | 见原生CHECK | 作业位置类型：物理杆塔、逻辑杆塔或档距；位置事实与标准作业对象和具体物资不同 | 保留：独立属性或真实关联 |
 | `logical_tower_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→logical_towers.id（组4） | 逻辑杆塔身份 | 保留：独立属性或真实关联 |
 | `physical_tower_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→physical_towers.id（组3） | 实际物理杆塔身份 | 保留：独立属性或真实关联 |
 | `span_id` | TEXT | 否 | — | 组合唯一<escape>|</escape>外键→line_span_history.span_id（组0）<escape>|</escape>外键→line_spans.id（组2） | 线路档距稳定身份 | 保留：独立属性或真实关联 |
 | `span_version` | INTEGER | 否 | — | 外键→line_span_history.version_no（组0） | 需求关联档距的正式版本号 | 保留：独立属性或真实关联 |
+| `demand_location_id` | TEXT | 否 | — | 生成列<escape>|</escape>组合唯一 | 关联demand/location实体的真实身份 | 派生（不另存） |
 | `quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 按10000倍缩放的业务工作数量；需求正式版本的总量必须与所有作业位置明细和一致，参考报价行数量不是结算收费或实际完成数量 | 保留：独立属性或真实关联 |
 | `work_mode` | TEXT | 是 | 'unspecified' | 见原生CHECK | 作业方式，停电或不停电等 | 保留：独立属性或真实关联 |
 | `attributes_json` | TEXT | 是 | '{}' | 见原生CHECK | 由需求正式快照原子投影的逐位置统一属性，不可独立修改 | 保留：独立属性或真实关联 |
@@ -1147,14 +1148,15 @@
 
 ## `settlement_scope_results` — 结算单可登记本次新增解决量，采用当次结算关联的批准范围；修订版本全量替代
 
-业务领域：结算文件与审核。字段数：6；外键分量：3。
+业务领域：结算文件与审核。字段数：7；外键分量：5。
 
 | 字段 | 类型 | 必填 | 默认值 | 关联/约束 | 业务含义 | 保留判定 |
 | --- | --- | --- | --- | --- | --- | --- |
 | `id` | TEXT | 是 | — | 主键<escape>|</escape>唯一 | 不可复用的对象稳定主键 | 保留：稳定身份或唯一编码 |
-| `settlement_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组2） | 正式结算版本身份 | 保留：独立属性或真实关联 |
-| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组1） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
-| `approval_scope_version_id` | TEXT | 是 | — | 外键→project_approval_scope_versions.id（组0） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：独立属性或真实关联 |
+| `settlement_version_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→settlement_versions.id（组3） | 正式结算版本身份 | 保留：独立属性或真实关联 |
+| `project_scope_id` | TEXT | 是 | — | 组合唯一<escape>|</escape>外键→project_demand_scopes.id（组2） | 子项目对专业需求的稳定历史关联身份；当前归属只从link事件推导，结算仍指向原历史身份 | 保留：独立属性或真实关联 |
+| `approval_scope_version_id` | TEXT | 是 | — | 外键→project_approval_work_locations.approval_scope_version_id（组0）<escape>|</escape>外键→project_approval_scope_versions.id（组1） | 正式项目批准的某项需求范围精确版本：其中逐位置的承接数量和参考价依据独立保存 | 保留：独立属性或真实关联 |
+| `location_item_no` | INTEGER | 是 | — | 组合唯一<escape>|</escape>外键→project_approval_work_locations.location_item_no（组0） | 本次需求或项目批准范围内的某个真实作业位置条目顺序，精确关联需求版本逐位置清单 | 保留：独立属性或真实关联 |
 | `resolved_quantity_scaled` | INTEGER | 是 | — | 见原生CHECK | 结算单版本对应某专业需求本次新增解决数量，缩放10000倍；0表示仅补结此前工作而不虚增完成量，实际量可超过批准量 | 保留：独立属性或真实关联 |
 | `evidence` | TEXT | 是 | '' | 见原生CHECK | 现场实际或成本确认的书面依据 | 保留：独立属性或真实关联 |
 
@@ -1290,6 +1292,6 @@
 
 ## 数据字典核验摘要
 
-基础数据表数：78；字段总数（含生成列）：735；需要人工补写独立描述的字段名：0。
+基础数据表数：78；字段总数（含生成列）：737；需要人工补写独立描述的字段名：0。
 
 业务字段是否需要新增必须结合真实台账和业务需求验证，**不能凭字段数量推断功能已经完全覆盖**。详情见业务对象完整性矩阵。
