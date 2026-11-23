@@ -57,6 +57,7 @@ const columns: GridColumn[] = fields.map(field => ({
   minWidth: field.key === "name" ? 190 : 130,
 }));
 const grid = ref<{ openSettings: () => void } | null>(null);
+const bulkGrid = ref<InstanceType<typeof BusinessDraftGrid> | null>(null);
 const bulkEditing = ref(false);
 const bulkSaving = ref(false);
 const bulkOriginal = ref<MaterialRecord[]>([]);
@@ -329,7 +330,9 @@ onMounted(load);
       </div>
       <div class="toolbar page-heading-actions">
         <span class="muted">待保存 {{ bulkChanges.length }} 条</span>
-        <ElButton @click="discardBulkEdit">取消编辑</ElButton>
+        <ElButton :disabled="!bulkGrid?.canUndo || bulkSaving" @click="bulkGrid?.undo()">撤销</ElButton>
+        <ElButton :disabled="!bulkGrid?.canRedo || bulkSaving" @click="bulkGrid?.redo()">重做</ElButton>
+        <ElButton :disabled="bulkSaving" @click="discardBulkEdit">取消编辑</ElButton>
         <ElButton type="primary" data-guide-action="materials.batch-save"
           :loading="bulkSaving" :disabled="!bulkChanges.length"
           @click="saveBulkEdit">保存批量修改</ElButton>
@@ -347,11 +350,11 @@ onMounted(load);
         <ElButton :loading="loading" @click="load">刷新</ElButton>
         <ElButton class="business-column-setting-trigger" @click="grid?.openSettings()">列设置</ElButton>
         <ElButton v-if="can('admin') && !deleted && rows.length"
-          data-guide-action="materials.batch-edit" @click="startBulkEdit">批量编辑</ElButton>
+          data-guide-action="materials.batch-edit" :disabled="loading" @click="startBulkEdit">批量编辑</ElButton>
         <ElButton data-guide-action="materials.create" type="primary" v-if="can('admin')" @click="edit()">新增物资</ElButton>
       </div>
     </div>
-    <BusinessDraftGrid v-if="bulkEditing" mode="edit" grid-key="catalog:materials-batch"
+    <BusinessDraftGrid v-if="bulkEditing" ref="bulkGrid" mode="edit" grid-key="catalog:materials-batch"
       :rows="bulkRows" :columns="bulkColumns" @change="updateBulkCell"/>
     <TabulatorGrid v-else ref="grid" detail-column="name" :rows="rows" :loading="loading"
       :columns="columns" table-key="catalog:materials" :filters="gridFilters"

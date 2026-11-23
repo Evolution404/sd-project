@@ -52,6 +52,15 @@ try{
   await model.locator("input").fill("临时型号");
   await model.locator("input").press("Enter");
   await page.getByText("待保存 1 条").waitFor();
+  await model.click();
+  await page.keyboard.press("Meta+z");
+  await page.waitForTimeout(150);
+  assert.equal((await model.textContent())?.trim(),s.materials.get(firstId).model,
+    "Command+Z must undo a single cell edit");
+  await page.keyboard.press("Meta+Shift+z");
+  await page.waitForTimeout(150);
+  assert.equal((await model.textContent())?.trim(),"临时型号",
+    "Command+Shift+Z must redo a single cell edit");
   await page.getByRole("button",{name:"取消编辑",exact:true}).click();
   await page.getByRole("dialog",{name:"放弃批量修改"}).getByRole("button",{name:"确定"}).click();
   await page.locator(".business-tabulator .tabulator-row").first().waitFor();
@@ -67,6 +76,23 @@ try{
   await page.getByText("待保存 2 条").waitFor();
   assert.deepEqual((await draft.locator('.tabulator-cell[tabulator-field="name"]').allTextContents()).slice(0,2),
     ["批量新名称A","批量新名称B"]);
+  await first.click();
+  await page.keyboard.press("Meta+z");
+  await page.waitForTimeout(200);
+  assert.deepEqual((await draft.locator('.tabulator-cell[tabulator-field="name"]').allTextContents()).slice(0,2),
+    [firstName,secondName], "one Command+Z must undo all rows and columns of one paste");
+  await page.keyboard.press("Meta+Shift+z");
+  await page.waitForTimeout(200);
+  assert.deepEqual((await draft.locator('.tabulator-cell[tabulator-field="name"]').allTextContents()).slice(0,2),
+    ["批量新名称A","批量新名称B"], "one Command+Shift+Z must redo the whole paste");
+  await page.keyboard.press("Control+z");
+  await page.waitForTimeout(200);
+  assert.deepEqual((await draft.locator('.tabulator-cell[tabulator-field="name"]').allTextContents()).slice(0,2),
+    [firstName,secondName], "Windows Control+Z must work");
+  await page.keyboard.press("Control+y");
+  await page.waitForTimeout(200);
+  assert.deepEqual((await draft.locator('.tabulator-cell[tabulator-field="name"]').allTextContents()).slice(0,2),
+    ["批量新名称A","批量新名称B"], "Windows Control+Y must work");
   await page.screenshot({path:join(output,"batch-edit-mode.png")});
 
   await page.getByRole("button",{name:"保存批量修改"}).click();

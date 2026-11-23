@@ -169,3 +169,10 @@ Excel使用中文文件名与表头，身份和版本由隐藏元数据绑定。
 ## 2026-11-23 表格筛选与排序最新裁决（覆盖此前 PMS 自定义弹窗实现）
 
 用户在审阅 PMS 风格迁移版后明确要求：筛选菜单不要自己改，全部使用原生组件，先让用户看一下原生效果。Tabulator 列表仅使用 Tabulator 6.x 自带的 headerFilter:list、headerFilterParams.multiselect、headerSort 和 remote sort/filter 机制，不再新增 ExcelColumnFilter 自定义菜单或自绘排序筛选状态图标。页面只提供 SQLite 查询、候选值加载、URL 状态同步和权限适配。Tabulator 原生多选不带候选值搜索框或数量统计，不可重新伪装为 PMS 菜单。普通查看模式必须关闭 Excel 区域选择，主动批量编辑模式才启用。当前仅物资管理完成原生筛选/排序试点，不可宣称全系统替换完成。试点与局限见 docs/implementation/2026-11-23_Tabulator原生排序筛选试点验收.md。
+
+
+## 2026-11-23 最新表格交互裁决（覆盖今日较早的「仅用Tabulator原生表头筛选」试点）
+
+用户再次明确要求：表头和筛选框的**视觉与交互**以其本机 /Users/zhangyuxi/Desktop/输电pms数据清洗/archive/single-file-20261028/dist/PMS数据清洗工具.html 为直接参考；其内的筛选/排序下拉、候选搜索、复选、全选搜索结果、候选数量及确定/取消须还原。不能再交付两层表头的 Tabulator 原生 list 筛选输入框。Tabulator 6.x 仍是唯一专业网格引擎，负责表格、单元格和远程排序事件；PMS 参考只限定于通用展示组件 TabulatorGrid.vue / ExcelColumnFilter.vue 的视觉层，后端仍使用统一 SQLite 分页和查询协议，不能复制 PMS 的数据模型。排序筛选状态必须回写表头（青绿色已筛选标识、↑/↓、可访问标签）。普通查看模式严禁 Excel 区域选择。
+
+批量编辑统一采用 BusinessDraftGrid.vue 的**事务性编辑历史**：普通单元格编辑每次提交记一笔；Excel 多行/多列粘贴记一笔；Command+Z / Command+Shift+Z / Ctrl+Z / Ctrl+Y 和按钮调用同一个 undo / redo，且只在用户正在操作对应编辑网格时拦截，输入框内的原生文字编辑撤销不受影响。必须同时证明撤销后 Vue 草稿与正式版本保存一致，不允许仅回滚 DOM。见 docs/implementation/2026-11-23_PMS视觉筛选及撤销事务闭环.md。此段比今天之前所写「全部原生筛选」规定更新，应优先执行。

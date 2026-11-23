@@ -103,6 +103,14 @@ try {
   await page.waitForTimeout(400);
   assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"]);
   await first.click();
+  await page.keyboard.press("Meta+z");
+  await page.waitForTimeout(120);
+  assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["1","2","1"],
+    "one Command+Z must undo all rows in the quantity paste and restore the demand draft");
+  await page.keyboard.press("Meta+Shift+z");
+  await page.waitForTimeout(120);
+  assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"],
+    "Command+Shift+Z must restore all pasted quantity rows");
   await page.evaluate(async () => navigator.clipboard.writeText("9\t非法单位"));
   await page.keyboard.press("ControlOrMeta+V");
   await page.getByText(/粘贴范围包含只读字段或超出已有明细/).waitFor();

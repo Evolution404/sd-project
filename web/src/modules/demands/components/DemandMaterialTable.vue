@@ -17,11 +17,12 @@ const selected = ref<string[]>([]);
 const opening = ref(false);
 const editing = ref(false);
 const beforeEdit = ref<MaterialDraft[]>([]);
-const grid = ref<{undo:()=>void;redo:()=>void}|null>(null);
+const grid = ref<InstanceType<typeof BusinessDraftGrid> | null>(null);
+const quantityTexts = ref<Record<string, string>>({});
 const invalidTexts=ref<Record<string,string>>({});
 const draftRows=computed(()=>props.rows.map(row=>({
   id:row.id,name:row.name,model:row.model,specification:row.specification,
-  quantity_text:formatScaledDecimal(row.quantity_scaled,4),
+  quantity_text:quantityTexts.value[row.id] ?? formatScaledDecimal(row.quantity_scaled,4),
   unit:row.unit,
 })));
 const columns:DraftGridColumn[]=[
@@ -35,6 +36,7 @@ function onChange(id:string,field:string,text:string) {
   if(field!=="quantity_text")return;
   const row=props.rows.find(item=>item.id===id);
   if(!row)return;
+  quantityTexts.value[id] = text;
   const scaled=exactScaledDecimalText(text,4);
   let error="";
   if(!text.trim())error="预计数量不能为空";
@@ -60,6 +62,7 @@ function finishEdit() {
     return;
   }
   editing.value = false;
+  quantityTexts.value = {};
   selected.value = [];
 }
 function cancelEdit() {
@@ -67,10 +70,16 @@ function cancelEdit() {
   for(const id of allIds)emit("invalid",id,false);
   emit("replace",beforeEdit.value.map(row=>({...row})));
   invalidTexts.value={};
+  quantityTexts.value = {};
   selected.value=[];
   editing.value=false;
 }
 function removeSelection() {
+  for (const id of selected.value) {
+    delete invalidTexts.value[id];
+    delete quantityTexts.value[id];
+    emit("invalid", id, false);
+  }
   emit("remove",selected.value);
   selected.value=[];
 }
@@ -88,8 +97,8 @@ function removeSelection() {
       <ElButton @click="cancelEdit">取消本次编辑</ElButton>
       <ElButton data-guide-action="demands.material-remove" :disabled="!selected.length"
         type="danger" plain @click="removeSelection">移除选中物资</ElButton>
-      <ElButton @click="grid?.undo()">撤销</ElButton>
-      <ElButton @click="grid?.redo()">重做</ElButton>
+      <ElButton :disabled="!grid?.canUndo" @click="grid?.undo()">撤销</ElButton>
+      <ElButton :disabled="!grid?.canRedo" @click="grid?.redo()">重做</ElButton>
       <span class="muted">编辑模式 · 仅修改草稿；请通过“保存需求版本”正式提交</span>
     </template>
   </div>
