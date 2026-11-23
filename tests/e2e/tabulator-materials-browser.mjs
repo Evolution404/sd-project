@@ -52,23 +52,30 @@ try {
   assert.equal(computedAppearance.range,0);
   await page.screenshot({path:join(output,"material-normal-view-light.png")});
   assert.equal(await page.locator(".tabulator-row").count(), 30, "server page contains 30 materials");
-  await page.locator('[data-grid-filter="model"]').click();
-  const dialog = page.getByRole("dialog", { name: "型号筛选与排序" });
-  await dialog.waitFor();
-  await dialog.getByText("A型", { exact: true }).waitFor();
-  assert.equal(await dialog.getByText("A型", { exact: true }).count(), 1);
-  assert.ok((await dialog.textContent()).includes("25"));
-  assert.ok((await dialog.textContent()).includes("20"));
-  const values = dialog.locator(".excel-filter-item");
-  assert.equal(await values.count(), 3, "facets list all three groups across the 30 row page");
-  await dialog.locator(".excel-filter-all label.el-checkbox").click();
-  await values.filter({ hasText: "A型" }).locator("label.el-checkbox").click();
-  await values.filter({ hasText: "B型" }).locator("label.el-checkbox").click();
-  await dialog.getByRole("button", { name: "确定" }).click();
-  await dialog.waitFor({ state: "hidden" });
-  await page.locator(".tabulator-row").first().waitFor();
-  assert.equal(await page.locator(".tabulator-row").count(), 30);
-  assert.equal(await page.locator(".tabulator-row").filter({ hasText: "C型" }).count(), 0);
+  assert.equal(await page.locator(".tabulator-header-filter").count(),6,
+    "all six columns use native Tabulator header filters");
+  assert.equal(await page.locator(".grid-filter-trigger,.excel-filter-menu").count(),0,
+    "custom PMS menus must not appear");
+  const modelHeader=page.locator('.tabulator-col[tabulator-field="model"]');
+  await modelHeader.locator(".tabulator-col-title").click();
+  assert.equal(await modelHeader.getAttribute("aria-sort"),"ascending",
+    "native Tabulator sort icon and aria state must persist");
+  await modelHeader.locator(".tabulator-header-filter input").click();
+  const options=page.locator(".tabulator-edit-list-item");
+  await options.filter({hasText:"A型"}).first().waitFor();
+  assert.deepEqual((await options.allTextContents()).sort(),["A型","B型","C型"],
+    "native option lookup covers all 65 records, not only the current 30-page");
+  await options.filter({hasText:"A型"}).first().click();
+  await options.filter({hasText:"B型"}).first().click();
+  await page.waitForTimeout(175); // allow Tabulator to finish binding its native blur handler
+  await page.getByRole("heading",{name:"物资管理"}).click();
+  await page.getByText("共 45 条").waitFor();
+  assert.equal(await page.locator(".tabulator-row").count(),30);
+  assert.equal(await page.locator(".tabulator-row").filter({hasText:"C型"}).count(),0);
+  assert.equal(await modelHeader.locator(".tabulator-header-filter input").inputValue(),"A型,B型");
+  assert.equal(await modelHeader.getAttribute("aria-sort"),"ascending",
+    "native ascending sorting remains visible after server filtering");
+  await page.screenshot({path:join(output,"native-model-multiselect-and-sort.png")});
   const data = await page.evaluate(async () => {
     const api = await fetch("/api/catalog/materials?page=2&grid_filters=" +
       encodeURIComponent(JSON.stringify({ model: ["A型", "B型"] })), { credentials: "same-origin" });
@@ -86,10 +93,10 @@ try {
   });
   assert.equal(facet.status, 200);
   assert.deepEqual(facet.json.items.map(item => item.count).sort((a,b)=>a-b), [12,13]);
-  await page.locator('[data-grid-filter="model"]').click();
-  await dialog.getByRole("button", { name: "清除此列筛选" }).click();
-  await dialog.waitFor({ state: "hidden" });
-  await page.locator(".tabulator-row").first().waitFor();
+  await page.getByRole("button",{name:"清除检索与列筛选"}).click();
+  await page.getByText("共 65 条").waitFor();
+  assert.equal(await modelHeader.locator(".tabulator-header-filter input").inputValue(),"",
+    "clearing server filters must reset native Tabulator filter controls too");
   const empty = await page.evaluate(async () => {
     const p = new URLSearchParams({ grid_filters: '{"unsupported":["X"]}' });
     const response = await fetch("/api/catalog/materials?" + p, { credentials: "same-origin" });
@@ -106,7 +113,7 @@ try {
   await page.locator(".tabulator-row").first().locator(".cell-link").click();
   await page.getByRole("dialog", { name: "物资详情" }).waitFor();
   assert.deepEqual(errors, []);
-  console.log("TABULATOR_MATERIALS_BROWSER_OK 65 records/30 page, true DB facets, multi-value filtering, strict-invalid-filter, column settings, details");
+  console.log("TABULATOR_NATIVE_MATERIALS_BROWSER_OK 65 records/30 page, native remote header sorting and multiselect filtering, strict invalid filter, column settings, details");
 } catch (error) {
   await page.screenshot({ path: join(output, "failure.png"), fullPage: true });
   console.log("TABULATOR_MATERIALS_ERRORS", errors);

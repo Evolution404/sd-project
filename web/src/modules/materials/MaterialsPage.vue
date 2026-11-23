@@ -19,7 +19,7 @@ import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
 import TabulatorGrid, { type GridColumn } from "../../shared/ui/TabulatorGrid.vue";
 import BusinessDraftGrid, { type DraftGridColumn, type DraftGridRow } from "../../shared/ui/BusinessDraftGrid.vue";
-import type { FacetPage, FacetValue } from "../../shared/ui/ExcelColumnFilter.vue";
+import type { FacetPage, FacetValue } from "../../shared/ui/TabulatorGrid.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import FieldControl from "../../shared/ui/FieldControl.vue";
