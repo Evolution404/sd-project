@@ -15,7 +15,7 @@ const error = ref("");
 const feedback = ref("");
 const labels: Record<ScenarioStep, { title: string; instructions: string }> = {
   register: { title:"登记专业需求", instructions:"选择「【训练】防鸟装置安装」，填写现场问题和预计解决时间。在「【训练】青禾线」选一至两基杆塔，填写装置数量，保存需求。" },
-  "return-demand": { title:"确认并退回需求", instructions:"打开刚登记的需求，先点「确认并待承接」。在需求详情的更多操作中选择「退回」，核对提示后确认。" },
+  "return-demand": { title:"确认并退回需求", instructions:"打开刚登记的需求，先点「确认并待承接」。在需求详情的「其他处理」中选择「退回修改」，核对提示后确认。" },
   "revise-demand": { title:"修订需求并重新确认", instructions:"修改已退回需求的工作量或问题描述并保存，回到同一需求详情，再次确认并进入待承接。" },
   link: { title:"创建子项目并承接", instructions:"以当前需求创建子项目，选择「【训练】输电检修年度框架」，保存并承接整条需求。" },
   approve: { title:"入库并完成首次立项", instructions:"先办理入库，进入立项与变更。纳入完整需求范围，编制并批准立项。可用 12,000 元作为批准预算。" },

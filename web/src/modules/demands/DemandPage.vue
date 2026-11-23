@@ -139,8 +139,6 @@ function createProjectAndLink() {
 }
 function secondaryAction(action: string) {
   if (!detail.value) return;
-  if (action === "edit") void edit(detail.value);
-  if (action === "quote") quoteOpen.value = true;
   if (action === "return" && !detail.value.binding) void transition(detail.value, "returned");
   if (action === "cancel") void transition(detail.value, "cancelled");
   if (action === "delete") void remove(detail.value);
@@ -160,6 +158,13 @@ const rows = ref<DemandListItem[]>([]),
   history = ref(false),
   quoteOpen = ref(false),
   showDeleted = ref(false);
+const hasManagementActions = computed(() => {
+  const demand = detail.value;
+  return !!demand && !demand.deleted && (
+    (demand.status !== "cancelled" && !demand.binding) ||
+    (demand.status === "cancelled" && can("admin"))
+  );
+});
 
 const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]), "demands");
 const { selected, selectedIds, eligibleIds } = selection;
@@ -564,13 +569,16 @@ onMounted(async () => {
     <template v-if="detail"><div class="detail-header" :data-guide-record="'demand/' + detail.id">
       <div>
         <h1>{{ detail.operation_snapshot }} · {{ detail.problem_description }}</h1>
-        <div class="muted demand-technical-reference">需求编号 <BusinessNumber :value="detail.demand_no" label="需求编号" /> · 正式定义第{{ detail.current_version }}版</div>
+        <div class="muted demand-technical-reference">
+          <span>需求编号 <BusinessNumber :value="detail.demand_no" label="需求编号" /> · 正式定义第{{ detail.current_version }}版</span>
+          <ElButton data-guide-action="demands.history" link type="primary" size="small" @click="showHistory">历史记录</ElButton>
+        </div>
       </div>
       <ElTag :type="displayStatus(detail) === '已承接' ? 'success' : displayStatus(detail) === '已退回' ? 'warning' : 'info'">{{ displayStatus(detail) }}</ElTag>
     </div>
     <div class="panel demand-next-action">
-      <div class="toolbar">
-        <div>
+      <div class="demand-action-layout">
+        <div class="demand-action-summary">
           <h2>当前办理状态</h2>
           <p class="muted">
             {{ detail.status === 'pending' ? '需求尚未确认；确认后进入待承接。' :
@@ -580,40 +588,49 @@ onMounted(async () => {
               '需求已取消，正式定义及历史仍可追溯。' }}
           </p>
         </div>
-        <ElButton v-if="['pending','returned'].includes(detail.status)"
-          type="primary" :disabled="!can('demand.activate') || detail.deleted"
-          :title="can('demand.activate') ? undefined : '需要需求确认权限，请交由审核人员办理'"
-          data-guide-action="demands.confirm" @click="transition(detail,'active')">
-          确认并待承接
-        </ElButton>
-        <ElButton v-else-if="detail.status === 'active' && !detail.binding"
-          type="primary" :disabled="!can('write') || detail.deleted"
-          :title="can('write') ? undefined : '关联子项目需要编辑权限'"
-          data-guide-action="demands.link" @click="openProjectPicker">
-          关联子项目
-        </ElButton>
-        <ElButton data-guide-action="demands.open-linked" v-else-if="detail.binding?.project_id" type="primary" @click="openLinkedProject">
-          进入承接项目
-        </ElButton>
-        <ElButton data-guide-action="demands.edit" :disabled="!can('write') || detail.deleted || detail.status === 'cancelled'"
-          :title="detail.status === 'cancelled' ? '需求已取消，只能查看正式历史' :
-            can('write') ? undefined : '修订需求需要编辑权限'"
-          @click="edit(detail)">修订需求</ElButton>
-        <ElButton data-guide-action="demands.history" @click="showHistory">历史记录</ElButton>
-        <ElDropdown trigger="click" @command="secondaryAction">
-          <ElButton :data-guide-menu="[
-            'demands.quote', 'demands.delete', detail.status === 'active' ? 'demands.return' : '',
-            detail.status !== 'cancelled' ? 'demands.cancel' : '',
-          ].join(' ')">更多操作</ElButton>
-          <template #dropdown>
-            <ElDropdownMenu>
-              <ElDropdownItem data-guide-action="demands.quote" command="quote">参考价试算</ElDropdownItem>
-              <ElDropdownItem v-if="detail.status === 'active'" data-guide-action="demands.return" command="return" :title="detail.binding ? '已承接的需求不能退回，请正式修订或先明确解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding">退回</ElDropdownItem>
-              <ElDropdownItem v-if="detail.status !== 'cancelled'" data-guide-action="demands.cancel" command="cancel" :title="detail.binding ? '需求已被子项目承接，请先办理显式解绑' : undefined" :disabled="!can('demand.activate') || detail.deleted || !!detail.binding" divided>取消需求</ElDropdownItem>
-              <ElDropdownItem data-guide-action="demands.delete" command="delete" :title="detail.status !== 'cancelled' ? '需要先取消需求且解除项目关联' : undefined" :disabled="!can('admin') || detail.deleted || detail.status !== 'cancelled'">删除</ElDropdownItem>
-            </ElDropdownMenu>
-          </template>
-        </ElDropdown>
+        <div class="demand-action-buttons">
+          <ElButton v-if="['pending','returned'].includes(detail.status) && !detail.deleted"
+            type="primary" :disabled="!can('demand.activate')"
+            :title="can('demand.activate') ? undefined : '需要需求确认权限，请交由审核人员办理'"
+            data-guide-action="demands.confirm" @click="transition(detail,'active')">
+            确认并待承接
+          </ElButton>
+          <ElButton v-else-if="detail.status === 'active' && !detail.binding && !detail.deleted"
+            type="primary" :disabled="!can('write')"
+            :title="can('write') ? undefined : '关联子项目需要编辑权限'"
+            data-guide-action="demands.link" @click="openProjectPicker">
+            关联子项目
+          </ElButton>
+          <ElButton v-else-if="detail.binding?.project_id && !detail.deleted"
+            type="primary" data-guide-action="demands.open-linked" @click="openLinkedProject">
+            进入承接项目
+          </ElButton>
+          <ElButton v-if="detail.status !== 'cancelled' && !detail.deleted"
+            data-guide-action="demands.quote" @click="quoteOpen = true">参考价试算</ElButton>
+          <ElButton v-if="detail.status !== 'cancelled' && !detail.deleted"
+            data-guide-action="demands.edit" :disabled="!can('write')"
+            :title="can('write') ? undefined : '修订需求需要编辑权限'"
+            @click="edit(detail)">修订需求</ElButton>
+          <ElDropdown v-if="hasManagementActions" trigger="click" @command="secondaryAction">
+            <ElButton :data-guide-menu="[
+              detail.status === 'active' && !detail.binding ? 'demands.return' : '',
+              detail.status !== 'cancelled' && !detail.binding ? 'demands.cancel' : '',
+              detail.status === 'cancelled' && can('admin') ? 'demands.delete' : '',
+            ].filter(Boolean).join(' ')">其他处理</ElButton>
+            <template #dropdown>
+              <ElDropdownMenu>
+                <ElDropdownItem v-if="detail.status === 'active' && !detail.binding"
+                  data-guide-action="demands.return" command="return"
+                  :disabled="!can('demand.activate')">退回修改</ElDropdownItem>
+                <ElDropdownItem v-if="detail.status !== 'cancelled' && !detail.binding"
+                  data-guide-action="demands.cancel" command="cancel"
+                  :disabled="!can('demand.activate')" :divided="detail.status === 'active'"><span class="demand-danger-action">取消需求</span></ElDropdownItem>
+                <ElDropdownItem v-if="detail.status === 'cancelled' && can('admin')"
+                  data-guide-action="demands.delete" command="delete"><span class="demand-danger-action">删除需求</span></ElDropdownItem>
+              </ElDropdownMenu>
+            </template>
+          </ElDropdown>
+        </div>
       </div>
       <ElAlert v-if="['pending','returned'].includes(detail.status) && !can('demand.activate')"
         class="permission-hint" type="info" :closable="false"
@@ -760,9 +777,17 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.demand-technical-reference {font-size:12px;margin-top:6px}
+.demand-technical-reference {display:flex;align-items:center;flex-wrap:wrap;gap:6px 12px;font-size:12px;margin-top:6px}
+.demand-technical-reference .el-button {margin-left:0}
 .demand-next-action {border-color:var(--edge)}
-.demand-next-action .toolbar {justify-content:space-between;flex-wrap:wrap;gap:12px}
+.demand-action-layout {display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.demand-action-summary {flex:1 1 260px;min-width:0}
+.demand-action-buttons {display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:10px}
+.demand-action-buttons > .el-button {margin-left:0}
 .demand-next-action h2 {margin:0}
 .demand-next-action p {margin:6px 0 0}
+.demand-danger-action {color:var(--el-color-danger)}
+@media (max-width: 900px) {
+  .demand-action-buttons {justify-content:flex-start}
+}
 </style>

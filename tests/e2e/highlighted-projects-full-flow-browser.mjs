@@ -147,8 +147,8 @@ async function activateDemand(record, returnOnce = false) {
   await confirm();
   await detail.getByRole("button", { name: "关联子项目", exact: true }).waitFor();
   if (returnOnce) {
-    await detail.getByRole("button", { name: "更多操作", exact: true }).click();
-    await page.getByRole("menuitem", { name: "退回", exact: true }).click();
+    await detail.getByRole("button", { name: "其他处理", exact: true }).click();
+    await page.getByRole("menuitem", { name: "退回修改", exact: true }).click();
     await confirm();
     await detail.getByRole("button", { name: "修订需求", exact: true }).click();
     await editor.getByLabel("问题描述", { exact: true }).fill(record.description + "\n模拟补正：按现场核验保留全部杆塔范围。");

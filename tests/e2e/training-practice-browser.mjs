@@ -140,9 +140,9 @@ try {
   await detail.getByRole("button",{name:"确认并待承接",exact:true}).click();
   await confirm();
   await detail.getByRole("button",{name:"关联子项目",exact:true}).waitFor();
-  await locateHelp("demands.return","退回需求 · 专业需求",/打开高亮的菜单后选择「退回需求」/);
-  await detail.getByRole("button",{name:"更多操作",exact:true}).click();
-  await page.getByRole("menuitem",{name:"退回",exact:true}).click();
+  await locateHelp("demands.return","退回修改 · 专业需求",/打开高亮的菜单后选择「退回修改」/);
+  await detail.getByRole("button",{name:"其他处理",exact:true}).click();
+  await page.getByRole("menuitem",{name:"退回修改",exact:true}).click();
   await confirm();
   await showPractice("修订需求并重新确认");
   await leaveGuide();

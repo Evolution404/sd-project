@@ -56,8 +56,7 @@ try {
   await page.getByRole("row").filter({ hasText: "220kV青峰线15、16号杆塔缺少防鸟装置" })
     .locator(".cell-link:visible").first().click();
   await page.locator(".business-detail-dialog:visible")
-    .getByRole("button", { name: "更多操作", exact: true }).click();
-  await page.getByRole("menuitem", { name: "参考价试算", exact: true }).click();
+    .getByRole("button", { name: "参考价试算", exact: true }).click();
   const quote = page.locator(".el-overlay-dialog:visible").filter({ hasText: "参考价格" }).last();
   await quote.getByText("完整参考价 ¥228.00", { exact: true }).waitFor();
   const date = quote.getByLabel("价格适用日期");

@@ -60,15 +60,12 @@ try {
   await picker.getByRole("button", { name: "承接该需求" }).click();
   await detail.getByRole("button", { name: "进入承接项目", exact: true }).waitFor();
   assert.equal(s.demands.get(waiting.id).binding.project_id, project.id);
-  await detail.getByRole("button", { name: "更多操作", exact: true }).click();
-  assert.equal(await page.getByRole("menuitem", { name: "退回", exact: true }).isDisabled(), true,
-    "a bound demand cannot be returned; revisions or explicit unlink are required");
-  assert.equal(await page.getByRole("menuitem", { name: "取消需求", exact: true }).isDisabled(), true,
-    "a bound demand must first be explicitly released before cancellation");
-  assert.equal(await page.getByRole("menuitem", { name: "删除", exact: true }).isDisabled(), true,
-    "active demand cannot be deleted before cancellation");
-  // Click inside the detail, not Escape: Escape would close the parent business dialog.
-  await detail.locator(".detail-header").click();
+  assert.equal(await detail.getByRole("button", { name: "其他处理", exact: true }).count(), 0,
+    "a bound demand must not offer return, cancellation or deletion actions");
+  assert.equal(await detail.getByRole("button", { name: "参考价试算", exact: true }).count(), 1,
+    "reference price calculation remains directly accessible");
+  assert.equal(await detail.getByRole("button", { name: "历史记录", exact: true }).count(), 1,
+    "history stays in the demand header");
   await detail.getByRole("button", { name: "进入承接项目" }).click();
   await page.waitForURL(url => url.hash.includes("#/projects") && url.hash.includes("focus=demand"));
   await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();

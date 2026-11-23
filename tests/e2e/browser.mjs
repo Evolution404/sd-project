@@ -62,8 +62,7 @@ try {
     "saving a demand should immediately show the next business action");
   await page.getByText("总工作量", { exact: true }).waitFor();
   assert.equal(s.demands.list()[0].quantity_scaled, 90000);
-  await page.getByRole("button", { name: "更多操作", exact: true }).last().click();
-  await page.getByRole("menuitem", { name: "参考价试算", exact: true }).click();
+  await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "参考价试算", exact: true }).click();
   await page.getByText("完整参考价 ¥480.00", { exact: true }).waitFor();
   await page.getByRole("button", { name: "确认正式报价", exact: true }).click();
   await page.getByText("已保存正式参考报价", { exact: true }).waitFor();
