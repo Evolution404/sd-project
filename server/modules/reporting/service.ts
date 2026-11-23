@@ -34,7 +34,7 @@ export function createReporting(
     authorize(actor, "read");
     const portfolio = projects.dashboardPortfolio();
     const demandCounts = repository.dashboardDemandCounts();
-    const costs = repository.dashboardActiveCosts();
+    const costs = repository.dashboardActiveCosts(portfolio.map(project => project.id));
     const asOf = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Shanghai", year: "numeric",
       month: "2-digit", day: "2-digit",

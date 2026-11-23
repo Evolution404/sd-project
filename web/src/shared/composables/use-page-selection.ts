@@ -1,13 +1,36 @@
-import { computed, shallowRef, watch, type Ref } from "vue";
+import { computed, inject, onMounted, provide, shallowRef, watch, type InjectionKey, type Ref } from "vue";
 import { ElMessage } from "element-plus";
 
-export function usePageSelection<T extends { id: string; deleted?: boolean }>(
-  pageRows: Ref<T[]>, filterKey: () => string,
+type Selectable = { id: string; deleted?: boolean };
+const selectionMemory = Symbol() as InjectionKey<Map<string, { filter: string; rows: Selectable[] }>>;
+
+export function providePageSelections() {
+  const selections = new Map<string, { filter: string; rows: Selectable[] }>();
+  provide(selectionMemory, selections);
+  return () => selections.clear();
+}
+
+export function usePageSelection<T extends Selectable>(
+  pageRows: Ref<T[]>, filterKey: () => string, listKey?: string,
 ) {
   const records = shallowRef(new Map<string, T>());
   const selected = computed(() => [...records.value.values()]);
   const selectedIds = computed(() => [...records.value.keys()]);
   const eligibleIds = computed(() => selected.value.filter(row => !row.deleted).map(row => row.id));
+  const memory = inject(selectionMemory, null);
+  if (listKey && memory) {
+    onMounted(() => {
+      const saved = memory.get(listKey);
+      if (saved?.filter === filterKey()) {
+        // Each key is owned by a single list and its row type.
+        records.value = new Map((saved.rows as T[]).map(row => [row.id, row]));
+      } else memory.delete(listKey);
+    });
+    watch(records, () => {
+      if (records.value.size) memory.set(listKey, { filter: filterKey(), rows: [...records.value.values()] });
+      else memory.delete(listKey);
+    }, { flush: "sync" });
+  }
 
   function clear() { records.value = new Map(); }
   watch(filterKey, () => {

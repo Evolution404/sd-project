@@ -149,6 +149,9 @@ export interface ReconciliationSettlementChoice {
 export const settlementStatusLabels: Record<SettlementListStatus, string> = {
   draft: "草稿", submit: "待审核", approve: "已批准", return: "已退回", reject: "已驳回", voided: "已注销",
 };
+export const settlementModeLabels: Record<SettlementMode, string> = {
+  project_total: "按项目总额", itemized: "按子费用",
+};
 export function settlementStatusFilter(status: string) {
   return Object.entries(settlementStatusLabels).find(([, label]) => label === status)?.[0] ?? status;
 }
@@ -164,6 +167,20 @@ export interface SettlementWorkflow {
   review: SettlementReviewEvent | null;
   items: SettlementItemFact[];
   resolutions: SettlementResolutionInput[];
+}
+export interface SettlementDemandLabel {
+  demand_no: string;
+  problem_description: string;
+  unit: string;
+}
+export interface SettlementDocumentDetails {
+  approval_version_no: number;
+  items: (SettlementItemInput & { cost_node_name: string; demand: SettlementDemandLabel | null })[];
+  resolutions: (SettlementResolutionInput & { demand: SettlementDemandLabel })[];
+}
+export interface SettlementDetails extends SettlementWorkflow {
+  deleted: boolean;
+  document_details: SettlementDocumentDetails | null;
 }
 export interface SettlementSubmitInput {
   expected_version: number;

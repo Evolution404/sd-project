@@ -1,10 +1,9 @@
 import type { SettlementWorkflow } from "../../shared/types/finance-workflows.js";
-import { settlementStatusLabels } from "../../shared/types/finance-workflows.js";
+import { settlementModeLabels, settlementStatusLabels } from "../../shared/types/finance-workflows.js";
 import type { HistoryEntry, HistoryLink } from "../../shared/types/history.js";
 import { event, facts, label, lifecycle, money, number, quantity, readVersions, rows, string, table, text,
   type HistoryRecord, type ReadRow } from "./core.js";
 
-const settlementModes = { project_total: "按项目总额", itemized: "按子费用" };
 const reviewLabels = { submit: "提交结算审核", approve: "批准结算", return: "退回结算申请", reject: "驳回结算申请" };
 
 export function settlementHistory(workflow: SettlementWorkflow, history: unknown): HistoryRecord {
@@ -39,7 +38,7 @@ export function settlementHistory(workflow: SettlementWorkflow, history: unknown
           target: { kind: "demands" as const, id, entry: `需求/${line.demand_version}` } }] : [];
       }),
     ];
-    const versionFacts = facts(["结算方式", label(version.mode, settlementModes)],
+    const versionFacts = facts(["结算方式", label(version.mode, settlementModeLabels)],
       ["申请金额", money(amount)], ["结算日期", text(version.settlement_on)],
       ["结算依据", text(version.basis)]);
     for (const [index, review] of events.entries()) {
@@ -51,7 +50,7 @@ export function settlementHistory(workflow: SettlementWorkflow, history: unknown
           : String(label(review.action, reviewLabels));
       entries.push(event(index === 0 ? `结算单/${version.version_no}` : `review/${review.id}`, title,
         approved ? "金额" : "办理", review, {
-          summary: `${labelVersion} · ${label(version.mode, settlementModes)}`,
+          summary: `${labelVersion} · ${label(version.mode, settlementModeLabels)}`,
           badge: current ? "当前生效"
             : version === latest && review === events.at(-1) ? settlementStatusLabels[workflow.status] : undefined,
           tone: approved ? "success" : review.action === "return" ? "warning" : "info",
@@ -81,7 +80,7 @@ export function settlementHistory(workflow: SettlementWorkflow, history: unknown
     entries.push(event("current-draft", effective ? "编制结算修订草稿" : "编制结算草稿", "办理", {
       recorded_at: draft.updated_at, actor_id: draft.updated_by,
     }, {
-      badge: "尚未提交", facts: facts(["结算方式", label(draft.document.mode, settlementModes)],
+      badge: "尚未提交", facts: facts(["结算方式", label(draft.document.mode, settlementModeLabels)],
         ["草稿金额", money(draft.document.amount_fen)], ["当前生效金额", money(workflow.effective_amount_fen)]),
     }));
   }

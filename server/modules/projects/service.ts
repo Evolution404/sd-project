@@ -624,12 +624,13 @@ export function createProjects(
       requireValue(rows.length <= 5000, "导出超过5000条，请收窄筛选条件");
       return rows.map(row => ({
         id: row.id, 项目编号: row.code, 项目名称: row.name, 项目状态: row.display_status,
+        归档状态: row.deleted ? "已归档删除" : "",
         "批准预算（元）": row.approval_json ? (JSON.parse(row.approval_json) as Pick<ProjectApprovalVersion, "approved_budget_fen">).approved_budget_fen / 100 : null,
         关联需求数: (JSON.parse(row.scopes_json) as ProjectScopeListItem[]).filter(scope => scope.binding).length,
       }));
     },
-    dashboardPortfolio(ids?: string[]) {
-      return repo.projectDashboardPortfolio(ids);
+    dashboardPortfolio(ids?: string[], includeDeleted = false) {
+      return repo.projectDashboardPortfolio(ids, includeDeleted);
     },
     workspace(key: string, includeDeleted = false) {
       return get(key, includeDeleted, true);

@@ -1,4 +1,3 @@
-import { approveSettlement } from "./work-page-helper.mjs";
 import assert from "node:assert/strict";
 import {existsSync,mkdirSync} from "node:fs";
 import {join} from "node:path";
@@ -7,7 +6,7 @@ import {approvedFixture} from "../helpers.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
 
 const cleanup=[];
-const {s,user:admin,project,approval,node,scope}=approvedFixture({after:fn=>cleanup.push(fn)});
+const {s,user:admin,project,approval,node,scope,demand}=approvedFixture({after:fn=>cleanup.push(fn)});
 const passwords={admin:"Schema113-test-password"};
 const actors={admin};
 for(const role of ["editor","verifier","viewer"]) {
@@ -134,7 +133,21 @@ try {
   await section(verifier, "费用核对");
   assert.equal(await button(verifier.detail,"新增正式核对").isEnabled(),true);
   await section(verifier, "结算单");
-  await approveSettlement(verifier.page, verifier.bill);
+  const documentPath = url => url.pathname === `/api/projects/${project.id}/settlements/${draft.id}`;
+  await verifier.page.route(documentPath, route => route.abort(), {times:1});
+  await button(verifier.bill, "审核结算").click();
+  const financeReview = verifier.page.getByRole("region", {name:"审核结算",exact:true});
+  await button(financeReview, "重新读取").waitFor();
+  assert.equal(await button(financeReview, "确认批准结算").count(), 0);
+  await button(financeReview, "重新读取").click();
+  await financeReview.getByRole("columnheader", {name:"费用科目",exact:true}).waitFor();
+  await financeReview.getByRole("cell", {name:node.name,exact:true}).waitFor();
+  const reviewDemand = financeReview.getByRole("cell", {name:demand.demand_no + " · " + demand.problem_description,exact:true}).first();
+  await reviewDemand.waitFor();
+  assert.equal(await reviewDemand.locator(".cell").evaluate(cell => getComputedStyle(cell).whiteSpace), "normal");
+  await financeReview.getByRole("cell", {name:"套",exact:true}).waitFor();
+  await verifier.page.screenshot({path:join(output,"04-verifier-review.png"),fullPage:true});
+  await button(financeReview, "确认批准结算").click();
   await verifier.bill.getByText(/已批准/).waitFor();
   const reviewed=s.finance.settlement(draft.id);
   assert.equal(reviewed.review.action,"approve");

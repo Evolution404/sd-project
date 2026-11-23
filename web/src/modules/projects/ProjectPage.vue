@@ -101,7 +101,9 @@ let returningToProjectDetail = false;
 async function returnFromProjectWork() {
   if (typeof route.query.returnTo === "string") {
     const origin = router.resolve(route.query.returnTo);
-    if (projectWork.value === "finance" && ["finance", "dashboard", "frameworks", "agreements"].includes(String(origin.name)))
+    if (origin.name === "dashboard" && ["compile", "review", "finance"].includes(projectWork.value))
+      return workRoute.exit(origin.fullPath);
+    if (projectWork.value === "finance" && ["finance", "frameworks", "agreements"].includes(String(origin.name)))
       return workRoute.exit(origin.fullPath);
     if (projectWork.value === "settlements" && origin.name === "dashboard" && route.query.source === "task")
       return workRoute.exit(origin.fullPath);
@@ -121,7 +123,7 @@ async function returnFromProjectWork() {
 function closeProjectDetails() {
   if (typeof route.query.returnTo === "string") {
     const from = router.resolve(route.query.returnTo);
-    if ((route.query.focus === "funding" && ["frameworks", "agreements"].includes(String(from.name))) ||
+    if (from.name === "dashboard" || (route.query.focus === "funding" && ["frameworks", "agreements"].includes(String(from.name))) ||
         (route.query.focus === "demand" && from.name === "demands")) {
       void workRoute.exit(from.fullPath);
       return;
@@ -140,12 +142,18 @@ function projectDetailsPath() {
 function openRelatedDemand(id: string) {
   const origin = contextOrigin(router, route.query.returnTo, "demands");
   if (origin?.query.demand === id) void workRoute.exit(origin.fullPath);
-  else void router.push(demandContext(id, projectDetailsPath()));
+  else {
+    const source = projectDetailsPath();
+    void workRoute.enter(demandContext(id, source), source);
+  }
 }
 function openRelatedFunding(kind: "frameworks" | "agreements", id: string) {
   const origin = contextOrigin(router, route.query.returnTo, kind);
   if (origin?.query.record === id) void workRoute.exit(origin.fullPath);
-  else void router.push(fundContext(kind, id, projectDetailsPath()));
+  else {
+    const source = projectDetailsPath();
+    void workRoute.enter(fundContext(kind, id, source), source);
+  }
 }
 const projectActions = ref<ProjectAction[]>([]);
 const overviewSummary = ref<ProjectFinanceSnapshot | null>(null);
@@ -247,7 +255,7 @@ const rows = ref<ProjectListItem[]>([]),
   priceScopeContext = ref<ApprovedScope | null>(null),
   quoteOpen = ref(false);
 
-const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]));
+const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]), "projects");
 const { selected, selectedIds, eligibleIds } = selection;
 const handling = useHandlingReview();
 
@@ -401,6 +409,7 @@ async function load() {
     appliedQuery.value = parameters.toString();
     rows.value = value.items;
     total.value = value.total;
+    void workRoute.restoreScroll();
     const id = detail.value?.id;
     if (id) {
       const updated = await api<ProjectDetail>("/projects/" + id + "?deleted=true");

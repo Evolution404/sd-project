@@ -90,6 +90,13 @@ try {
   await page.reload();
   await page.getByRole("button", { name: billNumber, exact: true }).waitFor();
   assert.equal(await detail.isVisible(), false);
+  await page.goto(base + "/#/finance/settlements");
+  await page.getByRole("button", { name: "JS-000001", exact: true }).click();
+  await detail.getByText("结算方式", { exact: true }).waitFor();
+  await detail.getByRole("columnheader", { name: "费用科目", exact: true }).waitFor();
+  await detail.getByRole("columnheader", { name: "已解决需求", exact: true }).waitFor();
+  await detail.getByRole("cell", { name: "套", exact: true }).waitFor();
+  await detail.getByRole("cell", { name: /XQ-000001.*青峰线/ }).first().waitFor();
   await page.goto(base + "/#/finance");
   await page.getByRole("button", { name: "【演示】青峰线防鸟装置整治", exact: true }).click();
   await finance.getByRole("tab", { name: "结算单", exact: true }).click();

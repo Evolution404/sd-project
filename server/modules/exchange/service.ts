@@ -745,13 +745,14 @@ export function createExchange(system:ExchangePorts) {
     exportData,
     projectReport(actor: Actor, ids: string[], listQuery?: ListQuery) {
       const records = system.projects.projectReportRows(actor, ids, listQuery);
-      const finances = system.finance.summariesForPortfolio(system.projects.dashboardPortfolio(records.map(record => record.id)));
+      const finances = system.finance.summariesForPortfolio(
+        system.projects.dashboardPortfolio(records.map(record => record.id), Boolean(listQuery?.deleted)));
       return makeBusinessReport("projects", records.map(({ id, ...record }) => {
         const summary = finances.get(id);
         requireValue(summary, "项目财务概要不存在", 409);
         return { ...record, "核定实际费用（元）": summary.actual_cost_fen / 100,
           "累计生效结算（元）": summary.settlement_fen / 100,
-          "结算进度": summary.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent + "%",
+          "结算进度": summary.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent / 100,
           "超结算（元）": summary.excess_settlement_fen == null ? null : summary.excess_settlement_fen / 100 };
       }), [], exchangeReportScope({ids, listQuery}, records.length));
     },

@@ -3,7 +3,7 @@ import type {Actor} from "../../shared/types/contracts.js";
 import type { ExchangePorts } from "./ports.js";
 import type {WorkbookKind,WorkbookRow,ExchangeExportOptions} from "../../shared/types/exchange.js";
 import type {DemandRecord} from "../../shared/types/demands.js";
-import type {SettlementWorkflow} from "../../shared/types/finance-workflows.js";
+import {settlementModeLabels, type SettlementMode, type SettlementWorkflow} from "../../shared/types/finance-workflows.js";
 import type {OperationAttribute} from "../../shared/types/operation-attributes.js";
 import {isObject} from "../../shared/types/contracts.js";
 import {authorize} from "../../platform/auth/service.js";
@@ -52,26 +52,26 @@ function reportDemand(system:ExchangePorts,records:DemandRecord[], options: Exch
 }
 function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[], options: ExchangeExportOptions):Promise<Buffer> {
   const statuses = {draft:"未提交", submit:"待审核", approve:"已批准", return:"已退回", reject:"已驳回", voided:"已注销"};
-  const projects = system.projects.dashboardPortfolio([...new Set(records.map(record => record.project_id))]);
+  const projects = system.projects.dashboardPortfolio(
+    [...new Set(records.map(record => record.project_id))], Boolean(options.listQuery?.deleted));
   const projectById = new Map(projects.map(project => [project.id, project]));
   const summaries = system.finance.summariesForPortfolio(projects);
   const {versions, resolutions} = system.finance.effectiveSettlementReport(records.map(record => record.id));
   const recordsById = new Map(records.map(record => [record.id, record]));
-  const modeLabel = (mode: string | undefined) => !mode ? "" : mode === "project_total" ? "按项目总额" : "按子费用";
+  const modeLabel = (mode: SettlementMode | undefined) => mode ? settlementModeLabels[mode] : "";
   return makeBusinessReport("settlements",records.map(record=>{
     const project=projectById.get(record.project_id);
     requireValue(project,"结算所属项目不存在或已删除",409);
     const adopted=versions.get(record.id);
-    const summary = summaries.get(record.project_id);
     return {
       结算编号:record.number,子项目编号:project.code,子项目当前名称:project.name,
       最新正式版本:record.version?.version_no||0,
       结算状态:statuses[record.status],
       草稿状态:record.draft?"有草稿":"无草稿",
       "本次草稿金额（元）":record.draft?
-        decimalText(record.draft.document.amount_fen,2):"",
-      "最近提交金额（元）":record.version ? decimalText(record.version.amount_fen,2) : "",
-      "当前已批准金额（元）":decimalText(adopted?.amount_fen ?? 0,2),
+        record.draft.document.amount_fen / 100 : null,
+      "最近提交金额（元）":record.version ? record.version.amount_fen / 100 : null,
+      "当前已批准金额（元）":adopted ? adopted.amount_fen / 100 : null,
       当前生效版本:adopted?.version_no ?? "",
       当前生效结算方式:modeLabel(adopted?.mode),
       当前生效结算日期:adopted?.settlement_on ?? "",
@@ -82,10 +82,6 @@ function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[], opt
       草稿结算方式:modeLabel(record.draft?.document.mode),
       草稿结算日期:record.draft?.document.settlement_on ?? "",
       草稿结算依据:record.draft?.document.basis ?? "",
-      "项目核定实际费用（元）": summary ? decimalText(summary.actual_cost_fen, 2) : "",
-      "项目累计生效结算（元）": summary ? decimalText(summary.settlement_fen, 2) : "",
-      项目结算进度: summary?.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent + "%",
-      "项目超结算（元）": summary?.excess_settlement_fen == null ? "" : decimalText(summary.excess_settlement_fen, 2),
     };
   }), resolutions.map(row => ({
     结算编号:recordsById.get(row.settlement_id)?.number,
@@ -94,7 +90,19 @@ function reportSettlement(system:ExchangePorts,records:SettlementWorkflow[], opt
     解决量:decimalText(row.resolved_quantity_scaled,4),
     计量单位:row.unit,
     解决依据:row.evidence,
-  })), exchangeReportScope(options, records.length));
+  })), exchangeReportScope(options, records.length), projects.map(project => {
+    const summary = summaries.get(project.id);
+    requireValue(summary, "项目财务概要不存在", 409);
+    return {
+      项目编号: project.code,
+      项目名称: project.name,
+      "核定实际费用（元）": summary.actual_cost_fen / 100,
+      "累计生效结算（元）": summary.settlement_fen / 100,
+      结算进度: summary.settlement_progress_percent == null ? "待核定费用基数" : summary.settlement_progress_percent / 100,
+      "待结算（元）": summary.unsettled_cost_fen == null ? null : summary.unsettled_cost_fen / 100,
+      "超结算（元）": summary.excess_settlement_fen == null ? null : summary.excess_settlement_fen / 100,
+    };
+  }));
 }
 function exportDemands(system:ExchangePorts,records:DemandRecord[],lookups:()=>Record<string,unknown>[]):Promise<Buffer> {
   const rows=emptyRows();

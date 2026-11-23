@@ -660,7 +660,8 @@ export async function errorsWorkbook(issues:WorkbookIssue[]):Promise<Buffer> {
   return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
-export async function makeBusinessReport(kind:WorkbookReportKind, records:Record<string,unknown>[], positions:Record<string,unknown>[] = [], scope?:ExchangeReportScope):Promise<Buffer> {
+export async function makeBusinessReport(kind:WorkbookReportKind, records:Record<string,unknown>[],
+  positions:Record<string,unknown>[] = [], scope?:ExchangeReportScope, projectTotals:Record<string,unknown>[] = []):Promise<Buffer> {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
   function addSheet(name:string, rows:Record<string,unknown>[], summary?: ExchangeReportScope) {
@@ -670,6 +671,8 @@ export async function makeBusinessReport(kind:WorkbookReportKind, records:Record
     sheet.columns = headers.map((header) => ({
       key: header,
       width: header.includes("描述") || header.includes("依据") ? 42 : 24,
+      style: header.endsWith("（元）") ? { numFmt: '#,##0.00' }
+        : header === "结算进度" ? { numFmt: '0.00%' } : undefined,
     }));
     if (summary) {
       const time = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 19).replace("T", " ");
@@ -712,6 +715,10 @@ export async function makeBusinessReport(kind:WorkbookReportKind, records:Record
           : kind === "projects" ? "子项目清单" : "结算业务报表",
     records, scope,
   );
+  if (projectTotals.length) addSheet("项目结算汇总", projectTotals, {
+    label: "本表按项目列出全部生效结算，每个项目仅一行",
+    count: projectTotals.length,
+  });
   if (positions.length) addSheet(kind === "settlements" ? "生效需求解决量" : "需求位置报表", positions);
   const marker = workbook.addWorksheet("报表标记");
   marker.state = "veryHidden";

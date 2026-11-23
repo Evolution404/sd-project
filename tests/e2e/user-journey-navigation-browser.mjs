@@ -79,12 +79,42 @@ try {
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await detail.getByText(waiting.demand_no, { exact: true }).waitFor();
   assert.match(new URL(page.url()).hash, /#\/demands\?/);
-  await page.goto(base + "/#/projects?project=" + project.id + "&tab=scope");
+  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await detail.waitFor({state:"hidden"});
+  for (let index = 1; index <= 24; index++)
+    s.projects.save(user, { name: "桌面返回验收对照项目 " + index, framework_id: framework.id });
+  await page.getByRole("menuitem", { name: "子项目管理", exact: true }).click();
+  const projectRow = page.getByRole("row").filter({has:page.getByRole("button",{name:project.name,exact:true})});
+  await projectRow.getByRole("cell",{name:"选择当前行",exact:true}).locator("label").click();
+  await page.getByRole("status").filter({hasText:/^已选 1 条$/}).waitFor();
+  await projectRow.getByRole("button",{name:project.name,exact:true}).click();
+  const sourceScroll = await page.evaluate(() => window.scrollY);
+  assert.ok(sourceScroll > 0, "the project list should be scrolled before leaving");
+  await detail.getByRole("tab", { name: "承接需求", exact: true }).click();
   await detail.getByRole("button", { name: waiting.demand_no, exact: true }).click();
   await detail.getByText(waiting.demand_no, { exact: true }).waitFor();
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
   await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
   assert.equal(await detail.getByRole("tab", { name: "承接需求", exact: true }).getAttribute("aria-selected"), "true");
+  await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
+  await page.getByRole("status").filter({hasText:/^已选 1 条$/}).waitFor();
+  assert.equal(await projectRow.getByRole("checkbox",{name:"选择当前行",exact:true}).isChecked(),true);
+  await page.waitForFunction(scroll => Math.abs(window.scrollY - scroll) <= 2, sourceScroll);
+
+  s.projects.stock(user, project.id, { expected_version: s.projects.get(project.id).version });
+  await page.getByRole("menuitem", { name: "工作台", exact: true }).click();
+  const task = title => page.getByRole("article").filter({has:page.getByRole("heading",{name:title,exact:true})})
+    .getByRole("button",{name:project.name,exact:true});
+  await task("编制项目立项").click();
+  const compiler = page.getByRole("region",{name:"编制项目立项",exact:true});
+  await compiler.getByLabel("批准预算（元）",{exact:true}).fill("600");
+  await compiler.getByRole("button",{name:"保存批准草稿",exact:true}).click();
+  await page.waitForURL(url=>url.hash==="#/dashboard");
+  await task("审核项目立项").click();
+  const review = page.getByRole("region",{name:"审核项目立项",exact:true});
+  await review.getByRole("button",{name:"确认正式批准",exact:true}).click();
+  await page.waitForURL(url=>url.hash==="#/dashboard");
+  assert.equal(s.projects.get(project.id).status,"approved");
 
   // A second active demand starts another project and links atomically.
   await page.goto(base + "/#/demands?demand=" + another.id);

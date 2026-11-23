@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import ExcelJS from "exceljs";
 import { approvedFixture } from "../helpers.mjs";
 
 test("dashboard batch aggregates preserve exact project finance and formal settlement history", t => {
@@ -75,4 +76,34 @@ test("dashboard batch aggregates preserve exact project finance and formal settl
     .filter(row => row.framework === framework.name)
     .map(row => row.cumulative_actual_fen), [0, 0, 0, 140000]);
   assert.equal(dashboard.pending_demands, 0);
+});
+
+test("archived projects leave all dashboard totals and remain exportable on request", async t => {
+  const { s, user, project, node, framework } = approvedFixture(t);
+  const active = s.projects.save(user, { name: "仍在管理的子项目", framework_id: framework.id });
+  s.finance.cost(user, project.id, {
+    cost_node_id: node.id, title: "结项项目费用",
+    occurred_on: "2026-07-09", amount_fen: 12345, evidence: "测试凭据",
+  });
+  const preview = s.projectClosure.preview(user, project.id);
+  const closed = s.projectClosure.commit(user, project.id, {
+    expected_version: preview.expected_version, preview_hash: preview.preview_hash,
+  });
+  s.projects.remove(user, project.id, { expected_version: closed.version });
+  const dashboard = s.dashboard(user);
+  assert.deepEqual(dashboard.portfolio.map(row => row.id), [active.id]);
+  assert.deepEqual(dashboard.months, []);
+  assert.ok(dashboard.quarters.every(row => row.cumulative_actual_fen === 0));
+  assert.equal(dashboard.frameworks.find(row => row.id === framework.id).actual_cost_fen, 0);
+
+  const query = { page: 1, page_size: 30, q: "", filters: {}, sort: "created_at", direction: "desc", deleted: true };
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(await s.exchange.projectReport(user, [], query));
+  const sheet = workbook.getWorksheet("子项目清单");
+  const headers = sheet.getRow(3).values;
+  const records = sheet.getSheetValues().slice(4);
+  assert.deepEqual(new Set(records.map(row => row[headers.indexOf("项目名称")])), new Set([project.name, active.name]));
+  const archive = records.find(row => row[headers.indexOf("项目名称")] === project.name);
+  assert.equal(archive[headers.indexOf("归档状态")], "已归档删除");
+  assert.equal(archive[headers.indexOf("核定实际费用（元）")], 123.45);
 });

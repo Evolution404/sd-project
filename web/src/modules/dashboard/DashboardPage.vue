@@ -3,9 +3,10 @@ import { projectStatusTag } from "../../shared/utils/project-status";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { computed, ref, onMounted } from "vue";
 import { ArrowRight, Bell, CircleCheck, Document, FolderOpened, Refresh, Tickets } from "@element-plus/icons-vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.vue";
 import { useAccess } from "../../shared/composables/use-access";
+import { useWorkRoute } from "../../shared/navigation/use-work-route";
 import { api, money } from "../../shared/api/client";
 import type { Dashboard } from "../../../../server/shared/types/reporting";
 type DashboardRow = Dashboard["portfolio"][number] | Dashboard["alerts"][number] |
@@ -78,19 +79,26 @@ function openQueue(task: QueueTask) {
   void router.push({ path: task.path, query: { filters: taskFilters(task) } });
 }
 function openTask(task: QueueTask, row: QueueRow) {
+  const returnTo = route.fullPath;
   if (row.projectId) {
     const reviewing = task.action === "review";
-    void router.push({ name: "projects", params: { projectId: row.projectId, work: reviewing ? "settlements" : "finance",
+    void workRoute.enter({ name: "projects", params: { projectId: row.projectId, work: reviewing ? "settlements" : "finance",
       recordId: reviewing ? row.id : "", recordAction: reviewing ? "review" : "" },
-      query: { returnTo: "/dashboard", ...(reviewing ? { source: "task" } : { focus: "settlement", record: row.id }) } });
+      query: { returnTo, ...(reviewing ? { source: "task" } : { focus: "settlement", record: row.id }) } });
   } else if (task.path === "/demands") {
-    void router.push({ path: "/demands", query: { filters: taskFilters(task), demand: row.id } });
+    void workRoute.enter({ path: "/demands", query: { filters: taskFilters(task), demand: row.id, returnTo } });
+  } else if (row.reason) {
+    void workRoute.enter({ path: "/projects",
+      query: { filters: taskFilters(task), project: row.id, tab: "scope", returnTo } });
   } else {
-    void router.push({ path: "/projects", query: { filters: taskFilters(task), project: row.id,
-      tab: row.reason ? "scope" : task.key === "compile" ? "overview" : "approval" } });
+    void workRoute.enter({ name: "projects", params: {
+      projectId: row.id, work: task.key === "compile" ? "compile" : "review", recordId: "", recordAction: "",
+    }, query: { returnTo } });
   }
 }
 const router = useRouter();
+const route = useRoute();
+const workRoute = useWorkRoute();
 function openMetric(key: string) {
   if (key === "pending_demands")
     void router.push({ path: "/demands", query: {
@@ -110,6 +118,7 @@ async function refreshDashboard() {
   if (report.status === "fulfilled") dashboard.value = report.value;
   else loadError.value = (report.reason as Error).message;
   loading.value = false;
+  void workRoute.restoreScroll();
 }
 const portfolioColumns: TableColumn[] = [
   { key: "name", label: "子项目", minWidth: 250 },

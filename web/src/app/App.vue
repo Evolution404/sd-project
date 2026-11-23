@@ -19,6 +19,8 @@ import GuideHost from "../guides/components/GuideHost.vue";
 import { guideCenterKey } from "../guides/core/guide-center";
 import { navigationItems } from "./navigation";
 import { referenceSelectorsKey } from "../shared/ui/reference-selectors";
+import { providePageSelections } from "../shared/composables/use-page-selection";
+import { provideWorkNavigation } from "../shared/navigation/use-work-route";
 provide(referenceSelectorsKey, { organizations: defineAsyncComponent(() => import("../modules/dictionaries/components/OrganizationSelect.vue")) });
 const route = useRoute(), router = useRouter();
 const moduleKey = computed(() => String(route.name || "dashboard"));
@@ -34,6 +36,12 @@ const user = ref<Actor | null>(null),
   error = ref(""),
   busy = ref(false);
 provide("currentUser", user);
+const clearSelections = providePageSelections();
+const clearWorkNavigation = provideWorkNavigation();
+watch(() => user.value?.id, () => {
+  clearSelections();
+  clearWorkNavigation();
+}, { flush: "sync" });
 const menu = navigationItems;
 const guideOpen = ref(false);
 provide(guideCenterKey, () => { guideOpen.value = true; });

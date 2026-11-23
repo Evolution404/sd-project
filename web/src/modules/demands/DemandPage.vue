@@ -95,8 +95,11 @@ function openLinkedProject() {
   if (detail.value?.binding?.project_id) {
     const origin = contextOrigin(router, route.query.returnTo, "projects");
     if (origin?.query.project === detail.value.binding.project_id) void workRoute.exit(origin.fullPath);
-    else void router.push(projectContext(detail.value.binding.project_id,
-      "scope", { focus: "demand", record: detail.value.id }, demandDetailsPath()));
+    else {
+      const source = demandDetailsPath();
+      void workRoute.enter(projectContext(detail.value.binding.project_id,
+        "scope", { focus: "demand", record: detail.value.id }, source), source);
+    }
   }
 }
 function demandDetailsPath() {
@@ -158,7 +161,7 @@ const rows = ref<DemandListItem[]>([]),
   quoteOpen = ref(false),
   showDeleted = ref(false);
 
-const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]));
+const selection = usePageSelection(rows, () => JSON.stringify([query.value, showDeleted.value, columnFilters.value]), "demands");
 const { selected, selectedIds, eligibleIds } = selection;
 const handling = useHandlingReview();
 
@@ -329,6 +332,7 @@ async function load() {
     appliedQuery.value = parameters.toString();
     rows.value = result.items;
     total.value = result.total;
+    void workRoute.restoreScroll();
     const id = detail.value?.id;
     if (id) {
       const updated = await api<DemandRecord>("/demands/" + id + "?deleted=true");
@@ -433,8 +437,8 @@ async function remove(row: DemandListItem | DemandRecord) {
 useListRoute({ q: query, page, deleted: showDeleted, sort: sortKey, direction: sortDirection, filters: columnFilters }, load, () => route.name === "demands" && !editorRoute.value);
 const detailDialog = useEntityDialog(detail, id => api('/demands/' + id + '?deleted=true'), () => { dialog.value = false; history.value = false; quoteOpen.value = false; });
 function closeDetails() {
-  const origin = contextOrigin(router, route.query.returnTo, "projects");
-  if (typeof origin?.query.project === "string") {
+  const origin = contextOrigin(router, route.query.returnTo, "projects", "dashboard");
+  if (origin && (origin.name === "dashboard" || typeof origin.query.project === "string")) {
     void workRoute.exit(origin.fullPath);
     return;
   }

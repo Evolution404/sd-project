@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { projectStatusTag } from "../../shared/utils/project-status";
-import { settlementStatusLabels, type SettlementWorkflow } from "../../../../server/shared/types/finance-workflows";
+import { settlementModeLabels, settlementStatusLabels, type SettlementDetails } from "../../../../server/shared/types/finance-workflows";
 import { projectDisplayStatuses } from "../../../../server/shared/project-display-status";
 import { computed, ref, onMounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
@@ -12,6 +12,7 @@ import BusinessTable, { type TableColumn } from "../../shared/ui/BusinessTable.v
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessNumber from "../../shared/ui/BusinessNumber.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
+import SettlementDocumentFacts from "./components/SettlementDocumentFacts.vue";
 import { projectFinanceContext, type BusinessFocus } from "../../shared/navigation/business-context";
 import { costStatusOptions, filterOptions, reconciliationStatusOptions } from "../../shared/utils/filter-options";
 
@@ -39,14 +40,13 @@ const crossKind = computed({
   set: (value: string) => { kind.value = value; },
 });
 const selectedRecord = ref<FinanceListItem | null>(null);
-const recordContent = ref<FinanceRecordDetail | FinanceRecordDetail[] | SettlementWorkflow | null>(null);
+const recordContent = ref<FinanceRecordDetail | FinanceRecordDetail[] | SettlementDetails | null>(null);
 const recordOpen = ref(false), recordLoading = ref(false), recordError = ref("");
 let recordSequence = 0;
 const recordTitle = computed(() => kind.value === "costs" ? "真实费用记录" :
   kind.value === "settlements" ? "独立结算单" : "正式费用核对记录");
 const currentBill = computed(() => recordContent.value && "draft" in recordContent.value ? recordContent.value : null);
-const settlementItems = computed(() => currentBill.value?.draft?.document.items ?? currentBill.value?.items ?? []);
-const settlementResolutions = computed(() => currentBill.value?.draft?.document.resolutions ?? currentBill.value?.resolutions ?? []);
+const billDocument = computed(() => currentBill.value?.draft?.document ?? currentBill.value?.version);
 const currentRecord = computed<FinanceRecordDetail | null>(() => {
   if (!recordContent.value || "draft" in recordContent.value) return null;
   if (Array.isArray(recordContent.value))
@@ -63,7 +63,7 @@ async function viewRecord(row: FinanceListItem) {
     : kind.value === "settlements" ? `/settlements/${row.id}`
     : `/reconciliations/${row.id}`;
   try {
-    const result = await api<FinanceRecordDetail | FinanceRecordDetail[] | SettlementWorkflow>(path);
+    const result = await api<FinanceRecordDetail | FinanceRecordDetail[] | SettlementDetails>(path);
     if (sequence === recordSequence) recordContent.value = result;
   } catch (failure) {
     if (sequence === recordSequence) recordError.value = (failure as Error).message;
@@ -122,13 +122,9 @@ const settlementOptions = filterOptions(settlementStatusLabels);
 const statusOptionsForList = computed(() => kind.value === "projects" ? projectStatusOptions
   : kind.value === "costs" ? costStatusOptions
     : kind.value === "settlements" ? settlementOptions : reconciliationStatusOptions);
-const shownRecordStatus = computed(() => selectedRecord.value?.deleted ? "已删除"
-  : recordStatus(selectedRecord.value?.status ?? ""));
-const settlementItemColumns: TableColumn[] = [
-  { key: "amount_fen", label: "费用金额", minWidth: 150 },
-  { key: "quantity_scaled", label: "费用计量数量", minWidth: 145 },
-  { key: "evidence", label: "结算依据", minWidth: 200 },
-];
+const shownRecordStatus = computed(() => (currentBill.value?.deleted ?? selectedRecord.value?.deleted) ? "已删除"
+  : recordStatus(currentBill.value?.status ?? selectedRecord.value?.status ?? ""));
+const shownRecordAmount = computed(() => currentBill.value ? billDocument.value?.amount_fen : selectedRecord.value?.amount_fen);
 const columns = computed<TableColumn[]>(() => [
   { key: "project_name", label: "子项目", minWidth: 245, hideable: kind.value !== "projects" },
   { key: "label", label: kind.value === "projects" ? "项目编号" : kind.value === "settlements" ? "结算编号" : "费用事项", minWidth: 190, hideable: kind.value === "projects" },
@@ -260,17 +256,19 @@ onMounted(() => { void load(); });
           </ElDescriptionsItem>
           <ElDescriptionsItem v-else label="记录事项">{{ selectedRecord.label }}</ElDescriptionsItem>
           <ElDescriptionsItem label="业务状态">{{ shownRecordStatus }}</ElDescriptionsItem>
-          <ElDescriptionsItem label="业务日期">{{ selectedRecord.occurred_on || "—" }}</ElDescriptionsItem>
+          <ElDescriptionsItem label="业务日期">{{ (currentBill ? billDocument?.settlement_on : selectedRecord.occurred_on) || "—" }}</ElDescriptionsItem>
           <ElDescriptionsItem :label="kind === 'costs' ? '真实费用' : kind === 'settlements' ? '本次结算金额' : '核定结算金额'">
-            {{ selectedRecord.amount_fen == null ? '未核定' : '¥' + money(selectedRecord.amount_fen) }}
+            {{ shownRecordAmount == null ? '未核定' : '¥' + money(shownRecordAmount) }}
           </ElDescriptionsItem>
+          <ElDescriptionsItem v-if="billDocument" label="结算方式">{{ settlementModeLabels[billDocument.mode] }}</ElDescriptionsItem>
+          <ElDescriptionsItem v-if="currentBill?.document_details" label="采用批准范围">第 {{ currentBill.document_details.approval_version_no }} 版</ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'costs'" label="凭据">{{ currentRecord?.evidence || '—' }}</ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'reconciliations'" label="实际费用份额">
             {{ currentRecord?.reconciled_cost_fen == null ? '—' : '¥' + money(currentRecord.reconciled_cost_fen) }}
           </ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'reconciliations'" label="核对依据">{{ currentRecord?.evidence || '—' }}</ElDescriptionsItem>
           <ElDescriptionsItem v-if="kind === 'settlements'" label="当前生效金额">
-            {{ selectedRecord.effective_amount_fen == null ? '尚无批准' : '¥' + money(selectedRecord.effective_amount_fen) }}
+            {{ currentBill?.effective_amount_fen == null ? '尚无批准' : '¥' + money(currentBill.effective_amount_fen) }}
           </ElDescriptionsItem>
           <ElDescriptionsItem v-if="currentBill?.review" label="最近一次审核">
             {{ settlementStatusLabels[currentBill.review.action] }}
@@ -280,28 +278,8 @@ onMounted(() => { void load(); });
           </ElDescriptionsItem>
         </ElDescriptions>
       </div>
-      <div v-if="settlementItems.length" class="panel">
-        <h2>{{ currentBill?.draft ? '草稿结算明细' : '本次结算明细' }}</h2>
-        <BusinessTable :rows="settlementItems" :columns="settlementItemColumns"
-          table-key="finance:cross:settlement-items" client-side>
-          <template #cell="{ row, column }">
-            <span v-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</span>
-            <span v-else-if="column.key === 'quantity_scaled'">{{ row.quantity_scaled == null ? '—' : row.quantity_scaled / 10000 }}</span>
-            <span v-else>{{ column.key === 'evidence' ? (row.evidence || '—') : '—' }}</span>
-          </template>
-        </BusinessTable>
-      </div>
-      <div v-if="settlementResolutions.length" class="panel">
-        <h2>{{ currentBill?.draft ? '草稿需求解决量' : '最近提交的需求解决量' }}</h2>
-        <BusinessTable :rows="settlementResolutions" :columns="[
-          { key: 'resolved_quantity_scaled', label: '本次解决数量', minWidth: 150 },
-          { key: 'evidence', label: '解决依据', minWidth: 200 },
-        ]" table-key="finance:cross:settlement-resolutions" client-side>
-          <template #cell="{ row, column }">
-            {{ column.key === 'resolved_quantity_scaled' ? row.resolved_quantity_scaled / 10000 : (row.evidence || '—') }}
-          </template>
-        </BusinessTable>
-      </div>
+      <SettlementDocumentFacts v-if="currentBill?.document_details"
+        :document="currentBill.document_details" :draft="!!currentBill.draft" />
       <ElButton @click="recordHistoryOpen = !recordHistoryOpen">历史记录</ElButton>
       <BusinessHistory reveal v-if="recordHistoryOpen" :record-kind="crossKind as FinanceListKind"
         :record-id="selectedRecord.id" :project-id="selectedRecord.project_id" />

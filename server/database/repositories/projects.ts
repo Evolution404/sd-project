@@ -336,16 +336,16 @@ export function projectReadRepository(store: Store) {
         return { ...row, work_locations: definition.work_locations };
       });
     },
-    projectDashboardPortfolio(ids?: string[]): ProjectDashboardBase[] {
+    projectDashboardPortfolio(ids?: string[], includeDeleted = false): ProjectDashboardBase[] {
       return store.query(`SELECT p.id,p.code,m.name,p.status,${PROJECT_DISPLAY_STATUS_SQL} AS display_status,p.framework_id,
         m.planned_end_on,approved.approval_version_id,approved.approved_budget_fen
         FROM projects p
         JOIN v_project_management_current m ON m.project_id=p.id
         LEFT JOIN v_project_current_approval approved ON approved.project_id=p.id
-        WHERE NOT EXISTS(SELECT 1 FROM audit_events a
-          WHERE a.entity='projects' AND a.entity_id=p.id AND a.action='delete')
+        WHERE (? OR NOT EXISTS(SELECT 1 FROM audit_events a
+          WHERE a.entity='projects' AND a.entity_id=p.id AND a.action='delete'))
         AND (? IS NULL OR p.id IN (SELECT value FROM json_each(?)))
-        ORDER BY p.created_at,p.id`, ids ? JSON.stringify(ids) : null, ids ? JSON.stringify(ids) : null) as ProjectDashboardBase[];
+        ORDER BY p.created_at,p.id`, Number(includeDeleted), ids ? JSON.stringify(ids) : null, ids ? JSON.stringify(ids) : null) as ProjectDashboardBase[];
     },
     projectSummaryBasis(projectId: string) {
       return store.query(`SELECT p.id,ap.approval_version_id,ap.approved_budget_fen

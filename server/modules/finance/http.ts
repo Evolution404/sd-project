@@ -22,7 +22,7 @@ export async function handleFinance(context: RouteContext): Promise<{
                     ? system.finance.searchSettlements(undefined, parseListQuery(url.searchParams))
                     : sub === "history"
                         ? system.finance.history(key)
-                        : system.finance.settlement(key);
+                        : system.finance.settlementDetails(key);
             else if (method === "DELETE" && !sub)
                 result = mutate("admin", () => system.finance.removeSettlement(actor, key, financeDeleteSettlement(input)));
             else if (sub === "submit")

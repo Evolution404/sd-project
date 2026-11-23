@@ -9,7 +9,7 @@ import { fixedListValue, listDisplayScale } from "../../../../server/shared/list
 export type TableColumn = {
   key: string; label: string; minWidth?: number;
   sortable?: boolean; filterable?: boolean; hideable?: boolean;
-  customHeader?: boolean;
+  customHeader?: boolean; wrap?: boolean;
   /** Stable server whitelist keys; capabilities are never inferred from a display label. */
   sortKey?: string; filterKey?: string;
   filterOptions?: readonly { value: string; label: string }[];
@@ -306,7 +306,8 @@ watch(() => props.tableKey, async () => {
         :min-width="columnMinWidth(col)" :width="columnWidth(col)"
         :sortable="!sortingEnabled || col.sortable === false ? false : 'custom'"
         :sort-orders="['ascending', 'descending']"
-        :fixed="pref.fixed.includes(col.key) ? 'left' : false" resizable show-overflow-tooltip>
+        :fixed="pref.fixed.includes(col.key) ? 'left' : false" resizable
+        :class-name="col.wrap ? 'business-cell-wrap' : undefined" :show-overflow-tooltip="!col.wrap">
         <template #header>
           <slot v-if="col.customHeader && $slots.header" name="header" :column="col" />
           <template v-else>
@@ -374,6 +375,7 @@ watch(() => props.tableKey, async () => {
   font-variant-numeric: tabular-nums;
 }
 .business-table-grid :deep(.el-table__body td.el-table__cell) { border-right-color: transparent }
+.business-table-grid :deep(td.business-cell-wrap .cell) { white-space: normal; overflow-wrap: anywhere; line-height: 1.45 }
 .business-table-grid :deep(.el-table__header th.el-table__cell) {
   border-right-color: color-mix(in srgb, var(--edge) 65%, transparent);
 }

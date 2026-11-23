@@ -1,4 +1,4 @@
-import type { SettlementVersion } from "../../shared/types/finance-workflows.js";
+import type { SettlementDemandLabel, SettlementVersion } from "../../shared/types/finance-workflows.js";
 import type { createStore } from "./store.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
@@ -57,6 +57,18 @@ export function financeReadRepository(store: Store) {
   return {
     projectStage(projectId: string): string | undefined {
       return store.get<{status:string}>("SELECT status FROM projects WHERE id=?", projectId)?.status;
+    },
+    settlementApprovalLabels(projectId: string, approvalId: string) {
+      const approval = store.get<{version_no: number}>(`SELECT version_no FROM project_approval_versions
+        WHERE id=? AND project_id=? AND status='approved'`, approvalId, projectId);
+      if (!approval) return null;
+      const scopes = store.query<SettlementDemandLabel & {project_scope_id: string}>(`
+        SELECT sc.project_scope_id,d.demand_no,
+          json_extract(sc.snapshot_json,'$.problem_description') AS problem_description,
+          json_extract(sc.snapshot_json,'$.unit_snapshot') AS unit
+        FROM project_approval_scope_versions sc JOIN demands d ON d.id=sc.demand_id
+        WHERE sc.approval_version_id=?`, approvalId);
+      return { version_no: approval.version_no, scopes };
     },
     effectiveSettlementReport(ids: string[]) {
       const values = JSON.stringify(ids);

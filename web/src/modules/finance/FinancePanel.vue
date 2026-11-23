@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import ExcelExportButton from "../exchange/ExcelExportButton.vue";
 import VersionConflictNotice from "../../shared/ui/VersionConflictNotice.vue";
-import { settlementStatusLabels } from "../../../../server/shared/types/finance-workflows";
+import { settlementModeLabels, settlementStatusLabels } from "../../../../server/shared/types/finance-workflows";
 import { settlementProgressText } from "../../shared/utils/settlement-progress";
 import { closedWriteReason } from "../../../../server/shared/project-lifecycle";
 import CostCategoryWorkspace from "./components/CostCategoryWorkspace.vue";
@@ -9,6 +9,7 @@ import ActualCostFields from "./components/ActualCostFields.vue";
 import SettlementEntryFields from "./components/SettlementEntryFields.vue";
 import ReconciliationFields from "./components/ReconciliationFields.vue";
 import CostCategorySelect from "./components/CostCategorySelect.vue";
+import SettlementDocumentFacts from "./components/SettlementDocumentFacts.vue";
 import type { CostCategoryNode } from "../../../../server/shared/types/trees";
 const categoryNodes = ref<CostCategoryNode[]>([]);
 import { usePageSelection } from "../../shared/composables/use-page-selection";
@@ -32,7 +33,7 @@ import { costStatusOptions, filterOptions, reconciliationStatusOptions } from ".
 import ExchangePanel from "../exchange/ExchangePanel.vue";
 import EvidencePanel from "../files/EvidencePanel.vue";
 import type { ProjectDetail } from "../../../../server/shared/types/project-api";
-import type { ActualCostVersion, SettlementWorkflow, ReconciliationVersion, SettlementItemInput,
+import type { ActualCostVersion, SettlementDetails, SettlementWorkflow, ReconciliationVersion, SettlementItemInput,
   SettlementResolutionInput, ReconciliationSettlementChoice, ActualCostInput, SettlementDraftInput, ReconciliationInput } from "../../../../server/shared/types/finance-workflows";
 import type { CategoryCost } from "../../../../server/shared/types/trees";
 import type { FinanceSummary } from "../../../../server/shared/types/finance-api";
@@ -69,7 +70,7 @@ const props = defineProps<{
   settlementWork?: { id: string; action: string };
   refreshKey?: number;
 }>();
-const settlementReview = ref<BillFact | null>(null);
+const settlementReview = ref<SettlementDetails | null>(null);
 const billQuery = ref("");
 const settlementImportBlock = computed(() => writeBlock.value ||
   (props.project.status !== "approved" ? "项目批准后可导入结算。" : ""));
@@ -106,31 +107,15 @@ const settlementTitle = computed(() => props.settlementWork?.action === "review"
   props.settlementWork?.id === "new" ? "编制结算草稿" : "修订结算草稿");
 const reviewDocument = computed(() => props.settlementWork?.action === "submit"
   ? settlementReview.value?.draft?.document : settlementReview.value?.version);
-const reviewItems = computed(() => props.settlementWork?.action === "submit"
-  ? settlementReview.value?.draft?.document.items || [] : settlementReview.value?.items || []);
-const reviewResolutions = computed(() => props.settlementWork?.action === "submit"
-  ? settlementReview.value?.draft?.document.resolutions || [] : settlementReview.value?.resolutions || []);
 const reviewBlock = computed(() => {
   const row = settlementReview.value;
   if (!row) return "";
   if (writeBlock.value || row.deleted) return writeBlock.value || "结算单已删除";
+  if (!reviewDocument.value || !row.document_details) return "当前结算版本无法办理，请重新读取后核对。";
   if (props.settlementWork?.action === "submit")
     return can("write") && row.draft && row.review?.action !== "submit" ? "" : "当前账号或结算状态无法提交";
   return can("settlement.approve") && row.review?.action === "submit" ? "" : "当前账号或结算状态无法审核";
 });
-const reviewApproval = computed(() => approvalChoices.value.find(row => row.id === reviewDocument.value?.approval_version_id));
-const reviewScope = (scopeId?: string | null) => reviewApproval.value?.scopes.find(row => row.project_scope_id === scopeId);
-const reviewLineColumns: TableColumn[] = [
-  { key: "project_scope_id", label: "关联需求", minWidth: 180 },
-  { key: "quantity_scaled", label: "工作量" },
-  { key: "amount_fen", label: "结算金额" },
-  { key: "evidence", label: "依据", minWidth: 180 },
-];
-const reviewResolutionColumns: TableColumn[] = [
-  { key: "project_scope_id", label: "需求", minWidth: 180 },
-  { key: "resolved_quantity_scaled", label: "本次解决量" },
-  { key: "evidence", label: "依据", minWidth: 180 },
-];
 const formRef = ref();
 const scopePrecision = ref<Record<string, number>>({});
 const scopePrecisionError = ref("");
@@ -639,7 +624,7 @@ async function loadSettlementWork() {
   settlementReview.value = null;
   try {
     const row = work.id === "new" ? undefined
-      : await api<BillFact>(`/projects/${props.project.id}/settlements/${work.id}`);
+      : await api<SettlementDetails>(`/projects/${props.project.id}/settlements/${work.id}`);
     if (request !== settlementWorkRequest) return;
     if (work.action && !row) throw new Error("请选择要办理的结算单");
     if (work.action && row) {
@@ -1048,33 +1033,16 @@ watch(() => props.project.id, () => {
       <ElDescriptions :column="2" border>
         <ElDescriptionsItem label="结算编号"><BusinessNumber :value="settlementReview.number" label="结算编号" /></ElDescriptionsItem>
         <ElDescriptionsItem label="业务日期">{{ reviewDocument?.settlement_on || '—' }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="结算方式">{{ reviewDocument?.mode === 'project_total' ? '按项目总额' : '按子费用' }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="结算方式">{{ reviewDocument ? settlementModeLabels[reviewDocument.mode] : '—' }}</ElDescriptionsItem>
         <ElDescriptionsItem label="本次申请">¥{{ money(reviewDocument?.amount_fen) }}</ElDescriptionsItem>
         <ElDescriptionsItem label="当前生效">{{ settlementReview.effective_amount_fen == null ? '尚无批准' : '¥' + money(settlementReview.effective_amount_fen) }}</ElDescriptionsItem>
         <ElDescriptionsItem label="批准后净变化">¥{{ money((reviewDocument?.amount_fen ?? 0) - (settlementReview.effective_amount_fen ?? 0)) }}</ElDescriptionsItem>
-        <ElDescriptionsItem label="采用批准范围">{{ reviewApproval ? '第 ' + reviewApproval.version_no + ' 版' : '—' }}</ElDescriptionsItem>
+        <ElDescriptionsItem label="采用批准范围">{{ settlementReview.document_details ? '第 ' + settlementReview.document_details.approval_version_no + ' 版' : '—' }}</ElDescriptionsItem>
         <ElDescriptionsItem label="结算依据">{{ reviewDocument?.basis || '—' }}</ElDescriptionsItem>
         <ElDescriptionsItem v-if="reviewDocument?.reason" label="修订依据">{{ reviewDocument.reason }}</ElDescriptionsItem>
       </ElDescriptions>
-      <h2 v-if="reviewItems.length">结算明细</h2>
-      <BusinessTable v-if="reviewItems.length" table-key="finance:review-items" :rows="reviewItems" :columns="reviewLineColumns" sort-mode="off" filter-mode="off">
-        <template #cell="{ row, column, value }">
-          <template v-if="column.key === 'project_scope_id'">{{ reviewScope(row.project_scope_id)?.demand_no || '独立费用' }}</template>
-          <template v-else-if="column.key === 'amount_fen'">¥{{ money(row.amount_fen) }}</template>
-          <template v-else-if="column.key === 'quantity_scaled'">{{ quantity(row.quantity_scaled) }}</template>
-          <template v-else>{{ value || '—' }}</template>
-        </template>
-      </BusinessTable>
-      <template v-if="reviewResolutions.length">
-        <h2>需求解决量</h2>
-        <BusinessTable table-key="finance:review-resolutions" :rows="reviewResolutions" :columns="reviewResolutionColumns" sort-mode="off" filter-mode="off">
-          <template #cell="{ row, column, value }">
-            <template v-if="column.key === 'project_scope_id'">{{ reviewScope(row.project_scope_id)?.demand_no || '—' }}</template>
-            <template v-else-if="column.key === 'resolved_quantity_scaled'">{{ quantity(row.resolved_quantity_scaled) }}</template>
-            <template v-else>{{ value || '—' }}</template>
-          </template>
-        </BusinessTable>
-      </template>
+      <SettlementDocumentFacts v-if="reviewDocument && settlementReview.document_details"
+        :document="settlementReview.document_details" :draft="settlementWork.action === 'submit'" />
       <ElForm v-if="settlementWork.action === 'review' && !reviewBlock" label-position="top" novalidate class="review-reason">
         <ElFormItem label="退回原因（选择退回时必填）">
           <ElInput v-model="reviewReason" type="textarea" :rows="3" />

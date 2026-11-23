@@ -34,9 +34,10 @@ export function reportingReadRepository(store: Store) {
           AND a.entity_id=f.id AND a.action='delete')
         ORDER BY f.fiscal_year,f.code`) as DashboardFramework[];
     },
-    dashboardActiveCosts(): DashboardActiveCost[] {
+    dashboardActiveCosts(projectIds: string[]): DashboardActiveCost[] {
       return store.query(`SELECT project_id,amount_fen,occurred_on
-        FROM v_cost_current WHERE status='active'`) as DashboardActiveCost[];
+        FROM v_cost_current WHERE status='active'
+        AND project_id IN (SELECT value FROM json_each(?))`, JSON.stringify(projectIds)) as DashboardActiveCost[];
     },
   };
 }

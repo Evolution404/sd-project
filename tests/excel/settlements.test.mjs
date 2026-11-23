@@ -69,19 +69,32 @@ test("settlement workbook creates draft only, preserves independent resolution a
   bill = s.finance.settlement(bill.id);
   assert.equal(bill.items[0].amount_fen, 30001);
   assert.equal(bill.draft.document.items[0].amount_fen, 35099);
+  const second = s.finance.saveDraft(user, project.id, { mode: "project_total", amount_fen: 7000 });
+  s.finance.cost(user, project.id, {
+    cost_node_id: node.id, title: "实际核定费用", occurred_on: "2026-11-11",
+    amount_fen: 50000, evidence: "结算基数",
+  });
   const businessReport = new ExcelJS.Workbook();
   await businessReport.xlsx.load(
     await exchange.exportData(user, "settlements", {
-      ids: [bill.id],
+      ids: [bill.id, second.id],
       report: true,
     }),
   );
   const reportSheet = businessReport.getWorksheet("结算业务报表");
-  const reportValue = (header) =>
-    reportSheet.getRow(4).getCell(reportSheet.getRow(3).values.indexOf(header))
-      .value;
-  assert.equal(reportValue("本次草稿金额（元）"), "350.99");
-  assert.equal(reportValue("当前已批准金额（元）"), "300.01");
+  const reportRow = reportSheet.getSheetValues().findIndex(row => row?.[1] === bill.number);
+  const reportCell = header => reportSheet.getRow(reportRow).getCell(reportSheet.getRow(3).values.indexOf(header));
+  assert.equal(reportCell("本次草稿金额（元）").value, 350.99);
+  assert.equal(reportCell("当前已批准金额（元）").value, 300.01);
+  assert.equal(reportCell("当前已批准金额（元）").numFmt, "#,##0.00");
+  assert.equal(reportSheet.rowCount, 5);
+  assert.equal(reportSheet.getRow(3).values.includes("项目累计生效结算（元）"), false);
+  const projectTotals = businessReport.getWorksheet("项目结算汇总");
+  const totalCell = header => projectTotals.getRow(4).getCell(projectTotals.getRow(3).values.indexOf(header));
+  assert.equal(projectTotals.rowCount, 4);
+  assert.equal(totalCell("累计生效结算（元）").value, 300.01);
+  assert.equal(totalCell("结算进度").value, 0.6);
+  assert.equal(totalCell("结算进度").numFmt, "0.00%");
   bill = s.finance.submit(user, bill.id, {
     expected_version: 1,
     expected_edit_version: 1,

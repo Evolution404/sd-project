@@ -21,7 +21,7 @@ import type { ProjectDashboardBase } from "../../database/repositories/projects.
 import type {
   CostNodeInput, ActualCostInput,
   SettlementDraftInput, NormalizedSettlementDraft,
-  SettlementVersion, SettlementWorkflow,
+  SettlementVersion, SettlementWorkflow, SettlementDetails,
   SettlementSubmitInput, SettlementReviewInput, SettlementResubmitInput,
   ReconciliationInput
 } from "../../shared/types/finance-workflows.js";
@@ -200,6 +200,35 @@ export function createFinance(
       review,
       ...(review?.action === "submit" ? { reconciliation_impact: repo.settlementReconciliationImpact(key) } : {}),
     };
+  }
+  function settlementDetails(key: string, projectId?: string): SettlementDetails {
+    const row = settlement(key);
+    requireValue(!projectId || row.project_id === projectId, "结算单不存在于当前项目", 404);
+    const base = { ...row, deleted: repo.settlementDeleted(key) };
+    const draft = row.draft?.document;
+    const document = draft ?? row.version;
+    if (!document) return { ...base, document_details: null };
+    const approval = repo.settlementApprovalLabels(row.project_id, document.approval_version_id);
+    requireValue(approval, "无法读取结算采用的批准版本", 409);
+    const scopes = new Map(approval.scopes.map(({ project_scope_id, ...label }) => [project_scope_id, label]));
+    function demand(scopeId: string) {
+      const label = scopes.get(scopeId);
+      requireValue(label?.demand_no && label.unit, "无法读取结算采用的需求及计量单位", 409);
+      return label;
+    }
+    const categories = new Map(draft?.items.length
+      ? repo.projectCostNodes(row.project_id).map(node => [node.id, node.name])
+      : []);
+    const items = draft ? draft.items.map(item => ({ ...item, cost_node_name: categories.get(item.cost_node_id) })) : row.items;
+    return { ...base, document_details: {
+      approval_version_no: approval.version_no,
+      items: items.map(item => {
+        requireValue(item.cost_node_name, "无法读取结算采用的费用科目", 409);
+        return { ...item, cost_node_name: item.cost_node_name, demand: item.project_scope_id ? demand(item.project_scope_id) : null };
+      }),
+      resolutions: (draft?.resolutions ?? row.resolutions).map(resolution =>
+        ({ ...resolution, demand: demand(resolution.project_scope_id) })),
+    } };
   }
   function validateDraft(projectId: string, input: SettlementDraftInput): NormalizedSettlementDraft {
     const project = projects.get(projectId),
@@ -508,6 +537,7 @@ export function createFinance(
     node,
     cost,
     settlement,
+    settlementDetails,
     saveDraft,
     submit,
     resubmit,
@@ -683,10 +713,7 @@ export function createFinance(
       return history;
     },
     settlementForProject(projectId: string, key: string) {
-      const result = settlement(key);
-      requireValue(result.project_id === projectId,
-        "结算单不存在于当前项目", 404);
-      return { ...result, deleted: repo.settlementDeleted(key) };
+      return settlementDetails(key, projectId);
     },
     removeNode(actor: Actor, projectId: string, key: string, input: {expected_version:number;expected_references?:number;expected_children?:number}) {
       authorize(actor, "admin");
