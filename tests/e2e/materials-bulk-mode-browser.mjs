@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {existsSync,mkdirSync} from "node:fs";
 import {join} from "node:path";
-import {chromium} from "playwright";
+import {chromium, expect} from "playwright/test";
 import {fixture} from "../helpers.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
 
@@ -54,22 +54,59 @@ try{
   await page.getByText("待保存 1 条").waitFor();
   await model.click();
   await page.keyboard.press("Meta+z");
-  await page.waitForTimeout(150);
-  assert.equal((await model.textContent())?.trim(),s.materials.get(firstId).model,
-    "Command+Z must undo a single cell edit");
+  await expect(model).toHaveText(s.materials.get(firstId).model);
   await page.keyboard.press("Meta+Shift+z");
-  await page.waitForTimeout(150);
-  assert.equal((await model.textContent())?.trim(),"临时型号",
-    "Command+Shift+Z must redo a single cell edit");
+  await expect(model).toHaveText("临时型号");
+  const name = draft.locator(".tabulator-row").first().locator('.tabulator-cell[tabulator-field="name"]');
+  const edit = async (cell, value) => {
+    await cell.dblclick();
+    await cell.locator("input").fill(value);
+    await cell.locator("input").press("Enter");
+  };
+  await edit(name, "临时名称");
+  await page.getByRole("button", {name:"取消编辑", exact:true}).focus();
+  await page.keyboard.press("Meta+z");
+  await expect(name).toHaveText("临时名称");
+  await name.dblclick();
+  await name.locator("input").press("Meta+z");
+  await expect(name.locator("input")).toHaveCount(1);
+  await name.locator("input").press("Escape");
+  await expect(name).toHaveText("临时名称");
+  await page.getByRole("button", {name:"撤销", exact:true}).click();
+  await expect(name).toHaveText(firstName);
+  await expect(model).toHaveText("临时型号");
+  await page.getByRole("button", {name:"撤销", exact:true}).click();
+  await expect(model).toHaveText(s.materials.get(firstId).model);
+  await page.getByRole("button", {name:"重做", exact:true}).click();
+  await page.getByRole("button", {name:"重做", exact:true}).click();
+  await expect(name).toHaveText("临时名称");
+  await expect(model).toHaveText("临时型号");
+  await page.getByRole("button", {name:"撤销", exact:true}).click();
+  await edit(name, "撤销后新名称");
+  await expect(page.getByRole("button", {name:"重做", exact:true})).toBeDisabled();
+  assert.equal(s.materials.get(firstId).version_no, 1);
   await page.getByRole("button",{name:"取消编辑",exact:true}).click();
   await page.getByRole("dialog",{name:"放弃批量修改"}).getByRole("button",{name:"确定"}).click();
   await page.locator(".business-tabulator .tabulator-row").first().waitFor();
   assert.notEqual(s.materials.get(firstId).model,"临时型号","cancelling a draft must never save");
+  assert.equal(s.materials.get(firstId).version_no, 1);
 
   await page.getByRole("button",{name:"批量编辑",exact:true}).click();
   await draft.locator(".tabulator-row").first().waitFor();
   const first=draft.locator(".tabulator-row").first().locator('.tabulator-cell[tabulator-field="name"]');
   await first.click();
+  const selectionBorders = await draft.evaluate(root => {
+    const active = root.querySelector(".tabulator-range-cell-active");
+    const range = root.querySelector(".tabulator-range");
+    const cell = root.querySelector(".tabulator-range-only-cell-selected");
+    return {
+      active: getComputedStyle(active).borderBottomWidth,
+      range: getComputedStyle(range).borderBottomWidth,
+      cell: getComputedStyle(cell).outlineStyle,
+    };
+  });
+  assert.deepEqual(selectionBorders,{active:"0px",range:"2px",cell:"none"});
+  await draft.screenshot({path:join(output,"single-selection.png")});
   await page.context().grantPermissions(["clipboard-read","clipboard-write"],{origin:base});
   await page.evaluate(async()=>navigator.clipboard.writeText("批量新名称A\t批量新型号A\n批量新名称B\t批量新型号B"));
   await page.keyboard.press("ControlOrMeta+V");
@@ -93,6 +130,40 @@ try{
   await page.waitForTimeout(200);
   assert.deepEqual((await draft.locator('.tabulator-cell[tabulator-field="name"]').allTextContents()).slice(0,2),
     ["批量新名称A","批量新名称B"], "Windows Control+Y must work");
+  await first.click();
+  await page.keyboard.press("ControlOrMeta+c");
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()), "批量新名称A");
+  const pasteAt = async (cell, text) => {
+    await cell.click();
+    await page.evaluate(value=>navigator.clipboard.writeText(value), text);
+    await page.keyboard.press("ControlOrMeta+v");
+  };
+  const firstRow = draft.locator(".tabulator-row").first();
+  const note = firstRow.locator('.tabulator-cell[tabulator-field="note"]');
+  await pasteAt(note, '不可改备注\t不可改单位');
+  await page.getByText(/粘贴范围包含只读字段或超出已有明细/).waitFor();
+  await expect(note).toHaveText("");
+  await expect(firstRow.locator('.tabulator-cell[tabulator-field="unit_id_label"]')).toHaveText(unit.name);
+  const last = draft.locator(".tabulator-row").last().locator('.tabulator-cell[tabulator-field="model"]');
+  await pasteAt(last, "首行\n多余一行");
+  await expect(last).not.toHaveText("首行");
+  await pasteAt(note, '"含\t制表符和\r\n""引号"""');
+  await expect(note).toHaveJSProperty("textContent", '含\t制表符和\n"引号"');
+  await page.keyboard.press("ControlOrMeta+c");
+  assert.equal(await page.evaluate(()=>navigator.clipboard.readText()), '"含\t制表符和\n""引号"""');
+  await page.keyboard.press("Meta+z");
+  await expect(note).toHaveText("");
+  await page.keyboard.press("Meta+z");
+  await expect(first).toHaveText(firstName);
+  await page.keyboard.press("Control+Shift+z");
+  await expect(first).toHaveText("批量新名称A");
+  await page.keyboard.press("Meta+Shift+z");
+  await expect(note).toHaveJSProperty("textContent", '含\t制表符和\n"引号"');
+  await page.keyboard.press("Meta+z");
+  await expect(note).toHaveText("");
+  await expect(firstRow.locator('.tabulator-cell[tabulator-field="specification"]')).toHaveText("原规格");
+  assert.equal(s.materials.get(firstId).version_no, 1);
+  assert.equal(s.materials.get(secondId).version_no, 1);
   await page.screenshot({path:join(output,"batch-edit-mode.png")});
 
   await page.getByRole("button",{name:"保存批量修改"}).click();

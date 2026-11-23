@@ -7,7 +7,10 @@ import type {
   DefinitionStatus,
 } from "../../../../server/shared/types/master-data";
 import type {
+  FacetPage,
   FieldErrors,
+  GridFilters,
+  GridSelection,
   Page,
 } from "../../../../server/shared/types/contracts";
 import type { CatalogField } from "../../../../server/shared/types/catalog";
@@ -19,7 +22,6 @@ import { useDialogDraftGuard } from "../../shared/forms/use-dialog-draft";
 import { useDescriptionColumns } from "../../shared/composables/use-description-columns";
 import TabulatorGrid, { type GridColumn } from "../../shared/ui/TabulatorGrid.vue";
 import BusinessDraftGrid, { type DraftGridColumn, type DraftGridRow } from "../../shared/ui/BusinessDraftGrid.vue";
-import type { FacetPage, FacetValue } from "../../shared/ui/TabulatorGrid.vue";
 import BusinessDetailDialog from "../../shared/ui/BusinessDetailDialog.vue";
 import BusinessHistory from "../../shared/ui/BusinessHistory.vue";
 import FieldControl from "../../shared/ui/FieldControl.vue";
@@ -51,10 +53,16 @@ const fields: (CatalogField & { key: keyof MaterialForm })[] = [
   { key: "specification", label: "规格", type: "text" },
   { key: "note", label: "备注", type: "text" },
 ];
+const columnMinWidth: Record<keyof MaterialForm, number> = {
+  name: 158, unit_id: 90, status: 74, model: 94, specification: 104, note: 98,
+};
 const columns: GridColumn[] = fields.map(field => ({
   key: field.key,
   label: field.label,
-  minWidth: field.key === "name" ? 190 : 130,
+  minWidth: columnMinWidth[field.key],
+  queryKey: field.key === "unit_id" ? "unit_id_label" : field.key === "status" ? "status_label" : field.key,
+  value: field.key === "unit_id" ? row => row.unit_id_label
+    : field.key === "status" ? row => row.status_label : undefined,
 }));
 const grid = ref<{ openSettings: () => void } | null>(null);
 const bulkGrid = ref<InstanceType<typeof BusinessDraftGrid> | null>(null);
@@ -137,7 +145,6 @@ async function saveBulkEdit() {
     bulkSaving.value=false;
   }
 }
-type GridFilters = Record<string, FacetValue[]>;
 const gridState = ref("{}");
 const gridFilters = computed<GridFilters>(() => {
   try { return JSON.parse(gridState.value) as GridFilters; }
@@ -199,17 +206,22 @@ async function load() {
     if (current === sequence) loading.value = false;
   }
 }
-async function filterValues(field: string, term: string, offset: number): Promise<FacetPage> {
+async function filterValues(field: string, term: string, offset: number, limit: number,
+  selection: GridSelection, signal: AbortSignal): Promise<FacetPage> {
+  const others = { ...gridFilters.value };
+  delete others[field];
   const params = new URLSearchParams({
     column: field,
     term,
     offset: String(offset),
+    limit: String(limit),
+    selection: JSON.stringify(selection),
     q: query.value,
     deleted: String(deleted.value),
     filters: "{}",
-    grid_filters: gridState.value,
+    grid_filters: JSON.stringify(others),
   });
-  return api<FacetPage>("/catalog/materials/filter-values?" + params);
+  return api<FacetPage>("/catalog/materials/filter-values?" + params, "GET", undefined, signal);
 }
 function applyGridFilters(value: GridFilters) {
   gridState.value = JSON.stringify(value);
@@ -354,8 +366,8 @@ onMounted(load);
         <ElButton data-guide-action="materials.create" type="primary" v-if="can('admin')" @click="edit()">新增物资</ElButton>
       </div>
     </div>
-    <BusinessDraftGrid v-if="bulkEditing" ref="bulkGrid" mode="edit" grid-key="catalog:materials-batch"
-      :rows="bulkRows" :columns="bulkColumns" @change="updateBulkCell"/>
+    <BusinessDraftGrid v-if="bulkEditing" ref="bulkGrid" grid-key="catalog:materials-batch"
+      :rows="bulkRows" :columns="bulkColumns" :inert="bulkSaving" @change="updateBulkCell"/>
     <TabulatorGrid v-else ref="grid" detail-column="name" :rows="rows" :loading="loading"
       :columns="columns" table-key="catalog:materials" :filters="gridFilters"
       :sort-key="sort" :sort-direction="direction === 'asc' ? 'asc' : direction === 'desc' ? 'desc' : ''"

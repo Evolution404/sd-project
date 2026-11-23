@@ -77,8 +77,10 @@ try {
   await editor.locator(".editor-content").getByText("物资测试031").waitFor();
   await editor.locator(".editor-content").getByText("物资测试065").waitFor();
   await page.screenshot({path:join(output,"demand-added-materials.png"),fullPage:true});
-  assert.equal(await editor.locator(".business-draft-grid.is-viewing").count(),1,
-    "material detail must default to normal viewing mode");
+  const materialList = editor.getByRole("list", {name:"预计物资清单"});
+  assert.equal(await materialList.getByRole("listitem").count(),3,
+    "material detail must default to the ordinary list");
+  assert.equal(await editor.locator(".business-draft-grid").count(),0);
   assert.equal(await editor.locator(".business-draft-grid .tabulator-range").count(),0,
     "view mode must not display an Excel selection");
   assert.equal(await editor.getByRole("button",{name:"撤销",exact:true}).count(),0);
@@ -111,6 +113,7 @@ try {
   await page.waitForTimeout(120);
   assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"],
     "Command+Shift+Z must restore all pasted quantity rows");
+  await page.screenshot({path:join(output,"demand-materials-batch-redo.png"),fullPage:true});
   await page.evaluate(async () => navigator.clipboard.writeText("9\t非法单位"));
   await page.keyboard.press("ControlOrMeta+V");
   await page.getByText(/粘贴范围包含只读字段或超出已有明细/).waitFor();
@@ -136,9 +139,10 @@ try {
   await page.waitForTimeout(100);
   assert.equal((await last.textContent())?.trim(),"4","single-cell editing supports undo");
   await editor.getByRole("button",{name:"完成编辑",exact:true}).click();
-  await editor.locator(".business-draft-grid.is-viewing .tabulator-row").first().waitFor();
-  assert.equal(await editor.locator(".business-draft-grid .tabulator-range").count(),0);
-  assert.deepEqual(await editor.locator(".business-draft-grid .tabulator-cell[tabulator-field='quantity_text']").allTextContents(),["2","3","4"]);
+  await materialList.getByRole("listitem").first().waitFor();
+  assert.equal(await editor.locator(".business-draft-grid").count(),0);
+  assert.deepEqual((await materialList.locator(".material-quantity > span:last-child").allTextContents())
+    .map(label => label.split(" ")[0]),["2","3","4"]);
   await page.screenshot({path:join(output,"demand-materials-readonly-mode.png"),fullPage:true});
   await editor.getByRole("button",{name:"保存需求版本",exact:true}).click();
   await editor.waitFor({state:"hidden"});

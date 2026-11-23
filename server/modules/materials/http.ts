@@ -1,5 +1,5 @@
 import type { RouteContext } from "../../platform/http/context.js";
-import { parseListQuery } from "../../platform/http/list-query.js";
+import { parseGridJSON, parseGridSelection, parseListQuery } from "../../platform/http/list-query.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 export async function handleMaterials(
@@ -28,10 +28,15 @@ export async function handleMaterials(
   if (read && sub === "filter-values") {
     const key = url.searchParams.get("column") ?? "";
     const term = url.searchParams.get("term") ?? "";
-    const offset = Math.max(0, Math.min(100000, Number(url.searchParams.get("offset")) || 0));
+    const offset = Number(url.searchParams.get("offset") ?? "0");
+    const limit = Number(url.searchParams.get("limit") ?? "100");
+    const selection = url.searchParams.get("selection");
+    requireValue(Number.isSafeInteger(offset) && offset >= 0, "候选值偏移量无效", 400);
+    requireValue(Number.isSafeInteger(limit) && limit >= 0 && limit <= 100, "候选值每页数量无效", 400);
     requireValue(term.length <= 128, "筛选搜索内容过长", 400);
     requireValue(/^[a-z_]{1,60}$/.test(key), "请选择有效的筛选字段", 400);
-    return { result: system.materials.facets(parseListQuery(url.searchParams), key, term, offset) };
+    return { result: system.materials.facets(parseListQuery(url.searchParams), key, term, offset, limit,
+      selection === null ? undefined : parseGridSelection(parseGridJSON(selection))) };
   }
   if (read && subKey === "deletion-impact")
     return { result: system.materials.impact(sub) };

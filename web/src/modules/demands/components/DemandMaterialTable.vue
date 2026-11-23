@@ -90,7 +90,6 @@ function removeSelection() {
     <template v-if="!editing">
       <ElButton type="primary" :disabled="!rows.length" data-guide-action="demands.material-batch-edit"
         @click="enterEdit">批量编辑</ElButton>
-      <span class="muted">正常查看模式 · 批量填写或从 Excel 粘贴时进入编辑模式</span>
     </template>
     <template v-else>
       <ElButton type="primary" data-guide-action="demands.material-finish-edit" @click="finishEdit">完成编辑</ElButton>
@@ -102,9 +101,38 @@ function removeSelection() {
       <span class="muted">编辑模式 · 仅修改草稿；请通过“保存需求版本”正式提交</span>
     </template>
   </div>
-  <BusinessDraftGrid :key="editing ? 'material-edit' : 'material-view'"
-    ref="grid" :rows="draftRows" :columns="columns" :mode="editing ? 'edit' : 'view'"
-    :errors="invalidTexts" grid-key="demand:materials-editor"
+  <BusinessDraftGrid v-if="editing" ref="grid" :rows="draftRows" :columns="columns"
+    :errors="invalidTexts" selectable grid-key="demand:materials-editor"
     @change="onChange" @selection-change="selected=$event"/>
+  <ul v-else-if="rows.length" class="demand-material-list" role="list" aria-label="预计物资清单">
+    <li v-for="row in rows" :key="row.id">
+      <div class="material-description">
+        <strong>{{ row.name }}</strong>
+        <span v-if="row.model || row.specification" class="muted">{{ [row.model, row.specification].filter(Boolean).join(" · ") }}</span>
+      </div>
+      <div class="material-quantity">
+        <span class="muted">预计数量</span>
+        <span>{{ formatScaledDecimal(row.quantity_scaled, 4) }} {{ row.unit }}</span>
+      </div>
+    </li>
+  </ul>
+  <p v-else class="muted">暂无预计物资</p>
   <DemandMaterialPicker v-model:open="opening" :existing="rows" @add="emit('add',$event)"/>
 </template>
+
+<style scoped>
+.demand-material-list { margin: 0; padding: 0; list-style: none; }
+.demand-material-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--edge);
+}
+.material-description, .material-quantity { display: grid; gap: 4px; }
+.material-description { min-width: 0; overflow-wrap: anywhere; }
+.material-description strong { font-weight: 600; }
+.material-description .muted, .material-quantity .muted { font-size: 12px; }
+.material-quantity { flex: none; text-align: right; font-variant-numeric: tabular-nums; }
+</style>

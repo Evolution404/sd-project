@@ -10,7 +10,7 @@ import { createDictionaries } from "../../dist/server/modules/dictionaries/servi
 import { parseListQuery } from "../../dist/server/platform/http/list-query.js";
 
 test(
-  "1,000 materials retain two-query pagination and names at every page size",
+  "1,000 materials retain bounded page and facet queries",
   { timeout: 180000 },
   (t) => {
     const { s, user, unit } = fixture(t);
@@ -61,6 +61,19 @@ test(
       assert.equal(page.items.length, size);
       assert.equal(page.items[0].unit_id_label, "套");
     }
+    const unfiltered = parseListQuery(new URLSearchParams());
+    const selection = { all: true, term: "压力物资", rules: [{ value: "压力物资0999", checked: false }] };
+    reads = 0;
+    const facet = materials.facets(unfiltered, "name", "压力物资", 900, 100, selection);
+    assert.equal(reads, 2);
+    assert.equal(facet.total, 1000);
+    assert.equal(facet.checked, 999);
+    assert.equal(facet.checkedRows, 999);
+    assert.equal(facet.items.at(-1).checked, false);
+    reads = 0;
+    const matched = materials.search({ ...unfiltered, grid_filters: { name: selection } });
+    assert.equal(reads, 2);
+    assert.equal(matched.total, 999);
     reads = 0;
     assert.equal(
       dictionaries.search("units", parseListQuery(new URLSearchParams())).items
@@ -73,6 +86,7 @@ test(
       JSON.stringify({
         materials: 1000,
         queriesPerPage: 2,
+        queriesPerFacetPage: 2,
         elapsedMs: Math.round(performance.now() - began),
       }),
     );

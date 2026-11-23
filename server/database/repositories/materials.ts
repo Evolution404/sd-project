@@ -1,7 +1,7 @@
 import { nextBusinessNumber } from "./business-numbers.js";
 import { countBusinessReferences } from "../queries/deletion-impact.js";
 import type { createStore } from "./store.js";
-import type { ListQuery } from "../../shared/types/contracts.js";
+import type { GridFilter, ListQuery } from "../../shared/types/contracts.js";
 import type {
   MaterialRecord,
   MaterialVersion,
@@ -12,10 +12,12 @@ const sql = `SELECT c.*,v.material_id,v.reason,v.recorded_at,COALESCE(unit.name,
   LEFT JOIN v_dictionary_current unit ON unit.id=c.unit_id`;
 const source: ListSource = {
   sql,
+  projection: "CASE WHEN deleted THEN '已删除' WHEN status='active' THEN '有效' ELSE '停用' END AS status_label",
   columns: [
     "id",
     "name",
     "status",
+    "status_label",
     "model",
     "specification",
     "unit_id_label",
@@ -42,8 +44,8 @@ export function materialRepository(store: ReturnType<typeof createStore>) {
       countBusinessReferences(store, "materials", key),
     current: (id: string) => rows(id)[0],
     all: () => rows(),
-    facets(query: ListQuery, key: string, search: string, offset: number) {
-      return searchFacets(store, "materials", source, query, key === "unit_id" ? "unit_id_label" : key, search, offset);
+    facets(query: ListQuery, key: string, search: string, offset: number, limit: number, selection?: GridFilter) {
+      return searchFacets(store, "materials", source, query, key === "unit_id" ? "unit_id_label" : key, search, offset, limit, selection);
     },
     search(query: ListQuery) {
       const columns = Object.fromEntries(

@@ -3,7 +3,7 @@ import { settlementStatusSql } from "./settlement-status-sql.js";
 import type { FinanceListItem, FinanceListKind } from "../../shared/types/finance.js";
 import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
-import type { ListQuery, Page } from "../../shared/types/contracts.js";
+import type { FacetPage, GridFilter, ListQuery, Page } from "../../shared/types/contracts.js";
 import { fixedListValue, listDisplayScale } from "../../shared/list-filter-values.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 
@@ -16,6 +16,7 @@ export interface ListSource {
   columns: readonly string[];
   search: readonly string[];
   defaultSort?: string;
+  projection?: string;
   parameters?: SQLInputValue[];
   deletionKey?: "id" | "entry_id" | "record_id" | "settlement_id";
 }
@@ -163,10 +164,42 @@ const financeSources: Record<FinanceListKind, ListSource> = {
 const exactFilters = new Set(["id", "status", "display_status", "role", "object_position",
   "attribution_unit", "pricing_mode", "scope", "work_mode"]);
 
+function normalizedFacet(column: string) {
+  return `NULLIF(CAST(${column} AS TEXT),'')`;
+}
+
+function containsFacet(column: string) {
+  return `instr(lower(COALESCE(${column},'')),lower(?))>0`;
+}
+
+function facetSelection(column: string, selection: GridFilter, parameters: SQLInputValue[]): string {
+  if (Array.isArray(selection)) {
+    if (!selection.length) return "0";
+    parameters.push(JSON.stringify(selection.map(value => value || null)));
+    return `EXISTS(SELECT 1 FROM json_each(?) WHERE json_each.value IS ${column})`;
+  }
+  const branches = [...selection.rules].reverse().map(rule => {
+    if ("value" in rule) {
+      parameters.push(rule.value || null);
+      return `WHEN ${column} IS ? THEN ${Number(rule.checked)}`;
+    }
+    parameters.push(rule.term);
+    const match = containsFacet(column);
+    return `WHEN ${rule.outside ? `NOT (${match})` : match} THEN ${Number(rule.checked)}`;
+  });
+  const decision = branches.length ? `(CASE ${branches.join(" ")} ELSE ${Number(selection.all)} END)` : String(Number(selection.all));
+  if (!selection.term) return decision;
+  parameters.push(selection.term);
+  return `(${decision} AND ${containsFacet(column)})`;
+}
+
 /** The list and facet endpoints share exactly one server-side predicate builder. */
 function listPredicate(entity: string, source: ListSource, query: ListQuery, excludeFacet?: string) {
-  const statement = `WITH list_rows AS (SELECT source.*, EXISTS(SELECT 1 FROM audit_events a
-    WHERE a.entity=? AND a.entity_id=source.${source.deletionKey || "id"} AND a.action='delete') AS deleted FROM (${source.sql}) source) `;
+  const base = `SELECT source.*, EXISTS(SELECT 1 FROM audit_events a
+    WHERE a.entity=? AND a.entity_id=source.${source.deletionKey || "id"} AND a.action='delete') AS deleted FROM (${source.sql}) source`;
+  const statement = source.projection
+    ? `WITH business_rows AS (${base}), list_rows AS (SELECT *, ${source.projection} FROM business_rows) `
+    : `WITH list_rows AS (${base}) `;
   const predicates = query.deleted ? [] : ["deleted=0"];
   const parameters: SQLInputValue[] = [entity, ...(source.parameters ?? [])];
   if (query.q) {
@@ -186,21 +219,9 @@ function listPredicate(entity: string, source: ListSource, query: ListQuery, exc
       parameters.push(value);
     }
   }
-  for (const [key, values] of Object.entries(query.grid_filters ?? {})) {
+  for (const [key, selection] of Object.entries(query.grid_filters ?? {})) {
     requireValue(source.columns.includes(key), "表格筛选列不存在：" + key, 400);
-    if (key === excludeFacet) continue;
-    if (!values.length) {
-      predicates.push("0=1");
-      continue;
-    }
-    const filled = values.filter((v): v is string => v !== null);
-    const pieces: string[] = [];
-    if (filled.length) {
-      pieces.push(`CAST("${key}" AS TEXT) IN (${filled.map(() => "?").join(",")})`);
-      parameters.push(...filled);
-    }
-    if (values.includes(null)) pieces.push(`("${key}" IS NULL OR CAST("${key}" AS TEXT)='')`);
-    predicates.push("(" + pieces.join(" OR ") + ")");
+    if (key !== excludeFacet) predicates.push(facetSelection(normalizedFacet(`"${key}"`), selection, parameters));
   }
   return { statement, where: predicates.length ? " WHERE " + predicates.join(" AND ") : "", parameters };
 }
@@ -216,20 +237,24 @@ export function searchPage<T>(store: QueryStore, entity: string, source: ListSou
 }
 
 export function searchFacets(store: QueryStore, entity: string, source: ListSource, query: ListQuery,
-  key: string, search = "", offset = 0, limit = 100) {
+  key: string, search: string, offset: number, limit: number, selection?: GridFilter): FacetPage {
   requireValue(source.columns.includes(key) && key !== "id", "不支持筛选字段：" + key, 400);
   const { statement, where, parameters } = listPredicate(entity, source, query, key);
-  const normalized = `CASE WHEN "${key}" IS NULL OR CAST("${key}" AS TEXT)='' THEN NULL ELSE CAST("${key}" AS TEXT) END`;
-  const matching = search ? ` WHERE instr(lower(COALESCE(value,'')),lower(?))>0` : "";
-  const bindings: SQLInputValue[] = [...parameters, ...(search ? [search.slice(0, 128)] : [])];
-  const queryBase = statement + `SELECT value, SUM(frequency) AS count FROM
-    (SELECT ${normalized} AS value,COUNT(*) AS frequency FROM list_rows${where} GROUP BY ${normalized})${matching}
-    GROUP BY value`;
-  const rows = store.query(queryBase + " ORDER BY value IS NOT NULL, value COLLATE NOCASE LIMIT ? OFFSET ?",
-    ...bindings, limit, offset) as { value: string | null; count: number }[];
-  const total = store.get("SELECT COUNT(*) AS total FROM (" + queryBase + ")",
-    ...bindings) as { total: number };
-  return { items: rows, total: total.total, offset, limit };
+  const normalized = normalizedFacet(`"${key}"`);
+  const matching = search ? ` WHERE ${containsFacet("value")}` : "";
+  const bindings: SQLInputValue[] = [...parameters, ...(search ? [search] : [])];
+  const checked = selection ? facetSelection("matching_values.value", selection, bindings) : "1";
+  const facets = statement + `, facet_counts AS (
+    SELECT ${normalized} AS value, COUNT(*) AS count FROM list_rows${where} GROUP BY ${normalized}
+  ), matching_values AS (SELECT * FROM facet_counts${matching}),
+  selected_values AS (SELECT *, ${checked} AS checked FROM matching_values) `;
+  const totals = store.get(facets + `SELECT COUNT(*) AS total,
+    COALESCE(SUM(checked),0) AS checked, COALESCE(SUM(checked * count),0) AS checkedRows FROM selected_values`,
+    ...bindings) as Pick<FacetPage, "total" | "checked" | "checkedRows">;
+  const rows = limit > 0 ? store.query(facets +
+    "SELECT * FROM selected_values ORDER BY value IS NOT NULL, value COLLATE NOCASE, value LIMIT ? OFFSET ?",
+    ...bindings, limit, offset) as { value: string | null; count: number; checked: number }[] : [];
+  return { ...totals, items: rows.map(row => ({ ...row, checked: Boolean(row.checked) })), offset, limit };
 }
 
 export function businessLists(store: QueryStore) {

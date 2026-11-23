@@ -116,7 +116,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <div class="excel-filter-menu" role="dialog" :aria-label="label + '筛选与排序'" data-source-style="pms-20261028">
+  <div class="excel-filter-menu" role="dialog" :aria-label="label + '筛选与排序'">
     <div class="excel-filter-head">
       <strong>{{ label }}</strong>
       <ElButton text :aria-label="'关闭' + label + '筛选'" @click="emit('close')">×</ElButton>
@@ -269,7 +269,7 @@ onBeforeUnmount(() => {
 .excel-filter-footer-actions { display: flex; gap: 6px; }
 .excel-filter-footer .el-button + .el-button { margin-left: 0; }
 .excel-filter-footer-actions .el-button { min-height: 30px; height: 30px; padding: 7px 11px; font-size: 12px; }
-.excel-filter-footer-actions .el-button--primary {
+.excel-filter-footer .excel-filter-footer-actions .el-button--primary {
   --el-button-bg-color: var(--facet-action);
   --el-button-border-color: var(--facet-action);
   --el-button-hover-bg-color: var(--facet-action-hover);

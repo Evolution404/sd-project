@@ -15,6 +15,26 @@ export interface ErrorResponse {
   fields: FieldErrors;
 }
 
+export type FacetValue = string | null;
+export type GridSelectionRule = { checked: boolean } & (
+  { value: FacetValue } | { term: string; outside?: boolean }
+);
+export interface GridSelection {
+  all: boolean;
+  rules: GridSelectionRule[];
+  term: string;
+}
+export type GridFilter = FacetValue[] | GridSelection;
+export type GridFilters = Record<string, GridFilter>;
+export interface FacetPage {
+  items: { value: FacetValue; count: number; checked: boolean }[];
+  total: number;
+  checked: number;
+  checkedRows: number;
+  offset: number;
+  limit: number;
+}
+
 export interface ListQuery {
   page: number;
   page_size: number;
@@ -22,8 +42,8 @@ export interface ListQuery {
   sort: string;
   direction: "asc" | "desc";
   filters: Record<string, string>;
-  /** Excel-style selected distinct values, where null represents empty or missing. */
-  grid_filters?: Record<string, (string | null)[]>;
+  /** Exact selections or compact candidate-selection rules, evaluated over the full server list. */
+  grid_filters?: GridFilters;
   deleted: boolean;
 }
 

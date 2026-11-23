@@ -1,7 +1,7 @@
 import type { MaterialRepository } from "../../database/repositories/materials.js";
 import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
-import { isObject, type Actor, type ListQuery } from "../../shared/types/contracts.js";
+import { isObject, type Actor, type GridFilter, type ListQuery } from "../../shared/types/contracts.js";
 import type { MaterialRecord } from "../../shared/types/master-data.js";
 import type { DictionaryService } from "../dictionaries/service.js";
 import { definitionName, definitionStatus } from "../dictionaries/service.js";
@@ -169,8 +169,8 @@ export function createMaterials(
         .all()
         .filter((row) => includeDeleted || !row.deleted)
         .map(decorate),
-    facets: (query: ListQuery, key: string, search: string, offset: number) =>
-      repository.facets(query, key, search, offset),
+    facets: (query: ListQuery, key: string, search: string, offset: number, limit: number, selection?: GridFilter) =>
+      repository.facets(query, key, search, offset, limit, selection),
     search: (query: ListQuery) => {
       const page = repository.search(query);
       return { ...page, items: page.items.map(decorate) };

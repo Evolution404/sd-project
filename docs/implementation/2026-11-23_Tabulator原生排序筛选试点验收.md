@@ -1,8 +1,8 @@
 # Tabulator 6.x 原生筛选与排序｜2026-11-23（历史试点，已被最新需求替代）
 
-**版本状态：已废止。** 用户随后要求回归其指定 PMS 数据清洗工具的表头与筛选菜单设计。本文件仅保留试点历史，不是当前实施规范。新的权威裁决见 2026-11-23_PMS视觉筛选及撤销事务闭环.md。Tabulator 数据网格和远程排序继续使用，但原生第二行 headerFilter:list 已停用。
+**版本状态：已废止。** 用户随后要求回归其指定 PMS 数据清洗工具的表头与筛选菜单设计。本文件仅保留试点历史，不是当前实施规范。新的权威裁决见 2026-11-23_PMS视觉筛选及撤销事务闭环.md。当前采用 Tabulator 数据网格，列表查询由 SQLite 执行。原生第二行 headerFilter:list 已停用。
 
-## 用户最新选择
+## 当时的试点要求
 
 用户明确要求完全移除此前自绘的 PMS 式列筛选弹窗，直接观察 Tabulator 原生效果。物资管理列表因此使用 Tabulator 原生 headerFilter:list（multiselect:true、clearable:true、valuesLookup 异步取值）和 headerSort（Tristate），不再渲染 ExcelColumnFilter.vue 或自绘筛选图标。
 

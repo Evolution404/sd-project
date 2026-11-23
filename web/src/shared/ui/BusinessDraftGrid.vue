@@ -22,7 +22,7 @@ const props = defineProps<{
   columns: DraftGridColumn[];
   errors?: Record<string, string>;
   gridKey: string;
-  mode: "view" | "edit";
+  selectable?: boolean;
 }>();
 const emit = defineEmits<{
   change: [id: string, field: string, value: string];
@@ -38,6 +38,7 @@ const canUndo = computed(() => undoSteps.value.length > 0);
 const canRedo = computed(() => redoSteps.value.length > 0);
 let table: Tabulator | undefined;
 let ready = false;
+let mounted = false;
 let replaying = false;
 const asText = (value: unknown) => String(value ?? "");
 
@@ -91,7 +92,7 @@ function isEditor(event: Event) {
     Boolean(event.target.closest("input,textarea,select,[contenteditable]:not([contenteditable='false'])"));
 }
 function keyboardHistory(event: KeyboardEvent) {
-  if (props.mode !== "edit" || event.altKey || event.isComposing ||
+  if (event.altKey || event.isComposing ||
     !(event.metaKey || event.ctrlKey) || isEditor(event)) return;
   const key = event.key.toLowerCase();
   if (key !== "z" && !(key === "y" && event.ctrlKey)) return;
@@ -101,7 +102,7 @@ function keyboardHistory(event: KeyboardEvent) {
   else redo();
 }
 function paste(event: ClipboardEvent) {
-  if (props.mode !== "edit" || !table || isEditor(event) || !event.clipboardData?.types.includes("text/plain")) return;
+  if (!table || isEditor(event) || !event.clipboardData?.types.includes("text/plain")) return;
   const range = table.getRanges()[0];
   if (!range) return;
   event.preventDefault();
@@ -161,7 +162,6 @@ function unmountControls() {
   controls.clear();
 }
 function columns(): ColumnDefinition[] {
-  const editing = props.mode === "edit";
   const selector: ColumnDefinition = {
     title: "选择", field: "__business_select", width: 58, minWidth: 46,
     resizable: false, headerSort: false, clipboard: false,
@@ -175,12 +175,12 @@ function columns(): ColumnDefinition[] {
       return element;
     },
   };
-  return [...(editing ? [selector] : []), ...props.columns.map((column): ColumnDefinition => ({
+  return [...(props.selectable ? [selector] : []), ...props.columns.map((column): ColumnDefinition => ({
     field: column.field, title: column.title, width: column.width, minWidth: column.minWidth ?? 125,
-    resizable: true, headerSort: false, editable: editing && Boolean(column.editable),
-    editor: editing && column.editable ? "input" : undefined,
+    resizable: true, headerSort: false, editable: Boolean(column.editable),
+    editor: column.editable ? "input" : undefined,
     formatter: "plaintext",
-    cssClass: editing && column.editable ? "business-draft-editable" : "business-draft-readonly",
+    cssClass: column.editable ? "business-draft-editable" : "business-draft-readonly",
   }))];
 }
 const copyRows = () => props.rows.map(row => ({ ...row }));
@@ -204,31 +204,41 @@ function reconcileRows() {
 }
 onMounted(() => {
   if (!host.value) return;
-  const editing = props.mode === "edit";
-  table = new Tabulator(host.value, {
+  mounted = true;
+  const instance = new Tabulator(host.value, {
     index: "id", data: copyRows(), columns: columns(), layout: "fitColumns",
     height: "auto", placeholder: "暂无明细", editTriggerEvent: "dblclick",
-    selectableRows: false, selectableRange: editing ? 1 : false,
-    selectableRangeColumns: editing, selectableRangeRows: editing, selectableRangeClearCells: false,
-    clipboard: editing ? "copy" : false, clipboardCopyRowRange: "range",
+    selectableRows: false, selectableRange: 1,
+    selectableRangeColumns: true, selectableRangeRows: true, selectableRangeClearCells: false,
+    clipboard: "copy", clipboardCopyRowRange: "range",
     clipboardCopyConfig: { columnHeaders: false, rowHeaders: false }, clipboardCopyStyled: false,
     clipboardCopyFormatter: copyText, history: false,
   });
-  table.on("cellEdited", cellEdited);
-  table.on("tableBuilt", () => { ready = true; reconcileRows(); });
+  table = instance;
+  instance.on("cellEdited", cellEdited);
+  instance.on("tableBuilt", () => {
+    if (!mounted) {
+      unmountControls();
+      instance.destroy();
+      return;
+    }
+    ready = true;
+    reconcileRows();
+  });
 });
 onBeforeUnmount(() => {
-  ready = false;
+  mounted = false;
   unmountControls();
-  table?.destroy();
+  if (ready) table?.destroy();
+  ready = false;
   table = undefined;
 });
 watch(copyRows, reconcileRows);
 defineExpose({ undo, redo, canUndo, canRedo });
 </script>
 <template>
-  <div class="business-draft-grid" :class="mode === 'edit' ? 'is-editing' : 'is-viewing'" :data-grid-key="gridKey">
-    <div ref="host" class="business-draft-host" :aria-label="mode === 'edit' ? 'Excel式草稿编辑表' : '草稿明细表'"
+  <div class="business-draft-grid is-editing" :data-grid-key="gridKey">
+    <div ref="host" class="business-draft-host" aria-label="Excel式草稿编辑表"
       @keydown.capture="keyboardHistory" @paste.capture="paste"></div>
     <div v-if="errors && Object.keys(errors).length" class="business-draft-errors" role="alert">
       <div v-for="(error,id) in errors" :key="id">{{ rows.find(row=>row.id===id)?.name??id }} · {{ error }}</div>
@@ -237,44 +247,26 @@ defineExpose({ undo, redo, canUndo, canRedo });
 </template>
 <style scoped>
 .business-draft-grid{width:100%;min-width:0}
-.business-draft-host{width:100%;overflow:hidden;border:1px solid var(--edge);border-radius:8px;font-size:13px}
-.business-draft-grid :deep(.tabulator){
-  background:var(--surface);color:var(--ink);border:0;font:inherit;
-}
-.business-draft-grid :deep(.tabulator-header),
-.business-draft-grid :deep(.tabulator-header .tabulator-col){
-  background:var(--table-heading)!important;
-  color:var(--table-heading-ink)!important;
-  border-color:var(--edge)!important;
-}
 .business-draft-grid :deep(.tabulator-col-title){
-  color:var(--table-heading-ink)!important;
-  font-size:13px;font-weight:600;
+  color:var(--table-heading-ink);
+  font-size:11px;font-weight:500;
 }
-.business-draft-grid :deep(.tabulator .tabulator-row){
-  background:var(--surface)!important;color:var(--ink)!important;
-  border-bottom:1px solid var(--edge)!important;min-height:42px;
+.business-draft-grid :deep(.tabulator-header .tabulator-col .tabulator-col-content){
+  min-height:38px;display:flex;align-items:center;padding:8px 10px;
 }
-.business-draft-grid :deep(.tabulator .tabulator-row-even){
-  background:var(--surface-subtle)!important;
-}
-.business-draft-grid :deep(.tabulator .tabulator-row:hover){
-  background:var(--table-row-hover)!important;
-}
-.business-draft-grid :deep(.tabulator .tabulator-cell){
-  background:transparent!important;color:var(--ink)!important;
-  border-right:1px solid var(--edge)!important;
-  padding:10px 12px;vertical-align:middle;
-}
-.business-draft-grid.is-editing :deep(.business-draft-editable){
-  background:transparent!important;color:var(--ink)!important;
-  font-weight:400;cursor:cell;
-}
+.business-draft-grid.is-editing :deep(.business-draft-editable){cursor:cell;}
 .business-draft-grid.is-editing :deep(.business-draft-editable:hover){
-  background:var(--brand-soft)!important;
+  background:var(--brand-soft);
 }
-.business-draft-grid.is-editing :deep(.tabulator .tabulator-cell.tabulator-range-selected){
-  outline:2px solid var(--brand-primary);outline-offset:-2px;
+/* Keep the native range geometry and draw one border for the whole selection. */
+.business-draft-host.tabulator :deep(.tabulator-range-overlay .tabulator-range) {
+  border: 2px solid var(--brand-primary);
+}
+.business-draft-host.tabulator :deep(.tabulator-range-overlay .tabulator-range-cell-active) {
+  border: 0;
+}
+.business-draft-host :deep(.tabulator-cell.tabulator-editing.tabulator-range-selected) {
+  border-color: transparent;
 }
 .business-draft-grid :deep(.tabulator-cell[tabulator-field="quantity_text"]){
   font-variant-numeric:tabular-nums;
