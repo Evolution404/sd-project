@@ -101,6 +101,22 @@ async function bill(itemized=false) {
   }
   await editor.getByLabel("本次金额（元）",{exact:true}).fill(itemized?"3800":"6000");
   await editor.getByLabel("结算依据",{exact:true}).fill(itemized?"训练第二期":"训练第一期");
+  if (itemized) {
+    const { projectId, demandId } = snapshot().facts;
+    const project = system.projects.get(projectId);
+    const scope = project.approvals.find(version=>version.id===project.approval.id).scopes.find(row=>row.demand_id===demandId);
+    await editor.getByRole("button",{name:"本次完成工作量（选填）",exact:true}).click();
+    for (const location of scope.locations) {
+      const position = JSON.parse(location.frozen_location);
+      const name = position.location_label || position.tower_no || position.asset_no || location.location_object;
+      const quantity = String(location.approved_quantity_scaled / 10000);
+      await editor.getByRole("button",{name:"添加解决需求",exact:true}).click();
+      const line = editor.locator(".finance-editor-line").last();
+      await selectFormChoice(page,"项目需求",system.demands.get(demandId).problem_description,line);
+      await selectFormChoice(page,"作业位置",name+" · 批准 "+quantity,line);
+      await line.locator(".el-form-item").filter({has:page.getByText("本次新增解决量",{exact:true})}).locator("input").fill(quantity);
+    }
+  }
   await save("保存草稿");
   const document=system.finance.settlements(snapshot().facts.projectId)
     .find(row=>row.draft?.document.basis===(itemized?"训练第二期":"训练第一期"));
@@ -204,6 +220,7 @@ try {
   await approveSettlement(page,second.row);
   await second.row.getByText(/已批准/).waitFor();
   assert.equal(snapshot().progressPercent,75.38);
+  assert.ok(system.demands.get(snapshot().facts.demandId).work_locations.every(row=>row.remaining_quantity_scaled===0));
   await page.goto(base+"/#/projects?project="+snapshot().facts.projectId);
   await detail.getByRole("button",{name:"结项核对",exact:true}).click();
   const closure=page.getByRole("dialog",{name:"结项前业务核对",exact:true});
