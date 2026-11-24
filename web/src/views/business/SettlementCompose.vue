@@ -241,6 +241,11 @@ async function load() {
       throw Error("结算单已删除或正在审核，请从结算列表查看");
     if (voiding && (record?.status !== "approve" || record.draft))
       throw Error("仅可对已审核且无待处理草稿的结算单编制作废");
+    if (!voiding) {
+      // Fetch the editor bundle while the authorized compose route reads project facts.
+      // The worksheet owns the visible load-error state and retries.
+      void import("@/components/business/settlement-worksheet").catch(() => {});
+    }
     const [row, versions] = await Promise.all([projectDetail(id), projectApprovalHistory(id)]);
     if (sequence !== editorSequence) return;
     if (!row.approval || row.status !== "approved" || row.deleted)

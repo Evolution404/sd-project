@@ -2,6 +2,7 @@ import type { ProjectAccess } from "../../shared/types/project-access.js";
 import { settlementStatusFilter } from "../../shared/types/finance-workflows.js";
 import { settlementStatusSql } from "./settlement-status-sql.js";
 import type { FinanceListItem, FinanceListKind } from "../../shared/types/finance.js";
+import { DEMAND_DISPLAY_STATUS_SQL } from "./demand-status-sql.js";
 import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
 import type { FacetPage, GridFilter, ListQuery, Page } from "../../shared/types/contracts.js";
@@ -73,15 +74,7 @@ const demandSource: ListSource = {
       COALESCE((SELECT event.recorded_at FROM project_demand_link_events event
         JOIN project_demand_scopes scope ON scope.id=event.project_scope_id
         WHERE scope.demand_id=v.id ORDER BY event.recorded_at DESC LIMIT 1),d.created_at)) AS last_handled_at,
-    CASE WHEN v.status='pending' THEN '待确认'
-      WHEN v.status='returned' THEN '已退回'
-      WHEN v.status='cancelled' THEN '已取消'
-      WHEN v.status='active' AND NOT EXISTS(
-        SELECT 1 FROM v_demand_current_location_progress balance
-        WHERE balance.demand_id=v.id AND balance.remaining_quantity_scaled>0) THEN '已解决'
-      WHEN v.status='active' AND EXISTS(SELECT 1 FROM v_project_demand_binding_current binding WHERE binding.demand_id=v.id) THEN '已承接'
-      WHEN v.status='active' THEN '待承接'
-      ELSE '待确认' END AS display_status,
+    ${DEMAND_DISPLAY_STATUS_SQL} AS display_status,
     (SELECT json_object('project_id', b.project_id, 'project_scope_id', b.project_scope_id,
       'demand_id', b.demand_id) FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) AS binding_json
     FROM v_demand_current v JOIN demands d ON d.id=v.id`,

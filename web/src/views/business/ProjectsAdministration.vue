@@ -93,7 +93,7 @@
             <el-table-column prop="operation_snapshot" label="操作类型" min-width="150"/>
             <el-table-column prop="line_count" label="涉及线路数" min-width="155"/>
             <el-table-column prop="location_count" label="位置数" width="90"/>
-            <el-table-column prop="demand_status" label="需求状态" width="105"/>
+            <el-table-column prop="demand_display_status" label="需求状态" width="105"/>
           </el-table>
           <el-empty v-if="!linkedScopes.length" description="尚未关联完整专业需求"/>
         </el-tab-pane>

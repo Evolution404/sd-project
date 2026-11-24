@@ -81,3 +81,15 @@ test("restore refuses schema drift without mutating the requested destination", 
   assert.equal(existsSync(target), false);
   assert.equal(readFileSync(join(backup, "schema113.sqlite")).length > 0, true);
 });
+
+test("restore refuses a live SQLite directory with a WAL and preserves its pending pages", t => {
+  const { s, dir, user, demandInput } = fixture(t);
+  const demand = s.demands.save(user, demandInput);
+  const root = mkdtempSync(join(tmpdir(), "sd-restore-live-sqlite-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const target = join(root, "restored");
+  assert.ok(existsSync(join(dir, "schema113.sqlite-wal")));
+  assert.throws(() => restoreBackup(dir, target), /SQLite 写入文件/);
+  assert.equal(existsSync(target), false);
+  assert.equal(s.demands.get(demand.id).current_version, 1);
+});

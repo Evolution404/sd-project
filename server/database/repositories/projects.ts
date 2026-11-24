@@ -1,8 +1,9 @@
+import { DEMAND_DISPLAY_STATUS_SQL } from "../queries/demand-status-sql.js";
 import { PROJECT_DISPLAY_STATUS_SQL } from "../queries/project-status-sql.js";
 import type { createStore } from "./store.js";
 import type { ProjectIdentity, ProjectProfileVersion, ProjectFundingVersion,
   ProjectApprovalVersion, ProjectApprovalCandidateProposal } from "../../shared/types/projects.js";
-import type { NormalizedDemand } from "../../shared/types/demands.js";
+import type { DemandDisplayStatus, NormalizedDemand } from "../../shared/types/demands.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
 
@@ -28,6 +29,7 @@ export interface ProjectScopeProjection extends Omit<ScopeDemandContent, "work_l
   created_at: string;
   demand_no: string;
   demand_status: string;
+  demand_display_status: DemandDisplayStatus;
   binding: CurrentProjectBinding | null;
   line_summary: string;
   line_count: number;
@@ -236,8 +238,9 @@ export function projectReadRepository(store: Store) {
         "ORDER BY demand.demand_no,demand.id", approvalId);
     },
     projectScopes(projectId: string): ProjectScopeProjection[] {
-      const rows = store.query(`SELECT sc.*, d.demand_no, dc.full_definition_json,
-        COALESCE(dc.status, 'pending') AS demand_status,
+      const rows = store.query(`SELECT sc.*, d.demand_no, v.full_definition_json,
+        COALESCE(v.status, 'pending') AS demand_status,
+        ${DEMAND_DISPLAY_STATUS_SQL} AS demand_display_status,
         CASE WHEN b.project_scope_id IS NULL THEN NULL ELSE json_object(
           'project_scope_id', b.project_scope_id,
           'project_id', b.project_id,
@@ -247,7 +250,7 @@ export function projectReadRepository(store: Store) {
           'linked_at', b.linked_at) END AS binding_json
         FROM project_demand_scopes sc
         JOIN demands d ON d.id=sc.demand_id
-        JOIN v_demand_current dc ON dc.id=sc.demand_id
+        JOIN v_demand_current v ON v.id=sc.demand_id
         LEFT JOIN v_project_demand_binding_current b ON b.project_scope_id=sc.id
         WHERE sc.project_id=? ORDER BY sc.rowid`, projectId) as ScopeRow[];
       return rows.map(({ binding_json, full_definition_json, ...scope }) => {

@@ -83,6 +83,7 @@ try {
     await page.goto(origin + "/#/business/projects?project=" + project.id);
     const drawer = page.locator(".el-drawer:visible");
     await drawer.getByRole("button", { name: "编制正式变更", exact: true }).waitFor();
+    await drawer.getByRole("cell", { name: "已承接", exact: true }).waitFor();
     await drawer.locator(".el-loading-mask:visible").first().waitFor({ state: "hidden" });
     await page.screenshot({ path: join(screenshots, `project-detail-${width}-${colorScheme}.png`), animations: "disabled" });
     await drawer.getByRole("button", { name: "编制正式变更", exact: true }).click();

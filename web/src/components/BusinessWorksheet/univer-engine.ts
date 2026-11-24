@@ -349,11 +349,29 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     onSelection(describe?.(position, entries[position.id] ?? {}) ?? position.label);
   }
 
+  const editableColumns = columns.flatMap((column, index) => column.editable ? [{ column, index }] : []);
+
   function readEntries() {
-    const values = sheet.getRange(1, 0, rows.length, columns.length).getValues();
-    entries = Object.fromEntries(rows.map((row, index) => [row.id, Object.fromEntries(columns.map((column, col) =>
-      [column.key, writable(row, column) ? String(values[index][col] ?? "") : row.values[column.key] ?? ""]))]));
-    if(initialized && rows.some(row=>columns.some(col=>writable(row,col)&&(entries[row.id]?.[col.key]??"")!==(row.values[col.key]??""))))hasDataEdits=true;
+    const changed = new Map<string, Record<string, string>>();
+    for (const { column, index } of editableColumns) {
+      const values = sheet.getRange(1, index, rows.length, 1).getValues();
+      for (const [rowIndex, row] of rows.entries()) {
+        if (!writable(row, column)) continue;
+        const value = String(values[rowIndex][0] ?? "");
+        if (value === (entries[row.id][column.key] ?? "")) continue;
+        const fields = changed.get(row.id) ?? { ...entries[row.id] };
+        fields[column.key] = value;
+        changed.set(row.id, fields);
+      }
+    }
+    if (changed.size) {
+      entries = { ...entries, ...Object.fromEntries(changed) };
+      hasDataEdits ||= initialized;
+    }
+    return publishEntries();
+  }
+
+  function publishEntries() {
     const errors = validate(entries);
     if (validated) showValidation(errors);
     else {
@@ -364,6 +382,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     onChange(entries);
     updateVisibleRows();
     updateSelection();
+    return errors;
   }
 
   function rowIndexes(first: number, last: number) {
@@ -399,7 +418,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     book.onSelectionChange(ranges => updateSelection(ranges.at(-1))),
     univerAPI.addEvent(univerAPI.Event.CellPointerDown, () => onNotice("")),
     univerAPI.addEvent(univerAPI.Event.SelectionChanged, event => updateSelection(event.selections.at(-1))),
-    univerAPI.addEvent(univerAPI.Event.SheetValueChanged, readEntries),
+    univerAPI.addEvent(univerAPI.Event.SheetValueChanged, () => { if (initialized) readEntries(); }),
     univerAPI.addEvent(univerAPI.Event.SheetRangeFiltered, reportVisible),
     univerAPI.addEvent(univerAPI.Event.SheetRangeFilterCleared, reportVisible),
     univerAPI.addEvent(univerAPI.Event.BeforeSheetEditStart, event => {
@@ -566,18 +585,16 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
       history.clearUndoRedo(book.getId());
       const index = rows.findIndex(row => columns.some(column => writable(row, column)));
       if (index >= 0) sheet.setActiveRange(sheet.getRange(index + 1, columns.findIndex(column => writable(rows[index], column))));
-      readEntries();
-      initialized=true;reportVisible();
+      initialized = true;
+      publishEntries();
     }),
     finishEditing,
     isEditing: () => book.isCellEditing(),
     async prepareSave() {
       await finishEditing();
-      readEntries();
       validated = true;
-      const errors = validate(entries);
       onNotice("");
-      showValidation(errors);
+      const errors = readEntries();
       if (errors.length) {
         focusCell(errors[0].row, errors[0].column);
         flashValidation();

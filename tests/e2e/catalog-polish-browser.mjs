@@ -56,7 +56,7 @@ try {
   await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('tab', { name: '逻辑杆塔', exact: true }).click();
   await page.getByRole('button', { name: '新增逻辑杆塔', exact: true }).click();
-  await select('所属线路', '01线路 · 500kV');
+  await select('所属线路', '01线路');
   await editor.getByLabel('杆塔号', { exact: true }).fill('#009');
   await select('杆塔性质', '耐张');
   await page.screenshot({ path: join(output, 'tower-nature-dropdown.png'), fullPage: true });
