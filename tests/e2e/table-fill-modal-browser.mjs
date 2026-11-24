@@ -7,7 +7,7 @@ import { httpServer } from '../../dist/server/platform/http/server.js';
 
 const cleanup = [], { s, user, save } = fixture({ after: action => cleanup.push(action) });
 const voltage = save('voltages', { name: '500kV' });
-const lines = ['金龙5603线', '金王5604线', '独立同号线'].map(name => save('lines', { name, voltage_level_id: voltage.id }));
+const lines = ['合成甲D011线', '合成乙D012线', '独立同号线'].map(name => save('lines', { name, voltage_level_id: voltage.id }));
 const first = save('towers', { line_id: lines[0].id, tower_no: '#001' });
 save('towers', { line_id: lines[1].id, tower_no: '#001', physical_tower_id: first.physical_tower_id });
 const server = httpServer(s);
@@ -62,11 +62,11 @@ try {
   await page.getByRole('tab', { name: '物理杆塔', exact: true }).click();
   assert.equal(await page.locator('.el-table__expand-column').count(), 0);
   const url = page.url();
-  await page.getByRole('row').filter({ hasText: '金龙5603线' }).locator(".cell-link:visible").first().click();
+  await page.getByRole('row').filter({ hasText: '合成甲D011线' }).locator(".cell-link:visible").first().click();
   const detail = page.locator('.business-detail-dialog:visible');
   await detail.getByText('关联逻辑杆塔（2）', { exact: true }).waitFor();
   await page.waitForTimeout(350);
-  for (const name of ['金龙5603线', '金王5604线'])
+  for (const name of ['合成甲D011线', '合成乙D012线'])
     await detail.getByRole('row').filter({ hasText: name }).waitFor();
   assert.equal(page.url(), url);
   await page.screenshot({ path: join(output, 'physical-associated-towers-modal.png'), fullPage: true });

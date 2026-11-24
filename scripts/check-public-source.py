@@ -1,5 +1,7 @@
 """Check the checked-out public source tree without printing matched data."""
 
+import argparse
+import json
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
@@ -19,7 +21,37 @@ LOCAL_PATH = re.compile(rb"/(?:Users|Volumes)/[A-Za-z0-9_.-]+/")
 SQLITE_MAGIC = b"SQLite format 3\x00"
 
 
+def private_ledger_patterns(path):
+    data = json.loads(path.read_text(encoding="utf-8-sig"))["data"]
+    voltage_prefix = re.compile(r"^(?:[±+−-]?\d+(?:\.\d+)?\s*k\s*v\s*)", re.I)
+    line_names = {str(row["name"]).strip() for row in data["lines"] if row.get("name")}
+    line_names.update(voltage_prefix.sub("", name) for name in tuple(line_names))
+    names = {name for name in line_names if len(name) >= 4 and re.search(r"[\u3400-\u9fff]", name)}
+    phones = {re.sub(r"\D", "", str(row.get("phone") or "")) for row in data["grids"]}
+    equipment = {str(row.get("equipmentCode") or "").strip() for row in data["poles"]}
+    groups = {
+        "reference ledger line name": names,
+        "reference ledger mobile number": {phone for phone in phones if re.fullmatch(r"1[3-9]\d{9}", phone)},
+        "reference ledger equipment identifier": {code for code in equipment if len(code) >= 9},
+    }
+    if not names:
+        raise ValueError("reference ledger has no recognizable line names")
+    return {
+        category: re.compile("|".join(re.escape(value) for value in sorted(values)))
+        for category, values in groups.items() if values
+    }
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--reference-ledger", type=Path, help="optional local-only ledger used to compare identifiers")
+    options = parser.parse_args()
+    try:
+        private_patterns = private_ledger_patterns(options.reference_ledger) if options.reference_ledger else {}
+    except (OSError, ValueError, TypeError, KeyError):
+        print("private reference ledger could not be validated", file=sys.stderr)
+        return 1
+
     paths = subprocess.check_output(["git", "ls-files", "-z"]).decode().split("\0")
     violations = []
     for name in filter(None, paths):
@@ -42,6 +74,11 @@ def main():
             violations.append(("credential signature", name))
         if LOCAL_PATH.search(contents):
             violations.append(("workstation location", name))
+        if private_patterns and b"\0" not in contents:
+            text = contents.decode(errors="replace")
+            for category, pattern in private_patterns.items():
+                if pattern.search(text):
+                    violations.append((category, name))
 
     for category, path in violations:
         print(f"{category}: {path}", file=sys.stderr)
