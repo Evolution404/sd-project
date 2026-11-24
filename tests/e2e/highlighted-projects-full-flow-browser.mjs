@@ -239,7 +239,7 @@ async function linkAgreement(record) {
 async function reviseLocations(record) {
   await visit("ledger/towers");
   await page.getByRole("button", { name: "新增逻辑杆塔", exact: true }).click();
-  await choose("所属线路", record.line.name + " · 220kV");
+  await choose("所属线路", record.line.name);
   await editor.getByLabel("杆塔号", { exact: true }).fill("20");
   await saveEditor();
   await visit("demands?demand=" + record.demandId);

@@ -85,7 +85,7 @@ async function line(name) {
 async function tower(lineName, number) {
   await page.getByRole("tab", { name: "逻辑杆塔", exact: true }).click();
   await page.getByRole("button", { name: "新增逻辑杆塔", exact: true }).click();
-  await select("所属线路", lineName + " · 220kV");
+  await select("所属线路", lineName);
   await page.getByLabel("杆塔号", { exact: true }).fill(number);
 }
 try {

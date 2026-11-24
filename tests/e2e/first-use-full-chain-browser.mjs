@@ -58,7 +58,7 @@ try {
   await save();
   await page.getByRole("tab", { name: "逻辑杆塔", exact: true }).click();
   await page.getByRole("button", { name: "新增逻辑杆塔", exact: true }).click();
-  await choice("所属线路", "A2空库测试线路 · 220kV");
+  await choice("所属线路", "A2空库测试线路");
   await editor.getByLabel("杆塔号", { exact: true }).fill("T01");
   await save();
   assert.equal(s.catalog.list("towers").length, 1);

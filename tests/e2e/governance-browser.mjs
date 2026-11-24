@@ -45,7 +45,7 @@ try {
   await detail.getByRole("button", { name: "编制变更", exact: true }).click();
   const editor = page.getByRole("region", { name: "编制项目变更" });
   await editor.getByText("已继承上一版正式批准", { exact: false }).waitFor();
-  await editor.getByText("防鸟装置 · FN-01", { exact: false }).first().waitFor();
+  await editor.locator(".approval-material-row").getByText("防鸟装置", { exact: true }).waitFor();
   const quantities = await editor.locator("input").evaluateAll(nodes => nodes.map(node => node.value));
   assert.ok(quantities.some(value => Number(value) === 5), "existing approved material quantity should be restored");
   await editor.getByRole("button", { name: "取消", exact: true }).click();

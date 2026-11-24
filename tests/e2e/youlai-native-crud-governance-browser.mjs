@@ -168,7 +168,7 @@ try{
  await main.getByRole("button",{name:"保存 0 条修改",exact:true}).waitFor();
  await selectWorksheetCell(canvas,1,2,materialWidths);
  assert.equal((await copySettlementSelection(page)).trim(),"MODEL-21");
- await page.keyboard.press("ControlOrMeta+Shift+z");
+ await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+z" : "Control+y");
  await main.getByRole("button",{name:"保存 1 条修改",exact:true}).waitFor();
  await selectWorksheetCell(canvas,1,2,materialWidths);
  assert.equal((await copySettlementSelection(page)).trim(),"KEYBOARD-AUDIT");

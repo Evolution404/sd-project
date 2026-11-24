@@ -26,7 +26,7 @@ jobs:
         run: |
           test "$(gh api "repos/$GITHUB_REPOSITORY/branches/main" --jq '.commit.sha')" = "$GITHUB_SHA"
           gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?per_page=100" --jq '.check_runs[] | select(.app.slug == "github-actions" and .conclusion == "success") | .name' > "$RUNNER_TEMP/valid-checks"
-          for job in 'Engineering and Schema113' 'Browser (production)' 'Browser (legacy)' 'Browser (worksheet-scale)' 'Build and verify Windows ZIPs' 'Windows runtime and deployment'; do
+          for job in 'Engineering and Schema113' 'Browser (production)' 'Browser (legacy)' 'Browser (worksheet-scale)' 'Browser (worksheet-layout)' 'Browser (worksheet-disposal)' 'Build and verify Windows ZIPs' 'Windows runtime and deployment'; do
             grep -Fxq "$job" "$RUNNER_TEMP/valid-checks" || { printf 'Missing successful check: %s\n' "$job"; exit 1; }
           done
       - run: python3 scripts/check-public-source.py

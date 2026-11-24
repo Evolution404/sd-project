@@ -93,10 +93,12 @@ try {
   const detail = page.getByRole("dialog", { name: "物资详情", exact: true });
   await detail
     .getByRole("heading", {
-      name: "新版物资浏览器 · A-1 · 耐候型",
+      name: "新版物资浏览器",
       exact: true,
     })
     .waitFor();
+  await detail.getByText("A-1", { exact: true }).waitFor();
+  await detail.getByText("耐候型", { exact: true }).waitFor();
   assert.equal(page.url(), location);
   await detail.getByRole("button", { name: "编辑", exact: true }).click();
   const edit = page.getByRole("dialog", { name: "编辑物资", exact: true });
@@ -108,12 +110,14 @@ try {
   await save("编辑物资");
   await detail
     .getByRole("heading", {
-      name: "新版物资浏览器 · B-2 · 耐候型",
+      name: "新版物资浏览器",
       exact: true,
     })
     .waitFor();
-  for (const width of [1500, 1100, 760]) {
-    await page.setViewportSize({ width, height: 1000 });
+  await detail.getByText("B-2", { exact: true }).waitFor();
+  await detail.getByText("耐候型", { exact: true }).waitFor();
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth + 1,

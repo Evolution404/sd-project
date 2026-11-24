@@ -122,28 +122,30 @@
                   :rows="positionRows" :columns="positionColumns" :validate="validatePositions"
                   :disabled="saving" @change="updatePosition" />
               </div>
-              <el-collapse class="mt-3">
+              <el-collapse v-model="expandedPositions" class="mt-3">
                 <el-collapse-item
                   v-for="position in positions"
                   :key="position.id"
                   :name="position.id"
                   :title="position.label"
                 >
-                  <el-form-item label="作业方式">
-                    <el-select v-model="position.workMode" style="width: 180px">
-                      <el-option label="未明确" value="unspecified" />
-                      <el-option label="停电" value="outage" />
-                      <el-option label="不停电" value="non_outage" />
-                    </el-select>
-                  </el-form-item>
-                  <DemandAttributeFields v-model="position.attributes" :fields="complexPositionFields" />
-                  <el-button
-                    link
-                    type="danger"
-                    data-guide-action="demands.location-remove" @click="positions = positions.filter((row) => row.id !== position.id)"
-                  >
-                    移除该位置
-                  </el-button>
+                  <template v-if="expandedPositions.includes(position.id)">
+                    <el-form-item label="作业方式">
+                      <el-select v-model="position.workMode" style="width: 180px">
+                        <el-option label="未明确" value="unspecified" />
+                        <el-option label="停电" value="outage" />
+                        <el-option label="不停电" value="non_outage" />
+                      </el-select>
+                    </el-form-item>
+                    <DemandAttributeFields v-model="position.attributes" :fields="complexPositionFields" />
+                    <el-button
+                      link
+                      type="danger"
+                      data-guide-action="demands.location-remove" @click="positions = positions.filter((row) => row.id !== position.id)"
+                    >
+                      移除该位置
+                    </el-button>
+                  </template>
                 </el-collapse-item>
               </el-collapse>
             </template>
@@ -326,6 +328,7 @@ const operations = ref<WorkStandardRow[]>([]),
   priorities = ref<DictionaryRow[]>([]);
 const kind = ref<DemandLocationInput["location_kind"]>("physical_tower");
 const positionPickerOpen = ref(false), materialPickerOpen = ref(false);
+const expandedPositions = ref<(string | number)[]>([]);
 const positions = ref<Position[]>([]),
   materials = ref<ExpectedMaterial[]>([]);
 const duplicates = ref<DemandEditorRecord[]>([]),
@@ -553,6 +556,7 @@ async function chooseOperation(id: string) {
     if (replacingOperation || !form.target.trim()) form.target = data.default_target_object;
     if (replacingOperation || !form.completion.trim()) form.completion = data.completion_standard || "";
     form.attributes = defaults(demandFields.value);
+    expandedPositions.value = [];
     positions.value = [];
     kind.value = positionKinds.value[0];
     resetPositionSearch();
@@ -837,6 +841,7 @@ async function load() {
       source: "",
       discovery: null,
     });
+    expandedPositions.value = [];
     positions.value = (old?.work_locations || []).map((row) => ({
       id: row.location_kind + ":" + (row.physical_tower_id || row.logical_tower_id || row.span_id),
       label: locationDisplayFields(row.location_kind,row.location_snapshot_json).location_label,

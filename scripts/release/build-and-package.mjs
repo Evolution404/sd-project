@@ -53,6 +53,8 @@ try {
     await run("test:browser",[join(root,"tests/run-browser-suites.mjs")]);
     await script("test:browser:legacy");
     await run("test:worksheet:scale",[join(root,"tests/e2e/youlai-worksheet-scale-probe.mjs")]);
+    await run("test:worksheet:layout",[join(root,"tests/e2e/youlai-worksheet-layout-probe.mjs")]);
+    await run("test:worksheet:disposal",[join(root,"tests/e2e/youlai-worksheet-disposal-probe.mjs")]);
   } else {
     for(const name of ["build","check:field-independence","check:ui:strict","check:no-tax","check:independent-input"])await script(name);
   }

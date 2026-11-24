@@ -4,7 +4,8 @@ import { restoreBackup } from "../dist/server/database/restore.js";
 import { existsSync,readFileSync,mkdirSync,mkdtempSync,renameSync,rmSync,cpSync,realpathSync,writeFileSync,lstatSync } from "node:fs";
 import { resolve,join,dirname,relative,isAbsolute,sep } from "node:path";
 import { createHash } from "node:crypto";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
+import { networkInterfaces } from "node:os";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
@@ -27,10 +28,35 @@ function manifest(root){
  }
  return m;
 }
-async function assertStopped(port){
+async function assertStopped(port) {
+ const inUse=()=>Error("服务端口 "+port+" 仍在使用，请停止旧服务后重试");
+ // A wildcard bind alone can succeed while a Windows service still owns a
+ // more specific interface address. Probe the local listeners before binding.
+ const addresses=new Set(["127.0.0.1","::1"]);
+ for(const entries of Object.values(networkInterfaces())) {
+  for(const entry of entries??[]) {
+   const address=entry.family==="IPv6"&&entry.scopeid?entry.address+"%"+entry.scopeid:entry.address;
+   addresses.add(address);
+  }
+ }
+ const connected=await Promise.all([...addresses].map(host=>new Promise((done,fail)=>{
+  const socket=connect({host,port});
+  socket.setTimeout(1500);
+  socket.once("connect",()=>{socket.destroy();done(true)});
+  socket.once("error",error=>{
+   socket.destroy();
+   if(["ECONNREFUSED","EADDRNOTAVAIL","ENETUNREACH","EHOSTUNREACH","EAFNOSUPPORT"].includes(error.code))done(false);
+   else fail(Error("无法验证旧服务端口 "+port+" 已关闭",{cause:error}));
+  });
+  socket.once("timeout",()=>{
+   socket.destroy();
+   fail(Error("验证旧服务端口 "+port+" 已关闭时超时"));
+  });
+ })));
+ if(connected.some(Boolean))throw inUse();
  const listener=createServer();
  await new Promise((ok,fail)=>{
-  listener.once("error",()=>fail(Error("服务端口 "+port+" 仍在使用，请停止旧服务后重试")));
+  listener.once("error",()=>fail(inUse()));
   listener.listen(port,"0.0.0.0",()=>listener.close(ok));
  });
 }
@@ -91,6 +117,7 @@ export async function upgrade(oldRoot,newRoot,{port=8787,probe=true}={}){
   const retainedBackups=join(oldData,"backups");
   const receipt={backup_history_retained_at:retainedBackups,old_service_port:port,upgraded_at:new Date().toISOString(),old_root:oldRoot,backup,from_build:from.build_input_sha256,to_build:to.build_input_sha256,schema_version:113,training_retained_at:existsSync(join(oldRoot,"data-training"))?join(oldRoot,"data-training"):null,verified:true};
   writeFileSync(join(candidate,"UPGRADE-RECEIPT.json"),JSON.stringify(receipt,null,2)+"\n",{flag:"wx"});
+  if(probe)await assertStopped(port);
   assert(!existsSync(target),"目标已创建，拒绝覆盖");
   renameSync(candidate,target);
   return receipt;

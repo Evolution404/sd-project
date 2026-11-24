@@ -69,7 +69,7 @@ try {
     const grid=await settlementCanvas(editor);
     await editor.getByTestId("settlement-filled-count").getByText(new RegExp("/ "+size+" 处")).waitFor();
     const openMs=Math.round(performance.now()-start);
-    const fill=Math.min(size,5000);
+    const fill=size;
     await selectSettlementCell(grid,1);
     const begin=performance.now();
     await pasteSettlementCells(page,Array.from({length:fill},(_,i)=>"1\t规模验证-"+(i+1)).join("\n"));
@@ -91,11 +91,19 @@ try {
     const saveMs=Math.round(performance.now()-saveStart);
     const stored=s.finance.allSettlements().find(row=>row.project_id===project.id);
     assert.equal(stored.draft.document.resolutions.length,fill);
+    assert.equal(new Set(stored.draft.document.resolutions.map(row=>row.project_scope_id+":"+row.location_item_no)).size,fill);
     assert.equal(stored.draft.document.resolutions[fill-1].evidence,"规模验证-"+fill);
     const result={rows:size,pastedCells:fill*2,openMs,pasteMs,undoMs,saveMs};
     measurements.push(result);console.log("WORKSHEET_SCALE_RESULT",JSON.stringify(result));
   }
   assert.deepEqual(errors,[]);
+  const worksheet1000=measurements.find(result=>result.pastedCells===1000);
+  const worksheet10000=measurements.find(result=>result.pastedCells===10000);
+  if(worksheet1000) {
+    assert.ok(worksheet1000.pasteMs<=500, JSON.stringify(worksheet1000));
+    assert.ok(worksheet1000.undoMs<=500, JSON.stringify(worksheet1000));
+  }
+  if(worksheet10000) assert.ok(worksheet10000.pasteMs<=2000, JSON.stringify(worksheet10000));
   console.log("YOULAI_WORKSHEET_SCALE_OK",JSON.stringify(measurements));
 }catch(error){await page?.screenshot({path:join(out,"failure.png"),fullPage:true}).catch(()=>{});throw error}
 finally{await browser?.close();if(server)await new Promise(ok=>server.close(ok));for(const fn of cleanup.reverse())await fn()}
