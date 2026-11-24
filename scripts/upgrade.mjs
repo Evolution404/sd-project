@@ -5,7 +5,6 @@ import { existsSync,readFileSync,mkdirSync,mkdtempSync,renameSync,rmSync,cpSync,
 import { resolve,join,dirname,relative,isAbsolute,sep } from "node:path";
 import { createHash } from "node:crypto";
 import { connect, createServer } from "node:net";
-import { networkInterfaces } from "node:os";
 import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
@@ -32,14 +31,7 @@ async function assertStopped(port) {
  const inUse=()=>Error("服务端口 "+port+" 仍在使用，请停止旧服务后重试");
  // A wildcard bind alone can succeed while a Windows service still owns a
  // more specific interface address. Probe the local listeners before binding.
- const addresses=new Set(["127.0.0.1","::1"]);
- for(const entries of Object.values(networkInterfaces())) {
-  for(const entry of entries??[]) {
-   const address=entry.family==="IPv6"&&entry.scopeid?entry.address+"%"+entry.scopeid:entry.address;
-   addresses.add(address);
-  }
- }
- const connected=await Promise.all([...addresses].map(host=>new Promise((done,fail)=>{
+ const connected=await Promise.all(["127.0.0.1","::1"].map(host=>new Promise((done,fail)=>{
   const socket=connect({host,port});
   socket.setTimeout(1500);
   socket.once("connect",()=>{socket.destroy();done(true)});
