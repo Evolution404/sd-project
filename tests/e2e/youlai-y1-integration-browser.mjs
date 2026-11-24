@@ -22,13 +22,18 @@ try {
   const page=await ctx.newPage();
   const errors=[];
   page.on("pageerror",e=>errors.push(e.message));
+  let loginRequests=0;
+  page.on("request", request => {
+    if (request.method()==="POST" && new URL(request.url()).pathname==="/api/login") loginRequests++;
+  });
   const base=`http://127.0.0.1:${port}/`;
   await page.goto(base+"#/login");
   await page.getByPlaceholder("用户名").fill("admin");
   await page.getByPlaceholder("密码").fill("Schema113-test-password");
-  await page.getByRole("button",{name:"登录",exact:true}).click();
+  await page.getByPlaceholder("密码").press("Enter");
   await page.waitForURL(/#\/dashboard/, {timeout:20000});
   await page.locator(".dash-header__greeting").waitFor();
+  assert.equal(loginRequests,1,"Enter submits a single login request");
   assert.ok(await page.getByText("专业需求",{exact:true}).count());
   assert.ok(await page.getByText("子项目管理",{exact:true}).count());
   assert.ok(await page.getByText("系统管理",{exact:true}).count());
@@ -76,8 +81,15 @@ try {
   await readerPage.reload();
   await readerPage.waitForURL(url=>url.hash.startsWith("#/login"),{timeout:12000});
   await reader.close();
+  await page.locator(".layout-user").click();
+  await page.getByRole("menuitem",{name:"退出登录",exact:true}).click();
+  const logout = page.getByRole("dialog").filter({hasText:"确定注销并退出系统吗？"});
+  await logout.getByRole("button",{name:"确定",exact:true}).click();
+  await page.getByPlaceholder("用户名").waitFor();
+  const loggedOut = await page.evaluate(async()=> (await fetch("/api/session")).status);
+  assert.equal(loggedOut,401,"logout must revoke the authenticated session");
   assert.equal(errors.length,0,"unexpected runtime error: "+errors.join(";"));
-  console.log("YOULAI_Y1_INTEGRATION_OK Cookie login, 12 entries, real dashboard count, reload, upstream layout");
+  console.log("YOULAI_Y1_INTEGRATION_OK single-request Enter login, dashboard data, viewer denial, session revocation");
 } catch(e) {
   if(browser) for(const p of browser.contexts().flatMap(c=>c.pages()))
     await p.screenshot({path:join(out,"failure.png"),fullPage:true}).catch(()=>{});
