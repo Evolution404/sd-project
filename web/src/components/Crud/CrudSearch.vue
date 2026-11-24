@@ -4,7 +4,7 @@
       <el-alert v-if="optionError" class="mb-4" type="error" :title="optionError" :closable="false">
         <el-button link :loading="isInitializing" @click="initializeFields">重新加载选项</el-button>
       </el-alert>
-      <el-form ref="queryFormRef" :model="queryParams" v-bind="formAttrs" :class="layoutClass" novalidate>
+      <el-form ref="queryFormRef" :model="queryParams" v-bind="formAttrs" :class="layoutClass" novalidate @submit.prevent="handleQuery">
         <el-form-item
           v-for="(item, index) in fields"
           v-show="isExpand || index < showNumber"
@@ -53,7 +53,7 @@
           </component>
         </el-form-item>
         <el-form-item :class="{ 'col-[auto/-1] justify-self-end': searchConfig.grid === 'right' }">
-          <el-button icon="search" type="primary" data-guide-action="common.search" @click="handleQuery">搜索</el-button>
+          <el-button icon="search" type="primary" native-type="submit" data-guide-action="common.search">搜索</el-button>
           <el-button icon="refresh" data-guide-action="common.reset-search" @click="handleReset">重置</el-button>
           <el-link
             v-if="isExpandable && fields.length > showNumber"
