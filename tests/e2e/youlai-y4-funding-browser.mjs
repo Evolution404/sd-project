@@ -6,7 +6,7 @@ import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const tasks=[];
-const {s}=fixture({after:f=>tasks.push(f)});
+const {s,save}=fixture({after:f=>tasks.push(f)});
 const server=httpServer(s,{staticDirectory:resolve(process.env.SD_BROWSER_STATIC_DIRECTORY || "dist/web")});
 await new Promise(ok=>server.listen(0,"127.0.0.1",ok));
 const port=server.address().port;
@@ -106,6 +106,47 @@ try {
   await agreementDrawer.getByRole("button",{name:"查看所属年度框架",exact:true}).click();
   await frameworkDrawer.getByRole("button",{name:"年度框架直归项目",exact:true}).waitFor();
   await page.screenshot({path:join(output,"framework-agreement-project-trace-1920.png")});
+  const alternateFramework=save("frameworks",{name:"2030年度备选框架",fiscal_year:2030,limit_fen:250000});
+  const alternate=save("agreements",{name:"2030正常执行协议",framework_id:alternateFramework.id,limit_fen:50000});
+  const inactive=save("agreements",{name:"2030停用执行协议",framework_id:alternateFramework.id,limit_fen:50000,status:"inactive"});
+  await page.goto(base+"#/business/projects");
+  const direct=frameworkDetails.projects.find(item=>item.name==="年度框架直归项目");
+  await page.getByRole("row").filter({hasText:direct.name}).getByRole("button",{name:"查看详情",exact:true}).click();
+  const projectDetails=page.getByRole("dialog",{name:direct.name,exact:true});
+  await projectDetails.getByText("直接归属年度框架（无执行协议）",{exact:true}).waitFor();
+  assert.equal(await projectDetails.getByRole("button",{name:"资金归属",exact:true}).count(),0);
+  await projectDetails.getByRole("button",{name:"关闭详情",exact:true}).click();
+  await projectDetails.waitFor({state:"hidden"});
+
+  const linked=agreementDetails.projects[0];
+  await page.getByRole("row").filter({hasText:linked.name}).getByRole("button",{name:"修改档案",exact:true}).click();
+  const revision=page.getByRole("dialog",{name:"修改项目档案",exact:true});
+  const agreementField=revision.locator(".el-form-item").filter({has:page.getByText("执行协议",{exact:true})});
+  await agreementField.getByText(agreement.name,{exact:true}).waitFor();
+  await agreementField.getByRole("combobox",{name:"执行协议",exact:true}).click();
+  await page.getByRole("option",{name:agreement.name,exact:true}).waitFor();
+  assert.equal(await page.getByRole("option",{name:alternate.name,exact:true}).count(),0);
+  await page.getByRole("option",{name:agreement.name,exact:true}).click();
+  const frameworkField = revision.locator(".el-form-item").filter({has:page.getByText("年度框架",{exact:true})});
+  const formScroll = revision.locator(".el-form .el-scrollbar__wrap");
+  assert.ok(await formScroll.evaluate(wrap=>wrap.scrollWidth <= wrap.clientWidth + 1),
+    "the desktop form must not expose a horizontal scrollbar");
+  await frameworkField.getByRole("combobox").click();
+  await page.getByRole("option",{name:alternateFramework.name,exact:true}).click();
+  await agreementField.getByText("直接归属年度框架",{exact:true}).waitFor();
+  await agreementField.getByRole("combobox",{name:"执行协议",exact:true}).click();
+  const proposed=page.getByRole("option",{name:alternate.name,exact:true});
+  await proposed.waitFor();
+  assert.equal(await page.getByRole("option",{name:agreement.name,exact:true}).count(),0);
+  const disabledOption=page.getByRole("option",{name:inactive.name,exact:true});
+  if (await disabledOption.count()) assert.equal(await disabledOption.getAttribute("aria-disabled"),"true");
+  await proposed.click();
+  await revision.getByRole("button",{name:"确定",exact:true}).click();
+  await revision.waitFor({state:"hidden"});
+  const moved=s.projects.get(linked.id);
+  assert.equal(moved.framework_id,alternateFramework.id);
+  assert.equal(moved.funding.agreement_id,alternate.id);
+  assert.deepEqual(s.projects.history(linked.id).profiles.map(item=>item.framework_id),[fw.id,alternateFramework.id]);
   assert.deepEqual(errors,[]);
   console.log("YOULAI_Y4_FUNDING_OK framework and agreement versions, separate ownership and linked project round trip");
 } catch(error){
