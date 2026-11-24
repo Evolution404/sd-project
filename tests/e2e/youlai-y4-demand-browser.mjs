@@ -8,6 +8,8 @@ import { chromium } from "playwright";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
+import ExcelJS from "exceljs";
+import { columnIndex } from "../workbook-helpers.mjs";
 
 const clean=[];
 const {s,user,save,operation,demandInput,unit}=fixture({after:fn=>clean.push(fn)});
@@ -28,9 +30,14 @@ try {
     ? {headless:true}:{headless:true,channel:"chrome"});
   const context=await browser.newContext({viewport:{ width: 1920, height: 1080 }});
   page=await context.newPage();
+  await page.addInitScript(() => {
+    Object.defineProperty(Crypto.prototype, "randomUUID", { configurable: true, value: undefined });
+  });
   const errors=[];page.on("pageerror",e=>errors.push(e.message));
   const base=`http://127.0.0.1:${port}/`;
   await page.goto(base+"#/login");
+  assert.deepEqual(await page.evaluate(() => [typeof crypto.randomUUID, typeof crypto.getRandomValues]),
+    ["undefined", "function"], "plain intranet HTTP exposes getRandomValues without randomUUID");
   await page.getByPlaceholder("用户名").fill("admin");
   await page.getByPlaceholder("密码").fill("Schema113-test-password");
   await page.getByRole("button",{name:"登录",exact:true}).click();
@@ -164,9 +171,43 @@ try {
   const corrected=s.demands.list().find(row=>row.problem_description===invalid.problem);
   assert.equal(corrected.work_locations[0].quantity_scaled,20000);
   await exchange.getByRole("button",{name:"关闭",exact:true}).click();
-  await page.getByText(invalid.problem,{exact:true}).first().waitFor();
+  const correctedRow = page.getByRole("row").filter({ hasText: invalid.problem });
+  await correctedRow.getByRole("cell", { name: invalid.problem, exact: true }).waitFor();
+  await correctedRow.locator("label.el-checkbox").click();
+  await page.getByRole("button", { name: "导入 Excel", exact: true }).click();
+  const exportOne = page.waitForEvent("download");
+  await exchange.getByRole("button", { name: "下载勾选记录（1）", exact: true }).click();
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(await (await exportOne).path());
+  const positions = workbook.getWorksheet("作业位置");
+  const quantityColumn = columnIndex(positions, "quantity_scaled");
+  assert.ok(quantityColumn > 0);
+  const quantity = positions.getRow(2).getCell(quantityColumn);
+  const uploadRevision = async value => {
+    quantity.value = value;
+    await exchange.locator(".el-upload input[type=file]").setInputFiles({
+      name: "内网批量修改验收.xlsx",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      buffer: Buffer.from(await workbook.xlsx.writeBuffer()),
+    });
+  };
+  await exchange.getByText("仅修改", { exact: true }).click();
+  await uploadRevision("2.5");
+  await exchange.getByText(/套只允许整数数量/).first().waitFor();
+  assert.equal(await exchange.getByRole("button", { name: "保存整批" }).isDisabled(), true);
+  assert.equal(s.demands.get(corrected.id).current_version, 1);
+  assert.equal(s.demands.get(corrected.id).quantity_scaled, 20000);
+  await uploadRevision("3");
+  await exchange.getByText("新增 0 条，修改 1 条，保持 0 条，0 条需处理", { exact: true }).waitFor();
+  assert.equal(s.demands.get(corrected.id).current_version, 1);
+  await exchange.getByRole("button", { name: "保存整批" }).click();
+  await exchange.getByText("已处理 1 条，0 项需处理", { exact: true }).waitFor();
+  const lanRevision = s.demands.get(corrected.id);
+  assert.equal(lanRevision.current_version, 2);
+  assert.equal(lanRevision.quantity_scaled, 30000);
+  assert.equal(lanRevision.work_locations[0].physical_tower_id, excelTowers[1].id);
   assert.equal(errors.length,0,errors.join(";"));
-  console.log("YOULAI_Y4_DEMAND_OK upstream CrudPage, create/confirm/revise, duplicate review, frozen unit and Excel preview/correction/commit");
+  console.log("YOULAI_Y4_DEMAND_OK upstream CrudPage, create/confirm/revise, duplicate review, frozen unit, LAN HTTP Excel preflight and stable identity update");
 } catch(error){
   await page?.screenshot({path:join(out,"demand-failure.png"),fullPage:false}).catch(()=>{});
   throw error;

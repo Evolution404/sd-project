@@ -57,6 +57,7 @@ try{
   await page.locator(".el-drawer:visible .el-drawer__close-btn").click();
 
   await page.getByRole("tab",{name:"杆塔性质"}).click();
+  for (const name of ["耐张", "直线"]) await page.getByRole("cell",{name,exact:true}).waitFor();
   await page.getByRole("button",{name:"新增杆塔性质"}).click();
   dialog=page.getByRole("dialog").last();
   await dialog.getByRole("textbox",{name:"杆塔性质名称"}).fill("专用测试悬垂");
@@ -64,13 +65,46 @@ try{
   await page.getByText("专用测试悬垂",{exact:true}).first().waitFor({timeout:15000});
   assert.ok(s.catalog.list("tower_natures").some(x=>x.name==="专用测试悬垂"));
   await page.getByRole("tab",{name:"杆塔材质"}).click();
+  for (const name of ["角钢塔", "钢管杆"]) await page.getByRole("cell",{name,exact:true}).waitFor();
   await page.getByRole("button",{name:"新增杆塔材质"}).click();
   dialog=page.getByRole("dialog").last();
   await dialog.getByRole("textbox",{name:"杆塔材质名称"}).fill("专用测试钢管塔");
   await dialog.getByRole("button",{name:"确定"}).click();
   await page.getByText("专用测试钢管塔",{exact:true}).first().waitFor({timeout:15000});
-  assert.ok(s.catalog.list("tower_materials").some(x=>x.name==="专用测试钢管塔"));
+  const material=s.catalog.list("tower_materials").find(x=>x.name==="专用测试钢管塔");
+  assert.ok(material?.id && material.status === "active");
   await page.screenshot({path:join(out,"dictionary-tower-material-1920.png"),fullPage:true});
+  await page.goto(base+"#/assets/ledger");
+  await page.getByRole("tab",{name:"物理杆塔",exact:true}).click();
+  await page.getByRole("columnheader",{name:"杆塔材质",exact:true}).waitFor();
+  assert.equal(await page.getByRole("columnheader",{name:/塔型/}).count(),0);
+  await page.getByRole("button",{name:"新增物理杆塔",exact:true}).click();
+  const physicalForm=page.getByRole("dialog",{name:"新增物理杆塔",exact:true});
+  for (const [field, name] of [["杆塔性质", "耐张"], ["杆塔材质", material.name]]) {
+    await physicalForm.getByRole("combobox",{name:field,exact:true}).click();
+    await page.getByRole("option",{name,exact:true}).click();
+  }
+  await physicalForm.getByRole("button",{name:"确定",exact:true}).click();
+  await physicalForm.waitFor({state:"hidden"});
+  const physical=s.catalog.list("physical").find(row=>row.tower_material===material.id);
+  assert.ok(physical);
+  assert.equal(physical.tower_nature,"tension");
+  await page.getByRole("row").filter({has:page.getByRole("cell",{name:material.name,exact:true})})
+    .getByRole("cell",{name:"耐张",exact:true}).waitFor();
+  await page.goto(base+"#/configuration/dictionaries");
+  await page.getByRole("tab",{name:"杆塔材质",exact:true}).click();
+  await page.getByRole("row").filter({has:page.getByRole("cell",{name:material.name,exact:true})})
+    .getByRole("button",{name:"修订",exact:true}).click();
+  const reviseMaterial=page.getByRole("dialog").last();
+  await reviseMaterial.getByRole("textbox",{name:"杆塔材质名称"}).fill("专用钢管塔复核版");
+  await reviseMaterial.getByRole("button",{name:"确定",exact:true}).click();
+  await reviseMaterial.waitFor({state:"hidden"});
+  assert.equal(s.catalog.get("tower_materials",material.id).version,2);
+  await page.goto(base+"#/assets/ledger");
+  await page.getByRole("tab",{name:"物理杆塔",exact:true}).click();
+  await page.getByRole("cell",{name:"专用钢管塔复核版",exact:true}).waitFor();
+  assert.equal(s.catalog.get("physical",physical.id).tower_material,material.id);
+  await page.goto(base+"#/configuration/dictionaries");
   await page.getByRole("tab",{name:"组织目录",exact:true}).click();
   for (const name of ["运检部门甲","运检部门乙"]) {
     await page.getByRole("button",{name:"新增组织",exact:true}).click();
