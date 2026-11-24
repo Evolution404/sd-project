@@ -177,7 +177,7 @@ const initialized = spawnSync(
 assert.equal(initialized.status, 0, initialized.stderr);
 function launch(directory) {
   const child = spawn(processExec, [join(stage, "dist/server/main.js")], {
-    env: { ...env, DATA_DIR: directory },
+    env: { ...env, DATA_DIR: directory, SD_MANAGED_SHUTDOWN: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   return child;
@@ -332,9 +332,13 @@ try {
 with zipfile.ZipFile(sys.argv[1]) as z:
  z.extractall(sys.argv[2])`,zip,upgraded],{encoding:"utf8",timeout:90000});
   assert.equal(second.status,0,second.stderr);
+  server = launch(data);
+  await ready();
+  const oldExited = new Promise(resolve => server.once("exit", resolve));
   const upgrade=spawnSync(processExec,[join(upgraded,"scripts/upgrade.mjs"),stage,String(port)],{cwd:upgraded,env,encoding:"utf8",timeout:60000});
   assert.equal(upgrade.status,0,upgrade.stderr+upgrade.stdout);
   assert.match(upgrade.stdout,/UPGRADE_OK/);
+  assert.equal(await oldExited, 0, "upgrade must drain the managed old runtime and close its database");
   assert.ok(existsSync(join(stage,"data/schema113.sqlite")));
   const upgradeReceipt=JSON.parse(readFileSync(join(upgraded,"data/UPGRADE-RECEIPT.json"),"utf8"));
   assert.equal(upgradeReceipt.verified,true);
@@ -352,7 +356,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   assert.equal(upgradedFile.status,200);
   assert.equal(await upgradedFile.text(),"release-evidence");
   assert.deepEqual((await catalog("voltages")).map(v=>v.name).sort(),volts.map(v=>v.name).sort());
-  console.log("PORTABLE_UPGRADE_OK preserved accounts, sessions, demand, attachment and reference data");
+  console.log("PORTABLE_UPGRADE_OK drained old runtime and preserved accounts, sessions, demand, attachment and reference data");
   receipt.host_verification = {
     verified_at: new Date().toISOString(),
     os: process.platform,

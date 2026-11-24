@@ -1,6 +1,7 @@
 /** Offline upgrade into a new, already extracted program directory. */
 import { createSystem } from "../dist/server/bootstrap.js";
 import { restoreBackup } from "../dist/server/database/restore.js";
+import { requestManagedShutdown } from "../dist/server/platform/runtime/managed-shutdown.js";
 import { existsSync,readFileSync,mkdirSync,mkdtempSync,renameSync,rmSync,cpSync,realpathSync,writeFileSync,lstatSync } from "node:fs";
 import { resolve,join,dirname,relative,isAbsolute,sep } from "node:path";
 import { createHash } from "node:crypto";
@@ -28,7 +29,7 @@ function manifest(root){
  return m;
 }
 async function assertStopped(port) {
- const inUse=()=>Error("服务端口 "+port+" 仍在使用，请停止旧服务后重试");
+ const inUse=()=>Object.assign(Error("服务端口 "+port+" 仍在使用，请停止旧服务后重试"), {code:"SD_PORT_IN_USE"});
  // A wildcard bind alone can succeed while a Windows service still owns a
  // more specific interface address. Probe the local listeners before binding.
  const connected=await Promise.all(["127.0.0.1","::1"].map(host=>new Promise((done,fail)=>{
@@ -48,13 +49,13 @@ async function assertStopped(port) {
  if(connected.some(Boolean))throw inUse();
  const listener=createServer();
  await new Promise((ok,fail)=>{
-  listener.once("error",()=>fail(inUse()));
+  listener.once("error",error=>fail(error.code==="EADDRINUSE"?inUse():error));
   listener.listen(port,"0.0.0.0",()=>listener.close(ok));
  });
 }
 async function smoke(root,directory){
  const port=await new Promise((ok,fail)=>{const l=createServer();l.once("error",fail);l.listen(0,"127.0.0.1",()=>{const p=l.address().port;l.close(()=>ok(p))})});
- const child=spawn(process.execPath,[join(root,"dist/server/main.js")],{cwd:root,env:{...process.env,DATA_DIR:directory,HOST:"127.0.0.1",PORT:String(port)},stdio:["ignore","pipe","pipe"]});
+ const child=spawn(process.execPath,[join(root,"dist/server/main.js")],{cwd:root,env:{...process.env,DATA_DIR:directory,HOST:"127.0.0.1",PORT:String(port),SD_MANAGED_SHUTDOWN:"0"},stdio:["ignore","pipe","pipe"]});
  try{
   await new Promise((ok,fail)=>{
    let output="";const timer=setTimeout(()=>fail(Error("新程序试启动超时")),30000);
@@ -80,11 +81,18 @@ export async function upgrade(oldRoot,newRoot,{port=8787,probe=true}={}){
  assert.equal(from.schema_sha256,to.schema_sha256,"数据库结构发生变化：当前无对应迁移程序，拒绝升级");
  assert(to.package_mode==="production","必须使用不含初始数据的正式升级程序");
  assert(Number.isInteger(port)&&port>0&&port<65536,"无效旧服务端口");
- if(probe)await assertStopped(port);
  const lock=join(oldRoot,".upgrade.lock");
  mkdirSync(lock);
  let workspace;
  try{
+  if (probe) {
+   try { await assertStopped(port); }
+   catch (error) {
+    if (error.code !== "SD_PORT_IN_USE") throw error;
+    await requestManagedShutdown(oldData, port);
+    await assertStopped(port);
+   }
+  }
   const stamp=new Date().toISOString().replaceAll(":","-");
   const backup=join(oldData,"backups","upgrade-"+stamp);
   workspace=mkdtempSync(join(newRoot,".upgrade-"));

@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root
 Write-Host '输电项目全流程管理：一键升级（保留旧程序和数据）'
-Write-Host '请先停止旧服务、通知用户停止写入，并关闭训练实例。'
+Write-Host '请先通知用户结束业务操作并关闭训练实例。由本包启动的受管旧服务将等待已开始的请求完成后关闭。'
 if ($Unattended) {
     $old = $env:SD_UPGRADE_SOURCE_DIR
     $port = $env:PORT

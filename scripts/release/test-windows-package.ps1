@@ -103,6 +103,15 @@ try {
     Invoke-PackageCommand $oldRoot '初始化管理员.cmd' $true
     Remove-Item Env:\SD_ADMIN_USER, Env:\SD_ADMIN_PASSWORD
     $port = Get-FreePort
+    $env:PORT = [string]$port
+    $env:SD_UPGRADE_SOURCE_DIR = $oldRoot
+    $unmanaged = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
+    $unmanaged.Start()
+    try {
+        Invoke-PackageCommand $nextRoot '一键升级.cmd' $false
+        Assert-True ($unmanaged.Server.IsBound) 'Upgrade affected an unmanaged listener.'
+        Assert-True (!(Test-Path -LiteralPath (Join-Path $nextRoot 'data'))) 'Unmanaged-service upgrade created destination data.'
+    } finally { $unmanaged.Stop() }
     $base = Start-Package $oldRoot '启动服务.cmd' $port
     try {
         Invoke-WebRequest -Uri "$base/api/dashboard" -UseBasicParsing | Out-Null
@@ -116,10 +125,10 @@ try {
     $tower = Write-Fact $base $session '/catalog/physical' @{ asset_no = 'WINDOWS-PACKAGE-TEST' }
     Assert-True ($tower.id) 'The administrator cannot register a tower on Windows.'
 
-    $env:SD_UPGRADE_SOURCE_DIR = $oldRoot
-    Invoke-PackageCommand $nextRoot '一键升级.cmd' $false
-    Assert-True (!(Test-Path -LiteralPath (Join-Path $nextRoot 'data'))) 'A running-service upgrade created a destination data directory.'
-    Stop-Package
+    Invoke-PackageCommand $nextRoot '一键升级.cmd' $true
+    Assert-True ($script:server.WaitForExit(10000)) 'The managed old CMD did not exit gracefully.'
+    Assert-True ($script:server.ExitCode -eq 0) 'Managed old CMD returned a failure exit code.'
+    $script:server = $null
 
     Invoke-PackageCommand $oldRoot '备份数据库.cmd' $true
     $backup = Get-ChildItem -LiteralPath (Join-Path $oldRoot 'data/backups') -Directory | Select-Object -First 1
@@ -134,7 +143,6 @@ try {
     Stop-Package
 
     $env:PORT = [string]$port
-    Invoke-PackageCommand $nextRoot '一键升级.cmd' $true
     Assert-True ((Read-Manifest (Join-Path $nextRoot 'data/UPGRADE-RECEIPT.json')).verified) 'Upgrade did not verify its candidate.'
     Assert-True (Test-Path -LiteralPath (Join-Path $oldRoot 'data/schema113.sqlite')) 'Upgrade removed the original database.'
     Invoke-PackageCommand $nextRoot '一键升级.cmd' $false

@@ -2,6 +2,7 @@
 setlocal
 cd /d "%~dp0"
 set "DATA_DIR=%~dp0data"
+set "SD_MANAGED_SHUTDOWN=1"
 if not exist "runtime\node.exe" (
  echo ERROR: runtime\node.exe is missing. Extract the full ZIP archive first.
  if /i not "%~1"=="--unattended" pause
