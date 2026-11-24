@@ -98,7 +98,7 @@
         <el-table-column v-if="col.show" v-bind="getColumnAttrs(col)">
           <template v-if="!col.type || col.type === 'default'" #header="scope">
             <slot :name="'header-' + (col.columnKey ?? col.prop)" v-bind="scope">
-              {{ col.label }}
+              <span class="crud-column-title" :title="col.label">{{ col.label }}</span>
             </slot>
           </template>
           <template
@@ -1406,9 +1406,27 @@ defineExpose({
   }
 }
 
+:deep(.el-table__header .cell:has(> .crud-column-title)) {
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+
+  .caret-wrapper,
+  .el-table__column-filter-trigger {
+    flex-shrink: 0;
+  }
+}
+
+.crud-column-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .row-actions {
-  display: inline-flex;
-  gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   align-items: center;
   white-space: nowrap;
 }

@@ -63,6 +63,11 @@ try {
     await selectStatus("projects", state, name, projectStates.map(entry => entry[1]).filter(other => other !== name));
   }
   const statusHeader = table.getByRole("columnheader", { name: /项目状态/ });
+  assert.ok(await statusHeader.evaluate(header => {
+    const title = header.querySelector(".crud-column-title").getBoundingClientRect();
+    const filter = header.querySelector(".el-table__column-filter-trigger").getBoundingClientRect();
+    return Math.abs(title.top + title.height / 2 - filter.top - filter.height / 2) <= 2;
+  }), "the status label and filter control share one header line at 1920px");
   await statusHeader.locator(".el-table__column-filter-trigger").click();
   const remoteHeader = page.waitForResponse(response => {
     const url = new URL(response.url());

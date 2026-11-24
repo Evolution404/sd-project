@@ -20,7 +20,7 @@
       :model="formData"
       :rules="formRules"
     >
-      <el-scrollbar max-height="70vh">
+      <el-scrollbar max-height="70vh" view-class="px-2.5">
         <el-row :gutter="20">
           <template v-for="item in fields" :key="item.prop">
             <el-col v-if="isFieldVisible(item)" v-bind="item.col">
