@@ -126,6 +126,8 @@ export interface CrudTableConfig<TQuery = CrudRecord, TItem = CrudRecord> {
   permissionPrefix?: string;
   /** Stable module/subview identity for account-scoped browser preferences. */
   stateKey?: string;
+  /** Native status tabs reuse this table column's filter choices and state. */
+  statusTabColumn?: string;
   /** table 组件属性 */
   table?: Partial<Omit<TableProps<CrudRecord>, "data" | "rowKey">>;
   /** 分页组件位置(默认：left) */

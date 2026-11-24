@@ -67,6 +67,12 @@
       </div>
     </div>
 
+    <el-tabs v-if="statusColumn" :model-value="selectedStatus" class="shrink-0" @update:model-value="selectStatus">
+      <el-tab-pane label="全部" name="all" />
+      <el-tab-pane v-for="option in statusOptions" :key="String(option.value)"
+        :label="option.text" :name="String(option.value)" />
+    </el-tabs>
+
     <el-alert
       v-if="loadError || actionError"
       class="mb-4"
@@ -673,7 +679,8 @@ const columns = ref(
     const pref=columnPreferences[columnIdentity(col)];
     if(pref&&col.hideable!==false&&col.cellType!=="actions"&&typeof pref.visible==="boolean")col.show=pref.visible;
     if(pref?.width&&col.cellType!=="actions"&&col.type!=="selection")col.width=pref.width;
-    const raw=restored?.filters[columnIdentity(col)];
+    const oldStatus = col.prop === props.tableConfig.statusTabColumn ? restored?.query.status : undefined;
+    const raw = restored?.filters[columnIdentity(col)] ?? (typeof oldStatus === "string" ? [oldStatus] : undefined);
     if(raw&&Array.isArray(col.filters)){
       const values=new Set(col.filters.map((option:{value:unknown})=>option.value));
       col.filteredValue=raw.filter(value=>values.has(value));
@@ -1172,7 +1179,22 @@ function handleCurrentChange(value: number) {
 }
 
 let filterParams: CrudRecord = {};
-const rawFilters:Record<string,FilterValue[]>={};
+const rawFilters = reactive<Record<string, FilterValue[]>>({});
+const statusColumn = computed(() => props.tableConfig.statusTabColumn
+  ? columns.value.find(col => col.prop === props.tableConfig.statusTabColumn && Array.isArray(col.filters))
+  : undefined);
+const statusOptions = computed(() => (statusColumn.value?.filters as { text: string; value: string }[] | undefined) ?? []);
+const selectedStatus = computed(() => {
+  const col = statusColumn.value;
+  return col ? String(rawFilters[columnIdentity(col)]?.[0] ?? "all") : "all";
+});
+function selectStatus(status: string | number) {
+  const col = statusColumn.value;
+  if (!col || typeof status !== "string" || status === selectedStatus.value) return;
+  const values = status === "all" ? [] : [status];
+  col.filteredValue = values;
+  handleFilterChange({ [columnIdentity(col)]: values });
+}
 for(const col of columns.value){
   if(!Array.isArray(col.filteredValue)||!col.filteredValue.length)continue;
   const key=columnIdentity(col);
@@ -1350,6 +1372,7 @@ async function handleSortChange(state: TableSort): Promise<void> {
 function clearFilters(): void {
   filterParams = {};
   for(const key of Object.keys(rawFilters))delete rawFilters[key];
+  if (statusColumn.value) statusColumn.value.filteredValue = [];
   elementTableRef.value?.clearFilter();
 }
 

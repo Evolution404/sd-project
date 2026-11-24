@@ -369,17 +369,17 @@ async function confirmStock(){
 const searchConfig:CrudSearchConfig={
   fields:[{type:"input",prop:"keywords",label:"子项目",attrs:{
     clearable:true,placeholder:"项目编号 / 项目名称"}},
-    {type:"select",prop:"status",label:"项目状态",attrs:{clearable:true},options:projectStatusChoices.map(x=>({label:x.text,value:x.value}))},
     historyScopeField("projects.show-deleted"),
   ],
 };
 const tableConfig:CrudTableConfig={
   stateKey:"projects",
+  statusTabColumn:"display_status",
   table:{border:true},rowKey:"id",
   fetchData:async(query)=>{
-    const p=query as {pageNum?:number;pageSize?:number;keywords?:string;status?:string};
+    const p=query as {pageNum?:number;pageSize?:number;keywords?:string};
     const result=await listProjects({
-      page:p.pageNum||1,size:p.pageSize||20,keyword:p.keywords||"",status:p.status,...nativeListQuery(query, ["display_status"]),
+      page:p.pageNum||1,size:p.pageSize||20,keyword:p.keywords||"",...nativeListQuery(query, ["display_status"]),
     });
     return {list:result.items,total:result.total};
   },
@@ -394,7 +394,7 @@ const tableConfig:CrudTableConfig={
     {type:"selection",width:48,hideable:false},
     {prop:"code",sortable:"custom",label:"项目编号",minWidth:140,fixed:"left"},
     {prop:"name",sortable:"custom",label:"项目名称",cellType:"custom",minWidth:190},
-    {prop:"display_status",sortable:"custom",...nativeColumnFilter("display_status",projectStatusChoices),label:"项目状态",cellType:"custom",width:105},
+    {prop:"display_status",sortable:"custom",...nativeColumnFilter("display_status",projectStatusChoices,true),label:"项目状态",cellType:"custom",width:105,hideable:false},
     {prop:"category_name",sortable:"custom",label:"项目类别",minWidth:140},
     {prop:"approval",label:"批准预算",cellType:"custom",width:135},
     {prop:"created_at",sortable:"custom",label:"创建时间",cellType:"custom",minWidth:175},

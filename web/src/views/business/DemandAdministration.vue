@@ -196,25 +196,22 @@ const searchConfig:CrudSearchConfig={
     {type:"input",prop:"keywords",label:"专业需求",attrs:{
       placeholder:"需求编号 / 操作类型 / 问题描述",clearable:true,
     }},
-    {type:"select",prop:"status",label:"需求状态",attrs:{clearable:true},options:Object.keys(statusColors)
-      .map(status=>({label:status,value:status}))},
     historyScopeField("demands.show-deleted"),
   ],
 };
 const tableConfig:CrudTableConfig={
   stateKey:"demands",
+  statusTabColumn:"display_status",
   table:{border:true},rowKey:"id",
   fetchData:async(query)=>{
     const request=++listRequest;
     const params=query as {
       pageNum?:number;pageSize?:number;keywords?:string;
-      status?:string;
     };
     const page=await queryDemands({page:params.pageNum||1,
-      pageSize:params.pageSize||20,keyword:params.keywords||"",status:params.status,...nativeListQuery(query, ["display_status"])});
+      pageSize:params.pageSize||20,keyword:params.keywords||"",...nativeListQuery(query, ["display_status"])});
     if(request===listRequest){
       const applied=new URLSearchParams({q:params.keywords||"",sort:"created_at",direction:"desc"});
-      if(params.status)applied.set("filters",JSON.stringify({display_status:params.status}));
       applyNativeListQuery(applied, nativeListQuery(query, ["display_status"]));
       appliedQuery.value=applied.toString();
     }
@@ -231,7 +228,7 @@ const tableConfig:CrudTableConfig={
   columns:[
     {type:"selection",width:48,hideable:false},
     {prop:"demand_no",sortable:"custom",label:"需求编号",width:165,fixed:"left"},
-    {prop:"display_status",sortable:"custom",...nativeColumnFilter("display_status", Object.keys(statusColors).map(value=>({value,text:value}))),label:"需求状态",cellType:"custom",width:115},
+    {prop:"display_status",sortable:"custom",...nativeColumnFilter("display_status", Object.keys(statusColors).map(value=>({value,text:value})),true),label:"需求状态",cellType:"custom",width:115},
     {prop:"operation_snapshot",sortable:"custom",label:"操作类型",minWidth:180},
     {prop:"problem_description",sortable:"custom",label:"问题描述",cellType:"custom",minWidth:280},
     {prop:"line_count",sortable:"custom",label:"涉及线路数",minWidth:180},
