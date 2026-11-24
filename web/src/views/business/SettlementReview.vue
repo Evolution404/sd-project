@@ -6,7 +6,7 @@
           <h2 class="text-lg font-semibold">结算审核办理</h2>
           <div class="page-heading-actions flex flex-wrap gap-2">
             <el-button :disabled="acting" @click="returnToSource">{{ sourceQuery.source === "dashboard" ? "返回工作台" : "返回结算列表" }}</el-button>
-            <template v-if="detail && !detail.deleted">
+            <template v-if="detail && !detail.deleted && !detail.write_blocked_reason">
               <template v-if="detail.draft && canWrite">
                 <el-button data-guide-action="finance.edit-draft" :disabled="acting" @click="edit">编辑草稿</el-button>
                 <el-button data-guide-action="finance.withdraw-settlement" :disabled="acting" @click="run('withdraw')">撤回草稿</el-button>

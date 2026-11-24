@@ -183,6 +183,7 @@ export interface SettlementDocumentDetails {
 }
 export interface SettlementDetails extends SettlementWorkflow {
   deleted: boolean;
+  write_blocked_reason: string | null;
   document_details: SettlementDocumentDetails | null;
 }
 export interface SettlementSubmitInput {

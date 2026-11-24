@@ -34,8 +34,11 @@ export function createEvidence({evidenceStore:repo,database,audit}:EvidenceSyste
     requireValue(isEvidenceOwner(kind) && typeof key==="string" && !!key &&
       repo.ownerExists(kind,key),"附件业务归属不存在",404);
   }
-  function requireCostEvidenceEditable(versionId:string|null) {
-    if(versionId)requireValue(repo.canChangeCostEvidence(versionId),"历史、作废或已结项费用的附件仅可查看",409);
+  function requireVersionEvidenceEditable(costVersion: string | null, settlementVersion: string | null) {
+    if (costVersion)
+      requireValue(repo.canChangeCostEvidence(costVersion), "历史、作废或已结项费用的附件仅可查看", 409);
+    if (settlementVersion)
+      requireValue(repo.canChangeSettlementEvidence(settlementVersion), "历史、已删除或已结项结算的附件仅可查看", 409);
   }
   return {
     list(actor:Actor,kind:unknown,key:unknown,includeDeleted=false) {
@@ -47,7 +50,8 @@ export function createEvidence({evidenceStore:repo,database,audit}:EvidenceSyste
       const input=parseUpload(raw);
       checkOwner(input.owner_kind,input.owner_id);
       const costVersion = input.owner_kind === "cost_version_id" ? input.owner_id : null;
-      requireCostEvidenceEditable(costVersion);
+      const settlementVersion = input.owner_kind === "settlement_version_id" ? input.owner_id : null;
+      requireVersionEvidenceEditable(costVersion, settlementVersion);
       const bytes=Buffer.from(input.base64,"base64");
       requireValue(bytes.length>0 && bytes.length<=10*1024*1024,"附件须在10MB以内");
       const sha=digest(bytes),storageKey=`sha256/${sha.slice(0,2)}/${sha}`,
@@ -59,7 +63,7 @@ export function createEvidence({evidenceStore:repo,database,audit}:EvidenceSyste
         requireValue(digest(readFileSync(path))===sha,"附件存储校验失败");
       }
       return repo.transaction(()=>{
-        requireCostEvidenceEditable(costVersion);
+        requireVersionEvidenceEditable(costVersion, settlementVersion);
         let file=repo.fileByHash(sha);
         if(!file) {
           file={
@@ -90,7 +94,7 @@ export function createEvidence({evidenceStore:repo,database,audit}:EvidenceSyste
       authorize(actor,"admin");
       return repo.transaction(() => {
         const link=repo.link(key);requireValue(link,"附件不存在",404);
-        requireCostEvidenceEditable(link.cost_version_id);
+        requireVersionEvidenceEditable(link.cost_version_id, link.settlement_version_id);
         audit.record(actor,"evidence",key,"delete",link,{logical:true});
         return {deleted:true};
       });
@@ -99,7 +103,7 @@ export function createEvidence({evidenceStore:repo,database,audit}:EvidenceSyste
       authorize(actor,"write");
       return repo.transaction(() => {
         const link=repo.link(key);requireValue(link,"附件不存在",404);
-        requireCostEvidenceEditable(link.cost_version_id);
+        requireVersionEvidenceEditable(link.cost_version_id, link.settlement_version_id);
         requireValue(!repo.deleted(key),"附件已删除",409);
         requireValue(typeof note==="string" && note.length<=2000,"附件说明不能超过2000字");
         audit.record(actor,"evidence",key,"correct",link,{note});

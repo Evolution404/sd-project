@@ -90,7 +90,7 @@
     <el-alert v-else-if="detailError" type="error" :title="detailError" :closable="false" />
     <template v-else-if="detail">
       <SettlementFacts :detail="detail" />
-      <div v-if="!detail.deleted" class="mt-4 flex flex-wrap justify-end gap-2">
+      <div v-if="!detail.deleted && !detail.write_blocked_reason" class="mt-4 flex flex-wrap justify-end gap-2">
         <el-button v-if="canWrite && detail.draft" data-guide-action="finance.edit-draft" @click="openWork('SettlementEdit', detail.id)">编辑草稿</el-button>
         <template v-if="canWrite && !detail.draft && ['approve', 'return', 'reject'].includes(detail.status)">
           <el-button @click="openWork('SettlementEdit', detail.id)">编制修订</el-button>
@@ -281,9 +281,9 @@ const tableConfig:CrudTableConfig={
   },
   toolbarActions:[
     {key:"create",label:"新增结算草稿",permission:"write",
-      visible:()=>!projectId||projectContext.value?.status==="approved",onClick:startSettlement},
+      visible:()=>!projectId||(projectContext.value?.status === "approved" && !projectContext.value.deleted),onClick:startSettlement},
     {key:"exchange",label:"导入 Excel",permission:"write",
-      visible:()=>Boolean(projectId) && projectContext.value?.status==="approved",
+      visible:()=>Boolean(projectId) && (projectContext.value?.status === "approved" && !projectContext.value.deleted),
       onClick:()=>{ exchangeOpen.value = true; }},
   ],
   tableTools:["refresh","columns","search"],
@@ -297,7 +297,7 @@ const tableConfig:CrudTableConfig={
     {prop:"created_at",sortable:"custom",label:"创建时间",cellType:"custom",minWidth:180},
     {prop:"actions",label:"操作",cellType:"actions",fixed:"right",width:200,
       actions:[{key:"edit-draft",label:"编辑草稿",permission:"write",
-        visible:({row})=>Boolean(row?.draft) && !row?.deleted && (!projectContext.value || projectContext.value.status==="approved"),
+        visible:({row})=>Boolean(row?.draft) && !row?.deleted && (!projectContext.value || (projectContext.value.status === "approved" && !projectContext.value.deleted)),
         onClick:({row})=>row&&openWork("SettlementEdit",String(row.id))},{key:"detail",label:"查看详情",permission:"read",
         onClick:({row})=>row&&showDetails(String(row.id))}]},
   ],

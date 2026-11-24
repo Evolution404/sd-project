@@ -1,4 +1,5 @@
 <template>
+  <el-alert v-if="detail.write_blocked_reason" type="info" :title="detail.write_blocked_reason" :closable="false" class="mb-3" />
   <el-descriptions border :column="2">
     <el-descriptions-item label="结算编号">{{ detail.number }}</el-descriptions-item>
     <el-descriptions-item label="当前状态">
@@ -45,7 +46,7 @@
   <el-empty v-if="!(detail.document_details?.resolutions?.length)" description="暂无位置解决明细"/>
   <template v-if="detail.version?.id">
     <el-divider>正式结算版本附件</el-divider>
-    <BusinessEvidence :key="detail.version.id" :owner="detail.version.id" kind="settlement_version_id" :readonly="detail.deleted" />
+    <BusinessEvidence :key="detail.version.id" :owner="detail.version.id" kind="settlement_version_id" :readonly="detail.deleted || Boolean(detail.write_blocked_reason)" />
   </template>
 </template>
 

@@ -209,7 +209,11 @@ export function createFinance(
   function settlementDetails(key: string, projectId?: string): SettlementDetails {
     const row = settlement(key);
     requireValue(!projectId || row.project_id === projectId, "结算单不存在于当前项目", 404);
-    const base = { ...row, deleted: repo.settlementDeleted(key) };
+    const base = {
+      ...row,
+      deleted: repo.settlementDeleted(key),
+      write_blocked_reason: closedWriteReason({ status: repo.projectStage(row.project_id) ?? "" }) || null,
+    };
     const draft = row.draft?.document;
     const document = draft ?? row.version;
     if (!document) return { ...base, document_details: null };

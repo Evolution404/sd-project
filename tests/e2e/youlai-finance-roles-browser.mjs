@@ -159,6 +159,25 @@ try {
       assert.equal(await button(review, "审核通过").count(), 0);
       await button(review, "返回工作台").click();
       await task.waitFor({ state: "hidden" });
+      const closing = s.projectClosure.preview(actors.verifier, project.id);
+      s.projectClosure.commit(actors.verifier, project.id, {
+        preview_hash: closing.preview_hash, expected_version: project.version, reason: "确认项目实际差额",
+      });
+      await page.close();
+      await openFinance("admin");
+      await page.goto(reviewUrl);
+      const archivedReview = page.getByRole("region", { name: "结算审核办理", exact: true });
+      await archivedReview.getByText("项目已结项，普通费用、科目、结算及核对写入已冻结", { exact: true }).waitFor();
+      assert.equal(await button(archivedReview, "编制修订").count(), 0);
+      assert.equal(await button(archivedReview, "上传附件").count(), 0);
+      const frozenEvidence = await page.request.post(origin + "/api/evidence", {
+        data: { owner_kind: "settlement_version_id", owner_id: submittedVersion,
+          filename: "已结项附件请求.txt", base64: Buffer.from("拒绝已结项附件").toString("base64") },
+        headers: { "Idempotency-Key": "closed-settlement-evidence-mutation" },
+      });
+      assert.equal(frozenEvidence.status(), 409, await frozenEvidence.text());
+      assert.equal(s.evidence.list(admin, "settlement_version_id", submittedVersion).length, 0);
+      assert.equal(s.finance.summary(project.id).settlement_fen, 12500);
     }
     await page.close();
   }

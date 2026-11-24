@@ -45,6 +45,7 @@ export interface SettlementRow {
   deleted?:boolean;created_at:string;
 }
 export interface SettlementDetails extends SettlementRow {
+  write_blocked_reason: string | null;
   items: SettlementItemInput[];
   resolutions: SettlementResolutionInput[];
   document_details?:{
