@@ -21,14 +21,19 @@ try {
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
-  await page.goto(origin + "/#/login");
+  await page.goto(origin + "/#/configuration/access");
+  await page.getByRole("heading", { name: "项目全流程管理", exact: true }).waitFor();
+  for (const obsolete of ["输电运检", "输电项目", "登录内网工作区"]) {
+    assert.equal(await page.locator(".login-card").getByText(obsolete, { exact: false }).count(), 0);
+  }
   await page.getByPlaceholder("用户名").fill("admin");
   await page.getByPlaceholder("密码").fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
-  await page.waitForURL(/#\/dashboard/);
-  await page.goto(origin + "/#/configuration/access");
-  const toggle = page.locator(".el-switch").filter({ has: page.getByRole("switch", { name: "访问限制" }) });
+  await page.waitForURL(/#\/configuration\/access/);
+  const nativeSwitch = page.getByRole("switch", { name: "访问限制" });
+  const toggle = page.locator(".el-switch").filter({ has: nativeSwitch });
   await page.getByText("访问限制已开启", { exact: true }).waitFor();
+  assert.equal(await nativeSwitch.getAttribute("aria-checked"), "true");
   const grantedIp = "192.0.2.50";
   assert.equal(s.auth.permittedIp(grantedIp), false);
   await page.getByRole("button", { name: "新增 IP 授权" }).click();
@@ -53,10 +58,14 @@ try {
   await page.getByRole("dialog", { name: "确认关闭访问限制" }).getByRole("button", { name: "确认关闭" }).click();
   await page.getByText("访问限制已关闭", { exact: true }).waitFor();
   assert.equal(s.auth.permittedIp(grantedIp), true);
+  assert.equal(await nativeSwitch.getAttribute("aria-checked"), "false");
   await toggle.click();
   await page.getByRole("dialog", { name: "确认开启访问限制" }).getByRole("button", { name: "确认开启" }).click();
   await page.getByText("访问限制已开启", { exact: true }).waitFor();
   assert.equal(s.auth.permittedIp(grantedIp), false);
+  await page.reload();
+  await page.getByText("访问限制已开启", { exact: true }).waitFor();
+  assert.equal(await nativeSwitch.getAttribute("aria-checked"), "true");
   await page.screenshot({ path: join(screenshots, "access-control-1920.png") });
 
   await page.getByRole("tab", { name: "访问日志" }).click();
