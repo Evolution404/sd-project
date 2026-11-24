@@ -159,18 +159,29 @@ try{
   assert.deepEqual(await copySettlementColumn(page, revisedGrid, 4, 3), ["2", "1", "3"]);
   assert.deepEqual(await copySettlementColumn(page, revisedGrid, 8, 3), ["0", "0", "0"]);
   const approvalSelector=revision.locator(".el-form-item").filter({hasText:"采用批准版本"}).locator(".el-select");
-  await approvalSelector.click();
-  await page.getByRole("option",{name:"第 2 版（当前）",exact:true}).click();
+  const switchDialog=page.getByRole("dialog",{name:"核对批准版本差异",exact:true});
+  const chooseApproval=async (name,action)=>{
+    await approvalSelector.click();
+    await page.getByRole("option",{name,exact:true}).click();
+    await switchDialog.getByRole("button",{name:action,exact:true}).click();
+    await switchDialog.waitFor({state:"hidden"});
+  };
+  await chooseApproval("第 2 版（当前）","保持当前版本");
+  await approvalSelector.getByText("第 1 版",{exact:true}).waitFor();
+  assert.deepEqual(await copySettlementColumn(page, revisedGrid, 4, 3), ["2", "1", "3"]);
+  assert.equal(Number(await revision.getByPlaceholder("如 1200.00").inputValue()),800);
+  await chooseApproval("第 2 版（当前）","确认切换");
   await approvalSelector.getByText("第 2 版（当前）",{exact:true}).waitFor();
   await settlementCanvas(revision);
-  await approvalSelector.click();
-  await page.getByRole("option",{name:"第 1 版",exact:true}).click();
+  await chooseApproval("第 1 版","确认切换");
+  await approvalSelector.getByText("第 1 版",{exact:true}).waitFor();
   await revision.getByPlaceholder("如 1200.00").fill("850.00");
   await revision.getByRole("textbox",{name:"修订说明"}).fill("追加经核实的实际费用");
   await revision.getByRole("button",{name:"保存草稿"}).click();
   await revision.waitFor({state:"hidden"});
   let current=f.s.finance.settlement(found.id);
   assert.equal(current.draft.document.approval_version_id,f.approval.id);
+  assert.equal(current.draft.document.change_type,"revision");
   assert.equal(current.draft.document.resolutions.length,3);
   assert.equal(current.effective_amount_fen,80000);
   await billRow.getByRole("button",{name:"查看详情"}).click();
@@ -339,6 +350,14 @@ try{
   assert.ok(reconciliation);
   await page.goto("http://127.0.0.1:"+port+"/#/funding/finance?project="+f.project.id+"&work=reconciliations");
   const originalReconciliation=page.getByRole("row").filter({hasText:"决算凭证逐笔一致"});
+  await originalReconciliation.getByRole("button",{name:"修订核对",exact:true}).waitFor();
+  assert.ok(await originalReconciliation.locator(".row-actions").evaluate(container => {
+    const bounds = container.closest(".cell").getBoundingClientRect();
+    return [...container.querySelectorAll("button")].every(button => {
+      const box = button.getBoundingClientRect();
+      return box.width > 0 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+    });
+  }),"the native action cell must show the full action buttons at the desktop viewport");
   await originalReconciliation.getByRole("button",{name:"修订核对",exact:true}).click();
   const correction=page.getByRole("dialog",{name:"修订费用核对"});
   assert.equal(await correction.getByRole("textbox",{name:"核对实际费用（元）"}).inputValue(),"120.00");

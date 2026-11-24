@@ -283,10 +283,12 @@ async function changeApproval(id:string){
     const issues=await worksheet.value.previewSwitch(id);
     const allowed=new Set(approvalVersions.value.find(row=>row.id===id)?.scopes.map(row=>row.project_scope_id));
     const excluded=editorItems.value.filter(row=>row.project_scope_id&&!allowed.has(row.project_scope_id));
-    if(issues.length||excluded.length){
-      const detail=[...issues,...excluded.map(row=>row.costNodeName||"所填子费用采用的需求不在目标版本")];
-      await ElMessageBox.confirm("切换将移除以下受影响的输入："+detail.join("；"),"核对批准版本差异",{
-        type:"warning",confirmButtonText:"确认切换",cancelButtonText:"取消",
+    const affected = [...issues, ...excluded.map(row => costNames.value.get(row.cost_node_id) || row.costNodeName || "所填子费用采用的需求不在目标版本")];
+    if (affected.length || editing.value) {
+      const message = affected.length ? "切换将移除以下受影响的输入：" + affected.join("；")
+        : "确认采用所选批准版本？请核对该版本的作业位置和批准数量。";
+      await ElMessageBox.confirm(message, "核对批准版本差异", {
+        type: "warning", confirmButtonText: "确认切换", cancelButtonText: "保持当前版本",
       });
     }
     editorItems.value=editorItems.value.filter(row=>!excluded.includes(row));
