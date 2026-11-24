@@ -51,7 +51,9 @@
 
 <script setup lang="ts">
 import { nativeListQuery, applyNativeListQuery } from "@/utils/business/native-list-query";
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { LIST_QUERY_KEY } from "@/components/Crud/utils/list-state";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
@@ -60,7 +62,15 @@ import {
   type AccessPolicy, type AccessRecord, type IpGrant,
 } from "@/api/business/access";
 
-const tab = ref("ips");
+const route = useRoute();
+const router = useRouter();
+const tab = computed({
+  get: () => route.query.tab === "logs" ? "logs" : "ips",
+  set(next) {
+    if (next === tab.value) return;
+    void router.replace({ query: { ...route.query, tab: next === "logs" ? "logs" : undefined, [LIST_QUERY_KEY]: undefined } });
+  },
+});
 const policy = ref<AccessPolicy>();
 const error = ref(""), diagnostic = ref("");
 const loadingPolicy = ref(false), savingPolicy = ref(false);

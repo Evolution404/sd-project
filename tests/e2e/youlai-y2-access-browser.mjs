@@ -6,10 +6,12 @@ import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
-const { s } = fixture({ after: fn => cleanup.push(fn) });
+const { s, user } = fixture({ after: fn => cleanup.push(fn) });
+s.auth.saveUser(user, { username: "log-reader", password: "Viewer-test-password", role: "viewer" });
+const accessClock = new Date("2026-11-12T16:03:47Z");
 const staticDirectory = resolve(process.env.SD_BROWSER_STATIC_DIRECTORY || "dist/web");
 assert.ok(existsSync(join(staticDirectory, "index.html")));
-const backend = httpServer(s, { staticDirectory });
+const backend = httpServer(s, { staticDirectory, accessLog: { clock: () => accessClock } });
 await new Promise(resolve => backend.listen(0, "127.0.0.1", resolve));
 const origin = "http://127.0.0.1:" + backend.address().port;
 const screenshots = resolve("test-results/youlai-y2");
@@ -18,7 +20,7 @@ let browser;
 try {
   browser = await chromium.launch(existsSync(chromium.executablePath())
     ? { headless: true } : { headless: true, channel: "chrome" });
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true, timezoneId: "America/Los_Angeles", colorScheme: "dark" });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(origin + "/#/configuration/access");
@@ -80,7 +82,7 @@ try {
   await log.getByRole("button", { name: "查看详情" }).click();
   const details = page.getByRole("dialog", { name: "访问记录详情" });
   await details.getByText("/api/login", { exact: true }).waitFor();
-  assert.match(await details.innerText(), /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);
+  await details.getByText("2026-11-13 00:03:47", { exact: true }).waitFor();
   await page.screenshot({ path: join(screenshots, "access-log-detail-1920.png") });
   await details.locator(".el-drawer__close-btn").click();
   const downloaded = page.waitForEvent("download");
@@ -92,6 +94,43 @@ try {
   assert.equal(rows[0].outcome, "登录成功");
   assert.equal(rows[0].status, 200);
   assert.ok(!JSON.stringify(rows).includes("Schema113-test-password"));
+  const missingRequest = "/api/acceptance-missing-visit";
+  const missing = await page.request.get(origin + missingRequest);
+  assert.equal(missing.status(), 404);
+  await filters.getByRole("textbox", { name: "日志检索" }).fill(missingRequest);
+  await filters.getByRole("textbox", { name: "状态码" }).fill("404");
+  await filters.getByRole("button", { name: "搜索", exact: true }).click();
+  const missingLog = page.getByRole("row").filter({ hasText: missingRequest });
+  await missingLog.getByRole("button", { name: "查看详情" }).click();
+  await details.getByText("资源不存在", { exact: true }).waitFor();
+  await details.locator(".el-drawer__close-btn").click();
+  await details.waitFor({ state: "hidden" });
+  const logUrl = new URL(page.url());
+  assert.equal(new URLSearchParams(logUrl.hash.split("?")[1]).get("tab"), "logs");
+  await page.reload();
+  await missingLog.waitFor();
+  assert.equal(await filters.getByRole("textbox", { name: "日志检索" }).inputValue(), missingRequest);
+  assert.equal(await filters.getByRole("textbox", { name: "状态码" }).inputValue(), "404");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.locator("html.dark").waitFor({ state: "attached" });
+  assert.ok(await missingLog.getByRole("cell").first().evaluate(cell => {
+    const color = getComputedStyle(cell).backgroundColor.match(/\d+/g)?.slice(0, 3).map(Number);
+    return color && color.every(value => value < 100);
+  }), "access log cells use the dark table surface");
+  await page.screenshot({ path: join(screenshots, "access-log-dark-1920.png"), animations: "disabled" });
+  const viewer = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  try {
+    const login = await viewer.request.post(origin + "/api/login", {
+      data: { username: "log-reader", password: "Viewer-test-password" },
+    });
+    assert.equal(login.status(), 200);
+    assert.equal((await viewer.request.get(origin + "/api/access-logs")).status(), 403);
+    assert.equal((await viewer.request.get(origin + "/api/access-logs/export")).status(), 403);
+    const reader = await viewer.newPage();
+    await reader.goto(origin + "/#/configuration/access?tab=logs");
+    await reader.locator(".layout-content").waitFor();
+    assert.equal(await reader.getByRole("tab", { name: "访问日志", exact: true }).count(), 0);
+  } finally { await viewer.close(); }
   assert.deepEqual(errors, []);
   console.log("YOULAI_Y2_ACCESS_OK live IP grants and restriction, filtered safe access-log export");
 } finally {
