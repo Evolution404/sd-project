@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { resolve, join } from "node:path";
+import { resolve, join, basename } from "node:path";
 import { createHash } from "node:crypto";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { readEquipmentAudit } from "../../dist/server/database/queries/equipment-audit.js";
@@ -317,7 +317,7 @@ try {
         first.line + " " + first.operation + "（原表待实施记录）",
       completion_standard: operation.completion_standard,
       primary_source:
-        "20260915防鸟反措明细.xlsx / " +
+        basename(raw.source) + " / " +
         first.sheet +
         " / 原始行 " +
         facts.map((row) => row.source_row).join("、") +

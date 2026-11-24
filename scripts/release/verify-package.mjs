@@ -1,4 +1,4 @@
-import { requireNode26, sourceSnapshot } from "./source-snapshot.mjs";
+import { requireNode24, sourceSnapshot } from "./source-snapshot.mjs";
 import {
   mkdtempSync,
   rmSync,
@@ -13,16 +13,17 @@ import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
-requireNode26();
+requireNode24();
 const root = resolve(import.meta.dirname, "../.."),
-  zip = join(root, "dist/sd-project-win10-x64.zip"),
+  releaseOutput = process.env.SD_RELEASE_OUTPUT_DIR || join(root,"dist"),
+  zip = join(releaseOutput, "sd-project-win10-x64.zip"),
   temporary = mkdtempSync(join(tmpdir(), "sd113-package-")),
   stage = join(temporary, "release"),
   data = join(stage, "data");
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 const receipt = JSON.parse(
-  readFileSync(join(root, "dist/RELEASE-MANIFEST.json"), "utf8"),
+  readFileSync(join(releaseOutput, "RELEASE-MANIFEST.json"), "utf8"),
 );
 assert.equal(hash(zip), receipt.sha256);
 const git = spawnSync("git", ["rev-parse", "HEAD"], {
@@ -31,7 +32,9 @@ const git = spawnSync("git", ["rev-parse", "HEAD"], {
 });
 assert.equal(git.stdout.trim(), receipt.git_commit);
 // A subsequent real frontend build must preserve the finished ZIP byte-for-byte.
-const rebuild = spawnSync("npm", ["run", "build"], {
+const pnpmCli = process.env.npm_execpath;
+assert.ok(pnpmCli && process.env.npm_config_user_agent?.startsWith("pnpm/10.34.5 "));
+const rebuild = spawnSync(process.execPath, [pnpmCli, "run", "build"], {
   cwd: root,
   encoding: "utf8",
   timeout: 120000,
@@ -56,6 +59,11 @@ z.extractall(base)
   { encoding: "utf8" },
 );
 assert.equal(extracted.status, 0, extracted.stderr);
+for (const path of [
+  "docs/vendor/vue3-element-admin-4.13.0/LICENSE",
+  "docs/implementation/有来_vue3-element-admin_v4.13.0_源码移植与复用清单_2026-11-23.md",
+  "docs/implementation/2026-11-23_结算全量工作表与有来桌面改版验收.md",
+]) assert.ok(existsSync(join(stage,path)),"正式版缺少MIT许可或移植验收凭据："+path);
 for (const dependency of [
   "vite",
   "typescript",
@@ -73,12 +81,14 @@ const manifest = JSON.parse(
 for(const file of ["scripts/training/instance.mjs",
     "启动训练环境.cmd","训练实例列表.cmd",
     "docs/implementation/P10_业务操作帮助覆盖清单.md",
+    "docs/implementation/P10_正式有来操作覆盖复核_2026-11-24.md",
+    "docs/implementation/有来UI最终交付执行矩阵_2026-11-24.md",
     "docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md"])
   assert.ok(existsSync(join(stage,file)),"离线包缺少P10及杆塔字典资源："+file);
 assert.equal(manifest.schema_version, 113);
-assert.match(manifest.runtime,/^v26\.\d+\.\d+$/);
+assert.match(manifest.runtime,/^v24\.\d+\.\d+$/);
 assert.equal(manifest.runtime,receipt.runtime);
-  for (const config of ["vite.config.ts", "tsconfig.json", "tsconfig.server.json"])
+  for (const config of ["web/vite.config.ts", "web/tsconfig.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.server.json"])
     assert.match(manifest.build_input_files_sha256[config], /^[a-f0-9]{64}$/);
 assert.equal(manifest.git_commit, receipt.git_commit);
 assert.equal(sourceSnapshot(root).sha256, manifest.build_input_sha256, "发布包构建输入与当前源码不一致");
@@ -99,17 +109,26 @@ const shipped = spawnSync(
     "scripts/backup.mjs",
     "scripts/restore.mjs",
     "package.json",
-    "package-lock.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
   ],
   { cwd: root, encoding: "utf8" },
 );
 assert.equal(shipped.status, 0);
 assert.equal(manifest.entrypoint, "dist/server/main.js");
+for(const [path,digest] of Object.entries(manifest.deployment_artifact_sha256))assert.equal(hash(join(stage,path)),digest,"部署脚本损坏 "+path);
+assert.ok(manifest.deployment_artifact_sha256["一键升级.cmd"]);
+assert.ok(manifest.deployment_artifact_sha256["恢复业务数据.cmd"]);
 for (const [path, digest] of Object.entries(manifest.server_source_sha256))
   assert.equal(hash(join(root, path)), digest, "服务端源码与发布提交不一致 " + path);
 for (const [path, digest] of Object.entries(manifest.server_artifact_sha256)) {
   assert.equal(hash(join(stage, "dist/server", path)), digest, "服务端产物不一致 " + path);
   assert.equal(hash(join(root, "dist/server", path)), digest, "本地重建产物不一致 " + path);
+}
+assert.ok(manifest.frontend_artifact_sha256["index.html"]);
+for (const [path, digest] of Object.entries(manifest.frontend_artifact_sha256)) {
+  assert.equal(hash(join(stage, "dist/web", path)), digest, "前端产物不一致 " + path);
+  assert.equal(hash(join(root, "dist/web", path)), digest, "本地重建前端产物不一致 " + path);
 }
 assert.equal(existsSync(join(stage, "server")), false, "离线包应运行编译产物");
 for (const path of shipped.stdout.split("\0").filter(Boolean))
@@ -185,7 +204,7 @@ async function ready() {
   });
 }
 async function stop() {
-  if (server.exitCode !== null) return;
+  if (!server || server.exitCode !== null || server.signalCode !== null) return;
   const stopped = new Promise((resolve) => server.once("exit", resolve));
   server.kill("SIGTERM");
   await stopped;
@@ -226,7 +245,18 @@ try {
     assert.equal(response.status, 200, JSON.stringify(result));
     return result;
   }
-  const unit = await write("/catalog/units", { name: "套" });
+  const catalog=async kind=>{
+    const response=await fetch(base+"/api/catalog/"+kind+"?page_size=100",{headers:{Cookie:cookie}});
+    assert.equal(response.status,200);
+    return (await response.json()).items;
+  };
+  const units=await catalog("units"),volts=await catalog("voltages");
+  assert.equal(units.length,22);
+  assert.deepEqual(volts.map(v=>v.name).sort(),["35kV","110kV","220kV","500kV","1000kV","±200kV","±500kV","±800kV"].sort());
+  const unit=units.find(row=>row.name==="套");
+  assert.equal(unit.quantity_precision,0);
+  const decimalUnit=units.find(row=>row.name==="米");
+  assert.equal(decimalUnit.quantity_precision,2);
   const object = await write("/catalog/objects", {
     name: "物理杆塔检修",
     object_position: "body",
@@ -294,6 +324,35 @@ try {
   );
   assert.equal(restoredAttachment.status, 200);
   assert.equal(await restoredAttachment.text(), "release-evidence");
+  await stop();
+  // Exercise the deployed upgrade entry point against a second extraction of the
+  // actual release, with the first installation containing real test writes.
+  const upgraded=join(temporary,"upgraded-release");
+  const second=spawnSync("python3",["-c",`import zipfile,sys
+with zipfile.ZipFile(sys.argv[1]) as z:
+ z.extractall(sys.argv[2])`,zip,upgraded],{encoding:"utf8",timeout:90000});
+  assert.equal(second.status,0,second.stderr);
+  const upgrade=spawnSync(processExec,[join(upgraded,"scripts/upgrade.mjs"),stage,String(port)],{cwd:upgraded,env,encoding:"utf8",timeout:60000});
+  assert.equal(upgrade.status,0,upgrade.stderr+upgrade.stdout);
+  assert.match(upgrade.stdout,/UPGRADE_OK/);
+  assert.ok(existsSync(join(stage,"data/schema113.sqlite")));
+  const upgradeReceipt=JSON.parse(readFileSync(join(upgraded,"data/UPGRADE-RECEIPT.json"),"utf8"));
+  assert.equal(upgradeReceipt.verified,true);
+  assert.equal(upgradeReceipt.old_service_port,port);
+  assert.ok(existsSync(upgradeReceipt.backup));
+  const duplicate=spawnSync(processExec,[join(upgraded,"scripts/upgrade.mjs"),stage,String(port)],{cwd:upgraded,env,encoding:"utf8",timeout:30000});
+  assert.notEqual(duplicate.status,0);
+  assert.match(duplicate.stderr,/拒绝覆盖/);
+  server=spawn(processExec,[join(upgraded,"dist/server/main.js")],{env:{...env,DATA_DIR:join(upgraded,"data")},stdio:["ignore","pipe","pipe"]});
+  await ready();
+  const afterUpgrade=await fetch(base+"/api/demands/"+demand.id,{headers:logHeaders});
+  assert.equal(afterUpgrade.status,200);
+  assert.equal((await afterUpgrade.json()).quantity_scaled,10000);
+  const upgradedFile=await fetch(base+"/api/evidence/"+attachment.id,{headers:logHeaders});
+  assert.equal(upgradedFile.status,200);
+  assert.equal(await upgradedFile.text(),"release-evidence");
+  assert.deepEqual((await catalog("voltages")).map(v=>v.name).sort(),volts.map(v=>v.name).sort());
+  console.log("PORTABLE_UPGRADE_OK preserved accounts, sessions, demand, attachment and reference data");
   receipt.host_verification = {
     verified_at: new Date().toISOString(),
     os: process.platform,
@@ -301,10 +360,12 @@ try {
     rebuild_preserved_zip: true,
     actual_zip_extracted: true,
     backup_restore_restart: true,
+    offline_upgrade_restart: true,
+    initial_reference_data: true,
     access_logs_rotation_restart: true,
   };
   writeFileSync(
-    join(root, "dist/RELEASE-MANIFEST.json"),
+    join(releaseOutput, "RELEASE-MANIFEST.json"),
     JSON.stringify(receipt, null, 2) + "\n",
   );
   console.log(

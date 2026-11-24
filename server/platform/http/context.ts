@@ -26,6 +26,6 @@ export interface RouteContext {
   exchange: HttpServices["exchange"];
   mutate<T>(permission: string, action: () => T): T;
   workbook(response: ServerResponse, promise: Promise<unknown>, filename: string): Promise<void>;
-  page<T extends object>(rows: T[], search: URLSearchParams): Page<T>;
+  page<T extends object>(rows: T[], search: URLSearchParams, gridFields?: readonly string[]): Page<T>;
 }
 export type RouteHandler = (context: RouteContext) => Promise<{ result: unknown } | undefined>;

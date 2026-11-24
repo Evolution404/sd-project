@@ -52,7 +52,7 @@ export function definitionTables(kind: "operations" | "prices", row: ReadRow) {
     return [...table("附加属性定义", columns, attributes.map(field => [
       text(field.label), label(field.scope, { demand: "需求", location: "作业位置" }),
       field.source === "asset" ? label(field.asset_field, {
-        voltage_level_id: "台账 · 电压等级", tower_material: "台账 · 杆塔材质", tower_nature: "台账 · 杆塔性质",
+        voltage_level_id: "电压等级", tower_material: "杆塔材质", tower_nature: "杆塔性质",
       }) : label(field.source, { manual: "手工填写", ledger: "台账取值" }),
       label(field.type, { text: "单行文字", textarea: "多行文字", select: "单选", multiselect: "多选",
         integer: "整数", decimal: "小数", boolean: "是否", date: "日期" }),

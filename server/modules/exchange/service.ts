@@ -1,5 +1,5 @@
 import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
-import { approvalPositionLabel } from "../../shared/approval-position-label.js";
+import { approvalPositionLabel,approvalPositionFields } from "../../shared/approval-position-label.js";
 import { attributeCells } from "./attribute-cells.js";
 import {
   parseWorkbook,
@@ -94,22 +94,26 @@ export function createExchange(system:ExchangePorts) {
       requireValue(approval, "解决量必须采用本次结算的正式批准版本", 422);
       const scope = approval.scopes.find(x => x.project_scope_id === value.project_scope_id);
       requireValue(scope, "解决量须选择当前结算已批准的专业需求", 422);
+      const matchesFields=(position:typeof scope.locations[number])=>{
+        const fields=approvalPositionFields(position);
+        return (!value.location_label||approvalPositionLabel(position)===value.location_label)&&
+          ["line_name","start_tower_no","end_tower_no"].every(key=>!value[key]||value[key]===fields[key as keyof typeof fields]);
+      };
       if (value.location_item_no == null && typeof value.location_label==="string") {
-        const matches = scope.locations.filter(position =>
-          approvalPositionLabel(position) === value.location_label);
+        const matches = scope.locations.filter(matchesFields);
         requireValue(matches.length===1, "作业位置名称不存在或存在重名，请从正式批准位置选择");
         value.location_item_no = matches[0].location_item_no;
       } else {
         const position = scope.locations.find(position =>
           position.location_item_no === value.location_item_no);
         requireValue(position, "解决量位置不属于本次正式批准范围", 422);
-        requireValue(!value.location_label || value.location_label === approvalPositionLabel(position),
+        requireValue(matchesFields(position),
           "解决量作业位置名称与隐藏的批准位置身份不一致", 422);
       }
     }
     return value;
   }
-  function prepare(kind:"demands"|"settlements",parsed:ParsedWorkbook,mode:ExchangeMode, projectId:string|null|undefined):ExchangePrepareResult {
+  function prepare(actor: Actor, kind:"demands"|"settlements",parsed:ParsedWorkbook,mode:ExchangeMode, projectId:string|null|undefined):ExchangePrepareResult {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
     references = createReferences(system);
     matchingMs = 0;
@@ -146,6 +150,7 @@ export function createExchange(system:ExchangePorts) {
         const existingDemand = kind==="demands" && root.id ? demands.get(root.id) : null;
         const existingSettlement = kind==="settlements" && root.id ? finance.settlement(root.id) : null;
         const existing = existingDemand || existingSettlement;
+        if (existingSettlement) system.projects.authorizeOwnedProject(actor, "write", existingSettlement.project_id);
         const matchingStarted = performance.now();
         if (
           kind === "demands" &&
@@ -168,6 +173,8 @@ export function createExchange(system:ExchangePorts) {
             root.project_name,
             root.project_id,
           ).id;
+        if (kind === "settlements" && root.project_id)
+          system.projects.authorizeOwnedProject(actor, "write", root.project_id);
         if (kind === "settlements" && !existing && root.project_id) {
           const project = system.projects.get(root.project_id);
           root.approval_version_id ??= project.approval?.id;
@@ -383,7 +390,7 @@ export function createExchange(system:ExchangePorts) {
           if (payload.mode === "按项目总额") payload.mode = "project_total";
           if (payload.mode === "按子费用") payload.mode = "itemized";
           if (payload.mode === "itemized" && root.amount_fen === undefined) delete payload.amount_fen;
-          Object.assign(payload, finance.validateDraft(settlementProject, financeSettlementDraft(payload)));
+          Object.assign(payload, finance.validateDraft(settlementProject, financeSettlementDraft(payload), existingSettlement?.id));
         }
         const settlementFacts = (input: Record<string, unknown>) => {
           const { expected_version, expected_edit_version, number: _number, project_id,
@@ -443,6 +450,8 @@ export function createExchange(system:ExchangePorts) {
           row: root._row,
         });
       } catch (error) {
+        // Permission failures are not correctable spreadsheet errors: reject the entire batch.
+        if (error instanceof BusinessError && error.status === 403) throw error;
         if (issues.length === originalIssueCount) issues.push(
           issue(
             root._sheet,
@@ -545,6 +554,8 @@ export function createExchange(system:ExchangePorts) {
   }
   async function preview(actor:Actor,kind:WorkbookKind,buffer:Buffer,options:ExchangePreviewOptions = {}): Promise<ExchangePreview> {
     authorize(actor, kind === "assets" ? "admin" : "write");
+    if (kind === "settlements" && options.projectId)
+      system.projects.authorizeOwnedProject(actor, "write", options.projectId);
     const sha256 = digest(buffer);
     const previous = previousWorkbook(actor, kind, sha256, options.projectId);
     if (previous && !options.newSettlement) return previousPreview(previous);
@@ -581,6 +592,7 @@ export function createExchange(system:ExchangePorts) {
       }
     }
     const prepared = prepare(
+      actor,
       kind,
       parsed,
       options.mode || "mixed",
@@ -664,12 +676,14 @@ export function createExchange(system:ExchangePorts) {
         const commitStarted = performance.now();
         const body = JSON.parse(batch.draft_json);
         if (body.kind === "assets") authorize(actor, "admin");
+        if (body.kind === "settlements" && body.projectId)
+          system.projects.authorizeOwnedProject(actor, "write", body.projectId);
         const previous = previousWorkbook(actor, body.kind, body.sha256, body.projectId);
         requireValue(previous?.token === body.repeatOf, "此文件已被导入，请重新上传并查看上次结果。", 409);
         const prepared =
             body.kind === "assets"
               ? assets.prepare(body.parsed, body.mode)
-              : prepare(body.kind, body.parsed, body.mode, body.projectId),
+              : prepare(actor, body.kind, body.parsed, body.mode, body.projectId),
           results:ExchangeCommitResult["results"] = [],
           failures:WorkbookIssue[] = [...prepared.issues];
         requireValue(
@@ -701,7 +715,7 @@ export function createExchange(system:ExchangePorts) {
                 number: resultNumber, id: result.id, action: document.action,
               });
             } catch (error) {
-              if (input.atomic) throw error;
+              if (input.atomic || (error instanceof BusinessError && error.status === 403)) throw error;
               failures.push(
                 issue(
                   document.sheet,
@@ -784,7 +798,7 @@ export function createExchange(system:ExchangePorts) {
     },
     template(actor:Actor,kind:WorkbookKind,projectId?:string|null,assetKind?:AssetExchangeKind) {
       authorize(actor, "read");
-      if (kind === "assets") return makeWorkbook("assets", {}, { assetKind, template: true });
+      if (kind === "assets") return makeWorkbook("assets", {}, { assetKind, template: true, choices:assets.choices() });
       const project = projectId ? system.projects.get(projectId) : null;
       return makeWorkbook(
         kind,

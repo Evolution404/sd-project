@@ -18,10 +18,10 @@ const configuration: ReadonlyArray<{
   { id:"system", title:"系统管理", summary:"维护账号权限、IP访问限制和操作审计。", task:"管理账号授权与访问策略", risk:"权限控制属于服务端；关闭IP限制不取消登录鉴权" },
 ];
 const overviewSteps = (item: typeof configuration[number]): GuideStep[] => [
-  { id:item.id+".purpose", title:"本页面用于什么",description:item.summary,target:".page-heading" },
+  { id:item.id+".purpose", title:"本页面用于什么",description:item.summary,target:".page-header, .el-card__header, .toolbar-left" },
   { id:item.id+".navigation",title:"业务功能区域",description:"这里按当前业务身份和状态展示相关分区和操作。部分内容可能需要切换页签查看。",target:".el-tabs__header" },
-  { id:item.id+".primary",title:"从主要操作开始",description:item.task+"。无权执行的动作会显示禁用状态，不能通过本教程绕过。",target:".page-heading-actions" },
-  { id:item.id+".list",title:"查询、筛选与查看",description:"先定位业务对象，再使用详情、列表行操作和正式历史核实当前状态。",target:".business-table-grid .el-table__header-wrapper" },
+  { id:item.id+".primary",title:"从主要操作开始",description:item.task+"。无权执行的动作可能隐藏或禁用，不能通过本教程绕过。",target:".toolbar-left, .page-heading-actions" },
+  { id:item.id+".list",title:"查询、筛选与查看",description:"先定位业务对象，再使用详情、列表行操作和正式历史核实当前状态。",target:".el-table__header-wrapper" },
   { id:item.id+".safety",title:"正式历史与风险",description:item.risk+"。本导览只显示说明，不会执行任何业务变更。",target:"" },
 ];
 export const guideModules: readonly GuideModule[] = configuration.map(item => ({

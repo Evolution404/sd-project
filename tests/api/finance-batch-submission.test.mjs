@@ -13,7 +13,7 @@ test("64-row settlement submission uses one identity query, one approval query a
       cost_node_id:node.id,project_scope_id:scope.id,
       quantity_scaled:10000,amount_fen:1,evidence:"第1期费用凭证",
     })),
-    resolutions:[{project_scope_id:scope.id, location_item_no: 1,resolved_quantity_scaled:640000,
+    resolutions:[{project_scope_id:scope.id, location_item_no: 1,resolved_quantity_scaled:30000,
       evidence:"64项独立计价的工程量核实"}],
   });
   const seen={identities:0,scopes:0,nodes:0};

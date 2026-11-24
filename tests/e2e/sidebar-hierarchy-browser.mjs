@@ -21,7 +21,7 @@ mkdirSync(evidence, { recursive: true });
 
 async function geometry() {
   return page.evaluate(() => {
-    const menu = document.querySelector(".navigation-menu-scroll");
+    const menu = document.querySelector(".layout-sidebar__menu .el-scrollbar__wrap") ?? document.querySelector(".navigation-menu-scroll");
     const group = document.querySelector(".navigation .nav-group > .el-sub-menu__title");
     const leaf = document.querySelector(".navigation .nav-leaf-item");
     const parentLabel = group.querySelector(".nav-group-label");
@@ -104,7 +104,7 @@ try {
         JSON.stringify({ width, height, ...result }));
       if (height === 640) {
         assert.ok(result.scrollable, JSON.stringify({width,height,...result}));
-        await page.locator(".navigation-menu-scroll").first().evaluate(element => {
+        await page.locator(".layout-sidebar__menu .el-scrollbar__wrap").first().evaluate(element => {
           element.scrollTop = element.scrollHeight;
           if (element.scrollTop < 30) throw new Error("menu cannot scroll");
         });

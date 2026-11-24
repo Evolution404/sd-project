@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 // or calculations returning through future edits. Historical design notes and
 // explicit negative-schema assertions are not product code.
 const root = resolve(import.meta.dirname, "..");
-const roots = ["server", "web/src", "tests/api", "tests/domain", "tests/excel"];
+const roots = ["server", "web/src", "tests/fixtures/legacy-frontend/web/src", "tests/api", "tests/domain", "tests/excel"];
 const suffixes = new Set([".mjs", ".js", ".ts", ".vue", ".sql"]);
 const forbidden = /税率|税额|税费|税金|含税|不含税|计税|\btax_(?:rate|mode|basis|amount)\b|\btax(?:Rate|Mode|Amount|Basis)\b|\bvat(?:Rate|Amount)?\b/i;
 const violations = [];

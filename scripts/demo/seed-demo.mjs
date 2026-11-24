@@ -1,5 +1,7 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync, mkdtempSync, renameSync, rmSync, openSync, writeSync, closeSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, lstatSync, mkdtempSync, renameSync, rmSync, openSync, writeSync, closeSync, rmdirSync } from "node:fs";
 import { resolve, join, dirname, basename } from "node:path";
+import { spawnSync } from "node:child_process";
+import { seedCommonDefinitions } from "../seed/common.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { today } from "../../dist/server/platform/auth/service.js";
@@ -34,29 +36,50 @@ function counts(system) {
   };
 }
 
-function populate(system, password) {
+function populate(system, password, realAssets=false) {
   return system.database.transaction(() => {
-    system.auth.initialize(DEMO_ACCOUNT, password);
+    if(!realAssets)system.auth.initialize(DEMO_ACCOUNT, password);
     const { user } = system.auth.login(DEMO_ACCOUNT, password);
     const add = (kind, data) => system.catalog.save(user, kind, data);
+    if(realAssets)seedCommonDefinitions(system,user);
+    const ensure=(kind,data)=>realAssets?(system.catalog.list(kind).find(row=>row.name===data.name)||add(kind,data)):add(kind,data);
     // Every demonstration unit explicitly declares quantity precision.
-    const unitSet = add("units", { code: "DEMO_UNIT_SET", name: "套", quantity_precision: 0 });
-    const unitString = add("units", { code: "DEMO_UNIT_STRING", name: "串", quantity_precision: 0 });
-    const unitSection = add("units", { code: "DEMO_UNIT_SECTION", name: "处", quantity_precision: 0 });
-    const unitPiece = add("units", { code: "DEMO_UNIT_PIECE", name: "片", quantity_precision: 0 });
-    const unitMeter = add("units", { code: "DEMO_UNIT_METER", name: "米", quantity_precision: 2 });
-    add("units", { code: "DEMO_UNIT_AREA", name: "平方米", quantity_precision: 2 });
+    const unitSet = ensure("units", { code: "DEMO_UNIT_SET", name: "套", quantity_precision: 0 });
+    const unitString = ensure("units", { code: "DEMO_UNIT_STRING", name: "串", quantity_precision: 0 });
+    const unitSection = ensure("units", { code: "DEMO_UNIT_SECTION", name: "处", quantity_precision: 0 });
+    const unitPiece = ensure("units", { code: "DEMO_UNIT_PIECE", name: "片", quantity_precision: 0 });
+    const unitMeter = ensure("units", { code: "DEMO_UNIT_METER", name: "米", quantity_precision: 2 });
+    ensure("units", { code: "DEMO_UNIT_AREA", name: "平方米", quantity_precision: 2 });
     const voltages = {};
     for (const voltage of ["35kV", "110kV", "220kV", "500kV", "1000kV", "±200kV", "±500kV", "±800kV"])
-      voltages[voltage] = add("voltages", { name: voltage });
-    add("categories", { name: "线路日常检修" });
-    add("categories", { name: "线路专项整治" });
-    add("priorities", { name: "一般" });
-    add("priorities", { name: "重要" });
-    add("priorities", { name: "紧急" });
+      voltages[voltage] = ensure("voltages", { name: voltage });
+    ensure("categories", { name: "线路日常检修" });
+    ensure("categories", { name: "线路专项整治" });
+    ensure("priorities", { name: "一般" });
+    ensure("priorities", { name: "重要" });
+    ensure("priorities", { name: "紧急" });
     add("organizations", { name: "【演示】输电运检班" });
     add("organizations", { name: "【演示】施工协作单位" });
 
+    let line220,line110,towers220,towers110,spans220,allSpans;
+    if(realAssets){
+      const lineRows=system.catalog.list("lines"), towerRows=system.catalog.list("towers"), spanRows=system.catalog.list("spans").filter(row=>row.status==="active");
+      const towersById=new Map(towerRows.map(row=>[row.id,row]));
+      const select=voltage=>{
+        for(const line of lineRows.filter(row=>row.voltage_level_id===voltages[voltage].id)){
+          const spans=spanRows.filter(row=>row.line_id===line.id&&row.transmission_center_length_mm>0&&towersById.get(row.start_tower_id)?.status==="active"&&towersById.get(row.end_tower_id)?.status==="active");
+          if(spans.length>=12){
+            const first=spans[0];
+            return {line,spans,towers:[first.start_tower_id,first.end_tower_id].map(id=>({logical:towersById.get(id)}))};
+          }
+        }
+        throw Error("真实台账缺少满足演示条件的 "+voltage+" 线路");
+      };
+      const a=select("220kV"),b=select("110kV");
+      line220=a.line;line110=b.line;towers220=a.towers;towers110=b.towers;spans220=a.spans;
+      allSpans=spanRows.filter(row=>row.transmission_center_length_mm>0);
+      if(allSpans.length<35)throw Error("真实台账档距不足");
+    }else{
     const lineDefinitions = [
       ["220", "220kV青峰线", "220kV", 15],
       ["110", "110kV河湾线", "110kV", 21],
@@ -71,7 +94,7 @@ function populate(system, password) {
         voltage_level_id: voltages[voltage].id,
       }),
     }));
-    const line220 = demoLines[0].line, line110 = demoLines[1].line;
+    line220 = demoLines[0].line; line110 = demoLines[1].line;
     function createTowerSeries(line, label, numbers) {
       const result = [];
       for (const n of numbers) {
@@ -89,7 +112,7 @@ function populate(system, password) {
     }
     const towerGroups = demoLines.map(({line, code, start}) =>
       createTowerSeries(line, code, Array.from({length: 12}, (_, index) => start + index)));
-    const [towers220, towers110] = towerGroups;
+    [towers220, towers110] = towerGroups;
     function addSpans(line, towers) {
       return towers.slice(1).map((tower, i) => add("spans", {
         line_id: line.id,
@@ -100,8 +123,11 @@ function populate(system, password) {
       }));
     }
     const spanGroups = demoLines.map(({line}, index) => addSpans(line, towerGroups[index]));
-    const [spans220] = spanGroups;
-    const allSpans = spanGroups.flat();
+    [spans220] = spanGroups;
+    allSpans = spanGroups.flat();
+    }
+    const label220=realAssets?line220.name:"220kV青峰线",label110=realAssets?line110.name:"110kV河湾线";
+    const project220=realAssets?line220.name:"青峰线",project110=realAssets?line110.name:"河湾线";
 
     const bird = add("objects", {
       name: "防鸟装置", code: "DEMO-WO-BIRD", object_position: "body", attribution_unit: "logical_tower",
@@ -218,7 +244,7 @@ function populate(system, password) {
     const installDemand = system.demands.save(user, {
       demand_no: "DEMO-D-001",
       operation_id: birdOperation.id,
-      problem_description: "【演示】220kV青峰线15、16号杆塔缺少防鸟装置",
+      problem_description: "【演示】"+label220+towers220[0].logical.tower_no+"、"+towers220[1].logical.tower_no+"号杆塔缺少防鸟装置",
       expected_on: currentDate,
       completion_standard: "补装防鸟装置并验收",
       materials: [{ material_id: birdMaterial.id, quantity_scaled: 50000 }],
@@ -248,7 +274,7 @@ function populate(system, password) {
     const replacementDemand = system.demands.save(user, {
       demand_no: "DEMO-D-002",
       operation_id: insulatorOperation.id,
-      problem_description: "【演示】110kV河湾线21号杆塔绝缘子串老化",
+      problem_description: "【演示】"+label110+towers110[0].logical.tower_no+"号杆塔绝缘子串老化",
       expected_on: currentDate,
       work_locations: [{
         location_kind: "logical_tower",
@@ -263,7 +289,7 @@ function populate(system, password) {
     system.demands.save(user, {
       demand_no: "DEMO-D-003",
       operation_id: spanOperation.id,
-      problem_description: "【演示】220kV青峰线15—16号档导线局部损伤",
+      problem_description: "【演示】"+label220+towers220[0].logical.tower_no+"—"+towers220[1].logical.tower_no+"号档导线局部损伤",
       work_locations: [{
         location_kind: "span", span_id: spans220[0].id, quantity_scaled: 10000,
       }],
@@ -278,7 +304,7 @@ function populate(system, password) {
         const workSpan = allSpans[modelIndex * 5 + repeat];
         const demand = system.demands.save(user, {
           operation_id: example.operation.id,
-          problem_description: "【演示】" + example.title + " · 现场样例" + (repeat + 1),
+          problem_description: "【演示】" + example.title + "（现场样例" + (repeat + 1) + "）",
           expected_on: new Date(Date.parse(currentDate+"T00:00:00Z")+
             (modelIndex+repeat+1)*86400000).toISOString().slice(0,10),
           work_locations: [{
@@ -318,7 +344,7 @@ function populate(system, password) {
     });
 
     let project = system.projects.save(user, {
-      name: "【演示】青峰线防鸟装置整治", framework_id: framework.id,
+      name: "【演示】"+project220+"防鸟装置整治", framework_id: framework.id,
     });
     project = system.projects.link(user, project.id, {
       demand_id: installDemand.id, expected_version: 1,
@@ -393,7 +419,7 @@ function populate(system, password) {
     });
 
     let pending = system.projects.save(user, {
-      name: "【演示】河湾线绝缘子专项更换",
+      name: "【演示】"+project110+"绝缘子专项更换",
       framework_id: framework.id,
     });
     pending = system.projects.link(user, pending.id, {
@@ -515,14 +541,19 @@ function releaseDemoRefreshLock(fd, lock) {
 export function ensureDemoDatabase(dataDir, options = {}) {
   const directory = resolve(dataDir);
   const markerPath = join(directory, MARKER);
+  const useImportedAssets = options.real === true || Boolean(options.assetSource);
   if (existsSync(markerPath)) {
     const marker = JSON.parse(readFileSync(markerPath, "utf8"));
     if (marker.purpose !== "local-demo" ||
         (!OLDER_DEMO_VERSIONS.has(marker.version) && marker.version !== SEED_VERSION))
       throw Error("已有演示数据版本与当前程序不匹配，请手动检查，拒绝覆盖");
-    if (OLDER_DEMO_VERSIONS.has(marker.version) ||
-        marker.schema_sha256 !== schemaFingerprint())
+    const real=marker.asset_basis==="imported-ledger";
+    if(real!==useImportedAssets)
+      throw Error("真实台账演示与合成夹具必须使用独立目录");
+    if (OLDER_DEMO_VERSIONS.has(marker.version) || marker.schema_sha256 !== schemaFingerprint()){
+      if(real)throw Error("真实台账演示库结构改变，请使用升级工具，不得自动重建已有业务数据");
       return refreshOutdatedDemo(directory, options, marker);
+    }
     const system = createSystem(directory);
     try {
       const existing = counts(system);
@@ -535,7 +566,36 @@ export function ensureDemoDatabase(dataDir, options = {}) {
   }
   if (existsSync(directory) && readdirSync(directory).length)
     throw Error("目标目录已有非演示数据，拒绝写入：" + directory);
-  mkdirSync(directory, { recursive: true });
+  if(useImportedAssets){
+    if(!options.assetSource)throw Error("首次创建真实台账演示需要显式提供本地源文件");
+    if(typeof options.password!=="string"||options.password.length<16||options.password===DEMO_PASSWORD)
+      throw Error("真实台账演示必须使用独立的强密码，不允许固定演示凭据");
+    mkdirSync(dirname(directory),{recursive:true,mode:0o700});
+    const staging=mkdtempSync(join(dirname(directory),".real-demo-import-"));
+    const output=join(staging,"seed"),candidate=join(output,"data");
+    try{
+      const result=spawnSync(process.execPath,[resolve(import.meta.dirname,"../import/line-statistics.mjs"),options.assetSource,output],{
+        env:{...process.env,SD_SEED_ACCOUNT:DEMO_ACCOUNT,SD_ADMIN_PASSWORD:options.password},encoding:"utf8",timeout:180000
+      });
+      if(result.status!==0)throw Error("真实台账导入失败："+result.stderr);
+      const system=createSystem(candidate);
+      let populated;
+      try{
+        const before=counts(system);
+        populated=populate(system,options.password,true);
+        for(const key of ["lines","physicalTowers","logicalTowers","spans"])if(before[key]!==populated[key])throw Error("演示业务写入改变真实基础台账数量："+key);
+        if(!system.database.verifyIntegrity())throw Error("演示数据完整性检查未通过");
+        const imported=JSON.parse(readFileSync(join(output,"IMPORT-RECEIPT.json"),"utf8"));
+        const metadata={purpose:"local-demo",version:SEED_VERSION,schema_sha256:schemaFingerprint(),asset_basis:"imported-ledger",source_sha256:imported.source_sha256,createdAt:new Date().toISOString(),note:"真实设备基础台账；新增需求、项目、价格均为虚构演示",...populated};
+        writeFileSync(join(candidate,MARKER),JSON.stringify(metadata,null,2)+"\n",{flag:"wx",mode:0o600});
+        system.database.checkpoint();
+      }finally{system.close()}
+      if(existsSync(directory))rmdirSync(directory);
+      renameSync(candidate,directory);
+      return {created:true,directory,...populated};
+    }finally{rmSync(staging,{recursive:true,force:true});}
+  }
+  mkdirSync(directory,{recursive:true});
   const system = createSystem(directory);
   try {
     const result = populate(system, options.password || DEMO_PASSWORD);
@@ -544,7 +604,8 @@ export function ensureDemoDatabase(dataDir, options = {}) {
     const metadata = {
       purpose: "local-demo", version: SEED_VERSION,
       schema_sha256: schemaFingerprint(),
-      note: "全部数据虚构，仅供熟悉系统，不可用于真实工程",
+      asset_basis:options.assetSource?"imported-ledger":"synthetic-fixture",
+      note: options.assetSource?"真实台账；新增需求、价格、项目等均为虚构演示，不可作为真实业务依据":"全部数据虚构，仅供熟悉系统，不可用于真实工程",
       createdAt: new Date().toISOString(),
       ...result,
     };

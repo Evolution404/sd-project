@@ -39,6 +39,7 @@ export interface Database {
   transaction<T>(action: () => T): T;
   backupTo(destination: string): Promise<string>;
   verifyIntegrity(): boolean;
+  checkpoint(): void;
   close(): void;
 }
 
@@ -112,6 +113,10 @@ export function openDatabase(
     verifyIntegrity() {
       return connection.prepare("PRAGMA foreign_key_check").all().length === 0 &&
         connection.prepare("PRAGMA integrity_check").get()?.integrity_check === "ok";
+    },
+    checkpoint() {
+      const result = connection.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+      if (result?.busy !== 0) throw Error("数据库检查点未完成，请停止其他数据库连接后重试");
     },
     close() { connection.close(); },
   };

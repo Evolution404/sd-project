@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 import { fixture } from "../helpers.mjs";
 import { inspect } from "../inspector.mjs";
 import { projectReadRepository } from "../../dist/server/database/repositories/projects.js";
+import { financeReadRepository } from "../../dist/server/database/repositories/finance.js";
 
 test("60 complete demands and 12 approval versions use fixed collection reads", { timeout: 180000 }, t => {
   const { s, user, save, operation } = fixture(t);
@@ -28,6 +29,11 @@ test("60 complete demands and 12 approval versions use fixed collection reads", 
     get(...args) { reads++; return store.get(...args); },
   });
   const demandMap = new Map(demands.map(row => [row.id, row]));
+  const financeRepository=financeReadRepository({
+    ...store,
+    query(...args){reads++;return store.query(...args);},
+    get(...args){reads++;return store.get(...args);},
+  });
   const samples = [];
   for (let version = 1; version <= 12; version++) {
     project = s.projects.approvalDraft(user, project.id, {
@@ -61,7 +67,13 @@ test("60 complete demands and 12 approval versions use fixed collection reads", 
     assert.equal(reads, 4);
     assert.equal(history.length, version);
     assert.equal(history[0].approved_budget_fen, 100001);
-    samples.push({ versions: version, currentApprovalReads: 4, candidateReads: 1, fullHistoryReads: 4,
+    reads=0;
+    const worksheet=financeRepository.settlementWorksheet(project.id,project.approval.id);
+    assert.equal(reads,4,"full settlement worksheet must use four set-based reads for 120 positions");
+    assert.equal(worksheet.rows.length,120);
+    assert.equal(worksheet.rows.filter(row=>row.editable).length,120);
+    assert.ok(worksheet.rows.every(row=>row.prior_resolved_quantity_scaled===0));
+    samples.push({ versions: version, currentApprovalReads: 4, candidateReads: 1, fullHistoryReads: 4, settlementWorksheetReads:4,
       readElapsedMs: Math.round(performance.now() - began) });
   }
   assert.deepEqual(inspect(s).integrity().foreignKeys, []);

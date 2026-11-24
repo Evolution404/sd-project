@@ -1,3 +1,4 @@
+import { locationDisplayFields } from "../../shared/location-display.js";
 import type { HistoryFact, HistoryLink, HistoryTable, HistoryValue } from "../../shared/types/history.js";
 import type { createDemands } from "../demands/service.js";
 import { differences, document, event, facts, feeName, json, label, methods, money, number, pricingModels,
@@ -24,16 +25,17 @@ function attributeValues(value: unknown, definitions: ReadRow[]) {
 
 function locationLabel(location: unknown): HistoryValue {
   const snapshot = document(record(location).location_snapshot_json);
-  return text(snapshot.location_label ?? snapshot.tower_no) ?? "原位置名称未记载";
+  return locationDisplayFields(record(location).location_kind,snapshot).location_label;
 }
 
 function workLocations(snapshot: ReadRow, definitions: ReadRow[]): HistoryTable[] {
   const list = rows(snapshot.work_locations);
-  return table("作业位置及工作量", ["作业位置", "工作量", "作业方式", "现场属性"], list.map(location => [
-    locationLabel(location), quantity(location.quantity_scaled, string(snapshot.unit_snapshot)),
+  return table("作业位置及工作量", ["作业位置", "线路名称", "起点杆塔号", "终点杆塔号", "物理杆塔编号", "工作量", "作业方式", "现场属性"], list.map(location => {
+    const display=locationDisplayFields(location.location_kind,document(location.location_snapshot_json));
+    return [display.location_label,display.line_name,display.start_tower_no,display.end_tower_no,display.physical_code,quantity(location.quantity_scaled, string(snapshot.unit_snapshot)),
     label(location.work_mode, methods),
     attributeValues(location.attributes, definitions).map(field => `${field.label} ${field.value ?? "未填写"}`).join("、") || null,
-  ]), list.map(location => JSON.stringify([location.location_kind,
+  ];}), list.map(location => JSON.stringify([location.location_kind,
     location.logical_tower_id ?? location.physical_tower_id ?? location.span_id, location.context_line_id ?? null])));
 }
 
@@ -89,7 +91,7 @@ export function demandHistory(input: ReturnType<ReturnType<typeof createDemands>
     const snapshot = frozen.get(row.version) ?? {};
     const operation = string(snapshot.operation_snapshot);
     return [...facts(
-      ["操作类型", operation ? `${operation} · 第 ${row.operation_version} 版` : null],
+      ["操作类型", operation || null], ["操作版本", row.operation_version == null ? null : String(row.operation_version)],
       ["问题描述", text(snapshot.problem_description)], ["处理部位", text(snapshot.target_object)],
       ["验收标准", text(snapshot.completion_standard)], ["优先级", text(snapshot.priority_snapshot)],
       ["预计解决时间", text(snapshot.expected_on)],
@@ -111,6 +113,12 @@ export function demandHistory(input: ReturnType<ReturnType<typeof createDemands>
       summary: changes.length ? changes.slice(0, 2).map(change => change.label).join("、") : undefined,
       badge: row.version === current.current_version ? "当前正式版本" : undefined,
       reason: revisions.get(row.version),
+      links: rows(snapshot.work_locations).flatMap(location => {
+        const kind = location.location_kind === "physical_tower" ? "physical"
+          : location.location_kind === "logical_tower" ? "towers" : location.location_kind === "span" ? "spans" : undefined;
+        const id = string(location.physical_tower_id ?? location.logical_tower_id ?? location.span_id);
+        return kind && id ? [{ label: "查看台账历史： " + locationLabel(location), target: { kind, id } }] : [];
+      }),
       tables: [
         ...workLocations(snapshot, adoptedAttributes(row)),
         ...table("预计物资", ["物资", "规格", "数量", "备注"], materials.map(item => [
@@ -131,7 +139,7 @@ export function demandHistory(input: ReturnType<ReturnType<typeof createDemands>
   for (const scope of rows(input.bindings)) {
     const project = string(scope.project_name ?? scope.project_no);
     const links: HistoryLink[] = scope.project_id && project ? [
-      { label: `查看项目 · ${project}`, target: { kind: "projects", id: String(scope.project_id) } },
+      { label: `查看项目：${project}`, target: { kind: "projects", id: String(scope.project_id) } },
     ] : [];
     for (const row of rows(scope.events)) {
       const linked = row.action === "linked";
@@ -160,7 +168,7 @@ export function demandHistory(input: ReturnType<ReturnType<typeof createDemands>
       if (!rule || version === undefined || seenRules.has(identity)) continue;
       seenRules.add(identity);
       links.push({
-        label: `查看计价规则 · ${line.rule_title}（第 ${version} 版）`,
+        label: `查看计价规则：${line.rule_title}（第 ${version} 版）`,
         target: { kind: "prices", id: rule, entry: `参考价格规则/${version}` },
       });
     }
@@ -170,9 +178,10 @@ export function demandHistory(input: ReturnType<ReturnType<typeof createDemands>
       facts: facts(["正式参考报价", list.length ? money(total) : null], ["价格适用日期", text(quote.pricing_date)],
         ["需求正式版本", `第 ${quote.demand_version} 版`]),
       tables: [
-        ...table("报价明细", ["作业位置", "采用规则", "计价方式", "数量", "金额"], list.map(line => [
+        ...table("报价明细", ["作业位置", "采用规则", "规则版本", "计价方式", "数量", "金额"], list.map(line => [
           locationLabel(locations.get(line.location_item_no)),
-          string(line.rule_title) ? `${line.rule_title} · 第 ${line.rule_version_no} 版` : null,
+          string(line.rule_title) || null,
+          line.rule_version_no == null ? null : String(line.rule_version_no),
           quoteMethod(line), quantity(line.quantity_scaled, unit), money(line.amount_fen),
         ])),
         ...calculationDetails(list, unit),

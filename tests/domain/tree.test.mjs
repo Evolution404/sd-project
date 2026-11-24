@@ -5,7 +5,7 @@ import {
   treePath,
   matchingTreeIds,
   descendantIds,
-} from "../../web/src/shared/utils/tree.ts";
+} from "../../tests/fixtures/legacy-frontend/web/src/shared/utils/tree.ts";
 const records = [
   { id: "c", parent_id: "b", name: "中心" },
   { id: "other", parent_id: null, name: "其他根" },

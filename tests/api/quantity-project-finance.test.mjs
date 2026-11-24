@@ -110,9 +110,10 @@ test("finance resolves and prices exact adopted unit precision even after unit m
   // Existing approved demand is pinned to integer unit version1, regardless of new version2.
   expectPrecisionFailure(()=>s.finance.saveDraft(user,project.id,
     draft(project,scope,node,2500,2500)),"resolutions.0.resolved_quantity_scaled");
+  assert.throws(()=>s.finance.saveDraft(user,project.id, draft(project,scope,node,100000,100000)), /超出批准余量/);
   const statement=s.finance.saveDraft(user,project.id,
-    draft(project,scope,node,100000,100000));
-  assert.equal(statement.draft.document.resolutions[0].resolved_quantity_scaled,100000);
+    draft(project,scope,node,100000,30000));
+  assert.equal(statement.draft.document.resolutions[0].resolved_quantity_scaled,30000);
 });
 
 test("decimal units permit 0.25 work and reject unsupported 0.2501 in approval and settlement", t => {

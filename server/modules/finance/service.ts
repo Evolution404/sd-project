@@ -1,6 +1,7 @@
 import { safeAmount } from "../pricing/calculation.js";
 import { closedWriteReason } from "../../shared/project-lifecycle.js";
 import { authorize, id, now, today } from "../../platform/auth/service.js";
+import { authorizeProject } from "../../platform/auth/project-access.js";
 import {
   requireValue,
   expectedVersion,
@@ -57,6 +58,7 @@ export function createFinance(
   function node(actor: Actor, projectId: string, input: CostNodeInput, key?: string) {
     authorize(actor, "write");
     return repo.transaction(() => {
+      projects.authorizeOwnedProject(actor, "write", projectId);
       requireValue(hierarchies.projectExists(projectId), "项目不存在", 404);
       const blocked = closedWriteReason({status:repo.projectStage(projectId) || ""});
       requireValue(!blocked, blocked, 409);
@@ -117,6 +119,7 @@ export function createFinance(
     return repo.transaction(() => {
       const project = projects.get(projectId),
         previous = key ? repo.latestCostVersion(key) : null;
+      authorizeProject(actor, "cost.confirm", project);
       const blocked = closedWriteReason(project);
       requireValue(!blocked, blocked, 409);
       const existingEntry = key ? repo.costEntry(key) : undefined;
@@ -232,7 +235,26 @@ export function createFinance(
         ({ ...resolution, demand: demand(resolution.project_scope_id) })),
     } };
   }
-  function validateDraft(projectId: string, input: SettlementDraftInput): NormalizedSettlementDraft {
+  // Approved quantities are project-specific; exclude this settlement when revising.
+  // Re-read inside every write transaction, including approval, to prevent races.
+  function validateResolutionCapacity(projectId: string, approvalId: string,
+    resolutions: NonNullable<SettlementDraftInput["resolutions"]>, settlementId?: string) {
+    if (!resolutions.length) return;
+    const worksheet = repo.settlementWorksheet(projectId, approvalId, settlementId);
+    requireValue(worksheet, "本项目采用的正式批准版本不存在", 404);
+    const positions = new Map(worksheet.rows.filter(row => row.editable).map(row =>
+      [row.project_scope_id + ":" + row.location_item_no, row]));
+    for (const [index, result] of resolutions.entries()) {
+      const row = positions.get(result.project_scope_id + ":" + result.location_item_no);
+      requireValue(row, "解决量必须关联该批准版本的真实作业位置", 422);
+      const remaining = Math.max(0, row.remaining_quantity_scaled);
+      requireValue(result.resolved_quantity_scaled <= remaining,
+        "需求 "+row.demand_no+" 的作业位置 "+row.location_label+"：本次解决量超出批准余量 " +
+          (remaining / 10000) + " " + row.unit, 422,
+        { ["resolutions." + index + ".resolved_quantity_scaled"]: "本次解决量不得超过批准余量" });
+    }
+  }
+  function validateDraft(projectId: string, input: SettlementDraftInput, settlementId?: string): NormalizedSettlementDraft {
     const project = projects.get(projectId),
       approval = project.approvals.find(
         (ap) => ap.id === (input.approval_version_id || project.approval?.id),
@@ -271,6 +293,7 @@ export function createFinance(
         rule.fields_json, rule.name,
         `resolutions.${index}.resolved_quantity_scaled`);
     }
+    validateResolutionCapacity(projectId, approval.id, resolutions, settlementId);
     const identities = new Set();
     let itemTotal = 0n;
     for (const [index, item] of items.entries()) {
@@ -315,6 +338,7 @@ export function createFinance(
   function saveDraft(actor: Actor, projectId: string, input: SettlementDraftInput, key?: string) {
     authorize(actor, "write");
     return repo.transaction(() => {
+      projects.authorizeOwnedProject(actor, "write", projectId);
       const blocked = closedWriteReason({status:repo.projectStage(projectId) || ""});
       requireValue(!blocked, blocked, 409);
       const previous = key ? settlement(key) : null;
@@ -334,7 +358,7 @@ export function createFinance(
         );
       }
       const normalized = validateDraft(projectId, input.change_type === "void" && previous?.version
-        ? { ...input, mode: previous.version.mode } : input),
+        ? { ...input, mode: previous.version.mode } : input, key),
         settlementId = key || id(),
         timestamp = now();
       if (!previous)
@@ -367,6 +391,7 @@ export function createFinance(
     authorize(actor, "write");
     return repo.transaction(() => {
       const current = settlement(key);
+      projects.authorizeOwnedProject(actor, "write", current.project_id);
       const blocked = closedWriteReason({status:repo.projectStage(current.project_id) || ""});
       requireValue(!blocked, blocked, 409);
       requireValue(!repo.settlementDeleted(key),
@@ -376,7 +401,7 @@ export function createFinance(
       expectedVersion(current.version?.version_no || 0, input.expected_version);
       requireValue(current.draft, "没有待提交草稿");
       expectedVersion(current.draft.edit_version, input.expected_edit_version);
-      const draft = validateDraft(current.project_id, current.draft.document),
+      const draft = validateDraft(current.project_id, current.draft.document, key),
         versionId = id(),
         timestamp = now(),
         approval = repo.approvalReference(draft.approval_version_id);
@@ -469,10 +494,21 @@ export function createFinance(
       return settlement(key);
     });
   }
+  function saveAndSubmit(actor: Actor, projectId: string, input: SettlementDraftInput, key?: string) {
+    return repo.transaction(() => {
+      const draft = saveDraft(actor, projectId, input, key);
+      requireValue(draft.draft, "没有待提交草稿");
+      return submit(actor, draft.id, {
+        expected_version: draft.version?.version_no || 0,
+        expected_edit_version: draft.draft.edit_version,
+      });
+    });
+  }
   function resubmit(actor: Actor, key: string, input: SettlementResubmitInput) {
     authorize(actor, "write");
     return repo.transaction(() => {
       const current = settlement(key);
+      projects.authorizeOwnedProject(actor, "write", current.project_id);
       const blocked = closedWriteReason({status:repo.projectStage(current.project_id) || ""});
       requireValue(!blocked, blocked, 409);
       requireValue(!repo.settlementDeleted(key), "结算单已删除，不能重新提交", 409);
@@ -481,6 +517,7 @@ export function createFinance(
       requireValue(!current.draft, "已有修订草稿，请提交新版本而不是原版重提", 409);
       expectedVersion(current.version.version_no, input.expected_version);
       expectedVersion(current.review.event_seq, input.expected_event_seq);
+      validateResolutionCapacity(current.project_id, current.version.approval_version_id, current.resolutions, key);
       repo.appendReview({
         id: id(),
         settlement_version_id: current.version.id,
@@ -525,6 +562,17 @@ export function createFinance(
   }
   return {
     effectiveSettlementReport: repo.effectiveSettlementReport,
+    settlementWorksheet(actor: Actor, projectId: string, approvalId: string, settlementId?: string) {
+      authorize(actor, "read");
+      requireValue(hierarchies.projectExists(projectId, true), "项目不存在", 404);
+      if (settlementId) {
+        const existing = settlement(settlementId);
+        requireValue(existing.project_id === projectId, "结算单不属于当前项目", 404);
+      }
+      const worksheet = repo.settlementWorksheet(projectId, approvalId, settlementId);
+      requireValue(worksheet, "本项目采用的正式批准版本不存在", 404);
+      return worksheet;
+    },
     selectedSettlements(ids: string[], query: ListQuery) {
       return repo.searchSettlementWorkflows(undefined, {
         ...query, page: 1, page_size: ids.length, q: "", filters: {}, deleted: true,
@@ -535,6 +583,7 @@ export function createFinance(
     searchSettlements: (projectId: string | undefined, query: ListQuery) => repo.searchSettlementWorkflows(projectId, query),
     searchReconciliationItems(actor: Actor, projectId: string, query: ListQuery) {
       authorize(actor, "cost.confirm");
+      projects.authorizeOwnedProject(actor, "cost.confirm", projectId);
       projects.workspace(projectId);
       return repo.searchReconciliationItems(projectId, query);
     },
@@ -545,6 +594,7 @@ export function createFinance(
     settlement,
     settlementDetails,
     saveDraft,
+    saveAndSubmit,
     submit,
     resubmit,
     validateDraft,
@@ -576,6 +626,7 @@ export function createFinance(
       authorize(actor, "settlement.approve");
       return repo.transaction(() => {
         const current = settlement(key);
+        projects.authorizeOwnedProject(actor, "settlement.approve", current.project_id);
         const blocked = closedWriteReason({status:repo.projectStage(current.project_id) || ""});
         requireValue(!blocked, blocked, 409);
         requireValue(!repo.settlementDeleted(key),
@@ -590,6 +641,8 @@ export function createFinance(
           ["approve", "return", "reject"].includes(input.action),
           "审核动作无效",
         );
+        if (input.action === "approve")
+          validateResolutionCapacity(current.project_id, current.version.approval_version_id, current.resolutions, key);
         if (input.action === "return")
           requireValue(typeof input.reason === "string" && input.reason.trim().length > 0,
             "退回结算必须填写退回原因", 422);
@@ -611,6 +664,7 @@ export function createFinance(
       authorize(actor, "write");
       return repo.transaction(() => {
         const current = settlement(key);
+        projects.authorizeOwnedProject(actor, "write", current.project_id);
         const blocked = closedWriteReason({status:repo.projectStage(current.project_id) || ""});
         requireValue(!blocked, blocked, 409);
         requireValue(!repo.settlementDeleted(key),
@@ -654,6 +708,13 @@ export function createFinance(
         const ownership = repo.reconciliationOwnership(source.cost_version_id, item.id);
         requireValue(ownership && ownership.cost_project_id === ownership.settlement_project_id,
           "费用与结算不属于同一项目，禁止交叉核对", 422);
+        projects.authorizeOwnedProject(actor, "cost.confirm", ownership.cost_project_id);
+        if (previous && input.status !== "voided") {
+          const existingCost = repo.costVersion(previous.cost_version_id);
+          const existingEntry = existingCost && repo.costEntry(existingCost.entry_id);
+          requireValue(existingEntry, "核对费用所属项目不存在", 404);
+          projects.authorizeOwnedProject(actor, "cost.confirm", existingEntry.project_id);
+        }
         const blocked = closedWriteReason({status:repo.projectStage(ownership.cost_project_id) || ""});
         requireValue(!blocked, blocked, 409);
         const row = {
@@ -689,6 +750,7 @@ export function createFinance(
         const cost = repo.costVersion(current.cost_version_id);
         const owner = cost && repo.costEntry(cost.entry_id);
         requireValue(owner, "核对费用所属项目不存在", 404);
+        projects.authorizeOwnedProject(actor, "cost.confirm", owner.project_id);
         const blocked = closedWriteReason({status:repo.projectStage(owner.project_id) || ""});
         requireValue(!blocked, blocked, 409);
         expectedVersion(current.version_no, input.expected_version);
@@ -758,16 +820,35 @@ export function createFinance(
         return { deleted: true };
       });
     },
-    removeCost(actor: Actor, projectId: string, key: string, input: {expected_version:number}) {
+    costDeletionPreview(actor: Actor, projectId: string, key: string) {
+      authorize(actor, "admin");
+      const entry = repo.costEntry(key);
+      const current = repo.latestCostVersion(key);
+      requireValue(entry?.project_id === projectId && current && !repo.actualCostDeleted(key),
+        "费用不存在于当前项目", 404);
+      const reconciliation = repo.activeCostReconciliation(key);
+      return {
+        title: current.title, expected_version: current.version_no,
+        reconciliation_count: reconciliation.count,
+        reconciled_cost_fen: reconciliation.amount,
+        blocked: closedWriteReason({status:repo.projectStage(projectId) || ""}),
+      };
+    },
+    removeCost(actor: Actor, projectId: string, key: string,
+      input: {expected_version:number;expected_reconciliations?:number}) {
       authorize(actor, "admin");
       return repo.transaction(() => {
         const blocked = closedWriteReason({status:repo.projectStage(projectId) || ""});
         requireValue(!blocked, blocked, 409);
+        requireValue(repo.costEntry(key)?.project_id === projectId, "费用不存在于当前项目", 404);
         const current = repo.latestCostVersion(key);
         requireValue(current, "费用不存在", 404);
         requireValue(!repo.actualCostDeleted(key),
           "费用已删除，不能重复删除", 409);
         expectedVersion(current.version_no, input.expected_version);
+        if (input.expected_reconciliations !== undefined)
+          requireValue(repo.activeCostReconciliation(key).count === input.expected_reconciliations,
+            "关联费用核对已变化，请重新核对删除影响", 409);
         if (current.status === "active")
           cost(
             actor,

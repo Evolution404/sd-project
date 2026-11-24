@@ -23,28 +23,14 @@ import {
   text,
 } from "../../shared/errors/business-error.js";
 import { catalogDefinitions } from "../catalog/definitions.js";
+import { EQUIPMENT_BULK_FIELDS, isEquipmentBulkKind } from "../../shared/equipment-bulk.js";
 
 export function isEquipmentKind(kind: string): kind is EquipmentCatalogKind {
   return ["voltages", "lines", "physical", "towers", "spans"].includes(kind);
 }
-function bindingLabel(binding: PhysicalBinding): string {
-  return `${binding.line_name} · ${binding.voltage_name || "电压待确认"} · ${binding.tower_no}`;
-}
-function physicalLabel(
-  row: EquipmentRecord,
-  bindings: PhysicalBinding[],
-): string {
-  return bindings.length
-    ? bindings.map(bindingLabel).join(" / ")
-    : row.asset_no ||
-        [
-          row.tower_material_label || row.tower_material,
-          row.model,
-          row.height_scaled ? row.height_scaled / 10000 + "米" : "",
-        ]
-          .filter(Boolean)
-          .join(" · ") ||
-        "独立物理杆塔";
+// A label is one business attribute, never a concatenation of relationship fields.
+function physicalLabel(row: EquipmentRecord): string {
+  return row.asset_no || row.tower_code || "独立物理杆塔";
 }
 
 export function createEquipment(
@@ -75,14 +61,11 @@ export function createEquipment(
         bindings.get(
           kind === "physical" ? row.id : row.physical_tower_id || "",
         ) || [];
-      const line = row.line_id_label || "历史关联记录不存在";
       let label = row.name || "业务对象";
-      if (kind === "lines")
-        label = `${row.name} · ${row.voltage_level_name || "电压待确认"}`;
-      if (kind === "physical") label = physicalLabel(row, related);
-      if (kind === "towers") label = `${line} · ${row.tower_no}`;
-      if (kind === "spans")
-        label = `${row.line_name} ${row.start_tower_no} ~ ${row.end_tower_no}`;
+      if (kind === "physical") label = physicalLabel(row);
+      if (kind === "towers") label = row.tower_no || "杆塔号未知";
+      // Span endpoints have independent fields; no fabricated compound name.
+      if (kind === "spans") label = "档距";
       const current = related.filter(
         (link) => link.logical_status !== "retired" && !link.logical_deleted,
       );
@@ -102,13 +85,7 @@ export function createEquipment(
               ].join("、"),
             }
           : {}),
-        ...(kind === "towers" && row.physical_tower_id
-          ? {
-              physical_tower_id_label: related.length
-                ? related.map(bindingLabel).join(" / ")
-                : row.physical_tower_id_label,
-            }
-          : {}),
+
       };
     });
   }
@@ -220,9 +197,7 @@ export function createEquipment(
             kind,
             key,
             Boolean(
-              supplied.historical_update &&
-                definition.equipment &&
-                actor.role === "admin",
+              supplied.historical_update && definition.equipment,
             ),
           )
         : null;
@@ -389,17 +364,82 @@ export function createEquipment(
       return result;
     });
   }
+  function bulk(actor: Actor, kind: EquipmentCatalogKind, input: unknown) {
+    authorize(actor, "admin");
+    requireValue(isEquipmentBulkKind(kind), "此设备类别不支持批量维护", 422);
+    requireValue(isObject(input) && Array.isArray(input.rows) && input.rows.length >= 1 && input.rows.length <= 100,
+      "每次请选择1至100条设备", 422);
+    const rows = input.rows;
+    const allowed = new Set<string>(EQUIPMENT_BULK_FIELDS[kind]);
+    return database.transaction(() => {
+      const ids = new Set<string>();
+      const prepared = rows.map((row: unknown) => {
+        requireValue(isObject(row) && Object.keys(row).every(k => ["id","expected_version","changes"].includes(k)), "批量设备记录格式无效", 422);
+        const key = text(row.id, "设备ID");
+        requireValue(!ids.has(key), "批次内设备身份重复", 422);
+        ids.add(key);
+        const prior = get(kind, key);
+        expectedVersion(prior.version, row.expected_version);
+        requireValue(prior.status !== "retired", "退役设备请走独立历史维护流程", 422);
+        requireValue(isObject(row.changes) && Object.keys(row.changes).length > 0, "修改字段不能为空", 422);
+        const changes: Record<string, unknown> = {};
+        for (const [field, raw] of Object.entries(row.changes)) {
+          requireValue(allowed.has(field), "不允许批量修改字段：" + field, 422);
+          let value = raw;
+          if (field === "name" || field === "tower_no" || field === "voltage_level_id") value = text(raw, field);
+          else if (field === "sort_rank") { integer(value, "线路排序"); requireValue(Number(value) >= 1, "线路排序必须为正整数", 422); }
+          else if (field === "asset_no") value = raw === null || raw === "" ? null : text(raw, "现场铭牌");
+          else if (field === "height_scaled" || field === "transmission_center_length_mm") {
+            if (value !== null) integer(value, field);
+          } else if (field === "longitude" || field === "latitude") {
+            const limit = field === "longitude" ? 180 : 90;
+            requireValue(value === null || (typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= limit),
+              "经纬度范围无效", 422);
+          } else if (field === "commissioned_on") {
+            requireValue(value === null || (typeof value === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(value) &&
+              Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10) === value), "投运日期无效", 422);
+          } else {
+            requireValue(typeof value === "string" || (value === null && ["tower_material","tower_nature","display_name"].includes(field)),
+              "字段类型无效：" + field, 422);
+          }
+          if (value !== prior[field as keyof EquipmentRecord]) changes[field] = value;
+        }
+        return { key, version: prior.version, changes };
+      });
+      const changed = prepared.filter(row => Object.keys(row.changes).length);
+      if (kind === "towers") {
+        const proposed = new Map(prepared.map(row => [row.key,row.changes]));
+        const lineIds = new Set(changed.map(row => get("towers",row.key).line_id!));
+        for (const lineId of lineIds) {
+          const seen = new Set<string>();
+          for (const tower of repository.towersInLine(lineId)) {
+            if (tower.deleted || tower.status === "retired") continue;
+            const next = proposed.get(tower.id);
+            const no = String(next?.tower_no ?? tower.tower_no).trim();
+            requireValue(!seen.has(no),"本线路杆塔号重复",422);
+            seen.add(no);
+          }
+        }
+      }
+      for (const row of changed) save(actor, kind, { ...row.changes, expected_version: row.version, reason: "批量维护普通设备资料" }, row.key);
+      return {count: changed.length, ids: changed.map(row => row.key)};
+    });
+  }
   function replacementPreview(key: string): ReplacementPreview {
     const physical = get("physical", key);
     requireValue(physical.status !== "retired", "该物理实体已退役");
+    const bindings = repository.boundTowers(key);
+    requireValue(!bindings.some(tower => tower.deleted && tower.status === "active"),
+      "有已删除但仍为在运状态的关联逻辑杆塔，请先核实其退役事实并办理历史更正", 409);
     return {
       physical,
-      bindings: decorate("towers", repository.boundTowers(key)),
+      bindings: decorate("towers", bindings.filter(tower => !tower.deleted)),
     };
   }
   return {
     get,
     save,
+    bulk,
     list: (
       kind: EquipmentCatalogKind,
       includeDeleted = false,
@@ -498,7 +538,9 @@ export function createEquipment(
           new_physical_id: replacement.id,
           bindings: current.bindings.map((tower) => ({
             logical_tower_id: tower.id,
-            label: tower.label,
+            line_name: tower.line_name,
+            voltage_level_name: tower.voltage_level_name,
+            tower_no: tower.tower_no,
             old_version: tower.version,
             new_version: tower.version + 1,
           })),

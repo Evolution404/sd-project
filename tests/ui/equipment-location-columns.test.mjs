@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { equipmentLocationColumns, equipmentLocationPreferenceKey,
   equipmentLocationQueryKind, equipmentLocationDisplay } from
-  "../../web/src/modules/demands/composables/equipment-location-columns.ts";
+  "../../tests/fixtures/legacy-frontend/web/src/modules/demands/composables/equipment-location-columns.ts";
 
 const keys = type => equipmentLocationColumns(type).map(c=>c.key);
 const labels = type => equipmentLocationColumns(type).map(c=>c.label);

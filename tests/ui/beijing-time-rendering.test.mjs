@@ -4,7 +4,7 @@ import {readFileSync, readdirSync} from "node:fs";
 import {join, dirname} from "node:path";
 import {fileURLToPath} from "node:url";
 import {execFileSync} from "node:child_process";
-import {formatBeijingDateTime, formatVisibleDateTime, isTimestampField} from "../../web/src/shared/utils/datetime.ts";
+import {formatBeijingDateTime, formatVisibleDateTime, isTimestampField} from "../../tests/fixtures/legacy-frontend/web/src/shared/utils/datetime.ts";
 
 test("Beijing timestamps use YYYY-MM-DD HH:mm:ss, UTC+08 irrespective of host timezone", () => {
   assert.equal(formatBeijingDateTime("2026-11-12T01:03:47.123Z"), "2026-11-12 09:03:47");
@@ -18,7 +18,7 @@ test("Beijing timestamps use YYYY-MM-DD HH:mm:ss, UTC+08 irrespective of host ti
   assert.equal(isTimestampField("created_at"), true);
   assert.equal(isTimestampField("expected_on"), false);
   const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-  const file = join(root, "web/src/shared/utils/datetime.ts");
+  const file = join(root, "tests/fixtures/legacy-frontend/web/src/shared/utils/datetime.ts");
   const code = `import {formatBeijingDateTime} from ${JSON.stringify("file://" + file)};
 console.log(formatBeijingDateTime("2026-11-12T01:03:47Z"));`;
   for (const timezone of ["UTC", "America/Los_Angeles", "Asia/Tokyo"]) {
@@ -30,7 +30,7 @@ console.log(formatBeijingDateTime("2026-11-12T01:03:47Z"));`;
 });
 
 test("timestamp rendering is centralized and raw time expressions are blocked in Vue", () => {
-  const root=join(dirname(fileURLToPath(import.meta.url)),"..","..","web/src");
+  const root=join(dirname(fileURLToPath(import.meta.url)),"..","..","tests/fixtures/legacy-frontend/web/src");
   const bad=[];
   function walk(dir) {
     for(const file of readdirSync(dir,{withFileTypes:true})) {

@@ -1,0 +1,228 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { chromium } from "playwright";
+import { fixture } from "../helpers.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
+const cleanup=[];
+const f=fixture({after:fn=>cleanup.push(fn)});
+const rows=[];
+for(let n=25;n>=1;n--){
+  rows.push(f.s.materials.save(f.user,{unit_id:f.unit.id,name:"治理验收-"+String(n).padStart(2,"0"),
+    model:"MODEL-"+n,specification:"审计样本",note:"",status:n%3===0?"inactive":"active"}));
+}
+const deletedMaterial=f.s.materials.save(f.user,{unit_id:f.unit.id,name:"历史范围专项样本",model:"DELETED",specification:"只读",note:"",status:"active"});
+f.s.materials.remove(f.user,deletedMaterial.id,deletedMaterial.version_no);
+const staticDirectory=resolve(process.env.SD_BROWSER_STATIC_DIRECTORY||"dist/web");
+assert.ok(existsSync(join(staticDirectory,"index.html")));
+const server=httpServer(f.s,{staticDirectory});
+await new Promise(ok=>server.listen(0,"127.0.0.1",ok));
+const origin="http://127.0.0.1:"+server.address().port;
+const shots=resolve("test-results/youlai-native-crud-governance");mkdirSync(shots,{recursive:true});
+let browser,page;
+try{
+ browser=await chromium.launch(existsSync(chromium.executablePath())?{headless:true}:{headless:true,channel:"chrome"});
+ const context=await browser.newContext({viewport:{ width: 1920, height: 1080 }});
+ page=await context.newPage();
+ const errors=[];page.on("pageerror",e=>errors.push(e.message));
+ await page.goto(origin+"/#/login");
+ await page.getByPlaceholder("用户名").fill("admin");
+ await page.getByPlaceholder("密码").fill("Schema113-test-password");
+ await page.getByRole("button",{name:"登录",exact:true}).click();
+ await page.waitForURL(/#\/dashboard/);
+ const main=page.locator(".layout-content");
+ await page.goto(origin+"/#/assets/materials");
+ await main.getByRole("button",{name:"新增物资",exact:true}).waitFor();
+ await page.waitForFunction(()=>!document.querySelector(".layout-content .el-loading-mask"));
+ const search=main.locator(".el-form").first();
+ const status=search.locator(".el-form-item").filter({hasText:"状态"}).locator(".el-select");
+ assert.ok((await status.boundingBox()).width>=140,"native status dropdown width");
+ await search.getByPlaceholder("编码 / 名称 / 型号 / 规格").fill("治理验收");
+ const nextResponse=(predicate)=>page.waitForResponse(r=>{
+   const u=new URL(r.url());return u.pathname==="/api/catalog/materials"&&r.status()===200&&predicate(u.searchParams);
+ });
+ await search.evaluate(el=>el.dataset.mountAudit="unchanged");
+ let response=nextResponse(q=>q.get("q")==="治理验收");
+ await search.getByRole("button",{name:"搜索",exact:true}).click();
+ assert.equal((await (await response).json()).total,25);
+ const header=main.locator(".el-table__header-wrapper th").filter({hasText:"物资名称"}).first();
+ response=nextResponse(q=>q.get("sort")==="name"&&q.get("direction")==="asc");
+ await header.locator(".caret-wrapper .ascending").click();
+ const first=await (await response).json();
+ assert.equal(first.items[0].name,"治理验收-01");
+ assert.equal(first.items.at(-1).name,"治理验收-20");
+ await page.waitForFunction(()=>document.querySelector(".layout-content .el-table__body-wrapper")?.textContent.includes("治理验收-20"));
+ assert.match(await header.getAttribute("class"),/ascending/);
+ response=nextResponse(q=>q.get("page")==="2"&&q.get("sort")==="name"&&q.get("direction")==="asc");
+ await main.locator(".el-pagination .btn-next").click();
+ const second=await (await response).json();
+ assert.equal(second.items[0].name,"治理验收-21");
+ assert.equal(second.items.length,5);assert.equal(second.total,25);
+ await main.getByText("治理验收-21",{exact:true}).waitFor();
+ await page.waitForFunction(()=>{
+   const state=new URLSearchParams(location.hash.split("?")[1]).get("_list");
+   return state&&JSON.parse(state).page===2&&JSON.parse(state).sort?.prop==="name";
+ });
+ assert.equal(await search.getAttribute("data-mount-audit"),"unchanged","URL metadata must not remount the current list");
+ const linked=page.url();
+ const fresh=await page.context().newPage();
+ try{
+   await fresh.goto(linked);
+   await fresh.locator(".layout-content").getByText("治理验收-21",{exact:true}).waitFor();
+   assert.equal(await fresh.getByPlaceholder("编码 / 名称 / 型号 / 规格").inputValue(),"治理验收");
+   assert.ok(await fresh.locator(".el-pagination .is-active").filter({hasText:"2"}).count());
+ }finally{await fresh.close()}
+ // Reload must restore the search draft, native header arrow and page from the successful query.
+ const reloadResponse=nextResponse(q=>q.get("page")==="2"&&q.get("sort")==="name"&&q.get("direction")==="asc"&&q.get("q")==="治理验收");
+ await page.reload();
+ await reloadResponse;
+ await main.getByText("治理验收-21",{exact:true}).waitFor();
+ assert.equal(await search.getByPlaceholder("编码 / 名称 / 型号 / 规格").inputValue(),"治理验收");
+ assert.match(await header.getAttribute("class"),/ascending/);
+ // Native popup selection must filter the entire result set and reset the page.
+ const statusHeader=main.locator(".el-table__header-wrapper th").filter({hasText:"状态"}).first();
+ await statusHeader.locator(".el-table__column-filter-trigger").click();
+ const filter=page.locator(".el-table-filter:visible");
+ await filter.getByText("停用",{exact:true}).click();
+ response=nextResponse(q=>q.get("page")==="1"&&q.get("grid_filters")===JSON.stringify({status:["inactive"]}));
+ await filter.getByText("筛选",{exact:true}).click();
+ const filtered=await (await response).json();
+ assert.equal(filtered.total,8);assert.ok(filtered.items.every(row=>row.status==="inactive"));
+ await main.getByText("治理验收-03",{exact:true}).waitFor();
+ await page.screenshot({path:join(shots,"native-filter-active.png"),animations:"disabled"});
+ const restoredFilter=nextResponse(q=>q.get("grid_filters")===JSON.stringify({status:["inactive"]})&&q.get("q")==="治理验收");
+ await page.reload();
+ assert.equal((await (await restoredFilter).json()).total,8);
+ await main.getByText("治理验收-03",{exact:true}).waitFor();
+ await statusHeader.locator(".el-table__column-filter-trigger").click();
+ await filter.getByText("停用",{exact:true}).waitFor();
+ assert.ok(await filter.locator(".el-checkbox").filter({hasText:"停用"}).locator("input").isChecked());
+ response=nextResponse(q=>!q.has("grid_filters")&&q.get("q")==="治理验收");
+ await filter.getByText("重置",{exact:true}).click();
+ assert.equal((await (await response).json()).total,25);
+ response=nextResponse(q=>q.get("page")==="2");
+ await main.locator(".el-pagination .btn-next").click();
+ await response;
+ await main.getByText("治理验收-21",{exact:true}).waitFor();
+ // Verify the upstream native header resize, not a synthetic localStorage write.
+ await page.waitForFunction(()=>!document.querySelector(".layout-content .el-loading-mask"));
+ const hbox=await header.boundingBox();
+ await page.mouse.move(hbox.x+hbox.width/2,hbox.y+hbox.height/2);
+ await page.mouse.move(hbox.x+hbox.width-5,hbox.y+hbox.height/2,{steps:5});
+ await page.waitForFunction(()=>document.body.style.cursor==="col-resize",{},{timeout:5000});
+ await page.mouse.down();await page.mouse.move(1700,hbox.y+hbox.height/2,{steps:8});await page.mouse.up();
+ await page.waitForFunction(()=>Object.entries(localStorage).some(([key,value])=>key.endsWith("materials:columns")&&JSON.parse(value).name?.width>=220));
+ const resized=(await header.boundingBox()).width;
+ await page.reload();await main.getByText("治理验收-21",{exact:true}).waitFor();
+ assert.ok(Math.abs((await header.boundingBox()).width-resized)<=2,"column width after reload");
+ // Verify actual native table scrolling survives reload of the same query, including URL metadata.
+ const sizePicker=main.locator(".el-pagination__sizes .el-select");
+ await sizePicker.click();
+ await page.getByRole("option",{name:/^50\s*条/}).click();
+ await main.getByText("治理验收-25",{exact:true}).waitFor();
+ await main.getByText("治理验收-01",{exact:true}).waitFor();
+ await page.waitForFunction(()=>!document.querySelector(".layout-content .el-loading-mask"));
+ const scroll=main.locator(".el-table__body-wrapper .el-scrollbar__wrap").first();
+ await scroll.evaluate(el=>{el.scrollTop=180;el.scrollLeft=80});
+ await page.waitForFunction(()=>Object.entries(sessionStorage).some(([key,value])=>key.endsWith(":materials")&&JSON.parse(value).scroll?.top>=100&&JSON.parse(value).scroll?.left>=50));
+ const offset=await scroll.evaluate(el=>({top:el.scrollTop,left:el.scrollLeft}));
+ await page.reload();await main.getByText("治理验收-01",{exact:true}).waitFor();
+ await page.waitForFunction(({top,left})=>{
+   const el=document.querySelector(".layout-content .el-table__body-wrapper .el-scrollbar__wrap");
+   return el&&Math.abs(el.scrollTop-top)<=2&&Math.abs(el.scrollLeft-left)<=2;
+ },offset);
+ await sizePicker.click();
+ await page.getByRole("option",{name:/^20\s*条/}).click();
+ await main.locator(".el-pagination .btn-next").click();
+ await main.getByText("治理验收-21",{exact:true}).waitFor();
+ // A native column preference is isolated from other lists and survives refresh.
+ await main.getByRole("button",{name:"列设置",exact:true}).click();
+ const prefs=page.locator(".el-popover:visible");
+ const note=prefs.locator(".el-checkbox").filter({hasText:"备注"});
+ assert.ok(await note.locator("input").isChecked());
+ await note.click();
+ assert.equal(await note.locator("input").isChecked(),false);
+ await page.locator(".layout-content").getByRole("button",{name:"列设置",exact:true}).click();
+ await page.reload();
+ await main.getByText("治理验收-21",{exact:true}).waitFor();
+ assert.equal(await main.locator(".el-table__header-wrapper th").filter({hasText:"备注"}).count(),0);
+ await main.getByRole("button",{name:"列设置",exact:true}).click();
+ await prefs.getByRole("button",{name:"恢复默认列",exact:true}).click();
+ await main.getByRole("button",{name:"列设置",exact:true}).click();
+ assert.ok(await main.locator(".el-table__header-wrapper th").filter({hasText:"备注"}).count()>0);
+ // Batch mode must operate on the current query/page and restore that page.
+ await main.getByRole("button",{name:"进入批量编辑",exact:true}).click();
+ await main.getByText("物资批量编辑",{exact:true}).waitFor();
+ const {worksheetCanvas,selectWorksheetCell,typeWorksheetCell,materialWidths}=await import("./youlai-business-worksheet-helpers.mjs");
+ const {copySettlementSelection}=await import("./youlai-settlement-grid-helpers.mjs");
+ const materialSheet=main.getByRole("region",{name:"物资资料",exact:true});
+ const canvas=await worksheetCanvas(materialSheet);
+ await materialSheet.getByText(/共 5 行/).waitFor();
+ await page.context().grantPermissions(["clipboard-read","clipboard-write"]);
+ await selectWorksheetCell(canvas,1,1,materialWidths);
+ assert.equal((await copySettlementSelection(page)).trim(),"治理验收-21");
+ await typeWorksheetCell(page,canvas,1,2,materialWidths,"KEYBOARD-AUDIT");
+ await main.getByRole("button",{name:"保存 1 条修改",exact:true}).waitFor();
+ await selectWorksheetCell(canvas,1,0,materialWidths);
+ await page.keyboard.press("ControlOrMeta+z");
+ await main.getByRole("button",{name:"保存 0 条修改",exact:true}).waitFor();
+ await selectWorksheetCell(canvas,1,2,materialWidths);
+ assert.equal((await copySettlementSelection(page)).trim(),"MODEL-21");
+ await page.keyboard.press("ControlOrMeta+Shift+z");
+ await main.getByRole("button",{name:"保存 1 条修改",exact:true}).waitFor();
+ await selectWorksheetCell(canvas,1,2,materialWidths);
+ assert.equal((await copySettlementSelection(page)).trim(),"KEYBOARD-AUDIT");
+ // Reload must raise a native beforeunload confirmation and preserve the pending edit when dismissed.
+ const dialogPromise=page.waitForEvent("dialog");
+ const reload=page.reload({timeout:10000}).catch(()=>undefined);
+ const unload=await dialogPromise;
+ assert.equal(unload.type(),"beforeunload");
+ await unload.dismiss();
+ await reload;
+ await page.keyboard.press("Escape");
+ await selectWorksheetCell(canvas,1,2,materialWidths);
+ assert.equal((await copySettlementSelection(page)).trim(),"KEYBOARD-AUDIT");
+ await main.getByRole("button",{name:"返回查看态",exact:true}).click();
+ const confirm=page.getByRole("dialog",{name:"放弃修改"});
+ await confirm.getByRole("button",{name:"退出",exact:true}).click();
+ await main.getByText("治理验收-21",{exact:true}).waitFor();
+ assert.equal(f.s.materials.get(rows.find(x=>x.name==="治理验收-21").id).model,"MODEL-21");
+ // A deleted record is hidden by default, searchable on demand and protected from edits.
+ await search.getByPlaceholder("编码 / 名称 / 型号 / 规格").fill("历史范围专项样本");
+ response=nextResponse(q=>q.get("q")==="历史范围专项样本");
+ await search.getByRole("button",{name:"搜索",exact:true}).click();
+ assert.equal((await (await response).json()).total,0);
+ const historyScope=search.locator(".el-form-item").filter({hasText:"记录范围"});
+ await historyScope.locator(".el-select").click();
+ await page.getByRole("option",{name:"包含已删除",exact:true}).click();
+ response=nextResponse(q=>q.get("deleted")==="true"&&q.get("q")==="历史范围专项样本");
+ await search.getByRole("button",{name:"搜索",exact:true}).click();
+ assert.equal((await (await response).json()).total,1);
+ const historicalRow=main.getByRole("row").filter({hasText:"历史范围专项样本"});
+ await historicalRow.getByText("已删除",{exact:true}).waitFor();
+ assert.equal(await historicalRow.getByRole("button",{name:"编辑",exact:true}).count(),0);
+ assert.equal(await historicalRow.getByRole("button",{name:"删除",exact:true}).count(),0);
+ assert.equal(await main.getByRole("button",{name:"进入批量编辑",exact:true}).isEnabled(),false);
+ await search.getByPlaceholder("编码 / 名称 / 型号 / 规格").fill("治理验收");
+ response=nextResponse(q=>q.get("q")==="治理验收");
+ await search.getByRole("button",{name:"搜索",exact:true}).click();
+ assert.equal((await (await response).json()).total,25);
+ // Keep pagination reachable without scrolling through the 20 data rows.
+ await main.locator(".el-pagination").waitFor();
+ const pagination=await main.locator(".el-pagination").boundingBox();
+ assert.ok(pagination&&pagination.y+pagination.height<=page.viewportSize().height,"pagination below viewport: "+JSON.stringify(pagination));
+ await page.screenshot({path:join(shots,"native-list-1920.png"),animations:"disabled"});
+ await page.goto(origin+"/#/configuration/system");
+ await main.getByText("功能权限",{exact:true}).waitFor();
+ await page.waitForFunction(()=>!document.querySelector(".layout-content .el-loading-mask"));
+ const groups=await main.locator(".role-perm__cell input").evaluateAll(xs=>xs.map(x=>x.checked));
+ assert.ok(groups.length>0&&groups.every(Boolean),"all admin child permissions must imply checked parents");
+ await page.screenshot({path:join(shots,"role-parent-checked-1920.png"),animations:"disabled"});
+ assert.deepEqual(errors,[]);
+ console.log("YOULAI_NATIVE_CRUD_GOVERNANCE_OK native header remote sorting on page 2, multi-select filtering, selected-state, clearing, 160px search, current-page batch editing, Meta+Z/redo, discard and pagination, permission group state");
+}catch(e){
+ await page?.screenshot({path:join(shots,"failure.png"),animations:"disabled"}).catch(()=>{});
+ throw e;
+}finally{
+ await browser?.close();await new Promise(ok=>server.close(ok));for(const fn of cleanup.reverse())await fn();
+}

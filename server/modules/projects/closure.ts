@@ -1,5 +1,6 @@
 import type { projectClosureRepository } from "../../database/repositories/project-closure.js";
 import { authorize, digest, id, now } from "../../platform/auth/service.js";
+import { authorizeProject } from "../../platform/auth/project-access.js";
 import { expectedVersion, requireValue } from "../../shared/errors/business-error.js";
 import type { Actor } from "../../shared/types/contracts.js";
 import type { createFinance } from "../finance/service.js";
@@ -22,6 +23,7 @@ export function createProjectClosure(
   function closePreview(actor: Actor, key: string) {
     authorize(actor, "project.close");
     const project = projects.workspace(key);
+    authorizeProject(actor, "project.close", project);
     requireValue(project.status === "approved" && project.approval, "仅已批准项目可以审核结项", 409);
     const snapshot = { ...finance.summary(key), locations: repo.closureLocations(key) };
     const releases = repo.closeReleases(key);
@@ -45,6 +47,7 @@ export function createProjectClosure(
       authorize(actor, "project.close");
       return repo.transaction(() => {
         const project = projects.get(key);
+        authorizeProject(actor, "project.close", project);
         expectedVersion(project.version, input.expected_version);
         requireValue(project.approval, "缺少批准版本");
         const preview = closePreview(actor, key);

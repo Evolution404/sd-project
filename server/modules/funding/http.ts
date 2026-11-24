@@ -3,6 +3,7 @@ import type { FundingKind } from "../../database/repositories/funding.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
+import { authorize } from "../../platform/auth/service.js";
 
 export async function handleFunding(context: RouteContext): Promise<{ result: unknown }> {
   const { system, actor, key, sub, subKey, read, input, deleted, url, method, mutate } = context;
@@ -10,6 +11,7 @@ export async function handleFunding(context: RouteContext): Promise<{ result: un
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
   const kind: FundingKind = key;
   if (read) {
+    authorize(actor, "read");
     if (subKey === "deletion-impact") return { result: system.funding.deletionImpact(actor, kind, sub) };
     if (sub === "history") return { result: system.funding.history(kind, subKey) };
     if (sub) return { result: url.searchParams.get("detail") === "true"

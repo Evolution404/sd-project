@@ -8,7 +8,7 @@ import { requireValue, expectedVersion, text, integer } from "../../shared/error
 
 function readable(row: FundingRecord): FundingRecord {
   return { ...row, deleted: Boolean(row.deleted),
-    label: row.name + (row.fiscal_year && !row.framework_id ? " · " + row.fiscal_year : "") };
+    label: row.name };
 }
 function optionalText(value: unknown, previous: string | null | undefined, label: string): string | null {
   const candidate = value === undefined ? previous : value;

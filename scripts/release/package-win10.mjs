@@ -1,6 +1,7 @@
-import { sourceSnapshot as captureSourceSnapshot, requireNode26 } from "./source-snapshot.mjs";
+import { sourceSnapshot as captureSourceSnapshot, requireNode24 } from "./source-snapshot.mjs";
 import {
   mkdirSync,
+  mkdtempSync,
   rmSync,
   existsSync,
   copyFileSync,
@@ -19,19 +20,21 @@ import { createSystem } from "../../dist/server/bootstrap.js";
 import { spawnSync } from "node:child_process";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-requireNode26();
+requireNode24();
 const root = resolve(import.meta.dirname, "..", "..");
 const mode = process.env.SD_PACKAGE_MODE || "production";
 if (!["production", "demo"].includes(mode))
   throw Error("无效的 Windows 打包模式");
 const demoMode = mode === "demo";
 const version = process.env.SD_NODE_VERSION || process.version;
-if (!/^v26\.\d+\.\d+$/.test(version))
-  throw Error("Windows 运行时仅允许Node 26.x");
+if (!/^v24\.\d+\.\d+$/.test(version))
+  throw Error("Windows 运行时仅允许 Node 24.x");
 const archive = `node-${version}-win-x64.zip`;
 const nodeBase = `https://nodejs.org/download/release/${version}`;
 const work = join(root, "dist");
 const frontend = join(work, "web");
+const releaseOutput = process.env.SD_RELEASE_OUTPUT_DIR || work;
+mkdirSync(releaseOutput,{recursive:true});
 const revision = spawnSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
@@ -69,7 +72,9 @@ const capturedInputs = captureSourceSnapshot(root);
 const buildInputSha256 = capturedInputs.sha256;
 if (process.env.SD_BUILD_INPUT_SHA256 !== buildInputSha256 ||
     process.env.SD_BUILD_GIT_COMMIT !== gitCommit)
-  throw Error("构建输入或Git基线已变化，请通过npm run package:win重新构建");
+  throw Error("构建输入或 Git 基线已变化，请通过 pnpm run package:win 重新构建");
+const pnpmCli = process.env.SD_PNPM_CLI;
+if (!pnpmCli) throw Error("请通过 pnpm run package:win 执行构建");
 const shas = join(cache, `${version}-SHASUMS256.txt`);
 await download(nodeBase + "/SHASUMS256.txt", shas);
 const sums = readFileSync(shas, "utf8")
@@ -84,7 +89,7 @@ if (digestFile(nodeZip) !== entry[0])
   throw Error("Official Node.js SHA256 mismatch");
 console.log("Verified official Node.js SHA256", entry[0]);
 if (!existsSync(join(frontend, "index.html")))
-  throw Error("Run npm run build first");
+  throw Error("缺少正式前端构建产物");
 rmSync(stage, { recursive: true, force: true });
 mkdirSync(join(stage, "runtime"), { recursive: true });
 const runtime = join(stage, "runtime", "node.exe");
@@ -103,8 +108,15 @@ cpSync(join(root, "dist/server"), join(stage, "dist/server"), { recursive: true 
 mkdirSync(join(stage, "scripts"), { recursive: true });
 for (const [src, dest] of [
   ["scripts/init-admin.mjs", "scripts/init-admin.mjs"],
+  ["scripts/seed/common.mjs","scripts/seed/common.mjs"],
   ["scripts/backup.mjs", "scripts/backup.mjs"],
   ["scripts/restore.mjs", "scripts/restore.mjs"],
+  ["scripts/restore-ui.ps1", "scripts/restore-ui.ps1"],
+  ["scripts/windows/恢复业务数据.cmd", "恢复业务数据.cmd"],
+  ["docs/architecture/内网部署与数据升级规范.md", "内网部署与数据升级说明.md"],
+  ["scripts/upgrade.mjs","scripts/upgrade.mjs"],
+  ["scripts/upgrade.ps1","scripts/upgrade.ps1"],
+  ["scripts/windows/一键升级.cmd","一键升级.cmd"],
   ["scripts/training/instance.mjs", "scripts/training/instance.mjs"],
   ["scripts/windows/启动训练环境.cmd", "启动训练环境.cmd"],
   ["scripts/windows/训练实例列表.cmd", "训练实例列表.cmd"],
@@ -126,22 +138,31 @@ for (const [src, dest] of [
     "docs/implementation/2026-11-09_设备台账Excel治理与验收.md",
     "docs/implementation/P10_用户使用指引系统_设计与实施方案_2026-11-11.md",
     "docs/implementation/P10_业务操作帮助覆盖清单.md",
+    "docs/implementation/P10_正式有来操作覆盖复核_2026-11-24.md",
+    "docs/implementation/有来UI最终交付执行矩阵_2026-11-24.md",
     "docs/implementation/P10_实施与验收_2026-11-12.md",
     "docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md",
     "docs/implementation/访问日志与最终交付_2026-11-13.md",
     "docs/implementation/费用结算与立项桌面交付.md",
     "docs/implementation/2026-11-23_Node26与费用立项最终验收.md",
+    "docs/vendor/vue3-element-admin-4.13.0/LICENSE",
+    "docs/implementation/有来_vue3-element-admin_v4.13.0_源码移植与复用清单_2026-11-23.md",
+    "docs/implementation/2026-11-23_结算全量工作表与有来桌面改版验收.md",
   ].map((path) => [path, path]),
   ["package.json", "package.json"],
 ]) {
   const out = join(stage, dest);
   mkdirSync(dirname(out), { recursive: true });
-  copyFileSync(join(root, src), out);
+  if (dest.endsWith(".cmd")) {
+    const command = readFileSync(join(root, src));
+    if (command.some(byte => byte >= 128)) throw Error(src + " must be ASCII only");
+    writeFileSync(out, command.toString("ascii").replace(/\r?\n/g, "\r\n"), "ascii");
+  } else copyFileSync(join(root, src), out);
 }
 const ps = readFileSync(join(stage, "scripts", "first-run.ps1"));
 if (ps.subarray(0, 3).toString("hex") !== "efbbbf")
   throw Error("PowerShell 5.1 requires UTF-8 BOM");
-for (const f of ["启动服务.cmd", "初始化管理员.cmd"]) {
+for (const f of ["启动服务.cmd", "初始化管理员.cmd", "一键升级.cmd", "恢复业务数据.cmd"]) {
   if ([...readFileSync(join(stage, f))].some((c) => c >= 128))
     throw Error(f + " must be ASCII only");
 }
@@ -153,22 +174,32 @@ for (const f of [
   if (readFileSync(join(stage, f)).subarray(0, 3).toString("hex") === "efbbbf")
     throw Error(f + " must be UTF8 without BOM");
 }
-for (const f of ["package.json", "package-lock.json"])
+for (const f of ["pnpm-lock.yaml", "pnpm-workspace.yaml"])
   copyFileSync(join(root, f), join(stage, f));
-console.log("Installing production dependencies in isolated staging");
-const npm = spawnSync(
-  "npm",
-  [
-    "ci",
-    "--omit=dev",
-    "--omit=optional",
-    "--ignore-scripts",
-    "--no-audit",
-    "--no-fund",
-  ],
-  { cwd: stage, stdio: "inherit" },
-);
-if (npm.status !== 0) throw Error("Production dependency installation failed");
+console.log("Installing locked production dependencies in isolated staging");
+const dependencyRoot = mkdtempSync(join(root, ".build", "windows-prod-deps-"));
+try {
+  const source = join(dependencyRoot, "source");
+  const portable = join(dependencyRoot, "portable");
+  mkdirSync(join(source, "web"), { recursive: true });
+  for (const path of ["pnpm-lock.yaml", "pnpm-workspace.yaml", "web/package.json"])
+    copyFileSync(join(root, path), join(source, path));
+  const dependencies = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+  writeFileSync(join(source, "package.json"), JSON.stringify({ ...dependencies, files: ["package.json"] }));
+  const pnpm = spawnSync(process.execPath, [
+    pnpmCli, "--filter", "sd-project", "--config.node-linker=hoisted",
+    "deploy", "--prod", "--no-optional", "--ignore-scripts", portable,
+  ], { cwd: source, stdio: "inherit" });
+  if (pnpm.status !== 0) throw Error("隔离生产依赖安装失败");
+  const portableModules = join(portable, "node_modules");
+  const metadata = new Set([".bin", ".pnpm", ".modules.yaml", ".pnpm-workspace-state-v1.json"]);
+  cpSync(portableModules, join(stage, "node_modules"), {
+    recursive: true,
+    filter: path => !metadata.has(path.slice(portableModules.length + 1)),
+  });
+} finally {
+  rmSync(dependencyRoot, { recursive: true, force: true });
+}
 if (demoMode) {
   // The LAN demonstration package always has the same documented credentials.
   // It never creates or modifies an account in the production package.
@@ -191,7 +222,7 @@ if (demoMode) {
   const note = [
     "项目全流程管理 - Windows 10 x64 内网演示环境",
     "",
-    "演示账号采用固定凭据，只限可信内网演示，请勿公开传播此压缩包。",
+    "此合成演示包使用固定演示凭据，服务仅限可信内网运行。",
     "管理员账号：" + DEMO_ACCOUNT,
     "管理员密码：" + DEMO_PASSWORD,
     "",
@@ -241,7 +272,10 @@ function collectSourceFiles(dir) {
 collectSourceFiles(join(root, "server"));
 const sourceHashes = Object.fromEntries([...sourceFiles].sort()
   .map(path => [path, digestFile(join(root, path))]));
+const deploymentFiles = ["启动服务.cmd","一键升级.cmd","恢复业务数据.cmd","备份数据库.cmd","scripts/restore-ui.ps1","scripts/upgrade.ps1","scripts/upgrade.mjs","scripts/restore.mjs","scripts/backup.mjs","scripts/init-admin.mjs","scripts/seed/common.mjs","内网部署与数据升级说明.md",...(!demoMode?["初始化管理员.cmd","scripts/first-run.ps1"]:["启动演示服务.cmd","演示账号与部署说明.txt"])];
+for(const name of ["scripts/upgrade.ps1","scripts/restore-ui.ps1"])if(readFileSync(join(stage,name)).subarray(0,3).toString("hex")!=="efbbbf")throw Error(name+" requires BOM");
 const manifest = {
+  deployment_artifact_sha256:Object.fromEntries(deploymentFiles.map(name=>[name,digestFile(join(stage,name))])),
   product: "sd-project",
   package_mode: mode,
   worktree_dirty: worktreeDirty,
@@ -250,6 +284,7 @@ const manifest = {
   entrypoint: "dist/server/main.js",
   server_source_sha256: sourceHashes,
   server_artifact_sha256: artifactHashes(join(stage, "dist/server")),
+  frontend_artifact_sha256: artifactHashes(join(stage, "dist/web")),
   git_commit: gitCommit,
   target: "Windows 10 x64, PowerShell 5.1",
   runtime: version,
@@ -276,7 +311,7 @@ writeFileSync(
   join(stage, "BUILD-MANIFEST.json"),
   JSON.stringify(manifest, null, 2) + "\n",
 );
-const zipPath = join(work, demoMode ? "sd-project-win10-x64-demo.zip" : "sd-project-win10-x64.zip");
+const zipPath = join(releaseOutput, demoMode ? "sd-project-win10-x64-demo.zip" : "sd-project-win10-x64.zip");
 const pendingZip = zipPath + ".part";
 const python = `import os,sys,zipfile\nbase,out=sys.argv[1:]\nwith zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED,compresslevel=6,allowZip64=True) as z:\n for folder,dirs,files in os.walk(base):\n  dirs.sort();files.sort()\n  for f in files:\n   path=os.path.join(folder,f);rel=os.path.relpath(path,base)\n   z.write(path,rel)\nprint(out)\n`;
 const proc = spawnSync("python3", ["-c", python, stage, pendingZip], {
@@ -336,9 +371,10 @@ const release = {
   windows_machine_verified: false,
 };
 writeFileSync(
-  join(work, demoMode ? "DEMO-RELEASE-MANIFEST.json" : "RELEASE-MANIFEST.json"),
+  join(releaseOutput, demoMode ? "DEMO-RELEASE-MANIFEST.json" : "RELEASE-MANIFEST.json"),
   JSON.stringify(release, null, 2) + "\n",
 );
+rmSync(stage,{recursive:true,force:true});
 console.log("PACKAGE", zipPath);
 console.log("SIZE_BYTES", statSync(zipPath).size);
 console.log("SHA256", digestFile(zipPath));

@@ -1,10 +1,15 @@
+import type { ProjectAccess } from "./project-access.js";
 export type Role = "admin" | "editor" | "verifier" | "viewer";
 
 export interface Actor {
   id: string;
   username: string;
-  role: Role;
+  role: Role; // transitional primary role label; NOT a permission bypass
+  roles?: string[];
+  display_name?: string;
   permissions: string[];
+  password_change_required?: boolean;
+  project_access?: Readonly<Record<string, ProjectAccess>>;
 }
 
 export type FieldErrors = Record<string, string | string[]>;

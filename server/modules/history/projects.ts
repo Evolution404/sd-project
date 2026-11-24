@@ -1,3 +1,4 @@
+import { locationDisplayFields } from "../../shared/location-display.js";
 import type { createProjects } from "../projects/service.js";
 import type { HistoryEntry } from "../../shared/types/history.js";
 import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
@@ -18,11 +19,12 @@ function approvedTables(scopes: Scope[]) {
       return [scope.demand_no, text(snapshot.problem_description),
         `第 ${scope.demand_version} 版`, quantity(scope.quantity_scaled, string(snapshot.unit_snapshot))];
     }), scopes.map(scope => scope.project_scope_id)),
-    ...table("批准作业位置", ["需求编号", "作业位置", "批准工作量"], scopes.flatMap(scope => {
+    ...table("批准作业位置", ["需求编号", "作业位置", "线路名称", "起点杆塔号", "终点杆塔号", "物理杆塔编号", "批准工作量"], scopes.flatMap(scope => {
       const snapshot = definitions.get(scope.project_scope_id)!;
       return scope.locations.map(location => {
         const detail = document(location.frozen_location);
-        return [scope.demand_no, text(detail.location_label ?? detail.tower_no),
+        const display=locationDisplayFields(location.location_kind,detail);
+        return [scope.demand_no, display.location_label,display.line_name,display.start_tower_no,display.end_tower_no,display.physical_code,
           quantity(location.approved_quantity_scaled, string(snapshot.unit_snapshot))];
       });
     }), scopes.flatMap(scope => scope.locations.map(location =>
@@ -81,7 +83,7 @@ export function projectHistoryDetail(id: string, { records: raw, approvals }: De
     const basis = document(approval.snapshot_json);
     entries.push(event(`项目批准/${approval.version_no}`, previous ? "批准项目变更" : "首次批准项目", "办理", {}, {
       time: approval.approved_at, actor: approval.approved_by ?? undefined, tone: "success",
-      summary: `第 ${approval.version_no} 版 · ${approval.scopes.length} 条批准需求`,
+      summary: `第 ${approval.version_no} 版包含 ${approval.scopes.length} 条批准需求`,
       badge: approval === currentApproval ? "当前生效" : undefined,
       versionGroup: "项目批准", version: approval.version_no,
       reason: string(approval.change_reason ?? basis.basis),
@@ -155,7 +157,7 @@ export function projectHistoryDetail(id: string, { records: raw, approvals }: De
         const title = row.action === "approve" ? "批准结算" : row.action === "return" ? "退回结算申请"
           : row.action === "reject" ? "驳回结算申请" : initial ? "提交结算审核" : "原版本重新送审";
         entries.push(event(`settlement/${row.id}`, title, "金额", row, {
-          summary: `结算单 ${settlement.number} · 第 ${version.version_no} 版`,
+          summary: `结算单 ${settlement.number} 的第 ${version.version_no} 版`,
           facts: facts(["本期申请金额", money(version.amount_fen)]),
           links: [{ label: "查看结算单历史", target: { kind: "settlements", id: settlementId, project: id,
             entry: initial ? `结算单/${version.version_no}` : `review/${row.id}` } }],

@@ -187,7 +187,7 @@ test("cyclic cross-sheet sharing and branch junction is rejected for every depen
     row.reason.includes("循环依赖") || row.reason.includes("关联对象无效")));
   assert.ok(preview.summary.invalid_documents >= 2);
   assert.ok(!preview.documents.some((doc) =>
-    doc.number === "循环支线" || doc.number.endsWith("· #1")));
+    doc.number === "循环支线" || doc.number === "#1"));
   assert.equal(s.catalog.list("towers").length, 0);
 });
 

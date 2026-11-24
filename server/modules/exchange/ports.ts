@@ -18,7 +18,7 @@ export interface ExchangePorts {
   demands: Pick<ReturnType<typeof createDemands>, "get" | "search" | "normalize" | "findDuplicates" | "save">;
   finance: Pick<ReturnType<typeof createFinance>, "settlement" | "validateDraft" | "saveDraft" |
     "searchSettlements" | "selectedSettlements" | "effectiveSettlementReport" | "summariesForPortfolio">;
-  projects: Pick<ProjectService, "get" | "dashboardPortfolio" | "projectReportRows">;
+  projects: Pick<ProjectService, "get" | "dashboardPortfolio" | "projectReportRows" | "authorizeOwnedProject">;
   dictionaries: Pick<DictionaryService, "list">;
   equipment: Pick<EquipmentService, "get" | "list" | "search">;
   materials: Pick<MaterialService, "list">;

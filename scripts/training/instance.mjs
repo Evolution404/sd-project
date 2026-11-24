@@ -83,8 +83,12 @@ async function create(withScenario = false){
     const system=createSystem(dir);
     let scenario;
     try{
-      const created=system.auth.initialize(user,secret);
-      if(withScenario)scenario=seedScenario(system,{...created,permissions:["admin"]});
+      system.auth.initialize(user,secret);
+      if(withScenario){
+        const session=system.auth.login(user,secret);
+        try{scenario=seedScenario(system,session.user);}
+        finally{system.auth.logout(session.token);}
+      }
     }finally{system.close();}
     writeFileSync(join(dir,"TRAINING-INSTANCE.json"),
       JSON.stringify({purpose:"sd-project-isolated-training",id,createdAt:new Date().toISOString(),scenario},null,2),

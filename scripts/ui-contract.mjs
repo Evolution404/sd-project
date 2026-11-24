@@ -22,7 +22,7 @@ function expressionStrings(source){
 
 // Extend the SFC tag audit to the ways a native widget can be hidden behind an
 // Element Plus input, a render function, a browser API or missing widget CSS.
-export function inspectUiContract(source,filename='component.vue',styles=''){
+export function inspectUiContract(source,filename='component.vue',styles='',stylesResolvedByBuild=false){
  const issues=[],imports=new Map(),components=new Set();
  const add=(rule,message,line)=>issues.push({file:filename,rule,message,...(line?{line}:{})});
  let descriptor;
@@ -102,18 +102,31 @@ export function inspectUiContract(source,filename='component.vue',styles=''){
  if(descriptor?.template)visitTemplate(descriptor.template.ast);
  const styleAst=ts.createSourceFile('styles.ts',styles,ts.ScriptTarget.Latest,true),loaded=new Set();let allStyles=false;
  styleAst.forEachChild(node=>{if(ts.isImportDeclaration(node)&&ts.isStringLiteral(node.moduleSpecifier)){const path=node.moduleSpecifier.text;if(path==='element-plus/dist/index.css')allStyles=true;const match=path.match(/^element-plus\/es\/components\/([^/]+)\/style\/css$/);if(match)loaded.add(match[1])}});
- if(!allStyles)for(const component of components)if(!loaded.has(kebab(component)))add('missing-element-plus-style',component+'缺少统一样式导入：element-plus/es/components/'+kebab(component)+'/style/css');
+ if(!allStyles&&!stylesResolvedByBuild)for(const component of components)if(!loaded.has(kebab(component)))add('missing-element-plus-style',component+'缺少统一样式导入：element-plus/es/components/'+kebab(component)+'/style/css');
  return issues;
 }
+export const formalUiRoots = [
+ "web/src/views/business", "web/src/views/system/role", "web/src/views/login",
+ "web/src/components/business", "web/src/components/Crud", "web/src/views/workspace/account",
+];
 export function currentUiContract(root){
- const base=join(root,'web','src'),styleFile=join(base,'styles','element-plus.ts');
+ const legacy = "tests/fixtures/legacy-frontend";
+ const base=join(root,legacy,'web','src'),styleFile=join(base,'styles','element-plus.ts');
  const styles=existsSync(styleFile)?readFileSync(styleFile,'utf8'):'';
  const walk=dir=>existsSync(dir)?readdirSync(dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(join(dir,e.name)):/\.(vue|ts|tsx|js|jsx)$/.test(e.name)?[join(dir,e.name)]:[]):[];
  const issues=walk(base).flatMap(file=>inspectUiContract(readFileSync(file,'utf8'),relative(root,file).replaceAll('\\','/'),styles));
  const mainFile=join(base,'main.ts');
  if(existsSync(mainFile)){
   const main=ts.createSourceFile('main.ts',readFileSync(mainFile,'utf8'),ts.ScriptTarget.Latest,true);
-  if(!main.statements.some(n=>ts.isImportDeclaration(n)&&/^\.\/styles\/element-plus(?:\.ts)?$/.test(n.moduleSpecifier.text)))issues.push({file:'web/src/main.ts',rule:'missing-style-entry',message:'应用入口必须导入统一Element Plus样式注册表'});
+  if(!main.statements.some(n=>ts.isImportDeclaration(n)&&/^\.\/styles\/element-plus(?:\.ts)?$/.test(n.moduleSpecifier.text)))issues.push({file:legacy+'/web/src/main.ts',rule:'missing-style-entry',message:'旧版回归入口必须导入统一Element Plus样式注册表'});
+ }
+ const formalBuild = join(root, "web/vite.config.ts");
+ const automaticStyles = existsSync(formalBuild) &&
+   /Components\(\{[\s\S]*?resolvers:\s*\[[\s\S]*?ElementPlusResolver\(\{\s*importStyle:\s*["']sass["']/.test(
+     readFileSync(formalBuild, "utf8"),
+   );
+ for (const file of formalUiRoots.flatMap(folder => walk(join(root, folder)))) {
+  issues.push(...inspectUiContract(readFileSync(file, "utf8"), relative(root, file), "", automaticStyles));
  }
  return issues;
 }

@@ -7,7 +7,7 @@ test("approved in-progress project refuses release before SQLite, preserving bin
   assert.throws(
     () => s.projects.release(user, project.id, scope.id, {expected_event_seq:1}),
     error => {
-      assert.match(error.message, /已正式批准的在办项目须先通过最新版范围变更移出需求/);
+      assert.match(error.message, /已正式批准的在办项目不得解绑已批准需求，剩余需求仅在正式结项后释放/);
       assert.doesNotMatch(error.message, /ERR_SQLITE_ERROR|constraint failed/);
       assert.equal(error.status, 409);
       return true;

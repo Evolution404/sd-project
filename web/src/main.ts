@@ -1,8 +1,27 @@
 import { createApp } from "vue";
-import "./styles/element-plus";
-import "tabulator-tables/dist/css/tabulator.min.css";
-import "./styles/theme.css";
-import App from "./app/App.vue";
-import { router } from "./app/router";
-const app = createApp(App).use(router);
-router.isReady().then(() => app.mount("#app"));
+import App from "./App.vue";
+
+import "element-plus/theme-chalk/dark/css-vars.css";
+import "element-plus/es/components/notification/style/index";
+import "@/styles/index.scss";
+import "uno.css";
+
+import { setupDirective } from "@/directives";
+import { setupRouter } from "@/router";
+import { setupStore } from "@/stores";
+import { setupI18n } from "@/lang";
+import * as ElementPlusIcons from "@element-plus/icons-vue";
+import { setupPermissionGuard } from "@/router/guards";
+
+const app = createApp(App);
+
+setupDirective(app);
+setupI18n(app);
+setupRouter(app);
+setupStore(app);
+
+Object.entries(ElementPlusIcons).forEach(([name, comp]) => app.component(name, comp));
+
+setupPermissionGuard();
+
+app.mount("#app");

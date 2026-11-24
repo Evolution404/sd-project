@@ -11,7 +11,7 @@ import type {
 } from "../../shared/types/finance-workflows.js";
 
 type CostRow = ActualCostVersion & CategoryCost;
-type SettlementListRoot = SettlementRoot & Pick<SettlementWorkflow, "effective_amount_fen" | "effective_mode"> & { deleted: boolean; status: SettlementListStatus };
+type SettlementListRoot = SettlementRoot & Pick<SettlementWorkflow, "effective_amount_fen" | "effective_mode"> & { deleted: boolean; status: SettlementListStatus; project_name: string; project_code: string };
 
 /** SQL pagination keeps full workflow facts limited to the selected page. */
 export function financeListRepository(store: Store) {
@@ -33,11 +33,13 @@ export function financeListRepository(store: Store) {
     },
     searchSettlementWorkflows(projectId: string | undefined, query: ListQuery, selectedIds?: string[]) {
       const source: ListSource = {
-        sql: `SELECT s.*,effective.amount_fen AS effective_amount_fen,
+        sql: `SELECT s.*,management.name AS project_name, root.code AS project_code, effective.amount_fen AS effective_amount_fen,
           CASE WHEN effective.change_type<>'void' THEN effective.mode END AS effective_mode,
           COALESCE(json_extract(draft.draft_json,'$.amount_fen'), latest.amount_fen) AS amount_fen,
           ${settlementStatusSql("draft", "latest", "review")} AS status
           FROM settlements s
+          JOIN projects root ON root.id=s.project_id
+          JOIN v_project_management_current management ON management.project_id=s.project_id
           LEFT JOIN settlement_drafts draft ON draft.settlement_id=s.id
           LEFT JOIN settlement_versions latest ON latest.id=(SELECT id FROM settlement_versions
              WHERE settlement_id=s.id ORDER BY version_no DESC LIMIT 1)
@@ -46,7 +48,7 @@ export function financeListRepository(store: Store) {
           WHERE (? IS NULL OR s.project_id=?)
           AND (? IS NULL OR s.id IN (SELECT value FROM json_each(?)))`,
         parameters: [projectId ?? null, projectId ?? null, selectedIds ? JSON.stringify(selectedIds) : null, selectedIds ? JSON.stringify(selectedIds) : null],
-        columns: ["id", "number", "created_at", "amount_fen", "status"], search: ["number", "status"],
+        columns: ["id", "number", "project_name", "project_code", "created_at", "amount_fen", "effective_amount_fen", "status"], search: ["number", "project_name", "project_code", "status"],
       };
       const status = query.filters.status;
       const applied = status ? { ...query, filters: { ...query.filters, status: settlementStatusFilter(status) } } : query;
@@ -119,13 +121,17 @@ export function financeListRepository(store: Store) {
     },
     searchReconciliationVersions(projectId: string | undefined, query: ListQuery) {
       const source: ListSource = {
-        sql: `SELECT reconciliation.*, bill.settlement_id,
+        sql: `SELECT reconciliation.*, bill.settlement_id, settlement.number AS settlement_number,
+          cost.title AS cost_title, cost.version_no AS cost_version, cost.amount_fen AS cost_amount_fen,
+          item.amount_fen AS item_amount_fen, adopted.name AS item_cost_node_name,
           EXISTS(SELECT 1 FROM v_effective_cost_reconciliations applied WHERE applied.id=reconciliation.id) AS effective
           FROM v_cost_reconciliation_current reconciliation
           JOIN cost_versions cost ON cost.id=reconciliation.cost_version_id
           JOIN cost_entries entry ON entry.id=cost.entry_id
           JOIN settlement_item_versions item ON item.id=reconciliation.settlement_item_version_id
-          JOIN settlement_versions bill ON bill.id=item.settlement_version_id${projectId ? " WHERE entry.project_id=?" : ""}`,
+          JOIN settlement_versions bill ON bill.id=item.settlement_version_id
+          JOIN settlements settlement ON settlement.id=bill.settlement_id
+          JOIN project_cost_node_versions adopted ON adopted.id=item.cost_node_version_id${projectId ? " WHERE entry.project_id=?" : ""}`,
         parameters: projectId ? [projectId] : [], deletionKey: "record_id",
         columns: ["id", "record_id", "settlement_id", "evidence", "status", "version_no", "reconciled_cost_fen",
           "reconciled_settlement_fen", "created_at", "effective"],

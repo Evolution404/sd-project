@@ -135,7 +135,25 @@ CREATE TABLE logical_tower_history (
 ) STRICT;
 
 CREATE TABLE users (
- id TEXT NOT NULL PRIMARY KEY, username TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('admin','editor','verifier','viewer')), status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')), created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)))) STRICT;
+ id TEXT NOT NULL PRIMARY KEY,
+ username TEXT NOT NULL UNIQUE CHECK(length(trim(username))>0),
+ display_name TEXT NOT NULL DEFAULT '',
+ employee_no TEXT UNIQUE,
+ primary_org_id TEXT REFERENCES organizational_units(id) ON DELETE RESTRICT,
+ role TEXT NOT NULL DEFAULT 'viewer' CHECK(role IN ('admin','editor','verifier','viewer')),
+ status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+ version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),
+ created_at TEXT NOT NULL,
+ updated_at TEXT NOT NULL
+) STRICT;
+-- Credential material is not stored in users/public identity records.
+CREATE TABLE user_credentials (
+ user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ password_hash TEXT NOT NULL,
+ algorithm TEXT NOT NULL DEFAULT 'scrypt-v1',
+ changed_at TEXT NOT NULL,
+ require_change INTEGER NOT NULL DEFAULT 0 CHECK(require_change IN (0,1))
+) STRICT;
 
 
 CREATE TABLE sessions (
@@ -152,29 +170,89 @@ CREATE TABLE audit_events (
  reason TEXT, created_at TEXT NOT NULL CHECK(created_at IS NULL OR (length(created_at)=24 AND COALESCE(strftime('%Y-%m-%dT%H:%M:%fZ',julianday(created_at))=created_at,0)))) STRICT;
 
 
+-- Role codes are stable identities, NOT permanent privilege bypasses.
+CREATE TABLE roles (
+ code TEXT PRIMARY KEY CHECK(length(trim(code))>0),
+ name TEXT NOT NULL CHECK(length(trim(name))>0),
+ status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','disabled')),
+ sort_order INTEGER NOT NULL DEFAULT 100,
+ system_seed INTEGER NOT NULL DEFAULT 0 CHECK(system_seed IN (0,1)),
+ auto_grant_new_permissions INTEGER NOT NULL DEFAULT 0 CHECK(auto_grant_new_permissions IN (0,1)),
+ version INTEGER NOT NULL DEFAULT 1 CHECK(version>0),
+ created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+ updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+) STRICT;
+INSERT INTO roles(code,name,sort_order,system_seed,auto_grant_new_permissions) VALUES
+ ('admin','系统管理员',10,1,1),
+ ('editor','业务编制人员',20,1,0),
+ ('verifier','业务审核人员',30,1,0),
+ ('viewer','只读用户',40,1,0),
+ ('auditor','审计人员',50,1,0);
 CREATE TABLE permission_definitions (
  code TEXT NOT NULL PRIMARY KEY,
- title TEXT NOT NULL CHECK(length(trim(title))>0)
+ title TEXT NOT NULL CHECK(length(trim(title))>0),
+ module TEXT NOT NULL DEFAULT 'system',
+ kind TEXT NOT NULL DEFAULT 'action' CHECK(kind IN ('menu','action'))
 ) STRICT;
 CREATE TABLE role_permissions (
- role TEXT NOT NULL CHECK(role IN ('admin','editor','verifier','viewer')),
+ role TEXT NOT NULL REFERENCES roles(code) ON DELETE RESTRICT,
  permission_code TEXT NOT NULL REFERENCES permission_definitions(code) ON DELETE RESTRICT,
  PRIMARY KEY(role,permission_code)
 ) STRICT;
-INSERT INTO permission_definitions(code,title) VALUES
- ('project.stock','项目正式入库'),
- ('project.approve','项目正式立项批准'),
- ('project.close','项目结项批准'),
- ('change.approve','项目变更批准'),
- ('settlement.approve','结算正式批准'),
- ('demand.activate','需求确认'),
- ('cost.confirm','真实费用核定');
+CREATE TABLE user_roles (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ role_code TEXT NOT NULL REFERENCES roles(code) ON DELETE RESTRICT,
+ assigned_at TEXT NOT NULL,
+ assigned_by TEXT REFERENCES users(id) ON DELETE RESTRICT,
+ PRIMARY KEY(user_id,role_code)
+) STRICT;
+CREATE INDEX idx_user_roles_role ON user_roles(role_code,user_id);
+CREATE TABLE user_organizations (
+ user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+ organization_id TEXT NOT NULL REFERENCES organizational_units(id) ON DELETE RESTRICT,
+ is_primary INTEGER NOT NULL DEFAULT 0 CHECK(is_primary IN (0,1)),
+ assigned_at TEXT NOT NULL,
+ PRIMARY KEY(user_id,organization_id)
+) STRICT;
+CREATE UNIQUE INDEX idx_user_primary_organization ON user_organizations(user_id) WHERE is_primary=1;
+CREATE TABLE role_data_scopes (
+ role_code TEXT NOT NULL REFERENCES roles(code) ON DELETE RESTRICT,
+ permission_code TEXT NOT NULL REFERENCES permission_definitions(code) ON DELETE RESTRICT,
+ scope TEXT NOT NULL CHECK(scope IN ('all','self','department','department_and_children','custom')),
+ organization_ids_json TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(organization_ids_json)),
+ PRIMARY KEY(role_code,permission_code)
+) STRICT;
+CREATE TABLE security_events (
+ id TEXT PRIMARY KEY,
+ user_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+ actor_id TEXT REFERENCES users(id) ON DELETE RESTRICT,
+ event TEXT NOT NULL,
+ ip TEXT,
+ details_json TEXT CHECK(details_json IS NULL OR json_valid(details_json)),
+ created_at TEXT NOT NULL
+) STRICT;
+INSERT INTO permission_definitions(code,title,module) VALUES
+ ('read','读取授权业务','core'),
+ ('write','编辑授权业务','core'),
+ ('admin','系统管理','system'),
+ ('user.manage','用户账号管理','system'),
+ ('role.manage','角色及权限管理','system'),
+ ('audit.read','安全与业务审计','system'),
+ ('project.stock','项目正式入库','projects'),
+ ('project.approve','项目正式立项批准','projects'),
+ ('project.close','项目结项批准','projects'),
+ ('change.approve','项目变更批准','projects'),
+ ('settlement.approve','结算正式批准','finance'),
+ ('demand.activate','需求确认','demands'),
+ ('cost.confirm','真实费用核定','finance');
+-- Initial administrator: all current permissions; all grants remain editable.
 INSERT INTO role_permissions(role,permission_code) SELECT 'admin',code FROM permission_definitions;
 INSERT INTO role_permissions(role,permission_code) VALUES
- ('editor','project.stock'),('verifier','project.approve'),
- ('verifier','project.close'),('verifier','change.approve'),
- ('verifier','settlement.approve'),('verifier','demand.activate'),
- ('verifier','cost.confirm');
+ ('editor','read'),('editor','write'),('editor','project.stock'),
+ ('verifier','read'),('verifier','project.approve'),('verifier','project.close'),
+ ('verifier','change.approve'),('verifier','settlement.approve'),
+ ('verifier','demand.activate'),('verifier','cost.confirm'),
+ ('viewer','read'),('auditor','read'),('auditor','audit.read');
 CREATE TABLE dictionary_types (id TEXT NOT NULL PRIMARY KEY, title TEXT NOT NULL) STRICT;
 -- Ordinary selectable dictionary values only; job operations are first-class.
 

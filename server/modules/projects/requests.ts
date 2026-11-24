@@ -97,13 +97,24 @@ function parseScope(input:unknown,index:number):ProjectApprovalScopeInput {
   requireValue(input.materials === undefined || Array.isArray(input.materials),
     "批准物资必须为列表");
   requireValue(Boolean(input.project_scope_id) !== Boolean(input.demand_id), "请选择已有项目范围或新增候选需求");
+  const materials=input.materials?.map((mat,i)=>parseMaterial(mat,i));
+  const ids=new Set(materials?.map(mat=>mat.material_id)??[]);
+  requireValue(ids.size===(materials?.length??0),"批准物资不可重复");
+  let expected_material_versions:Record<string,string>|undefined;
+  if(input.expected_material_versions!==undefined){
+    requireValue(isObject(input.expected_material_versions),"批准物资版本必须为对象");
+    const versions=input.expected_material_versions;
+    requireValue(Object.keys(versions).length===ids.size&&Object.keys(versions).every(id=>ids.has(id)),"批准物资版本必须与所选物资一致");
+    expected_material_versions=Object.fromEntries([...ids].map(id=>[id,stringValue(versions[id],"批准物资版本")]));
+  }
   return {
     project_scope_id:input.project_scope_id === undefined ? undefined : stringValue(input.project_scope_id,"批准范围"),
     demand_id:input.demand_id === undefined ? undefined : stringValue(input.demand_id,"候选需求"),
     demand_version:numberValue(input.demand_version,"需求正式版本"),
     approved_amount_fen:optionalNumber(input.approved_amount_fen,"批准金额"),
     locations:input.locations.map((loc,i)=>parseLocation(loc,i)),
-    materials:input.materials?.map((mat,i)=>parseMaterial(mat,i)),
+    materials,
+    expected_material_versions,
   };
 }
 export function parseProjectApproval(input:Record<string,unknown>):ProjectApprovalInput {

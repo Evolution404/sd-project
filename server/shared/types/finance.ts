@@ -22,6 +22,7 @@ export interface FinanceListItem {
   label: string;
   amount_fen: number | null;
   effective_amount_fen?: number | null;
+  is_final?: number;
   occurred_on: string | null;
   status: string;
   version_no: number | null;

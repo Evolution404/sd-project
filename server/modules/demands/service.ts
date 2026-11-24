@@ -58,23 +58,23 @@ export function createDemands(
       404,
     );
     const definition = JSON.parse(row.full_definition_json) as NormalizedDemand;
+    const progress = new Map(repo.locationProgress(key).map(position => [position.item_no, position]));
+    const locations = definition.work_locations.map(position => ({
+      ...position,
+      remaining_quantity_scaled: progress.get(position.item_no)?.remaining_quantity_scaled ?? 0,
+      resolved_quantity_scaled: progress.get(position.item_no)?.resolved_quantity_scaled ?? 0,
+    }));
+    const binding = repo.binding(key) || null;
     return {
       ...definition,
       ...row,
       deleted: repo.isDeleted(key),
-      work_locations: (() => {
-        const progress = new Map(repo.locationProgress(key).map(position =>
-          [position.item_no, position]));
-        return definition.work_locations.map(position => ({
-          ...position,
-          remaining_quantity_scaled: progress.get(position.item_no)?.remaining_quantity_scaled ?? 0,
-          resolved_quantity_scaled: progress.get(position.item_no)?.resolved_quantity_scaled ?? 0,
-        }));
-      })(),
+      display_status: demandDisplayStatus(row.status, Boolean(binding),
+        locations.reduce((total, position) => total + position.remaining_quantity_scaled, 0)),
+      work_locations: locations,
       materials: repo.materials(key, row.current_version),
       sources: currentSources(repo, key),
-      binding:
-        repo.binding(key) || null,
+      binding,
     };
   }
   function normalize(raw: unknown, previous: DemandRecord | null = null): NormalizedDemand {
@@ -257,25 +257,17 @@ export function createDemands(
             loc.specification ||
             loc.location_snapshot_json?.specification ||
             "",
-          tower_no:
-            entity.tower_no ||
-            associated
-              .filter(
-                (tower) => !contextLineId || tower.line_id === contextLineId,
-              )
-              .map((tower) => tower.tower_no)
-              .join(" / "),
+          tower_no: kind === "logical_tower" ? entity.tower_no || "" : "",
           asset_no: physical?.asset_no || null,
           physical_code: physical?.tower_code || "",
           tower_material: snapshotAsset.tower_material,
           tower_nature: snapshotAsset.tower_nature,
-          span: kind === "span" ? entity : null,
-          location_label:
-            kind === "span"
-              ? catalog.get("towers", text(entity.start_tower_id, "起始杆塔"), true).tower_no +
-                " ~ " +
-                catalog.get("towers", text(entity.end_tower_id, "终止杆塔"), true).tower_no
-              : entity.tower_no || physical?.label || "真实作业位置",
+          span: kind === "span" ? {
+            ...entity,
+            start_tower_no: catalog.get("towers", text(entity.start_tower_id, "起始杆塔"), true).tower_no,
+            end_tower_no: catalog.get("towers", text(entity.end_tower_id, "终止杆塔"), true).tower_no,
+          } : null,
+          location_label: kind === "span" ? "档距" : kind === "logical_tower" ? entity.tower_no || "未记载" : physical?.asset_no || physical?.tower_code || "未记载",
         },
       };
     });

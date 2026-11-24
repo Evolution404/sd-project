@@ -24,5 +24,7 @@ test('logical circuits and spans use true identities, frozen equipment attribute
   const spanOperation=save('operations',{name:'导线修补',work_object_id:conductor.id,default_unit_id:unit.id,completion_standard:'质量合格'});
   const spanDemand=s.demands.save(user,{operation_id:spanOperation.id,problem_description:'档距位置',work_locations:[{location_kind:'span',span_id:span.id,quantity_scaled:20000}]});
   assert.equal(spanDemand.span_id,span.id);assert.equal(spanDemand.logical_tower_id,null);
-  assert.equal(spanDemand.work_locations[0].location_snapshot_json.location_label,'12 ~ 13');
+  assert.equal(spanDemand.work_locations[0].location_snapshot_json.location_label,'档距');
+  assert.equal(spanDemand.work_locations[0].location_snapshot_json.span.start_tower_no,'12');
+  assert.equal(spanDemand.work_locations[0].location_snapshot_json.span.end_tower_no,'13');
 });

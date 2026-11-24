@@ -65,11 +65,14 @@ export function createSystem(dataDir?: string) {
   const seededAuth = {
     ...auth,
     initialize(username:string,password:string){
-      const created=auth.initialize(username,password);
-      dictionaries.seedTowerDefaults({
-        id:created.id,username:created.username,role:"admin",permissions:["admin"],
+      return database.transaction(()=>{
+        const created=auth.initialize(username,password);
+        dictionaries.seedTowerDefaults({
+          id:created.id,username:created.username,role:created.role,
+          roles:identity.rolesForUser(created.id),permissions:identity.permissionsForUser(created.id),
+        });
+        return created;
       });
-      return created;
     },
   };
   const standards = createWorkStandards(workStandardRepository(store),dictionaries,database,audit);

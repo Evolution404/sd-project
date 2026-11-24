@@ -3,6 +3,7 @@ import { parseListQuery } from "../../platform/http/list-query.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import { isFoundationKind } from "./service.js";
+import { authorize } from "../../platform/auth/service.js";
 export async function handleDictionaries(
   context: RouteContext,
 ): Promise<{ result: unknown }> {
@@ -21,6 +22,7 @@ export async function handleDictionaries(
   } = context;
   requireValue(isFoundationKind(key), "基础数据类型不存在", 404);
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
+  if (read) authorize(actor, "read");
   if (
     read &&
     sub &&

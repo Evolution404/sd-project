@@ -1,8 +1,8 @@
 import { writeFileSync } from "node:fs";
 import { guideAnchorDeclarations } from "./lib/guide-anchor-audit.mjs";
-import { guideModules } from "../web/src/guides/registry/modules.ts";
-import { guideActions } from "../web/src/guides/registry/actions.ts";
-import { guideCourses } from "../web/src/guides/registry/journeys.ts";
+import { guideModules } from "../tests/fixtures/legacy-frontend/web/src/guides/registry/modules.ts";
+import { guideActions } from "../tests/fixtures/legacy-frontend/web/src/guides/registry/actions.ts";
+import { guideCourses } from "../tests/fixtures/legacy-frontend/web/src/guides/registry/journeys.ts";
 const safe=x=>String(x||"—").replace(/\|/g,"／").replace(/\n/g,"；");
 const labels={admin:"管理员",editor:"编辑",verifier:"审核",viewer:"只读"};
 const {direct,delegated,all}=guideAnchorDeclarations;

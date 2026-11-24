@@ -21,14 +21,15 @@ test("plain make only prints command help and does not build or run services", (
   assert.doesNotMatch(output, /SERVER_BUILD_OK|SCHEMA113_READY|vite.*built/);
   const dryRun = make("-n");
   assert.match(dryRun, /printf/);
-  assert.doesNotMatch(dryRun, /npm run build|npm run demo|dist\/server\/main/);
+  assert.doesNotMatch(dryRun, /pnpm run build|pnpm run demo|dist\/server\/main/);
 });
 test("single demo packaging target builds and validates the ZIP", () => {
   const output = make("-n", "package-win-demo");
-  assert.match(output, /npm run package:win:demo/);
-  assert.match(output, /npm run test:package:demo/);
-  assert.ok(output.indexOf("package:win:demo") < output.indexOf("test:package:demo"));
+  assert.match(output, /pnpm run package:win:demo/);
+  assert.doesNotMatch(output,/test:package:demo/);
+  assert.match(make("-n","release"),/pnpm run release/);
+  assert.match(make("-n","release-final"),/pnpm run verify:release/);
   const formal = make("-n", "package-win");
-  assert.match(formal, /npm run package:win/);
+  assert.match(formal, /pnpm run package:win/);
   assert.doesNotMatch(formal, /demo/);
 });

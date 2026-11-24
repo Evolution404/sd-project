@@ -1,4 +1,4 @@
-import { requireNode26, sourceSnapshot } from "./source-snapshot.mjs";
+import { requireNode24, sourceSnapshot } from "./source-snapshot.mjs";
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
@@ -9,10 +9,11 @@ import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
 import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 
-requireNode26();
+requireNode24();
 const root = resolve(import.meta.dirname, "../..");
-const zip = join(root, "dist/sd-project-win10-x64-demo.zip");
-const receipt = JSON.parse(readFileSync(join(root, "dist/DEMO-RELEASE-MANIFEST.json"), "utf8"));
+const releaseOutput = process.env.SD_RELEASE_OUTPUT_DIR || join(root,"dist");
+const zip = join(releaseOutput, "sd-project-win10-x64-demo.zip");
+const receipt = JSON.parse(readFileSync(join(releaseOutput, "DEMO-RELEASE-MANIFEST.json"), "utf8"));
 const digest = path => createHash("sha256").update(readFileSync(path)).digest("hex");
 assert.equal(receipt.package_mode, "demo");
 assert.equal(digest(zip), receipt.sha256);
@@ -31,7 +32,12 @@ z.extractall(out)
   assert.equal(unzip.status,0,unzip.stderr);
   const manifest = JSON.parse(readFileSync(join(stage,"BUILD-MANIFEST.json"),"utf8"));
   assert.equal(manifest.package_mode,"demo");
-  assert.match(manifest.runtime,/^v26\.\d+\.\d+$/);
+  for (const path of [
+    "docs/vendor/vue3-element-admin-4.13.0/LICENSE",
+    "docs/implementation/有来_vue3-element-admin_v4.13.0_源码移植与复用清单_2026-11-23.md",
+    "docs/implementation/2026-11-23_结算全量工作表与有来桌面改版验收.md",
+  ]) assert.ok(existsSync(join(stage,path)),"演示版缺少MIT许可或移植验收凭据："+path);
+  assert.match(manifest.runtime,/^v24\.\d+\.\d+$/);
   assert.equal(manifest.runtime,receipt.runtime);
   assert.equal(typeof manifest.worktree_dirty,"boolean");
   assert.match(manifest.build_input_sha256,/^[0-9a-f]{64}$/);
@@ -41,11 +47,14 @@ z.extractall(out)
   assert.equal(head.status,0);
   assert.equal(manifest.git_commit,head.stdout.trim());
   for(const file of ["scripts/training/instance.mjs","启动训练环境.cmd",
-      "训练实例列表.cmd","docs/implementation/P10_业务操作帮助覆盖清单.md"])
+      "训练实例列表.cmd","docs/implementation/P10_业务操作帮助覆盖清单.md",
+      "docs/implementation/P10_正式有来操作覆盖复核_2026-11-24.md",
+      "docs/implementation/有来UI最终交付执行矩阵_2026-11-24.md"])
     assert.ok(existsSync(join(stage,file)),"演示包缺少训练功能："+file);
 
   assert.equal(manifest.schema_version,113);
-  for (const config of ["vite.config.ts", "tsconfig.json", "tsconfig.server.json"])
+  for(const [path,sha] of Object.entries(manifest.deployment_artifact_sha256))assert.equal(digest(join(stage,path)),sha,"部署脚本损坏 "+path);
+  for (const config of ["web/vite.config.ts", "web/tsconfig.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.server.json"])
     assert.match(manifest.build_input_files_sha256[config], /^[a-f0-9]{64}$/);
   assert.equal(manifest.sample_data_included,true);
   assert.equal(manifest.ps1_utf8_bom,false,
@@ -64,6 +73,9 @@ z.extractall(out)
   assert.equal(digest(join(stage,"dist/server/database/schema/schema113.sql")),manifest.schema_sha256);
   for(const [name,sha] of Object.entries(manifest.server_artifact_sha256))
     assert.equal(digest(join(stage,"dist/server",name)),sha,"server artifact "+name);
+  assert.ok(manifest.frontend_artifact_sha256["index.html"]);
+  for (const [name, sha] of Object.entries(manifest.frontend_artifact_sha256))
+    assert.equal(digest(join(stage, "dist/web", name)), sha, "frontend artifact " + name);
   assert.equal(existsSync(join(stage,"node_modules/vite")),false);
   assert.equal(existsSync(join(stage,"node_modules/typescript")),false);
   assert.equal(existsSync(join(stage,"初始化管理员.cmd")),false);
@@ -163,8 +175,8 @@ z.extractall(out)
     actual_zip_extracted: true, fixed_demo_credentials: true,
     restart_persistence: true, access_logs_rotation_restart: true,
   };
-  writeFileSync(join(root,"dist/DEMO-RELEASE-MANIFEST.json"), JSON.stringify(receipt,null,2) + "\n");
-  console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node26, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
+  writeFileSync(join(releaseOutput,"DEMO-RELEASE-MANIFEST.json"), JSON.stringify(receipt,null,2) + "\n");
+  console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node24, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");
 } finally {
   if(server && server.exitCode===null)server.kill("SIGTERM");
   rmSync(temp,{recursive:true,force:true});

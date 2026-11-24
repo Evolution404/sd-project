@@ -11,12 +11,12 @@ function sourceFiles(folder){
     return entry.isDirectory()?sourceFiles(path):entry.isFile()&&path.endsWith(".vue")?[path]:[];
   });
 }
-const rowRenderer=readFileSync("web/src/shared/ui/RowActions.vue","utf8");
+const rowRenderer=readFileSync("tests/fixtures/legacy-frontend/web/src/shared/ui/RowActions.vue","utf8");
 if(!rowRenderer.includes(':data-guide-action="primary.guideActionId"') ||
    !rowRenderer.includes(':data-guide-action="action.guideActionId"'))
   throw Error("RowActions must propagate help identifiers for primary and secondary controls");
 const direct=new Set(), delegated=new Set();
-for(const file of sourceFiles("web/src/modules")){
+for(const file of sourceFiles("tests/fixtures/legacy-frontend/web/src/modules")){
   const source=readFileSync(file,"utf8");
   for(const [,value] of source.matchAll(/\b(?:data-guide-action|detail-guide-action|action-id)\s*=\s*"([^"]+)"/g)){
     if(/^[a-z][a-z0-9-]+\.[a-z][a-z0-9-]+$/.test(value)) direct.add(value);

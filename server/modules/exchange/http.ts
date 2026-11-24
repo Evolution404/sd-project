@@ -58,11 +58,16 @@ export async function handleExchange(context: RouteContext): Promise<{
             }
             if (sub === "preview") {
                 requireValue(Buffer.isBuffer(input), "请上传xlsx文件");
-                result = await exchange.preview(actor, kindValue(key), input, {
+                const preview = await exchange.preview(actor, kindValue(key), input, {
                     mode: exchangeMode(url.searchParams.get("mode")),
                     newSettlement: url.searchParams.get("new_settlement") === "true",
                     projectId: url.searchParams.get("project_id") || undefined,
                 });
+                result = url.searchParams.get("view") === "summary" ? {
+                    ...preview,
+                    documents: preview.documents.map(({ id, number, action, sheet, row }) =>
+                      ({ id, number, action, sheet, row })),
+                } : preview;
             }
             else if (sub === "commit")
                 result = exchange.commit(actor, key, commitRequest(input));

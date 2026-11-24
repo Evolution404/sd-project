@@ -31,6 +31,13 @@ export async function handleWorkStandards(
       ),
     };
   }
+  if (operation && subKey === "definition") {
+    requireValue(read, "操作定义只允许查询", 405);
+    const version = url.searchParams.get("version");
+    return { result: version === null
+      ? service.getOperation(sub)
+      : service.operationVersion(sub, Number(version)) };
+  }
   if (
     read &&
     sub &&

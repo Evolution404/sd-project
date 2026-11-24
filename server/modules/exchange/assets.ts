@@ -18,6 +18,14 @@ import {
 
 export function createAssetExchange(system: ExchangePorts) {
   const { catalog, exchangePersistence, equipment } = system;
+  function choices(){
+    const names=(kind:"voltages"|"tower_materials"|"tower_natures")=>{
+      const active=catalog.list(kind).filter(row=>row.status==="active");
+      return active.map(row=>String("name" in row?row.name??"":"")).filter((name,index,all)=>name&&all.indexOf(name)===index&&all.lastIndexOf(name)===index);
+    };
+    const voltage=names("voltages");
+    return {voltage_name:voltage,parent_voltage_name:voltage,tower_material:names("tower_materials"),tower_nature:names("tower_natures")};
+  }
   const physicalKeys = catalog.definitions.physical.fields
     .map((field) => field.key as keyof EquipmentRecord)
     .filter((key) => key !== "status");
@@ -390,9 +398,8 @@ export function createAssetExchange(system: ExchangePorts) {
             : kind === "physical"
               ? (row.asset_no || row.tower_material || row.model || "独立物理杆塔")
             : kind === "towers"
-              ? row.line_name + " · " + row.tower_no
-              : row.line_name + " · " + row.start_tower_no +
-                "—" + row.end_tower_no,
+              ? String(row.tower_no ?? "")
+              : String(row.start_tower_no ?? ""),
           action: existing
             ? changes.length ? "update" : "unchanged"
             : "create",
@@ -739,7 +746,7 @@ export function createAssetExchange(system: ExchangePorts) {
         })),
         ...rows.physical.map((row) => ({
           对象: "物理杆塔", 名称: row.label || row.asset_no || "物理杆塔", 杆塔材质: row.tower_material, 杆塔性质: row.tower_nature, 型号: row.model,
-          关联线路: row.related_lines, 关联杆塔号: row.related_towers,
+          关联回路数: row.current_circuits,
         })),
         ...rows.towers.map((row) => ({
           对象: "逻辑杆塔",
@@ -754,10 +761,14 @@ export function createAssetExchange(system: ExchangePorts) {
           管辖长度米: row.transmission_center_length_mm == null
             ? "" : row.transmission_center_length_mm / 1000,
         })),
-      ], [], exchangeReportScope(options, rootCount));
-    return makeWorkbook("assets", rows, { assetKind: options.assetKind });
+      ], (records.get("physical") || []).flatMap(tower => (tower.bindings || []).map(binding => ({
+        物理杆塔编码: tower.tower_code, 现场铭牌: tower.asset_no, 线路名称: binding.line_name,
+        电压等级: binding.voltage_name, 杆塔号: binding.tower_no,
+      }))), exchangeReportScope(options, rootCount));
+    return makeWorkbook("assets", rows, { assetKind: options.assetKind, choices:choices() });
   }
   return {
+    choices,
     preview,
     prepare,
     execute(actor:Actor, document:AssetPreviewDocument) {

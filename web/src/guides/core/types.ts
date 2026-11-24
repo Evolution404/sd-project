@@ -4,7 +4,7 @@ export type GuideModuleId =
 export type GuideRole = "admin" | "editor" | "verifier" | "viewer";
 export interface GuideAction {
   id: string;
-  module: GuideModuleId | "excel";
+  module: GuideModuleId | "excel" | "common";
   title: string;
   aliases: readonly string[];
   purpose: string;

@@ -160,6 +160,7 @@ export interface NormalizedDemand {
   materials: DemandMaterial[];
 }
 export interface DemandRecord extends Omit<NormalizedDemand, "materials">, DemandCurrentRow {
+  display_status: DemandDisplayStatus;
   deleted: boolean;
   materials: DemandMaterialRow[];
   sources: SourceRow[];
@@ -170,6 +171,7 @@ export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand,
   /** Derived at query time, never stored separately from lifecycle and project binding. */
   display_status: DemandDisplayStatus;
   line_summary?: string;
+  line_count?: number;
   project_name?: string | null;
   last_handled_at?: string;
   location_count?: number;

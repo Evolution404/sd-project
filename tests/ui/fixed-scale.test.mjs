@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { exactScaledInteger, quantityFitsUnitPrecision } from "../../web/src/shared/utils/fixed-scale.ts";
+import { exactScaledInteger, quantityFitsUnitPrecision } from "../../tests/fixtures/legacy-frontend/web/src/shared/utils/fixed-scale.ts";
 
 test("decimal inputs convert to safe exact scaled business integers without silent rounding", () => {
   for (const [value, precision, expected] of [
@@ -24,7 +24,7 @@ test("unit frozen quantity precision rejects fractional indivisible units", () =
 
 
 test("exact decimal text accepts only representable amounts without coercion", async () => {
-  const { exactScaledDecimalText, formatScaledDecimal } = await import("../../web/src/shared/utils/fixed-scale.ts");
+  const { exactScaledDecimalText, formatScaledDecimal } = await import("../../tests/fixtures/legacy-frontend/web/src/shared/utils/fixed-scale.ts");
   for (const [text,scale,expected] of [
     ["0.25",4,2500], ["0.2500",4,2500], ["0.2501",4,2501],
     ["1.5",4,15000],["-1.25",2,-125], ["0.07",2,7],

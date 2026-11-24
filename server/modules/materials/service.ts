@@ -15,7 +15,7 @@ function decorate(row: MaterialRecord): MaterialRecord {
   return {
     ...row,
     deleted: Boolean(row.deleted),
-    label: [row.name, row.model, row.specification].filter(Boolean).join(" · "),
+    label: row.name,
   };
 }
 export function createMaterials(

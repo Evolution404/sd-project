@@ -3,8 +3,8 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter, type RouteLocationRaw } from "vue-router";
 import type { ScenarioStep, TrainingScenario } from "../../../../server/shared/types/training";
-import { settlementProgressText } from "../../shared/utils/settlement-progress";
-import { api } from "../../shared/api/client";
+import { settlementProgressText } from "../core/settlement-progress";
+import { readTrainingJourney } from "../core/training-reader";
 import { hasActiveGuideWorkspace, isGuideRecordOpen } from "../core/target-resolver";
 
 const emit = defineEmits<{ navigate: [] }>();
@@ -15,7 +15,7 @@ const error = ref("");
 const feedback = ref("");
 const labels: Record<ScenarioStep, { title: string; instructions: string }> = {
   register: { title:"登记专业需求", instructions:"选择「【训练】防鸟装置安装」，填写现场问题和预计解决时间。在「【训练】青禾线」选一至两基杆塔，填写装置数量，保存需求。" },
-  "return-demand": { title:"确认并退回需求", instructions:"打开刚登记的需求，先点「确认并待承接」。在需求详情的「其他处理」中选择「退回修改」，核对提示后确认。" },
+  "return-demand": { title:"确认并退回需求", instructions:"打开刚登记的需求，先点「确认专业需求」。在需求详情选择「退回需求」，填写原因，核对提示后确认。" },
   "revise-demand": { title:"修订需求并重新确认", instructions:"修改已退回需求的工作量或问题描述并保存，回到同一需求详情，再次确认并进入待承接。" },
   link: { title:"创建子项目并承接", instructions:"以当前需求创建子项目，选择「【训练】输电检修年度框架」，保存并承接整条需求。" },
   approve: { title:"入库并完成首次立项", instructions:"先办理入库，进入立项与变更。纳入完整需求范围，编制并批准立项。可用 12,000 元作为批准预算。" },
@@ -52,27 +52,25 @@ async function refresh() {
   error.value = "";
   feedback.value = "";
   try {
-    scenario.value = (await api<{ scenario: TrainingScenario | null }>("/training/journey")).scenario;
+    scenario.value = (await readTrainingJourney()).scenario;
   } catch (cause) {
     error.value = cause instanceof Error ? cause.message : "无法读取实操进度";
   } finally { loading.value = false; }
 }
 
 function destination(id: ScenarioStep | undefined): RouteLocationRaw {
-  const entry = facts.value;
-  if (!entry || id === "register") return { name:"demands",params:{editMode:"new"} };
-  if (id === "return-demand" || id === "revise-demand") {
-    return { name:"demands",query:{demand:entry.demandId} };
-  }
-  if (id === "link") return { name:"projects",query:{ action:"create",demand:entry.demandId } };
-  if (id === "cost" || id === "review" || id === "itemized") {
-    if (id === "review" && entry.totalBillId && entry.totalBillStatus === "submit") {
-      return { name:"projects",params:{projectId:entry.projectId!,work:"settlements",recordId:entry.totalBillId,recordAction:"review"} };
+  const entry=facts.value;
+  if(!entry||id==="register")return {name:"DemandEditor",params:{demandId:""}};
+  if(id==="return-demand"||id==="revise-demand")return {name:"Demands",query:{demand:entry.demandId}};
+  if(id==="link")return {name:"Projects",query:{fromDemand:entry.demandId}};
+  if(id==="cost")return {name:"Finance",query:{project:entry.projectId!,work:"costs"}};
+  if(id==="review"||id==="itemized"){
+    if(id==="review"&&entry.totalBillId){
+      return {name:"SettlementReview",params:{settlementId:entry.totalBillId},query:{project:entry.projectId!}};
     }
-    return { name:"projects",params:{projectId:entry.projectId!,work:"finance"} };
+    return {name:"Finance",query:{project:entry.projectId!}};
   }
-  return { name:"projects",params:{projectId:"",work:"",recordId:"",recordAction:""},query:{ project:entry.projectId, tab:id === "change" || (id === "approve" && entry.projectStage === "stocked")
-    ? "approval" : id ? "overview" : "history" } };
+  return {name:"Projects",query:{project:entry.projectId!}};
 }
 
 async function proceed() {
@@ -80,6 +78,7 @@ async function proceed() {
   const demandOpen = isGuideRecordOpen("demand",facts.value?.demandId);
   const projectOpen = isGuideRecordOpen("project",facts.value?.projectId);
   const next = destination(step);
+  if(typeof next==="object"&&"name" in next&&next.name&&!router.hasRoute(next.name)){feedback.value="当前账号没有此办理入口，请核对实际权限。";return}
   const sameRoute = router.resolve(next).fullPath === router.currentRoute.value.fullPath;
   if (sameRoute || (demandOpen && (step === "return-demand" || step === "revise-demand"))) {
     emit("navigate");
@@ -105,9 +104,9 @@ onMounted(refresh);
     <ElAlert v-if="error" type="error" :closable="false" :title="error" />
     <template v-else-if="scenario">
       <h3>青禾线防鸟治理</h3>
-      <p class="scenario-context">独立训练环境 · {{ status }}</p>
+      <p class="scenario-context">独立训练环境：{{ status }}</p>
       <dl v-if="facts" class="scenario-facts">
-        <template v-if="facts.demandNumber"><div><dt>需求</dt><dd>{{ facts.demandNumber }} · 第 {{ facts.demandVersion }} 版</dd></div></template>
+        <template v-if="facts.demandNumber"><div><dt>需求编号</dt><dd>{{ facts.demandNumber }}</dd></div><div><dt>需求版本</dt><dd>{{ facts.demandVersion }}</dd></div></template>
         <template v-if="facts.projectNumber"><div><dt>项目</dt><dd>{{ facts.projectNumber }}</dd></div></template>
         <template v-if="facts.firstApproval"><div><dt>批准版本</dt><dd>第 {{ facts.changedApproval || facts.firstApproval }} 版</dd></div></template>
         <template v-if="billText"><div><dt>总额结算单</dt><dd>{{ billText }}</dd></div></template>
@@ -151,12 +150,12 @@ onMounted(refresh);
 <style scoped>
 .scenario { min-height: 120px; }
 .scenario h3 { margin: 0 0 5px; }
-.scenario-context { color: var(--muted); margin: 0 0 12px; }
+.scenario-context { color: var(--el-text-color-secondary); margin: 0 0 12px; }
 .scenario-facts {
   display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 13px;
   margin: 14px 0; padding: 14px; border: 1px solid var(--el-border-color); border-radius: 8px;
 }
-.scenario-facts dt { color: var(--muted); font-size: 12px; }
+.scenario-facts dt { color: var(--el-text-color-secondary); font-size: 12px; }
 .scenario-facts dd { margin: 4px 0 0; font-weight: 600; }
 .scenario-next h4 { margin: 12px 0 4px; }
 .scenario-next p { margin: 0 0 12px; }
@@ -166,4 +165,3 @@ onMounted(refresh);
 .scenario-steps li { padding: 6px 0; }
 .scenario-steps .el-tag { margin-left: 8px; }
 </style>
-

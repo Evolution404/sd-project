@@ -19,6 +19,10 @@ export function financeVersion(input:Record<string,unknown>) {
   return {expected_version:num(input.expected_version,"正式版本"),
     reason:optStr(input.reason,"说明")};
 }
+export function financeDeleteCost(input:Record<string,unknown>) {
+  return {...financeVersion(input),
+    expected_reconciliations:optNum(input.expected_reconciliations,"有效费用核对数")};
+}
 export function financeSubmit(input:Record<string,unknown>):SettlementSubmitInput {
   return {expected_version:num(input.expected_version,"结算版本"),
     expected_edit_version:num(input.expected_edit_version,"结算草稿编辑版本")};

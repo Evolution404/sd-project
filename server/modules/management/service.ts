@@ -1,11 +1,14 @@
 import { authorize, id, now } from "../../platform/auth/service.js";
 import { requireValue, text } from "../../shared/errors/business-error.js";
-import type { Actor } from "../../shared/types/contracts.js";
+import { optNum } from "../../shared/input-shape.js";
+import { isObject, type Actor } from "../../shared/types/contracts.js";
+import { scopedProjectPermissions, type ProjectRoleScope } from "../../shared/types/project-access.js";
 import type { IdentityRepository } from "../../database/repositories/identity.js";
 import type { ManagementRepository } from "../../database/repositories/management.js";
 import type { AuditService } from "../../platform/audit/service.js";
 import type { Database } from "../../database/connection.js";
 import type { createAuth } from "../../platform/auth/service.js";
+import { authorizedMenuRoutes } from "./menu.js";
 
 type AuthService = ReturnType<typeof createAuth>;
 interface Dependencies {
@@ -18,13 +21,23 @@ interface Dependencies {
 interface UserInput {
   username: string;
   password?: string;
-  role: "admin" | "editor" | "verifier" | "viewer";
+  role?: "admin" | "editor" | "verifier" | "viewer";
+  role_codes?: string[];
+  display_name?: string;
+  employee_no?: string | null;
+  primary_org_id?: string | null;
+  organization_ids?: string[];
+  expected_version?: number;
   status?: string;
 }
 type Input = Record<string, unknown>;
 
 /** System-administration application use cases; no SQL or generic table CRUD. */
 export function createManagement({ repository, identity, auth, audit, database }: Dependencies) {
+  function menuRoutes(actor:Actor) {
+    // A user only sees modules authorized by effective persisted grants.
+    return authorizedMenuRoutes(actor);
+  }
   function actors(actor: Actor, includeHistorical = false) {
     authorize(actor, "read");
     const deleted = repository.deletedUserIds();
@@ -33,22 +46,32 @@ export function createManagement({ repository, identity, auth, audit, database }
       .map(({ id, username }) => ({ id, username }));
   }
   function users(actor: Actor, includeDeleted = false) {
-    authorize(actor, "admin");
+    authorize(actor, "user.manage");
     const deleted = repository.deletedUserIds();
     return identity.users()
       .filter(user => includeDeleted || !deleted.has(user.id))
-      .map(user => ({ ...user, deleted: deleted.has(user.id) }));
+      .map(user => ({ ...user, role_codes: identity.rolesForUser(user.id),
+        organization_ids:identity.organizationsForUser(user.id),deleted: deleted.has(user.id) }));
   }
-  function saveUser(actor: Actor, input: Input, key?: string, method?: string) {
-    authorize(actor, "admin");
+  function userDetail(actor: Actor, key: string, includeDeleted = false) {
+    authorize(actor, "user.manage");
+    const user = identity.user(key);
+    const deleted = repository.isUserDeleted(key);
+    requireValue(user && (includeDeleted || !deleted), "用户不存在", 404);
+    return { ...user, role_codes: identity.rolesForUser(user.id),
+      organization_ids: identity.organizationsForUser(user.id), deleted };
+  }
+  function saveUser(actor: Actor, input: Input, key?: string, method?: string, temporaryPassword = false) {
+    authorize(actor, "user.manage");
     return database.transaction(() => {
       requireValue(!key || !repository.isUserDeleted(key), "用户已删除", 409);
-      const current = key ? identity.users().find(user => user.id === key) : undefined;
+      const current = key ? identity.user(key) : undefined;
       if (key) requireValue(current, "用户不存在", 404);
       if (method === "DELETE") requireValue(key, "未指定要删除的用户", 422);
       const output = method === "DELETE"
-        ? auth.saveUser(actor, { username: current!.username, role: current!.role, status: "disabled" }, key)
-        : auth.saveUser(actor, input as unknown as UserInput, key);
+        ? auth.saveUser(actor, { username: current!.username, status: "disabled",
+          expected_version: optNum(input.expected_version,"用户版本") ?? current!.version }, key)
+        : auth.saveUser(actor, input as unknown as UserInput, key, temporaryPassword);
       requireValue(output, "用户变更未完成", 409);
       audit.record(actor, "users", key || output.id,
         method === "DELETE" ? "delete" : key ? "revise" : "create",
@@ -113,7 +136,7 @@ export function createManagement({ repository, identity, auth, audit, database }
   function audits(actor: Actor, includeDeleted: boolean, key: string): { original: NonNullable<ReturnType<ManagementRepository["auditRecord"]>>; decisions: ReturnType<AuditService["history"]> };
   function audits(actor: Actor, includeDeleted?: boolean, key?: undefined): ReturnType<ManagementRepository["auditEvents"]>;
   function audits(actor: Actor, includeDeleted = false, key?: string) {
-    authorize(actor, "admin");
+    authorize(actor, "audit.read");
     if (key) {
       const original = repository.auditRecord(key);
       requireValue(original, "审计记录不存在", 404);
@@ -122,8 +145,12 @@ export function createManagement({ repository, identity, auth, audit, database }
     return repository.auditEvents(includeDeleted);
   }
   function searchAuditEvents(actor: Actor, query: Parameters<ManagementRepository["searchAuditEvents"]>[0]) {
-    authorize(actor, "admin");
+    authorize(actor, "audit.read");
     return repository.searchAuditEvents(query);
+  }
+  function searchSecurityEvents(actor: Actor, query: Parameters<ManagementRepository["searchSecurityEvents"]>[0]) {
+    authorize(actor, "audit.read");
+    return repository.searchSecurityEvents(query);
   }
   function annotateAudit(actor: Actor, input: Input, key?: string, method?: string) {
     authorize(actor, "admin");
@@ -143,10 +170,126 @@ export function createManagement({ repository, identity, auth, audit, database }
       return { ok: true };
     });
   }
+  /** Authoritative role records and their editable granted permissions. */
+  function roles(actor:Actor) {
+    authorize(actor,"role.manage");
+    return identity.roles().map(role=>({
+      ...role,
+      permissions:identity.permissionsForRole(role.code),
+    }));
+  }
+  function role(actor:Actor,code:string) {
+    authorize(actor,"role.manage");
+    const record=identity.role(code);
+    requireValue(record,"角色不存在",404);
+    return {...record,permissions:identity.permissionsForRole(code),
+      data_scopes:identity.scopesForRole(code),member_count:identity.roleMemberCount(code)};
+  }
+  function saveRole(actor:Actor,input:Input,code?:string) {
+    authorize(actor,"role.manage");
+    return database.transaction(()=>{
+      const at=now();
+      const current=code?identity.role(code):undefined;
+      if(code)requireValue(current,"角色不存在",404);
+      const roleCode=code||text(input.code,"角色编码");
+      requireValue(/^[a-z][a-z0-9_.-]{2,63}$/.test(roleCode),"角色编码只能使用小写字母、数字、横线和下划线");
+      const name=text(input.name,"角色名称");
+      const status=input.status??current?.status??"active";
+      requireValue(status==="active"||status==="disabled","角色状态无效");
+      const sortOrder=input.sort_order??current?.sort_order??100;
+      requireValue(typeof sortOrder==="number"&&Number.isSafeInteger(sortOrder),"排序必须为整数");
+      const auto=input.auto_grant_new_permissions??Boolean(current?.auto_grant_new_permissions);
+      requireValue(typeof auto==="boolean","自动授予新权限设置无效");
+      if(!current) {
+        requireValue(!identity.role(roleCode),"角色编码已存在",409);
+        identity.createRole({code:roleCode,name,status,sort_order:sortOrder,
+          system_seed:0,auto_grant_new_permissions:Number(auto),version:1,
+          created_at:at,updated_at:at});
+      } else {
+        requireValue(input.expected_version===current.version,
+          "角色版本已变化，请刷新后重试",409);
+        identity.updateRole(roleCode,{name,status,sort_order:sortOrder,
+          auto_grant_new_permissions:Number(auto),version:current.version+1,updated_at:at});
+      }
+      requireValue(identity.hasAdministrator(),"必须保留一个有效管理员（具有系统管理授权）",409);
+      if(current)identity.revokeRoleMembers(roleCode);
+      const output={...identity.role(roleCode)!,permissions:identity.permissionsForRole(roleCode)};
+      audit.record(actor,"roles",roleCode,current?"revise":"create",current||null,output);
+      return output;
+    });
+  }
+  function deleteRole(actor:Actor,code:string,input:Input) {
+    authorize(actor,"role.manage");
+    return database.transaction(()=>{
+      const original=identity.role(code);
+      requireValue(original,"角色不存在",404);
+      requireValue(!original.system_seed,"内置角色不允许删除，权限可以编辑",409);
+      requireValue(input.expected_version===original.version,
+        "角色版本已变化，请刷新后重试",409);
+      requireValue(identity.roleMemberCount(code)===0,
+        "角色仍有关联账号，先调整用户角色",409);
+      const grants=identity.permissionsForRole(code);
+      identity.deleteRole(code);
+      requireValue(identity.hasAdministrator(),"必须保留一个有效管理员（具有系统管理授权）",409);
+      audit.record(actor,"roles",code,"delete",{...original,permissions:grants},{deleted:true});
+      return {deleted:true};
+    });
+  }
+  function setRolePermissions(actor:Actor,roleCode:string,input:Input) {
+    authorize(actor,"role.manage");
+    requireValue(Array.isArray(input.permissions)&&input.permissions.every(x=>typeof x==="string"),
+      "角色权限必须是字符串列表");
+    const codes=input.permissions as string[];
+    requireValue(new Set(codes).size===codes.length,"角色权限不能重复");
+    requireValue(codes.every(code=>identity.allPermissions().includes(code)),"包含未经服务端注册的权限");
+    return database.transaction(()=>{
+      const original=identity.role(roleCode);
+      requireValue(original,"角色不存在",404);
+      requireValue(input.expected_version===original.version,
+        "角色权限版本已被其他管理员修改，请刷新后重试",409);
+      const previous=identity.permissionsForRole(roleCode);
+      const previousScopes = identity.scopesForRole(roleCode);
+      const scopes = input.data_scopes === undefined
+        ? previousScopes.filter(scope => codes.includes(scope.permission_code))
+        : parseProjectScopes(input.data_scopes, codes, previousScopes);
+      identity.setRolePermissions(roleCode,codes);
+      identity.replaceRoleScopes(roleCode, scopes);
+      requireValue(identity.hasAdministrator(),"必须保留一个有效管理员（具有系统管理授权）",409);
+      identity.updateRole(roleCode,{version:original.version+1,updated_at:now()});
+      identity.revokeRoleMembers(roleCode);
+      const output=role(actor, roleCode);
+      audit.record(actor,"roles",roleCode,"permission_grant",
+        {version:original.version,permissions:previous,data_scopes:previousScopes},output);
+      return output;
+    });
+  }
+  function parseProjectScopes(input: unknown, permissions: string[], previous: ProjectRoleScope[]): ProjectRoleScope[] {
+    requireValue(Array.isArray(input), "操作数据范围必须是列表");
+    const codes = new Set<string>();
+    return input.map((value): ProjectRoleScope => {
+      requireValue(isObject(value), "操作数据范围无效");
+      const permission = scopedProjectPermissions.find(code => code === value.permission_code);
+      requireValue(permission && permissions.includes(permission) && !codes.has(permission),
+        "数据范围只能配置一次，且须对应本角色已授予的项目操作权限");
+      codes.add(permission);
+      const scope = value.scope;
+      requireValue(scope === "all" || scope === "self" || scope === "department" ||
+        scope === "department_and_children" || scope === "custom", "操作数据范围模式无效");
+      const ids = value.organization_ids ?? [];
+      requireValue(Array.isArray(ids) && ids.every((id): id is string => typeof id === "string"),
+        "组织范围必须使用组织 ID 列表");
+      const adopted = previous.find(row => row.permission_code === permission && row.scope === "custom");
+      const added = ids.filter(id => !adopted?.organization_ids.includes(id));
+      requireValue(scope === "custom" ? ids.length > 0 && new Set(ids).size === ids.length &&
+        identity.validOrganizations(added) : ids.length === 0,
+        "仅自定义范围可指定组织，组织必须有效且不可重复");
+      return { permission_code: permission, scope, organization_ids: ids.toSorted() };
+    }).filter(scope => scope.scope !== "all");
+  }
   function permissions(actor: Actor) {
-    authorize(actor, "admin");
+    authorize(actor, "role.manage");
     return repository.permissionCatalog();
   }
-  return { actors, users, saveUser, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, annotateAudit, permissions };
+  return { actors, users, userDetail, saveUser, roles, role, saveRole, deleteRole, setRolePermissions, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, searchSecurityEvents, annotateAudit, permissions, menuRoutes };
 }
 export type ManagementService = ReturnType<typeof createManagement>;

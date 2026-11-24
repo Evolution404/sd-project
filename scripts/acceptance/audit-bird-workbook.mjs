@@ -2,8 +2,8 @@ import ExcelJS from "exceljs";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
-const source =
-  process.argv[2] || "/Users/zhangyuxi/Downloads/20260915防鸟反措明细.xlsx";
+const source = process.argv[2];
+if (!source) throw Error("请显式指定本地原始工作簿");
 const output = resolve(process.argv[3] || "test-results/dux/bird");
 await mkdir(output, { recursive: true });
 const bytes = await readFile(source),
@@ -54,7 +54,6 @@ console.log(
     sheets.map(({ rows, ...sheet }) => ({
       ...sheet,
       nonempty_rows: rows.length,
-      sample: rows.slice(0, 8),
     })),
     null,
     2,

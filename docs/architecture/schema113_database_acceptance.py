@@ -294,7 +294,11 @@ def net():
     return row("SELECT COALESCE(SUM(net_amount_fen),0) n "
         "FROM v_effective_settlement_items")["n"]
 
-add("users",id="u",username="admin",password_hash="x",role="admin",created_at="2026-11-07T00:00:00.000Z")
+add("users",id="u",username="admin",display_name="admin",role="admin",
+    created_at="2026-11-07T00:00:00.000Z",updated_at="2026-11-07T00:00:00.000Z")
+add("user_credentials",user_id="u",password_hash="x",
+    changed_at="2026-11-07T00:00:00.000Z")
+add("user_roles",user_id="u",role_code="admin",assigned_at="2026-11-07T00:00:00.000Z")
 add("dictionary_types",id="unit",title="计量单位")
 add("dictionary_types",id="expense_category",title="费用类别")
 add("dictionary_items",id="unit",type_id="unit",code="set",
@@ -1103,8 +1107,13 @@ ok("initial demand lifecycle is created with root identity",
        "WHERE demand_id='d_lifecycle'")["to_status"]=="pending")
 blocked("immutable demand registration cannot be rewritten after creation",
     "UPDATE demands SET target_object='不同对象' WHERE id='d_lifecycle'")
-add("users",id="view_governance",username="read-only",password_hash="x",
-    role="viewer",created_at="2026-11-07T17:00:00.000Z")
+add("users",id="view_governance",username="read-only",display_name="read-only",
+    role="viewer",created_at="2026-11-07T17:00:00.000Z",
+    updated_at="2026-11-07T17:00:00.000Z")
+add("user_credentials",user_id="view_governance",password_hash="x",
+    changed_at="2026-11-07T17:00:00.000Z")
+add("user_roles",user_id="view_governance",role_code="viewer",
+    assigned_at="2026-11-07T17:00:00.000Z")
 demand("d_actor_fk")
 add("demand_lifecycle_events",id="app_authorization_boundary",
     demand_id="d_actor_fk",event_seq=2,from_status="pending",

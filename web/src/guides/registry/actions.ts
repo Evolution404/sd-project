@@ -1,5 +1,6 @@
 import type { GuideAction, GuideModuleId, GuideRole } from "../core/types";
 import { extraGuideActions } from "./extra-actions.ts";
+import { nativeGuideActions } from "./native-actions.ts";
 type CompactAction = readonly [
   id:string, title:string, purpose:string, prerequisite:string,
   result:string, risk:string, roles?:readonly GuideRole[], states?:readonly string[], target?:string,
@@ -12,9 +13,9 @@ const generic = "先确认当前对象、正式版本和当前账号权限";
 const immutable = "操作会留下正式历史，既有批准或历史版本不能直接覆盖";
 const records: ReadonlyArray<readonly [GuideModuleId|"excel",readonly CompactAction[]]> = [
  ["dashboard",[
-  ["dashboard.open","查看待办","在待办理区选择对应的记录或打开该类待办清单", "当前账号有待办职责","可进入需求、项目或结算办理位置","由用户选择具体记录"],
-  ["dashboard.filter","刷新工作台","重新获取待办、项目预警和资金报表", "已登录系统","显示最新读取结果","刷新仅重新读取业务数据"],
-  ["dashboard.alert","查看项目预警","在需要关注区查看项目预警与差异","有预警时可点击项目名称","打开对应项目核实","预警不直接自动调整预算"],
+  ["dashboard.open","进入业务模块","使用工作台顶部快捷入口进入专业需求、子项目或费用与结算", "当前账号具有相应入口权限","打开相应业务列表","由用户选择具体记录"],
+  ["dashboard.filter","切换费用趋势区间","选择实际费用趋势的统计月份区间", "已登录系统","切换图表统计区间","图表是只读汇总，不会变更费用"],
+  ["dashboard.alert","查看项目预警","在需要关注区查看项目预警与差异","需要进一步核实时，通过子项目列表按项目名称检索","通过项目详情核实","预警不直接自动调整预算"],
  ]],
  ["demands",[
   ["demands.export-selection","导出所选需求","导出已明确勾选的需求","取消选择已删除记录，一次最多 100 条","下载所选需求的 Excel","核对所选范围再交接",all],
@@ -28,12 +29,12 @@ const records: ReadonlyArray<readonly [GuideModuleId|"excel",readonly CompactAct
   ["demands.location-add","添加作业位置","从真实设备台账跨页多选逻辑杆塔、物理杆塔或档距","台账身份合法","加入位置及准确数量","同塔多回不得混淆",write],
   ["demands.batch","批量填写共同信息","统一填写已选位置的数量与附加属性","明确选中位置","批量更新草稿各位置","每处可独立修正，避免误覆盖",write],
   ["demands.source","维护需求来源","记录巡视、工单及其他证据来源","有正式需求草稿","形成可追溯来源","不可静默删除未涉及的来源",write],
+  ["demands.material-batch-edit","直接编辑预计物资","进入预计物资页签直接填写通用工作表","需求草稿已有预计物资","支持粘贴、填充及撤销草稿","禁止修改单位和物资身份，须正式保存需求",write],
+  ["demands.material-finish-edit","完成预计物资录入","切换页签或保存需求，结束当前工作表单元格编辑","预计物资数量通过冻结计量单位精度校验","保留尚未保存的草稿；保存需求才创建正式版本","不得将结束编辑等同正式保存",write],
   ["demands.material","预计物资","记录计划物资和采用单位","物资有合法版本","保存需求预计物资","不得静默折算或舍入",write],
-  ["demands.material-batch-edit","批量编辑预计物资","主动开启预计物资数量的 Excel 式草稿编辑","需求草稿已有预计物资","支持粘贴、填充与撤销草稿","禁止修改计量单位，最终仍需保存需求正式版本",write],
-  ["demands.material-finish-edit","完成预计物资批量编辑","关闭 Excel 编辑区域并回到正常查看表格","草稿数量通过计量单位精度校验","保留尚未正式保存的草稿修改","点击完成编辑本身不提交正式版本",write],
   ["demands.confirm","确认需求有效","审核现场依据后正式确认","需求待确认或已退回","需求进入有效状态并记审计事件","需要审核权限和版本检查",verify,["pending","returned"]],
-  ["demands.return","退回修改","把已确认但未承接的需求退回补正","在需求详情的「其他处理」中选择「退回修改」。已承接的需求不能直接退回，需先正式修订或办理解绑","保留原版本和退回办理事件","退回后经修订和重新确认才能承接",verify,["active"]],
-  ["demands.cancel","取消需求","终止未承接需求","在需求详情的「其他处理」中办理。须核对承接关系","需求进入已取消，可查看历史","已有承接时须先按项目规则处理关联",verify],
+  ["demands.return","退回修改","把已确认但未承接的需求退回补正","在需求详情选择「退回需求」。已承接的需求不能直接退回，须遵守承接及项目生命周期规则","保留原版本和退回办理事件","退回后经修订和重新确认才能承接",verify,["active"]],
+  ["demands.cancel","取消需求","终止未承接需求","在需求详情选择「取消需求」。须核对承接关系","需求进入已取消，可查看历史","已有承接时须先按项目规则处理关联",verify],
   ["demands.link","关联子项目","选已有项目或原子新建项目承接需求","需求有效且未被其他项目承接","创建唯一当前承接关系","批准范围须另行审核",write,["active"]],
   ["demands.quote","参考价格试算","依据冻结操作和各位置属性计算价格","所需计价属性齐备","显示试算依据和覆盖范围","试算不等于正式报价或结算",write],
   ["demands.history","历史记录","对比需求版本，查看承接、正式参考报价及来源","需求存在","仅展示审计与正式版本","历史记录不可直接删除",all],
@@ -45,14 +46,14 @@ const records: ReadonlyArray<readonly [GuideModuleId|"excel",readonly CompactAct
   ["projects.add-candidate","新增候选需求","在变更草稿加入待采用的完整需求","选择已确认且未被承接的完整需求","批准后才建立正式承接关系","提交时重新核对归属与正式需求版本",write],
   ["projects.reload-closure","重新读取结项核对","刷新结项阻塞、未解决量及金额差额","当前结项核对已打开","按最新正式事实更新结项预览","请核对变化后再确认",verify],
   ["projects.create","新增子项目","在年度框架内建立项目身份","年度框架存在","建立储备子项目","不等于入库或批准",write,["reserve"],".page-heading-actions"],
-  ["projects.link","承接专业需求","关联有效未被其他项目承接的需求","需求正式有效","形成单一归属","不可重复承接",write],
+  ["projects.link","承接专业需求","关联有效未被其他项目承接的需求","待确认需求可先关联储备项目，确认有效后才能正式立项","形成单一归属","不可重复承接",write],
   ["projects.stock","确认入库","将合规储备项目正式入库","项目已有合法业务范围","更新项目阶段","须经过明确确认",verify,["reserve"]],
   ["projects.approval-draft","编制立项范围","按整条需求核对全部位置和数量，再填写批准物资及预算","已入库且范围可批准","保存独立批准草稿","旧批准范围需继承并显示差异",write],
   ["projects.approve","正式批准","审核批准草稿和范围差异","具有审批权限且版本未冲突","冻结正式批准版本","预算、数量与范围变化会进入审计历史",verify,["stocked","approved"]],
   ["projects.change","编制正式变更","以最新批准为基线调整范围预算","已有批准版本","生成变更草稿","不得静默覆盖前次批准",write,["approved"]],
   ["projects.funding","维护项目资金归属","在项目档案选择年度框架及可选的同框架执行协议","协议有效且在生效期内；入库后框架锁定","记录正式资金归属；无协议时直接归属框架","额度差额不自动封顶",write],
   ["projects.quote","批准范围核价","根据正式批准范围和版本报价","覆盖全部已选择合法位置","明确参考价及规则指纹","不得对同位置重复计价",write],
-  ["projects.release","解除承接","解除一条需求与该项目的当前承接关系","打开项目的「承接需求」，核对具体需求。当前正式批准或未完成草稿包含该需求时不能解绑","保留旧承接及批准历史","已结项项目也保护现行批准范围",write],
+  ["projects.release","解除承接","解除一条需求与该项目的当前承接关系","打开项目的「承接需求」，核对具体需求。已正式批准项目在正式结项前不得解除承接，即使变更移出范围也不得提前释放；储备阶段按服务端规则办理","保留旧承接及批准历史","结项按实际解决数量释放剩余工作量，历史批准及原需求身份仍保留",write],
   ["projects.close","结项","完成费用和结算核对后正式结项","必需的结算审核和核对已完成","冻结结项审计事实","结项前需预览尚有差异",verify,["approved"]],
   ["projects.history","完整历史","查询档案、批准、变更、费用及结项","项目存在","展示不可改写历史","不能误把草稿当已批准",all],
   ["projects.delete","删除项目","移除可删除的未受正式引用对象","完成引用保护","保留历史审计","批准及结项项目不得简单删除",admin],
@@ -88,12 +89,14 @@ const records: ReadonlyArray<readonly [GuideModuleId|"excel",readonly CompactAct
   ["finance.return","退回结算","把待审核结算退回补正并记录原因","进入单据审核页，填写审核意见","待审版本退回，原已批准金额继续有效","原批准金额继续计入项目进度",verify],
   ["finance.resubmit","原版重新提交","对比退回意见，按原版本重新送审","结算已退回且没有修订草稿，在对应结算行办理","沿用同一正式版本，产生新的提交事件","需要改金额或明细时请修订结算",write],
   ["finance.revise-settlement","修订结算","按原单内容建立下一版草稿","打开对应结算行。结算待审核期间禁止修订","新版本保存影响说明并重新送审","原已批准金额在新版批准前继续有效",write],
-  ["finance.withdraw-settlement","撤回结算草稿","结束当前未提交草稿","打开对应结算行的更多操作，核对草稿身份","保留撤回历史和原批准版本","已经提交待审核的单据须走审核流程",write],
-  ["finance.reconcile","新增正式核对","配对实际费用与本单已批准的结算明细","打开本单的逐笔对账记录","登记对应金额及依据","结算进度按批准预算计算",verify],
+  ["finance.withdraw-settlement","撤回结算草稿","结束当前未提交草稿","进入结算审核办理，核对草稿身份","保留撤回历史和原批准版本","已经提交待审核的单据须走审核流程",write],
+  ["finance.reconcile","新增正式核对","配对实际费用与本单已批准的结算明细","进入该项目的费用核对办理区","登记对应金额及依据","结算进度按批准预算计算",verify],
   ["finance.void","撤销或注销单据","处理可撤回的费用或结算","业务版本允许","产生撤销事件","正式历史保留",verify],
   ["finance.history","单据历史","核对每次结算、审核和修订","单据存在","展示所有版本和审核身份","不可将历史覆盖",all],
  ]],
  ["ledger",[
+  ["ledger.bulk","批量维护设备资料","选定当前页或勾选设备后进入独立工作表","管理员；最多100条可维护设备","校验版本并原子生成正式设备版本","身份、同杆、拓扑、状态及历史不可批量修改",admin],
+  ["ledger.bulk-save","保存设备批量修改","统一校验所有编辑并提交","核对正式字典与数量精度","一次事务写入全部变化","任一失败整批回滚，保留草稿",admin],
   ["ledger.line","新增线路","登记输电线路与电压等级","已有电压等级","形成线路身份","不得凭重名猜测设备",admin,["empty"],".page-heading-actions"],
   ["ledger.physical","物理杆塔","维护真实物理资产身份","核实现场和台账中对应的设备身份","建立物理杆塔","共塔多回须复用实物",admin],
   ["ledger.logical","逻辑杆塔","在线路内配置杆塔号和实物关联","线路存在","建立线路-杆塔逻辑身份","与物理杆塔不能互换",admin],
@@ -162,4 +165,4 @@ const baseGuideActions:readonly GuideAction[] = records.flatMap(([module,actions
     target:target||"",courseIds:defaultCourses[module],
   })));
 
-export const guideActions:readonly GuideAction[] = [...baseGuideActions,...extraGuideActions];
+export const guideActions:readonly GuideAction[] = [...baseGuideActions,...extraGuideActions,...nativeGuideActions];

@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, type CSSProperties } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { navigationItems } from "../../app/navigation";
+import { listRouteIdentity } from "@/components/Crud/utils/list-state";
+import { navigationItems } from "../core/navigation";
 import { ElMessageBox, useZIndex } from "element-plus";
-import type { Actor } from "../../../../server/shared/types/contracts";
-import { api } from "../../shared/api/client";
+import { readTrainingChecks, type TrainingChecks } from "../core/training-reader";
 import { guideModules, guideModuleForRoute } from "../registry/modules";
 import { guideActions } from "../registry/actions";
+import { nativeGuideDispositions } from "../registry/native-dispositions";
 import { guideCourses } from "../registry/journeys";
 import { clearProgress, readProgress, writeProgress, GUIDE_COURSE_VERSION, type LearningProgress } from "../core/progress";
 import { hasActiveGuideWorkspace, resolveGuideTarget, resolveGuideAction, resolveGuideActionTarget } from "../core/target-resolver";
 import type { GuideAction, GuideModule, GuideCourse } from "../core/types";
 import PracticeJourney from "./PracticeJourney.vue";
-const props = defineProps<{open:boolean; actor:Actor; routeKey:string}>();
+const props = defineProps<{open:boolean; actor:{id:string;roles:readonly string[]}; routeKey:string}>();
 const emit = defineEmits<{ "update:open":[boolean] }>();
 const open = computed({ get:()=>props.open, set:v=>emit("update:open",v) });
 const route = useRoute(), router = useRouter();
@@ -40,16 +41,15 @@ const courseStep = ref(0);
 const selectedModule = ref<GuideModule|null>(null);
 const selectedAction = ref<GuideAction|null>(null);
 const selectedActionHint = ref("");
+const selectedActionTarget=ref("");
 const tourSteps = computed(() => selectedAction.value ? [{
   id:selectedAction.value.id,
   title:selectedAction.value.title,
   target:"",
-  description:[selectedActionHint.value, selectedAction.value.purpose, selectedAction.value.prerequisite,
+  description:nativeGuideDispositions[selectedAction.value.id] ? selectedActionHint.value : [selectedActionHint.value, selectedAction.value.purpose, selectedAction.value.prerequisite,
     selectedAction.value.result, selectedAction.value.risk].filter(Boolean).join("。"),
 }] : (tourModule.value?.steps??[]));
 const progress = ref<Readonly<Record<string,LearningProgress>>>({});
-type CourseCheck = {id:string;completed:boolean;details:string};
-type TrainingChecks = {training:boolean;courses:CourseCheck[]};
 const trainingChecks = ref<TrainingChecks|null>(null);
 const trainingLoading = ref(false);
 const trainingError = ref("");
@@ -58,7 +58,7 @@ async function refreshTraining(){
   const current=++trainingRequest;
   trainingLoading.value=true;trainingError.value="";
   try {
-    const response=await api<TrainingChecks>("/training/checkpoints");
+    const response=await readTrainingChecks();
     if(current===trainingRequest)trainingChecks.value=response;
   }catch(error){
     if(current===trainingRequest)trainingError.value=
@@ -74,10 +74,10 @@ const currentModule = computed(()=>guideModuleForRoute(props.routeKey));
 const tourModule = computed(()=>selectedModule.value??currentModule.value);
 const filteredActions = computed(()=>{
   const q=query.value.trim().toLocaleLowerCase();
-  return guideActions.filter(a=>(!q ? a.module===props.routeKey :
+  return guideActions.filter(a=>(!q ? (a.module===props.routeKey || a.module==="common") :
     [a.title,a.id,a.purpose,...a.aliases].some(x=>x.toLocaleLowerCase().includes(q))));
 });
-const moduleActions = computed(()=>guideActions.filter(a=>a.module===(selectedModule.value?.id??currentModule.value?.id)));
+const moduleActions = computed(()=>guideActions.filter(a=>a.module===(selectedModule.value?.id??currentModule.value?.id)||a.module==="common"));
 const stateLabels: Readonly<Record<string,string>> = {
   empty:"尚无记录",pending:"待确认",returned:"已退回",active:"有效",
   reserve:"储备",stocked:"已入库",approved:"已批准",
@@ -91,8 +91,9 @@ watch(()=>props.actor.id,()=>{
   courseStep.value=0;closeTour();
   trainingRequest++;trainingChecks.value=null;trainingError.value="";trainingLoading.value=false;
 },{immediate:true});
-watch(() => route.fullPath, () => {
+watch(() => listRouteIdentity(route.fullPath), () => {
   closeTour();
+  open.value = false;
   tourStep.value = 0;
   feedback.value = "";
 });
@@ -140,19 +141,24 @@ function showFeedback(message: string) {
   void nextTick(() => feedbackRegion.value?.scrollIntoView({ block: "nearest" }));
 }
 function locateAction(action: GuideAction) {
-  const target = resolveGuideAction(action.id);
+  const disposition=nativeGuideDispositions[action.id];
+  if(disposition?.kind==="unavailable"){showFeedback(disposition.reason);return}
+  const actionId=disposition?.target??action.id;
+  const target = resolveGuideAction(actionId);
   if (!target) {
-    showFeedback(`当前没有唯一可定位的「${action.title}」控件。请核对权限、页签及单据状态，或打开具体记录后重试。`);
+    showFeedback((disposition?.reason ? disposition.reason+" " : "")+`当前没有唯一可定位的「${action.title}」控件。请核对权限、页签及单据状态，或打开具体记录后重试。`);
     return;
   }
   selectedModule.value = null;
   selectedAction.value = action;
-  selectedActionHint.value = target.menu ? `打开高亮的菜单后选择「${action.title}」` : target.reason;
+  selectedActionTarget.value=actionId;
+  selectedActionHint.value = [disposition?.reason,target.menu ? "打开高亮的更多操作菜单" : target.reason].filter(Boolean).join("。");
   queueTour();
 }
 function moduleDestination(key: string) {
   const item = navigationItems.find(entry => entry.key === key);
-  return item && (!item.adminOnly || props.actor.role === "admin") ? item : undefined;
+  const name=item?.names.find(name=>router.hasRoute(name));
+  return item&&name?{...item,name}:undefined;
 }
 async function goToModule(key: string) {
   if (!moduleDestination(key)) return;
@@ -162,7 +168,7 @@ async function goToModule(key: string) {
     return;
   }
   try {
-    if (key !== props.routeKey && await router.push({ name: key })) {
+    if (key !== props.routeKey && await router.push({ name: moduleDestination(key)!.name })) {
       showFeedback("未离开当前页面。请处理当前业务提示后重试。");
       return;
     }
@@ -211,11 +217,11 @@ const courseDestination = computed(() => {
   if (!course) return undefined;
   return moduleDestination(course.routeName === "excel" ? "demands" : course.routeName);
 });
-function hasRole(roles:readonly string[]) {return roles.includes(props.actor.role);}
+function hasRole(roles:readonly string[]) {return props.actor.roles.some(role=>roles.includes(role));}
 function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
 </script>
 <template>
-  <ElDrawer v-model="open" title="使用指引" class="sd-guide-center" size="min(580px,96vw)"
+  <ElDrawer v-model="open" title="使用指引" class="sd-guide-center" size="min(580px,96vw)" append-to-body
     :close-on-click-modal="true" :destroy-on-close="false" @closed="launchPendingTour">
     <p class="guide-intro">了解每项业务操作的前置条件、正式结果与风险。阅读说明不会自动修改业务数据。</p>
     <div v-if="feedback" ref="feedbackRegion" class="guide-feedback">
@@ -232,15 +238,18 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
           <ElCollapse>
             <ElCollapseItem v-for="action in moduleActions" :key="action.id"
               :title="action.title" :name="action.id">
-              <p>{{ action.purpose }}</p>
-              <ElButton size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
-              <p><strong>操作前：</strong>{{ action.prerequisite }}</p>
+              <p v-if="nativeGuideDispositions[action.id]" class="text-[var(--el-text-color-secondary)]">
+                {{ nativeGuideDispositions[action.id]?.kind==="unavailable" ? "新版未提供独立入口：" : "新版办理路径：" }}{{ nativeGuideDispositions[action.id]?.reason }}
+              </p>
+              <p v-else>{{ action.purpose }}</p>
+              <ElButton v-if="nativeGuideDispositions[action.id]?.kind!=='unavailable'" size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
+              <template v-if="!nativeGuideDispositions[action.id]"><p><strong>操作前：</strong>{{ action.prerequisite }}</p>
               <p><strong>操作后：</strong>{{ action.result }}</p>
               <p><strong>风险与历史：</strong>{{ action.risk }}</p>
               <p><strong>适用身份：</strong>{{ action.roles.map(role=>roleLabel[role]).join("、") }}
-                <ElTag v-if="!hasRole(action.roles)" type="info" size="small">当前角色一般不可办理</ElTag>
+                <ElTag v-if="!hasRole(action.roles)" type="info" size="small">非典型角色，实际以授权为准</ElTag>
               </p>
-              <p v-if="action.states.join(',')!=='any'"><strong>典型状态：</strong>{{ action.states.map(stateLabel).join("、") }}</p>
+              <p v-if="action.states.join(',')!=='any'"><strong>典型状态：</strong>{{ action.states.map(stateLabel).join("、") }}</p></template>
             </ElCollapseItem>
           </ElCollapse>
         </template>
@@ -252,16 +261,20 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
         <div class="guide-result-count">共 {{ filteredActions.length }} 条操作解释</div>
         <ElCollapse>
           <ElCollapseItem v-for="action in filteredActions" :key="action.id"
-            :title="action.title + ' · ' + (guideModuleForRoute(action.module)?.title ?? '导入 Excel')" :name="action.id">
-            <p>{{ action.purpose }}</p>
+            :name="action.id">
+            <template #title><ElSpace><span>{{action.title}}</span><ElTag size="small" effect="plain">{{guideModuleForRoute(action.module)?.title ?? (action.module==='common'?'通用操作':'导入 Excel')}}</ElTag></ElSpace></template>
+            <p v-if="nativeGuideDispositions[action.id]" class="text-[var(--el-text-color-secondary)]">
+                {{ nativeGuideDispositions[action.id]?.kind==="unavailable" ? "新版未提供独立入口：" : "新版办理路径：" }}{{ nativeGuideDispositions[action.id]?.reason }}
+              </p>
+              <p v-else>{{ action.purpose }}</p>
             <ElButton v-if="action.module !== routeKey && moduleDestination(action.module)" size="small" text type="primary"
               @click="goToModule(action.module)">前往{{ moduleDestination(action.module)?.title }}</ElButton>
-            <ElButton v-else size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
-            <p><strong>前置条件：</strong>{{ action.prerequisite }}</p>
+            <ElButton v-else-if="nativeGuideDispositions[action.id]?.kind!=='unavailable'" size="small" text type="primary" @click="locateAction(action)">定位当前按钮</ElButton>
+            <template v-if="!nativeGuideDispositions[action.id]"><p><strong>前置条件：</strong>{{ action.prerequisite }}</p>
             <p><strong>业务结果：</strong>{{ action.result }}</p>
             <p><strong>风险：</strong>{{ action.risk }}</p>
             <p><strong>角色：</strong>{{ action.roles.map(role=>roleLabel[role]).join("、") }}</p>
-            <p v-if="!hasRole(action.roles)">当前账号缺少该操作的典型角色，实际以服务器授权为准。</p>
+            <p v-if="!hasRole(action.roles)">当前角色不在典型角色示例中，实际以服务器授权为准。</p></template>
           </ElCollapseItem>
         </ElCollapse>
       </ElTabPane>
@@ -351,18 +364,18 @@ function closeCourse() {selectedCourse.value=null;courseStep.value=0;}
     :target-area-clickable="false" :close-on-press-escape="true"
     @close="closeTour">
     <ElTourStep v-for="step in tourSteps" :key="step.id"
-      :target="()=>selectedAction ? resolveGuideActionTarget(selectedAction.id) : resolveGuideTarget(step.target)"
+      :target="()=>selectedAction ? resolveGuideActionTarget(selectedActionTarget) : resolveGuideTarget(step.target)"
       :title="step.title"
       :description="step.description" />
   </ElTour>
 </template>
 <style scoped>
 .guide-feedback { margin-bottom: 12px }
-.guide-intro,.guide-subtle {font-size:13px;color:var(--muted)}
-.guide-section-title {font-size:17px;font-weight:650;margin:3px 0 10px}
-.guide-result-count{font-size:12px;color:var(--muted);margin:9px 0}
+.guide-intro,.guide-subtle {font-size:13px;color:var(--el-text-color-secondary)}
+.guide-section-title {font-size:17px;font-weight:600;margin:3px 0 10px}
+.guide-result-count{font-size:12px;color:var(--el-text-color-secondary);margin:9px 0}
 .guide-module-list {display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.guide-module-item,.guide-course-row{padding:14px;border:1px solid var(--edge);border-radius:12px}
+.guide-module-item,.guide-course-row{padding:14px;border:1px solid var(--el-border-color);border-radius:12px}
 .guide-module-item p,.guide-course-row p{font-size:13px;line-height:1.6;margin:6px 0}
 .guide-module-item .el-button{margin-top:5px}
 .guide-course-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}

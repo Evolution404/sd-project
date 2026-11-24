@@ -133,3 +133,16 @@ test("HTTP requires a matching trial quote before formal price confirmation", as
   assert.equal(confirmed.status, 200);
   assert.equal((await confirmed.json()).total_fen, preview.total_fen);
 });
+
+test("approval request preserves the explicitly selected material versions", async () => {
+  const {parseProjectApproval}=await import("../../dist/server/modules/projects/requests.js");
+  const scope={project_scope_id:"scope-1",demand_version:1,
+    locations:[{location_item_no:1,approved_quantity_scaled:10000}],
+    materials:[{material_id:"material-1",quantity_scaled:30000}],
+    expected_material_versions:{"material-1":"material-version-1"}};
+  const input={expected_version:1,approved_budget_fen:10000,scopes:[scope]};
+  assert.deepEqual(parseProjectApproval(input).scopes[0].expected_material_versions,scope.expected_material_versions);
+  assert.throws(()=>parseProjectApproval({...input,scopes:[{...scope,expected_material_versions:{}}]}));
+  assert.throws(()=>parseProjectApproval({...input,scopes:[{...scope,expected_material_versions:{"material-2":"wrong"}}]}));
+  assert.throws(()=>parseProjectApproval({...input,scopes:[{...scope,materials:[...scope.materials,...scope.materials]}]}));
+});

@@ -3,6 +3,8 @@ import type { HandlingTarget, HandlingReviewRow } from "../../shared/types/handl
 import type { ProjectApprovalScopeInput, ProjectApprovalCandidateProposal, ProjectScopeListItem } from "../../shared/types/projects.js";
 import { ordinaryLinkReason, approvalDraftReason, projectDeleteReason } from "../../shared/project-lifecycle.js";
 import { authorize, id, now, today } from "../../platform/auth/service.js";
+import { authorizeProject, hasProjectScope } from "../../platform/auth/project-access.js";
+import type { ProjectAccess } from "../../shared/types/project-access.js";
 import {
   BusinessError,
   requireValue,
@@ -156,6 +158,7 @@ export function createProjects(
     return repo.transaction(() => {
       const previous = key ? get(key) : null;
       if (previous) {
+        authorizeProject(actor, "write", previous);
         requireValue(previous.status !== "closed", "项目已结项，项目档案已冻结", 409);
         expectedVersion(previous.profile_version, input.expected_version);
       }
@@ -215,30 +218,42 @@ export function createProjects(
             "请选择有效责任人或管理人员",
           );
         }
-      const category = input.category_id
-          ? previous?.category_id === input.category_id
+      const categoryId = input.category_id === undefined ? previous?.category_id : input.category_id;
+      const organizationId = input.managing_unit_id === undefined ? previous?.managing_unit_id : input.managing_unit_id;
+      const category = categoryId
+          ? previous?.category_id === categoryId
             ? {id:previous.category_id, version:previous.category_version}
-            : catalog.get("categories", input.category_id)
+            : catalog.get("categories", categoryId)
           : null,
-        organization = input.managing_unit_id
-          ? previous?.managing_unit_id === input.managing_unit_id
+        organization = organizationId
+          ? previous?.managing_unit_id === organizationId
             ? adoptedOrganization(previous.managing_unit_id, previous.managing_unit_version_id)
-            : catalog.get("organizations", input.managing_unit_id)
+            : catalog.get("organizations", organizationId)
           : null;
       const profileFields = {
         name: text(input.name, "项目名称"),
         framework_id: frameworkId,
         category_id: category?.id || null,
         category_version: category?.version || null,
-        owner_id: input.owner_id || null,
-        manager_id: input.manager_id || null,
+        owner_id: (input.owner_id === undefined ? previous?.owner_id : input.owner_id) || null,
+        manager_id: (input.manager_id === undefined ? previous?.manager_id : input.manager_id) || null,
         managing_unit_id: organization?.id || null,
         managing_unit_version_id: organization?.unit_version_id || null,
-        planned_start_on: input.planned_start_on || null,
-        planned_end_on: input.planned_end_on || null,
-        preliminary_estimate_fen: input.preliminary_estimate_fen ?? null,
-        preliminary_estimate_basis: input.preliminary_estimate_basis || null,
+        planned_start_on: (input.planned_start_on === undefined ? previous?.planned_start_on : input.planned_start_on) || null,
+        planned_end_on: (input.planned_end_on === undefined ? previous?.planned_end_on : input.planned_end_on) || null,
+        preliminary_estimate_fen: (input.preliminary_estimate_fen === undefined
+          ? previous?.preliminary_estimate_fen : input.preliminary_estimate_fen) ?? null,
+        preliminary_estimate_basis: (input.preliminary_estimate_basis === undefined
+          ? previous?.preliminary_estimate_basis : input.preliminary_estimate_basis) || null,
       };
+      authorizeProject(actor, "write", profileFields);
+      if (previous && (previous.managing_unit_id !== profileFields.managing_unit_id ||
+        previous.owner_id !== profileFields.owner_id)) {
+        for (const permission of Object.keys(actor.project_access ?? {})) {
+          requireValue(hasProjectScope(actor, permission, previous) || !hasProjectScope(actor, permission, profileFields),
+            "不能通过修改项目归口单位或责任人为自己扩大操作数据范围", 403);
+        }
+      }
       const profileChanged = !previous ||
         Object.entries(profileFields).some(([field, value]) =>
           (previous as Record<string, unknown>)[field] !== value);
@@ -266,6 +281,7 @@ export function createProjects(
     stageName: "stocked" | "approved" | "closed", permission: string, version: number) {
     authorize(actor, permission);
     const p = get(key);
+    authorizeProject(actor, permission, p);
     expectedVersion(p.version, version);
     if (stageName === "stocked") requireValue(p.status === "reserve", "仅储备项目可办理入库", 409);
     repo.appendStage({
@@ -493,6 +509,7 @@ export function createProjects(
     authorize(actor, "write");
     return repo.transaction(() => {
       const project = get(key);
+      authorizeProject(actor, "write", project);
       expectedVersion(project.version, input.expected_version);
       const blocked = approvalDraftReason(project);
       requireValue(!blocked, blocked, 409);
@@ -605,8 +622,8 @@ export function createProjects(
       options: eligibleAgreementOptions(project.framework_id, selectedId),
     };
   }
-  function search(query: ListQuery) {
-    const result = repo.searchProjects(query);
+  function search(query: ListQuery, access?: ProjectAccess) {
+    const result = repo.searchProjects(query, access);
     return { ...result, items: result.items.map(({ approval_json, scopes_json, funding_json, ...row }) => ({
       ...row, approval: approval_json ? JSON.parse(approval_json) as Pick<ProjectApprovalVersion, "id" | "version_no" | "approved_budget_fen"> : null,
       scopes: JSON.parse(scopes_json || "[]") as ProjectScopeListItem[], funding: funding_json ? JSON.parse(funding_json) as Pick<ProjectFundingVersion, "id" | "version_no" | "agreement_id"> : null,
@@ -625,9 +642,11 @@ export function createProjects(
     },
     search,
     handlingQueue(actor: Actor, kind: "compile" | "initial" | "change", query: ListQuery) {
-      authorize(actor, kind === "compile" ? "write" : kind === "initial" ? "project.approve" : "change.approve");
+      const permission = kind === "compile" ? "write" : kind === "initial" ? "project.approve" : "change.approve";
+      authorize(actor, permission);
       const state = kind === "compile" ? "已入库" : kind === "initial" ? "立项中" : "变更中";
-      const page = search({ ...query, deleted: false, filters: { ...query.filters, display_status: state } });
+      const page = search({ ...query, deleted: false, filters: { ...query.filters, display_status: state } },
+        actor.project_access?.[permission]);
       return { ...page, items: page.items.map(row => ({
         id: row.id,
         name: row.name,
@@ -656,6 +675,13 @@ export function createProjects(
     },
     workspace(key: string, includeDeleted = false) {
       return get(key, includeDeleted, true);
+    },
+    authorizeOwnedProject(actor: Actor, permission: string, projectId: string) {
+      authorize(actor, permission);
+      if (!actor.project_access?.[permission]) return;
+      const profile = repo.latestProjectProfile(projectId);
+      requireValue(profile, "项目不存在", 404);
+      authorizeProject(actor, permission, profile);
     },
     approvalCandidates(key: string) {
       get(key, true, true);
@@ -713,10 +739,12 @@ export function createProjects(
       return targets.map(target => {
         const root = repo.projectIdentity(target.id);
         const profile = root && repo.latestProjectProfile(target.id);
+        const visible = profile && hasProjectScope(actor, "project.stock", profile);
         const reason = !root || !profile || repo.projectDeleted(target.id) ? "项目不存在或已删除"
+          : !visible ? "该项目不在此操作的授权数据范围内"
           : root.version !== target.expected_version ? "项目版本已变化，请重新选择"
           : root.status !== "reserve" ? "仅储备项目可办理入库" : "";
-        return { ...target, label: profile?.name || root?.code || target.id, reason };
+        return { ...target, label: visible ? profile.name : target.id, reason };
       });
     },
     stockMany(actor: Actor, targets: HandlingTarget[]) {
@@ -729,11 +757,12 @@ export function createProjects(
     previewLinkMany(actor: Actor, key: string, input: ProjectLinkBatchInput): HandlingReviewRow[] {
       authorize(actor, "write");
       const project = get(key);
+      authorizeProject(actor, "write", project);
       return input.links.map(link => {
         let label = link.demand_id;
         try {
           const demand = demands.get(link.demand_id);
-          label = demand.demand_no + " · " + demand.problem_description;
+          label = demand.demand_no;
           preflightLink(project, link, demand);
           return { id: link.demand_id, expected_version: link.expected_version, label, reason: "" };
         } catch (error) {
@@ -746,6 +775,7 @@ export function createProjects(
       authorize(actor,"write");
       return repo.transaction(()=>{
         const project=get(key);
+        authorizeProject(actor, "write", project);
         const prepared=preflightLink(project,input);
         writeLink(actor,key,input,prepared);
         return get(key);
@@ -761,6 +791,7 @@ export function createProjects(
       // any binding changes between preflight and actual insert.
       return repo.transaction(()=>{
         const project=get(key);
+        authorizeProject(actor, "write", project);
         const prepared=input.links.map(link=>preflightLink(project,link));
         for(let index=0;index<input.links.length;index++)
           writeLink(actor,key,input.links[index],prepared[index]);
@@ -771,6 +802,7 @@ export function createProjects(
       authorize(actor, "write");
       return repo.transaction(() => {
         const project = get(key, true);
+        authorizeProject(actor, "write", project);
         if (project.deleted) authorize(actor, "admin");
         const scope = project.scopes.find((x) => x.id === scopeId);
         requireValue(scope, "关联不存在", 404);
@@ -788,7 +820,7 @@ export function createProjects(
         requireValue(!latestApproved?.scopes.some(item => item.project_scope_id === scopeId),
           project.status === "closed"
             ? "项目已结项，最新版正式批准范围仍包含该需求，不能解绑"
-            : "已正式批准的在办项目须先通过最新版范围变更移出需求，才能解绑", 409);
+            : "已正式批准的在办项目不得解绑已批准需求，剩余需求仅在正式结项后释放", 409);
         const last = repo.latestDemandLinkEvent(scopeId);
         requireValue(last, "关联历史不存在", 409);
         expectedVersion(last.event_seq, input.expected_event_seq);
@@ -822,11 +854,12 @@ export function createProjects(
         const project = get(key),
           approval = project.approvals.find((ap) => ap.id === approvalId);
         requireValue(approval, "批准版本不存在", 404);
-        expectedVersion(project.version, input.expected_version);
-        authorize(
+        authorizeProject(
           actor,
           approval.version_no === 1 ? "project.approve" : "change.approve",
+          project,
         );
+        expectedVersion(project.version, input.expected_version);
         const candidates = checkApproval(project, approval);
         if (approval.change_order_id)
           repo.decideChange(approval.change_order_id, {
@@ -852,25 +885,15 @@ export function createProjects(
         });
         if (approval.version_no === 1)
           stage(actor, key, "approved", "project.approve", project.version);
-        if (project.approval) {
-          const previous = project.approvals.find(row => row.id === project.approval!.id);
-          const retained = new Set(get(key).approvals.find(row => row.id === approvalId)!.scopes.map(row => row.project_scope_id));
-          for (const scope of previous?.scopes || []) {
-            if (retained.has(scope.project_scope_id)) continue;
-            const last = repo.latestDemandLinkEvent(scope.project_scope_id);
-            requireValue(last, "移出需求的关联历史不存在", 409);
-            repo.appendDemandLink({ id: id(), project_scope_id: scope.project_scope_id,
-              event_seq: last.event_seq + 1, action: "released", actor_id: actor.id,
-              recorded_at: now(), reason: input.reason || "正式范围变更批准后移出需求" });
-          }
-        }
         return get(key);
       });
     },
     discardApproval(actor: Actor, key: string, approvalId: string) {
       authorize(actor, "write");
       return repo.transaction(() => {
-        const approval = get(key).approvals.find((x) => x.id === approvalId);
+        const project = get(key);
+        authorizeProject(actor, "write", project);
+        const approval = project.approvals.find((x) => x.id === approvalId);
         requireValue(approval?.status === "draft", "只能删除未批准草稿");
         catalog.audit(
           actor,
