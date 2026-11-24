@@ -74,11 +74,9 @@
         <el-table :data="editorItems" row-key="key" border empty-text="请选择末级费用科目并录入金额">
           <el-table-column label="费用科目" min-width="190">
             <template #default="{ row }">
-              <el-select v-model="row.cost_node_id" filterable :disabled="saving || switching" placeholder="选择末级科目">
-                <el-option v-for="node in eligibleCostNodes" :key="node.id" :label="node.label" :value="node.id" />
-                <el-option v-if="row.cost_node_id && !eligibleCostNodes.some(node => node.id === row.cost_node_id)"
-                  :value="row.cost_node_id" :label="row.costNodeName || '采用科目已不可选'" disabled />
-              </el-select>
+              <CostCategoryField v-model="row.cost_node_id" :nodes="costNodes"
+                :frozen-name="costNames.get(row.cost_node_id) ? undefined : row.costNodeName"
+                :disabled="saving || switching" />
             </template>
           </el-table-column>
           <el-table-column label="关联批准需求" min-width="185">
@@ -122,9 +120,10 @@ import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import SettlementWorkSheet from "@/components/business/SettlementWorkSheet.vue";
+import CostCategoryField from "@/components/business/CostCategoryField.vue";
 import { fenToYuan, yuanToFen } from "@/api/business/funding";
 import { projectApprovalHistory, projectDetail, type ProjectApproval, type ProjectDetail } from "@/api/business/projects";
-import { saveSettlementDraft, settlementDetail, type SettlementDetails, type SettlementItemInput,
+import { listCostNodes, saveSettlementDraft, settlementDetail, type CostNode, type SettlementDetails, type SettlementItemInput,
   type SettlementMode, type SettlementResolutionInput } from "@/api/business/finance";
 import { useUserStore } from "@/stores/user";
 
@@ -156,22 +155,9 @@ const switching=ref(false),submitting=ref(false);
 const worksheet=ref<InstanceType<typeof SettlementWorkSheet>>();
 const adoptedApproval=computed(()=>approvalVersions.value.find(row=>row.id===editorForm.approvalId));
 const editorTitle=computed(()=>editorForm.changeType==="void"?"编制作废草稿":editing.value?.version?"编制结算修订":"编制结算草稿");
-const eligibleCostNodes=computed(()=>{
-  const nodes=editorProject.value?.cost_nodes??[];
-  const byId=new Map(nodes.map(node=>[node.id,node]));
-  const parentIds=new Set(nodes.filter(node=>!node.deleted).map(node=>node.parent_id));
-  return nodes.flatMap(node=>{
-    if(parentIds.has(node.id))return [];
-    const labels:string[]=[];
-    const seen=new Set<string>();
-    for(let branch:typeof node|undefined=node; branch; branch=branch.parent_id?byId.get(branch.parent_id):undefined){
-      if(seen.has(branch.id)||branch.deleted||branch.status!=="active")return [];
-      seen.add(branch.id);
-      labels.unshift(branch.name);
-    }
-    return [{id:node.id,label:labels.join(" / ")}];
-  });
-});
+const costNodes = ref<CostNode[]>([]);
+const costNames = computed(() => new Map(costNodes.value.map(node => [node.id, node.name])));
+const eligibleCostNodes = computed(() => new Set(costNodes.value.filter(node => node.selectable).map(node => node.id)));
 const itemSheet=ref<InstanceType<typeof BusinessWorksheet>>();
 const itemColumns:WorksheetColumn[]=[
   {key:"label",title:"费用科目",width:240},{key:"scope",title:"关联需求",width:170},
@@ -179,8 +165,8 @@ const itemColumns:WorksheetColumn[]=[
 ];
 const itemSession=computed(()=>JSON.stringify(editorItems.value.map(row=>[row.key,row.cost_node_id,row.project_scope_id])));
 const itemRows=computed(()=>editorItems.value.map(row=>({
-  id:String(row.key),label:eligibleCostNodes.value.find(node=>node.id===row.cost_node_id)?.label||"未选费用科目",
-  values:{label:eligibleCostNodes.value.find(node=>node.id===row.cost_node_id)?.label||"未选费用科目",
+  id:String(row.key),label:costNames.value.get(row.cost_node_id) || row.costNodeName || "未选费用科目",
+  values:{label:costNames.value.get(row.cost_node_id) || row.costNodeName || "未选费用科目",
     scope:adoptedApproval.value?.scopes.find(scope=>scope.project_scope_id===row.project_scope_id)?.demand_no||"共同费用",
     amount:row.amountYuan,evidence:row.evidence??""},
 })));
@@ -246,10 +232,13 @@ async function load() {
       // The worksheet owns the visible load-error state and retries.
       void import("@/components/business/settlement-worksheet").catch(() => {});
     }
-    const [row, versions] = await Promise.all([projectDetail(id), projectApprovalHistory(id)]);
+    const [row, versions, categories] = await Promise.all([
+      projectDetail(id), projectApprovalHistory(id), voiding ? [] : listCostNodes(id),
+    ]);
     if (sequence !== editorSequence) return;
     if (!row.approval || row.status !== "approved" || row.deleted)
       throw Error("本项目当前不可编制结算");
+    costNodes.value = categories;
     approvalVersions.value = versions.filter(version => version.status === "approved");
     editing.value = record;
     const original=record?.draft?.document??record?.version;
@@ -321,7 +310,7 @@ async function saveDraft(submitNow = false){
       ?editorItems.value.map(({key:_key,amountYuan,costNodeName:_name,...item})=>({
         ...item,amount_fen:yuanToFen(amountYuan),
       })):[];
-    if(items.some(item=>!eligibleCostNodes.value.some(node=>node.id===item.cost_node_id)))
+    if(items.some(item=>!eligibleCostNodes.value.has(item.cost_node_id)))
       throw Error("请选择本项目有效的末级费用科目");
     if (submitNow) await ElMessageBox.confirm("提交后结算进入待审核状态，审核完成前不可编辑。确定提交？","提交结算审核",{
       type:"warning",confirmButtonText:"确认提交",cancelButtonText:"继续编辑",

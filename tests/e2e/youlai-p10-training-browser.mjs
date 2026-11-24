@@ -115,7 +115,14 @@ try{
  await button("登记实际费用").click();
  const cost=page.getByRole("dialog",{name:"登记实际费用"});
  await input("费用事项",cost).fill("治理实际人工");
- await cost.getByRole("combobox",{name:"费用科目"}).fill("人工费");await option("人工费").click();
+ async function chooseTrainingCost(scope) {
+   await button("选择费用科目", scope).click();
+   const picker=page.getByRole("dialog",{name:"选择费用科目",exact:true});
+   await picker.getByRole("row").filter({hasText:"人工费"}).getByRole("button",{name:"选择",exact:true}).click();
+   await button("确认选择（1）", picker).click();
+   await picker.waitFor({state:"hidden"});
+ }
+ await chooseTrainingCost(cost);
  await input("实际金额（元）",cost).fill("10000");
  await cost.getByLabel("发生日期",{exact:true}).fill("2026-11-20");await cost.getByLabel("发生日期",{exact:true}).press("Enter");
  await input("费用凭据",cost).fill("训练凭据");await button("核定费用",cost).click();await cost.waitFor({state:"hidden"});
@@ -128,7 +135,7 @@ try{
    if(itemized){
      await editor.locator(".el-form-item").filter({hasText:"结算方式"}).locator(".el-select").click();await option("按子费用").click();
      await button("新增子费用",editor).click();
-     await editor.locator(".el-table").filter({hasText:"费用科目"}).locator(".el-select").first().click();await option("人工费").click();
+     await chooseTrainingCost(editor);
      const itemCanvas=await worksheetCanvas(editor.getByRole("region",{name:"子费用金额及依据",exact:true}));
      await typeWorksheetCell(page,itemCanvas,1,2,[240,170,125,260],"3800");
      await typeWorksheetCell(page,itemCanvas,1,3,[240,170,125,260],"第二期现场费用");

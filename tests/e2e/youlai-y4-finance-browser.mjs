@@ -195,21 +195,54 @@ try{
   await page.waitForURL(url=>url.hash.startsWith("#/funding/finance?project="));
   await page.getByRole("tab",{name:"费用科目、费用及核对"}).click();
   await page.getByRole("tab",{name:"费用科目",exact:true}).click();
-  await page.getByRole("button",{name:"新增一级科目"}).click();
   const nodeForm=page.getByRole("dialog",{name:"新增费用科目"});
-  await nodeForm.getByRole("textbox",{name:"科目名称"}).fill("现场核对费用");
-  await nodeForm.getByRole("button",{name:"保存科目"}).click();
-  await nodeForm.waitFor({state:"hidden"});
-  const costNode=f.s.finance.costTree(f.user,f.project.id).find(row=>row.name==="现场核对费用");
-  assert.ok(costNode?.selectable);
+  async function addCategory(name, parent) {
+    const add = parent
+      ? page.getByRole("row").filter({ has: page.getByRole("cell", { name: parent, exact: true }) })
+        .getByRole("button", { name: "新增下级", exact: true })
+      : page.getByRole("button", { name: "新增一级科目", exact: true });
+    await add.click();
+    await nodeForm.getByRole("textbox", { name: "科目名称" }).fill(name);
+    await nodeForm.getByRole("button", { name: "保存科目" }).click();
+    await nodeForm.waitFor({ state: "hidden" });
+  }
+  for (const group of ["现场费用分类", "工程费用分类", "停用费用分类"]) {
+    await addCategory(group);
+    await addCategory("现场核对费用", group);
+  }
+  const categories = f.s.finance.costTree(f.user, f.project.id);
+  const siteGroup = categories.find(row => row.name === "现场费用分类");
+  const costNode = categories.find(row => row.parent_id === siteGroup.id);
+  const inactiveGroup = categories.find(row => row.name === "停用费用分类");
+  await page.getByRole("row").filter({ has: page.getByText(inactiveGroup.name, { exact: true }) })
+    .getByRole("button", { name: "修订", exact: true }).click();
+  const reviseCategory = page.getByRole("dialog", { name: "修订费用科目" });
+  await reviseCategory.getByText("停用", { exact: true }).click();
+  await reviseCategory.getByRole("button", { name: "保存科目", exact: true }).click();
+  await reviseCategory.waitFor({ state: "hidden" });
+  assert.ok(costNode.selectable);
+  assert.equal(f.s.finance.costTree(f.user, f.project.id).find(row => row.parent_id === inactiveGroup.id).selectable, false);
+
+  async function selectSiteCost(scope) {
+    await scope.getByRole("button", { name: "选择费用科目", exact: true }).click();
+    const picker = page.getByRole("dialog", { name: "选择费用科目", exact: true });
+    await picker.getByRole("columnheader", { name: "科目名称", exact: true }).waitFor();
+    await picker.getByRole("columnheader", { name: "上级科目", exact: true }).waitFor();
+    const names = picker.getByRole("cell", { name: "现场核对费用", exact: true });
+    await names.first().waitFor();
+    assert.equal(await names.count(), 2, "a leaf of a disabled ancestor must not be offered");
+    const selected = picker.getByRole("row").filter({ has: page.getByRole("cell", { name: siteGroup.name, exact: true }) });
+    await selected.getByRole("button", { name: "选择", exact: true }).click();
+    await picker.getByRole("button", { name: "确认选择（1）", exact: true }).click();
+    await picker.waitFor({ state: "hidden" });
+  }
 
   await page.getByRole("tab",{name:"实际费用",exact:true}).click();
   async function registerCost(title, yuan) {
     await page.getByRole("button",{name:"登记实际费用"}).click();
     const costForm=page.getByRole("dialog",{name:"登记实际费用"});
     await costForm.getByRole("textbox",{name:"费用事项"}).fill(title);
-    await costForm.getByRole("combobox",{name:"费用科目"}).fill("现场核对费用");
-    await page.getByRole("option",{name:"现场核对费用",exact:true}).click();
+    await selectSiteCost(costForm);
     await costForm.getByRole("textbox",{name:"实际金额（元）"}).fill(yuan);
     const occurredOn=costForm.getByLabel("发生日期",{exact:true});
     await occurredOn.fill("2026-11-20");
@@ -221,6 +254,7 @@ try{
   await registerCost("实际发生的人工费","120.00");
   await registerCost("待作废的重复费用","30.00");
   assert.equal(f.s.finance.summary(f.project.id).actual_cost_fen,15000);
+  assert.ok(f.s.finance.costs(f.project.id).every(row => row.cost_node_id === costNode.id));
   const redundant=page.getByRole("row").filter({hasText:"待作废的重复费用"});
   await redundant.getByRole("button",{name:"更多操作"}).click();
   await page.getByRole("menuitem",{name:"作废",exact:true}).click();
@@ -241,8 +275,7 @@ try{
   await page.getByRole("option",{name:"按子费用",exact:true}).click();
   await phased.getByPlaceholder("请填写本次结算依据").fill("第二期核对结算");
   await phased.getByRole("button",{name:"新增子费用"}).click();
-  await phased.locator(".el-table").filter({hasText:"费用科目"}).locator(".el-select").first().click();
-  await page.getByRole("option",{name:"现场核对费用",exact:true}).click();
+  await selectSiteCost(phased);
   const itemCanvas=await worksheetCanvas(phased.getByRole("region",{name:"子费用金额及依据",exact:true}));
   await typeWorksheetCell(page,itemCanvas,1,2,[240,170,125,260],"120.00");
   await typeWorksheetCell(page,itemCanvas,1,3,[240,170,125,260],"本期现场费用依据");
@@ -251,6 +284,7 @@ try{
   const second=f.s.finance.allSettlements().find(row=>row.draft?.document.basis==="第二期核对结算");
   assert.equal(second?.draft.document.mode,"itemized");
   assert.equal(second?.draft.document.amount_fen,12000);
+  assert.equal(second?.draft.document.items[0].cost_node_id, costNode.id);
   assert.equal(f.s.finance.summary(f.project.id).settlement_fen,85000);
   await page.getByRole("row").filter({hasText:second.number}).getByRole("button",{name:"查看详情"}).click();
   await enterReview();

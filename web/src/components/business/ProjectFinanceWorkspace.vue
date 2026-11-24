@@ -74,10 +74,8 @@
     <el-form label-position="top" novalidate :disabled="busy">
       <el-form-item label="费用事项" required><el-input v-model="costForm.title" /></el-form-item>
       <el-form-item label="费用科目" required>
-        <el-select v-model="costForm.cost_node_id" filterable :disabled="Boolean(costTarget)" placeholder="请选择末级科目">
-          <el-option v-if="costTarget" :value="costTarget.cost_node_id" :label="costTarget.cost_node_name" />
-          <el-option v-for="node in selectableNodes" :key="node.id" :value="node.id" :label="node.name" />
-        </el-select>
+        <CostCategoryField v-model="costForm.cost_node_id" :nodes="nodes"
+          :frozen-name="costTarget?.cost_node_name" :readonly="Boolean(costTarget)" :disabled="busy" />
       </el-form-item>
       <el-form-item label="实际金额（元）" required><el-input v-model="costForm.amount" inputmode="decimal" /></el-form-item>
       <el-form-item label="发生日期" required>
@@ -140,6 +138,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
+import CostCategoryField from "./CostCategoryField.vue";
 import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
 import { useUserStore } from "@/stores/user";
@@ -210,7 +209,6 @@ usePageOverlays([nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,h
 });
 const costCrud = ref<InstanceType<typeof CrudPage>>();
 const reconciliationCrud = ref<InstanceType<typeof CrudPage>>();
-const selectableNodes = computed(() => nodes.value.filter(node => node.selectable && node.id !== costTarget.value?.cost_node_id));
 
 interface CostTreeRow extends CostNode { children: CostTreeRow[] }
 const nodeTree = computed(() => {
