@@ -79,6 +79,7 @@
         </div>
       </div>
     </section>
+    <SettlementTasks />
     <section class="dash-bottom">
       <div class="card">
         <div class="card__head">
@@ -106,7 +107,7 @@
             <div v-for="project in recentProjects" :key="project.id" class="feed__item">
               <span class="feed__dot" />
               <span class="feed__text">{{ project.name }}</span>
-              <span class="feed__time">{{ statusLabel(project.status) }}</span>
+              <span class="feed__time">{{ project.display_status }}</span>
             </div>
           </div>
         </div>
@@ -122,11 +123,12 @@ import { computed, onMounted, ref } from "vue";
 import { User, Document, Folder, CircleCheck, Warning, Monitor } from "@element-plus/icons-vue";
 import { useUserStore } from "@/stores/user";
 import { useSettingsStore } from "@/stores/settings";
+import SettlementTasks from "./SettlementTasks.vue";
 
 interface DashboardProject {
   id: string;
   name: string;
-  status: string;
+  display_status: string;
   actual_cost_fen: number;
   settlement_fen: number;
 }
@@ -199,14 +201,6 @@ const alerts = computed(() => (summary.value?.alerts ?? []).slice(0, 6).map((ite
   date: item.planned_end_on || "",
 })));
 const recentProjects = computed(() => (summary.value?.portfolio ?? []).slice(0, 6));
-function statusLabel(status: string): string {
-  const labels: Record<string, string> = {
-    draft: "编制中", stock: "已入库", pending: "待批准",
-    approved: "已批准", closed: "已结项", reserved: "储备",
-  };
-  return labels[status] || status;
-}
-
 const expenseChartOptions = computed(() => {
   // The original upstream ECharts component and dashboard layout remain intact.
   // All series are derived exclusively from the /api/dashboard portfolio cost ledger.

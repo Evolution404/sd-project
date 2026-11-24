@@ -47,6 +47,7 @@ async function openFinance(role) {
   await button(page, "登录").click();
   await page.waitForURL(/#\/dashboard/);
   await page.goto(financeUrl);
+  await page.getByRole("tab", { name: "结算单", exact: true }).waitFor();
   const bill = page.getByRole("row").filter({ has: page.getByRole("cell", { name: draft.number, exact: true }) });
   await bill.waitFor();
   return bill;
@@ -103,6 +104,46 @@ try {
       await description.waitFor();
       assert.equal(await description.locator(".cell").evaluate(cell => getComputedStyle(cell).whiteSpace), "normal");
       await review.getByRole("cell", { name: "套", exact: true }).waitFor();
+      await button(review, "退回结算").click();
+      const returnPrompt = page.getByRole("dialog", { name: "退回结算", exact: true });
+      await button(returnPrompt, "确定").click();
+      await returnPrompt.getByText("退回原因不能为空", { exact: true }).waitFor();
+      const submittedVersion = s.finance.settlement(draft.id).version.id;
+      assert.equal(s.finance.settlement(draft.id).review.action, "submit");
+      const returnReason = "请补充核对依据";
+      await returnPrompt.getByRole("textbox").fill(returnReason);
+      await button(returnPrompt, "确定").click();
+      await review.getByText(returnReason, { exact: true }).waitFor();
+      assert.equal(s.finance.settlement(draft.id).review.action, "return");
+      assert.equal(s.finance.settlement(draft.id).version.id, submittedVersion);
+
+      const reviewerPage = page;
+      await openFinance("editor");
+      await page.goto(origin + "/#/dashboard");
+      const returns = page.getByRole("region", { name: "处理退回结算", exact: true });
+      const returnedTask = returns.getByRole("link", { name: draft.number, exact: true });
+      await returnedTask.click();
+      const correction = page.getByRole("region", { name: "结算审核办理", exact: true });
+      await button(correction, "原版本重新提交").click();
+      await button(page.getByRole("dialog", { name: "原版本重新提交", exact: true }), "确定").click();
+      await correction.getByText("审核中", { exact: true }).waitFor();
+      const resubmitted = s.finance.settlement(draft.id);
+      assert.equal(resubmitted.version.id, submittedVersion);
+      assert.equal(resubmitted.review.event_seq, 3);
+      assert.equal(s.finance.summary(project.id).settlement_fen, 0);
+      await button(correction, "返回工作台").click();
+      await returnedTask.waitFor({ state: "hidden" });
+      await page.close();
+      page = reviewerPage;
+      await page.goto(origin + "/#/dashboard");
+      const queue = page.getByRole("region", { name: "审核结算", exact: true });
+      const task = queue.getByRole("link", { name: draft.number, exact: true });
+      const taskRow = queue.getByRole("row").filter({ has: page.getByRole("link", { name: draft.number, exact: true }) });
+      await taskRow.getByRole("cell", { name: project.name, exact: true }).waitFor();
+      await task.click();
+      await button(review, "返回工作台").click();
+      await task.waitFor();
+      await task.click();
       await button(review, "审核通过").click();
       await button(page.getByRole("dialog", { name: "审核结算", exact: true }), "确定").click();
       await review.getByText("已审核", { exact: true }).waitFor();
@@ -110,15 +151,19 @@ try {
       const approved = s.finance.settlement(draft.id);
       assert.equal(approved.review.actor_id, actors.verifier.id);
       assert.equal(approved.review.action, "approve");
+      assert.equal(approved.version.id, submittedVersion);
+      assert.equal(approved.review.event_seq, 4);
       assert.equal(s.finance.summary(project.id).settlement_fen, 12500);
       await page.reload();
       await review.getByText("已审核", { exact: true }).waitFor();
       assert.equal(await button(review, "审核通过").count(), 0);
+      await button(review, "返回工作台").click();
+      await task.waitFor({ state: "hidden" });
     }
     await page.close();
   }
   assert.deepEqual(errors, []);
-  console.log("YOULAI_FINANCE_ROLES_OK four actual actors, review recovery, immutable quantities and single authorized approval");
+  console.log("YOULAI_FINANCE_ROLES_OK four actual actors, review recovery, return and original-version resubmission, dashboard source, single approval");
 } catch (error) {
   await page?.screenshot({ path: join(output, "finance-roles-failure-1920.png") }).catch(() => undefined);
   throw error;

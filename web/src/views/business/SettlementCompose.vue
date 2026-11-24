@@ -5,7 +5,7 @@
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">{{ editorTitle }}</h2>
           <div class="page-heading-actions flex flex-wrap gap-2">
-            <el-button :disabled="saving || switching" @click="returnToFinance">返回结算列表</el-button>
+            <el-button :disabled="saving || switching" @click="returnToSource">{{ route.query.source === "dashboard" ? "返回工作台" : "返回结算列表" }}</el-button>
             <el-button data-guide-action="finance.draft-save" :loading="saving && !submitting"
               :disabled="saving || !editorProject?.approval || switching || (editorForm.changeType !== 'void' && !worksheetReady)"
               @click="saveDraft(false)">保存草稿</el-button>
@@ -271,8 +271,8 @@ async function load() {
   }
 }
 
-async function returnToFinance() {
-  await router.push({ name: "Finance", query: route.query });
+async function returnToSource() {
+  await router.push(route.query.source === "dashboard" ? { name: "Dashboard" } : { name: "Finance", query: route.query });
 }
 
 async function changeApproval(id:string){
@@ -328,7 +328,7 @@ async function saveDraft(submitNow = false){
     ElMessage.success(submitNow ? "已提交结算审核" : "草稿已保存，可继续编辑");
   }catch(e){if(e!=="cancel"&&e!=="close")ElMessage.error((e as Error).message)}
   finally{saving.value=false;submitting.value=false}
-  if(saved)await returnToFinance();
+  if(saved)await returnToSource();
 }
 
 watch(() => route.fullPath, () => {
