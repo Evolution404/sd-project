@@ -29,7 +29,11 @@
       <el-alert v-else-if="loadError" type="error" :title="loadError" :closable="false">
         <el-button link type="primary" @click="load">重新读取</el-button>
       </el-alert>
-      <SettlementFacts v-else-if="detail" :detail="detail" />
+      <template v-else-if="detail">
+        <el-alert v-if="detail.review?.action === 'submit' && !canReview" class="mb-3"
+          type="info" title="当前账号没有结算审核权限，可查看正式结算事实。" :closable="false" />
+        <SettlementFacts :detail="detail" />
+      </template>
     </el-card>
   </section>
 </template>

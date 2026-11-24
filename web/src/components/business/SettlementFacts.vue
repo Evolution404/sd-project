@@ -34,10 +34,12 @@
     <el-table-column label="需求编号" min-width="145">
       <template #default="{row}">{{ row.demand.demand_no }}</template>
     </el-table-column>
-    <el-table-column prop="location_item_no" label="批准位置序号" min-width="125"/>
-    <el-table-column label="解决量" min-width="120">
-      <template #default="{row}">{{ formatScaledDecimal(row.resolved_quantity_scaled, 4) }} {{ row.demand.unit }}</template>
+    <el-table-column prop="demand.problem_description" label="问题描述" min-width="210" />
+    <el-table-column prop="location_item_no" label="批准位置序号" min-width="125" />
+    <el-table-column label="解决量" min-width="105">
+      <template #default="{row}">{{ formatScaledDecimal(row.resolved_quantity_scaled, 4) }}</template>
     </el-table-column>
+    <el-table-column prop="demand.unit" label="计量单位" min-width="100" />
     <el-table-column prop="evidence" label="完成依据" min-width="180"/>
   </el-table>
   <el-empty v-if="!(detail.document_details?.resolutions?.length)" description="暂无位置解决明细"/>
