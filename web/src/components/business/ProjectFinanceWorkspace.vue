@@ -128,7 +128,15 @@
       <el-table-column prop="content" label="版本记录" min-width="165" />
       <el-table-column v-if="historyRows.some(row=>row.amount!==undefined)" prop="amount" label="金额" min-width="105" />
       <el-table-column prop="time" label="记录时间" min-width="175" />
+      <el-table-column v-if="historyRows.some(row=>row.attachmentOwner)" label="附件" width="95">
+        <template #default="{ row }">
+          <el-button v-if="row.attachmentOwner" link type="primary" @click="openEvidence(row.attachmentOwner, true)">附件</el-button>
+        </template>
+      </el-table-column>
     </el-table>
+  </el-drawer>
+  <el-drawer v-model="evidenceOpen" title="实际费用版本附件" size="min(95vw, 730px)" append-to-body destroy-on-close>
+    <BusinessEvidence v-if="evidenceTarget" :key="evidenceTarget.owner" kind="cost_version_id" :owner="evidenceTarget.owner" :readonly="evidenceTarget.readonly" />
   </el-drawer>
 </template>
 
@@ -139,6 +147,7 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import CostCategoryField from "./CostCategoryField.vue";
+import BusinessEvidence from "./BusinessEvidence.vue";
 import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
 import { useUserStore } from "@/stores/user";
@@ -188,9 +197,15 @@ const busy = ref(false);
 const historyOpen = ref(false);
 const historyLoading = ref(false);
 const historyTitle = ref("");
-const historyRows = ref<{ id: string; version: number; content: string; time: string;amount?:string }[]>([]);
+const historyRows = ref<{ id: string; version: number; content: string; time: string; amount?: string; attachmentOwner?: string }[]>([]);
+const evidenceOpen = ref(false);
+const evidenceTarget = ref<{ owner: string; readonly: boolean }>();
+function openEvidence(owner: string, readonly: boolean) {
+  evidenceTarget.value = { owner, readonly };
+  evidenceOpen.value = true;
+}
 let historyRequest = 0;
-usePageOverlays([nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,historyOpen],{
+usePageOverlays([nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,historyOpen,evidenceOpen],{
   async mayLeave(){
     if(busy.value)return false;
     if(!nodeOpen.value&&!costOpen.value&&!reconciliationOpen.value)return true;
@@ -393,6 +408,13 @@ async function loadHistory(title: string, request: () => Promise<typeof historyR
   }
 }
 
+function viewCostHistory(entryId: string) {
+  return loadHistory("实际费用历史", async () => (await costHistory(props.projectId, entryId)).map(version => ({
+    id: version.id, version: version.version_no, content: version.title, amount: projectMoney(version.amount_fen),
+    time: formatBeijingDateTime(version.confirmed_at), attachmentOwner: version.id,
+  })));
+}
+
 function viewNodeHistory(id: string) {
   return loadHistory("费用科目历史", async () => (await costNodeHistory(props.projectId, id)).versions.map(row => ({
     id: row.id, version: row.version_no, content: row.name, time: formatBeijingDateTime(row.recorded_at),
@@ -419,11 +441,7 @@ const costTable: CrudTableConfig<CrudRecord, ActualCost> = {
     { prop: "occurred_on", sortable: "custom", label: "发生日期", minWidth: 112 },
     { prop: "status", sortable: "custom", ...nativeColumnFilter("status",[{text:"有效",value:"active"},{text:"已作废",value:"voided"}]), label: "费用状态", minWidth: 100, cellType: "custom" },
     { prop: "actions", label: "操作", width: 200, fixed: "right", cellType: "actions", actions: [
-      { key: "history", label: "查看历史", permission: "read", onClick: ({ row }) => row && loadHistory("实际费用历史",
-        async () => (await costHistory(props.projectId, row.entry_id)).map(version => ({
-          id: version.id, version: version.version_no, content: version.title, amount: projectMoney(version.amount_fen),
-          time: formatBeijingDateTime(version.confirmed_at),
-        }))) },
+      { key: "history", label: "查看历史", permission: "read", onClick: ({ row }) => row && viewCostHistory(row.entry_id) },
       { key: "reconcile", label: "费用核对", permission: "cost.confirm", visible: ({ row }) => !props.closed && row?.status === "active" && !row.deleted,
         onClick: ({ row }) => row && openReconciliation(row as ActualCost) },
       { key: "revise", label: "修订", permission: "cost.confirm", visible: ({ row }) => !props.closed && row?.status === "active" && !row.deleted,
@@ -432,6 +450,11 @@ const costTable: CrudTableConfig<CrudRecord, ActualCost> = {
         onClick: ({ row }) => row && voidCost(row as ActualCost) },
       { key: "remove", label: "删除", permission: "admin", visible: ({ row }) => !props.closed && Boolean(row && !row.deleted),
         onClick: ({ row }) => row && removeCost(row as ActualCost) },
+      { key: "attachments", label: "附件", permission: "read", onClick: ({ row }) => {
+        if (!row) return;
+        if (row.deleted || row.status !== "active") return viewCostHistory(row.entry_id);
+        openEvidence(row.id, props.closed);
+      } },
     ] },
   ],
 };
