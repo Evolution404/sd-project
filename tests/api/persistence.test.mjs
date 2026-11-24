@@ -27,6 +27,8 @@ test("database and evidence restart, independent backup and verified restore", a
   await assert.rejects(() => s.database.backupTo(backup), /已存在/);
   const restored = restoreBackup(backup, join(root, "restored"));
   assert.throws(() => restoreBackup(backup, restored), /独立目录/);
+  const snapshotCopy = restoreBackup(restored, join(root, "restored-copy"));
+  assert.deepEqual(readFileSync(join(snapshotCopy, "schema113.sqlite")), readFileSync(join(backup, "schema113.sqlite")));
   const reopened = createSystem(restored);
   try {
     assert.equal(reopened.demands.get(demand.id).quantity_scaled, 90000);

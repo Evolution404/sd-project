@@ -15,7 +15,8 @@ interface EvidenceBackupRow {
 
 /** Check a self-contained snapshot, including the exact CURRENT schema and every attachment. */
 function verifySnapshot(directory: string): void {
-  const db = new DatabaseSync(join(directory, "schema113.sqlite"), { readOnly: true });
+  const path = join(directory, "schema113.sqlite");
+  const db = new DatabaseSync(path, { readOnly: true });
   try {
     if (Number(db.prepare("PRAGMA user_version").get()?.user_version) !== 113)
       throw Error("备份结构版本无效");
@@ -37,6 +38,13 @@ function verifySnapshot(directory: string): void {
   } finally {
     db.close();
   }
+  // SQLite may create a shared-memory index and an empty WAL while checking
+  // this isolated staging copy. The restored snapshot must remain portable.
+  const wal = path + "-wal";
+  if ((existsSync(wal) && statSync(wal).size !== 0) || existsSync(path + "-journal"))
+    throw Error("恢复校验产生了意外的 SQLite 写入文件");
+  rmSync(wal, { force: true });
+  rmSync(path + "-shm", { force: true });
 }
 
 /**
