@@ -38,6 +38,7 @@ function Start-Package([string]$Root, [string]$Command, [int]$Port) {
     $stdout = Join-Path $Root 'acceptance.stdout'
     $stderr = Join-Path $Root 'acceptance.stderr'
     $script:server = Start-Process -FilePath $env:ComSpec -ArgumentList '/d /c call "%SD_TEST_LAUNCHER%" --unattended' -WorkingDirectory $Root -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+    $null = $script:server.Handle
     $base = 'http://127.0.0.1:' + $Port
     $deadline = [DateTime]::UtcNow.AddSeconds(45)
     do {
@@ -127,7 +128,10 @@ try {
 
     Invoke-PackageCommand $nextRoot '一键升级.cmd' $true
     Assert-True ($script:server.WaitForExit(10000)) 'The managed old CMD did not exit gracefully.'
-    Assert-True ($script:server.ExitCode -eq 0) 'Managed old CMD returned a failure exit code.'
+    $oldExit = $script:server.ExitCode
+    $oldOutput = Get-Content -LiteralPath (Join-Path $oldRoot 'acceptance.stdout') -Raw
+    $oldErrors = Get-Content -LiteralPath (Join-Path $oldRoot 'acceptance.stderr') -Raw
+    Assert-True ($oldExit -eq 0 -and $oldOutput -match 'Server stopped\. Exit code: 0') ("Managed old CMD exit: [$oldExit]. `n$oldOutput`n$oldErrors")
     $script:server = $null
 
     Invoke-PackageCommand $oldRoot '备份数据库.cmd' $true

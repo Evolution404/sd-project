@@ -2,7 +2,9 @@
   <section class="layout-content" :style="{ height: appMainHeight }">
     <router-view>
       <template #default="{ Component, route }">
-        <transition :name="transitionName" mode="out-in">
+        <transition :name="transitionName" mode="out-in"
+          @before-leave="element => element.setAttribute('inert', '')"
+          @before-enter="element => element.removeAttribute('inert')">
           <keep-alive :include="cachedViews">
             <component :is="currentComponent(Component, route)" :key="listRouteIdentity(route.fullPath)" />
           </keep-alive>
