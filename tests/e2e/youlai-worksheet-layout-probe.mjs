@@ -57,7 +57,7 @@ try{
       console.log("WORKSHEET_EXACT_DIMENSION_RESULT",JSON.stringify(result));
     }finally{await ctx.close()}
   }
-  assert.ok(results.every(item=>item.totalMs<=item.targetMs),JSON.stringify(results));
+  assert.ok(results.every(item=>item.totalMs<=item.targetMs && item.clickMs<=item.targetMs),JSON.stringify(results));
   console.log("WORKSHEET_EXACT_DIMENSIONS_OK");
 }finally{
   await browser?.close();

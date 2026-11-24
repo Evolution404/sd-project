@@ -812,6 +812,11 @@ async function load() {
   error.value = "";
   loading.value = true;
   section.value = "basic";
+  if (id) {
+    // Revision already has work positions. Start loading the engine alongside the
+    // editor data; the mounted worksheet owns the visible retry state.
+    void import("@/components/BusinessWorksheet/univer-engine").catch(() => {});
+  }
   try {
     const [old, availablePriorities] = await Promise.all([
       id ? readDemandForEditor(id) : Promise.resolve(undefined),
