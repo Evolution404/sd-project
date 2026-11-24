@@ -19,7 +19,7 @@
         </el-link>
       </template>
       <template #table-cell-transmission_center_length_mm="{row}">
-        {{row.transmission_center_length_mm==null?'未知':formatScaledDecimal(row.transmission_center_length_mm*10,4)+' 米'}}
+        {{spanLength(row.transmission_center_length_mm)}}
       </template>
       <template v-for="field in referenceFields" #[`form-${field.prop}`]="{formData,mode}">
         <EquipmentReferenceField :kind="field.kind" :title="field.label" :model-value="formData[field.prop] as string|null"
@@ -46,6 +46,7 @@
           <el-descriptions-item v-if="kind==='towers'" label="杆塔号">{{detail.tower_no}}</el-descriptions-item>
           <el-descriptions-item v-if="kind==='spans'" label="起点杆塔号">{{detail.start_tower_no}}</el-descriptions-item>
           <el-descriptions-item v-if="kind==='spans'" label="终点杆塔号">{{detail.end_tower_no}}</el-descriptions-item>
+          <el-descriptions-item v-if="kind==='spans'" label="输电中心管辖长度（米）">{{spanLength(detail.transmission_center_length_mm)}}</el-descriptions-item>
           <el-descriptions-item v-if="detail.voltage_level_name" label="电压等级">{{detail.voltage_level_name}}</el-descriptions-item>
           <el-descriptions-item label="正式版本">V{{detail.version}}</el-descriptions-item>
           <el-descriptions-item label="当前状态">{{equipmentStatus(detail.status)}}</el-descriptions-item>
@@ -97,7 +98,7 @@
 <script setup lang="ts">
 import {equipmentLineKind,equipmentStatus,EQUIPMENT_LINE_KINDS} from "../../../../server/shared/equipment-bulk";
 import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
-import {computed,nextTick,onMounted,ref,watch} from "vue";
+import {computed,nextTick,onMounted,ref} from "vue";
 import EquipmentBulkEditor from "./EquipmentBulkEditor.vue";
 import EquipmentReferenceField from "@/components/business/EquipmentReferenceField.vue";
 import {isEquipmentBulkKind,type EquipmentBulkKind} from "../../../../server/shared/equipment-bulk";
@@ -123,6 +124,9 @@ const tabs=[{key:"lines",label:"输电线路"},{key:"physical",label:"物理杆�
 const kind=ref<EquipmentKind>("lines");
 const title=computed(()=>tabs.find(x=>x.key===kind.value)?.label||"设备台账");
 const identityProp=computed(() => kind.value==="physical"?"tower_code":kind.value==="towers"?"tower_no":kind.value==="spans"?"start_tower_no":"name");
+function spanLength(millimetres?: number | null) {
+  return millimetres == null ? "未知" : formatScaledDecimal(millimetres, 3) + " 米";
+}
 const options=ref<Record<string,OptionItem[]>>({});
 const crud=ref<InstanceType<typeof CrudPage>>();
 const replacementOpen=ref(false);
@@ -163,22 +167,30 @@ function startBulk({selectedRows}:{selectedRows:readonly CrudRecord[]}){
 }
 async function endBulk(saved:boolean){bulkMode.value=false;await nextTick();if(saved)await refreshAssets()}
 let equipmentListSequence=0;
-const searchConfig:CrudSearchConfig={fields:[{
+const searchConfig = computed<CrudSearchConfig>(() => ({ fields: [{
   type:"input",prop:"keywords",label:"设备检索",attrs:{clearable:true,
     placeholder:"线路名称、杆塔号或现场铭牌"},
 },
+    ...(kind.value === "spans" ? [{ type: "input" as const, prop: "lengthMetres",
+      label: "输电中心管辖长度（米）", attrs: { clearable: true, inputmode: "decimal" } }] : []),
     historyScopeField("ledger.show-deleted"),
-  ]};
+  ] }));
 const tableConfig=computed<CrudTableConfig>(()=>({
   stateKey:"equipment"+":"+kind.value,
   table:{border:true},rowKey:"id",
   fetchData:async query=>{
     const sequence=++equipmentListSequence;
-    const q=query as {pageNum?:number;pageSize?:number;keywords?:string};
+    const q=query as {pageNum?:number;pageSize?:number;keywords?:string;lengthMetres?:string};
+    const list = nativeListQuery(query, ["status", "line_kind"], true);
+    if (kind.value === "spans" && q.lengthMetres?.trim()) {
+      (list.filters ??= {}).transmission_center_length_mm = q.lengthMetres.trim();
+    }
     const result=await listEquipment(kind.value,{
-      page:q.pageNum||1,size:q.pageSize||20,keyword:q.keywords||"",...nativeListQuery(query, ["status"], true)});
-    if(sequence===equipmentListSequence)loadedPage.value=result.items;
-    if(sequence===equipmentListSequence) equipmentQuery.value = applyNativeListQuery(new URLSearchParams({ q: q.keywords || "" }), nativeListQuery(query, ["status"], true)).toString();
+      page:q.pageNum||1,size:q.pageSize||20,keyword:q.keywords||"",...list});
+    if (sequence === equipmentListSequence) {
+      loadedPage.value = result.items;
+      equipmentQuery.value = applyNativeListQuery(new URLSearchParams({ q: q.keywords || "" }), list).toString();
+    }
     return {list:result.items,total:result.total};
   },
   toolbarActions:[
@@ -207,7 +219,7 @@ const tableConfig=computed<CrudTableConfig>(()=>({
     ]:kind.value==="spans"?[
       {prop:"line_id_label",label:"所属线路",minWidth:210},
       {prop:"end_tower_no",label:"终点杆塔号",minWidth:115},
-      {prop:"transmission_center_length_mm",sortable:"custom",label:"输电中心管辖长度",
+      {prop:"transmission_center_length_mm",sortable:"custom",label:"输电中心管辖长度（米）",
         cellType:"custom" as const,minWidth:175},
     ]:[]),
     {prop:"status",sortable:"custom",...nativeColumnFilter("status",[{text:"在运",value:"active"},{text:"退役",value:"retired"},{text:"草稿",value:"draft"},{text:"停用",value:"inactive"}],true),label:"状态",cellType:"custom",width:100},
@@ -290,6 +302,7 @@ const formConfig=computed<CrudFormConfig<EquipmentForm>>(()=>({
   async submitForm(form,{mode,id}){
     if(mode==="view")return;
     await saveEquipment(kind.value,form,id===undefined?undefined:String(id));
+    if (kind.value === "voltages") await refreshReferences();
   },
 }));
 async function loadForm(row:CrudRecord):Promise<CrudRecord>{
@@ -313,5 +326,4 @@ async function refreshReferences(){
   }catch(e){ElMessage.error((e as Error).message)}
 }
 onMounted(refreshReferences);
-watch(kind,()=>void refreshReferences());
 </script>

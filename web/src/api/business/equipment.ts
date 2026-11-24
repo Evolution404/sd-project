@@ -120,7 +120,7 @@ export async function saveEquipment(kind:EquipmentKind,form:EquipmentForm,id?:st
 }
 export function equipmentForm(row:EquipmentRow):EquipmentForm{
  return {...row,height_text:row.height_scaled==null?"":formatScaledDecimal(row.height_scaled,4),
-   length_text:row.transmission_center_length_mm==null?"":formatScaledDecimal(row.transmission_center_length_mm*10,4)};
+   length_text:row.transmission_center_length_mm==null?"":formatScaledDecimal(row.transmission_center_length_mm,3)};
 }
 
 export function bulkUpdateEquipment(kind:Exclude<EquipmentKind,"voltages">,rows:{id:string;expected_version:number;changes:Record<string,unknown>}[]){
