@@ -96,6 +96,7 @@ try {
     await save(dialog);
   }
   await page.getByRole("tab",{name:"逻辑杆塔",exact:true}).click();
+  const physicalBeforeLogicalCreate=f.s.catalog.list("physical").length;
   for (const [line,number,shared] of [["甲", "15", true], ["乙", "15", true], ["甲", "16", false]]) {
     const dialog=await begin("新增逻辑杆塔");
     await pick(dialog,"所属线路",new RegExp("设备验收"+line+"线"));
@@ -108,6 +109,23 @@ try {
   const circuits=f.s.catalog.list("towers").filter(tower=>tower.physical_tower_id===physical.id);
   assert.deepEqual(circuits.map(tower=>tower.line_id).sort(),[firstLine.id,secondLine.id].sort());
   assert.equal(new Set(circuits.map(tower=>tower.id)).size,2);
+  const independent=f.s.catalog.list("towers").find(tower=>tower.line_id===firstLine.id && tower.tower_no==="16");
+  assert.notEqual(independent.physical_tower_id,physical.id);
+  assert.equal(f.s.catalog.list("physical").length,physicalBeforeLogicalCreate+1);
+  await begin("新增逻辑杆塔");
+  const duplicate=page.getByRole("dialog",{name:"新增逻辑杆塔",exact:true});
+  await pick(duplicate,"所属线路",/设备验收甲线/);
+  await duplicate.getByRole("textbox",{name:"杆塔号"}).fill("15");
+  const duplicateResponse=page.waitForResponse(response =>
+    new URL(response.url()).pathname==="/api/catalog/towers" && response.request().method()==="POST");
+  await duplicate.getByRole("button",{name:"确定",exact:true}).click();
+  assert.equal((await duplicateResponse).status(),409);
+  await page.getByText("本线路已有该杆塔号，请查询已有杆塔",{exact:true}).waitFor();
+  assert.equal(f.s.catalog.list("towers").filter(tower=>tower.line_id===firstLine.id && tower.tower_no==="15").length,1);
+  assert.equal(f.s.catalog.list("physical").length,physicalBeforeLogicalCreate+1);
+  await duplicate.getByRole("button",{name:"关闭",exact:true}).click();
+  await page.getByRole("dialog",{name:"放弃表单修改",exact:true}).getByRole("button",{name:"放弃修改",exact:true}).click();
+  await duplicate.waitFor({state:"hidden"});
   await page.getByRole("tab",{name:"档距",exact:true}).click();
   const span=await begin("新增档距");
   await pick(span,"所属线路",/设备验收甲线/);
@@ -128,7 +146,13 @@ try {
   await replacement.getByRole("row").filter({hasText:"设备验收乙线"}).waitFor();
   await replacement.getByRole("textbox",{name:"新杆塔现场铭牌"}).fill("T15-NEW");
   await replacement.getByRole("textbox",{name:"新杆塔型号"}).fill("物理换新");
-  await replacement.getByRole("textbox",{name:"杆塔高度（米）"}).fill("28.125");
+  const height=replacement.getByRole("textbox",{name:"杆塔高度（米）"});
+  await height.fill("28.00001");
+  await replacement.getByRole("button",{name:"确认整基更换",exact:true}).click();
+  await replacement.getByRole("alert").getByText("杆塔高度最多保留4位小数且不可为负",{exact:true}).waitFor();
+  assert.equal(f.s.catalog.get("physical",physical.id).status,"active");
+  assert.ok(f.s.catalog.list("physical").every(tower=>tower.asset_no!=="T15-NEW"));
+  await height.fill("28.125");
   mkdirSync("test-results/youlai-y4",{recursive:true});
   await page.screenshot({path:"test-results/youlai-y4/equipment-replacement-1920.png"});
   await replacement.getByRole("button",{name:"确认整基更换",exact:true}).click();

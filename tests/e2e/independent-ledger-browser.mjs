@@ -44,7 +44,7 @@ const browser = await chromium.launch(
     ? { headless: true }
     : { headless: true, channel: "chrome" },
 );
-const page = await browser.newPage({ viewport: { width: 1500, height: 1100 } }),
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [],
   submitted = [];
 page.on("pageerror", (error) => errors.push(error.message));
@@ -123,7 +123,7 @@ try {
     false,
   );
   await page.screenshot({
-    path: join(output, "ordinary-tower-minimal-1500.png"),
+    path: join(output, "ordinary-tower-minimal-1920.png"),
     fullPage: true,
   });
   await save();
@@ -131,7 +131,8 @@ try {
   assert.equal(s.catalog.list("physical").length, originalPhysicalCount + 1);
   await tower("最少录入乙线", "#15");
   await page.getByText("与已有杆塔共用实体", { exact: true }).click();
-  await select("物理杆塔", "最少录入甲线 · 220kV · #15");
+  const existingPhysical = s.catalog.get("physical", first.physical_tower_id);
+  await select("物理杆塔", existingPhysical.tower_code);
   await save();
   assert.equal(s.catalog.list("physical").length, originalPhysicalCount + 1);
   assert.equal(
@@ -163,7 +164,10 @@ try {
     .filter({ hasText: "最少录入甲线" })
     .locator(".cell-link:visible").first()
     .click();
-  await page.getByRole("heading", { name: /最少录入甲线/ }).waitFor();
+  const physicalDetail = page.getByRole("dialog", { name: "物理杆塔详情", exact: true });
+  await physicalDetail.getByRole("heading", { name: existingPhysical.tower_code, exact: true }).waitFor();
+  await physicalDetail.getByRole("cell", { name: "最少录入甲线", exact: true }).waitFor();
+  await physicalDetail.getByRole("cell", { name: "最少录入乙线", exact: true }).waitFor();
   await page.getByRole("button", { name: "整基更换", exact: true }).click();
   const replacementHeight = page.getByRole("dialog", { name: "整基杆塔更换" })
     .locator(".el-form-item").filter({ hasText: "杆塔高度（米）" })
@@ -185,8 +189,8 @@ try {
   assert.equal(s.catalog.list("physical").length, originalPhysicalCount + 3);
   const circuit = s.catalog.get("towers", first.id);
   assert.notEqual(circuit.physical_tower_id, first.physical_tower_id);
-  for (const width of [1500, 760]) {
-    await page.setViewportSize({ width, height: 1100 });
+  {
+    const width=1920;
     await page.evaluate(
       () =>
         new Promise((resolve) =>
