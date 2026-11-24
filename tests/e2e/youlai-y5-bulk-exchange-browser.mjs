@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { fixture } from "../helpers.mjs";
 import { inspect } from "../inspector.mjs";
-import { httpServer } from "../../dist/server/platform/http/server.js";
+import { once } from "node:events";
+import { Worker } from "node:worker_threads";
 import { makeWorkbook } from "../../dist/server/modules/exchange/workbook.js";
 
 const staticDirectory = resolve(process.env.SD_BROWSER_STATIC_DIRECTORY || "dist/web");
@@ -36,13 +37,22 @@ const workLocations = Array.from({ length: detailCount }, (_, index) => ({
 const invalidLocations = [...workLocations.slice(0, -1), { ...workLocations.at(-1), quantity_scaled: 15000 }];
 const invalid = await makeWorkbook("demands", { documents, work_locations: invalidLocations });
 const valid = await makeWorkbook("demands", { documents, work_locations: workLocations });
-const backend = httpServer(s, { staticDirectory });
-await new Promise(done => backend.listen(0, "127.0.0.1", done));
-const origin = "http://127.0.0.1:" + backend.address().port;
+// A synchronous SQLite import should not hold the test driver's event loop.
+const backend = new Worker(new URL("./browser-server-worker.mjs", import.meta.url), {
+  workerData: { dataDirectory: s.dataDirectory, staticDirectory },
+});
+let backendError;
+backend.on("error", error => { backendError = error; });
+const backendExited = new Promise(done => backend.once("exit", done));
 const screenshots = resolve("test-results/youlai-y5");
 mkdirSync(screenshots, { recursive: true });
 let browser;
 try {
+  const [port] = await Promise.race([
+    once(backend, "message"),
+    backendExited.then(code => { throw backendError ?? Error("Browser backend exited before listening: " + code); }),
+  ]);
+  const origin = "http://127.0.0.1:" + port;
   browser = await chromium.launch(existsSync(chromium.executablePath())
     ? { headless: true } : { headless: true, channel: "chrome" });
   const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
@@ -88,7 +98,12 @@ try {
   await dialog.getByRole("tab", { name: "拟处理单据（5000）" }).click();
   const firstPage = dialog.locator(".el-tab-pane:visible .el-table tbody tr");
   assert.equal(await firstPage.count(), 20);
-  await dialog.getByRole("button", { name: "保存整批" }).click();
+  const [committed] = await Promise.all([
+    page.waitForResponse(row => /\/api\/exchange\/[^/]+\/commit$/.test(new URL(row.url()).pathname)
+      && row.request().method() === "POST", { timeout: 180000 }),
+    dialog.getByRole("button", { name: "保存整批" }).click(),
+  ]);
+  assert.equal(committed.status(), 200, committed.ok() ? undefined : await committed.text());
   await dialog.getByText("已处理 5000 条，0 项需处理", { exact: true }).waitFor({ timeout: 180000 });
   await page.screenshot({ path: join(screenshots, "excel-5000-committed-1920.png") });
   assert.equal(inspection.list("v_demand_current").length, count);
@@ -108,7 +123,12 @@ try {
   }).catch(() => {});
   throw cause;
 } finally {
-  await browser?.close();
-  await new Promise(done => backend.close(done));
-  for (const action of cleanup.reverse()) await action();
+  try {
+    await browser?.close();
+  } finally {
+    backend.postMessage("shutdown");
+    const code = await backendExited;
+    for (const action of cleanup.reverse()) await action();
+    if (code !== 0) throw backendError ?? Error("Browser backend exited unsuccessfully: " + code);
+  }
 }
