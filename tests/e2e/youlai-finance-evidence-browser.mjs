@@ -13,10 +13,10 @@ const cost = s.finance.cost(user, project.id, input);
 const server = httpServer(s, { staticDirectory: resolve(process.env.SD_BROWSER_STATIC_DIRECTORY || "dist/web") });
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const origin = "http://127.0.0.1:" + server.address().port;
-let browser;
+let browser, page;
 try {
   browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: "chrome" });
-  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
+  page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto(origin + "/#/login");
@@ -24,8 +24,23 @@ try {
   await page.getByPlaceholder("密码").fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(/#\/dashboard/);
-  const path = origin + "/#/funding/finance?project=" + project.id + "&work=costs";
-  await page.goto(path);
+  const portfolio = origin + "/#/funding/finance";
+  await page.goto(portfolio);
+  const projectLink = page.getByRole("link", { name: project.name, exact: true });
+  await projectLink.waitFor();
+  assert.equal(await page.getByRole("tab", { name: "按项目办理", exact: true }).getAttribute("aria-selected"), "true");
+  const projectSearch = page.getByPlaceholder("搜索项目名称或编号");
+  await projectSearch.fill(project.code);
+  await projectSearch.press("Enter");
+  await page.waitForURL(url => url.href !== portfolio && url.hash.startsWith("#/funding/finance?"));
+  const filteredPortfolio = page.url();
+  await projectLink.click();
+  await page.getByRole("button", { name: "返回项目财务列表", exact: true }).click();
+  await page.waitForURL(url => url.href === filteredPortfolio);
+  assert.equal(await projectSearch.inputValue(), project.code);
+  await projectLink.click();
+  await page.waitForURL(url => url.hash.includes("project=" + project.id));
+  await page.getByRole("tab", { name: "费用科目、费用及核对", exact: true }).click();
   const row = page.getByRole("row").filter({ has: page.getByRole("cell", { name: title, exact: true }) });
   const attachments = page.getByRole("dialog", { name: "实际费用版本附件", exact: true });
   async function rowAction(name) {
@@ -57,6 +72,7 @@ try {
   s.evidence.upload(user, { owner_kind: "cost_version_id", owner_id: second.id,
     filename: "二期凭据.txt", base64: Buffer.from("正式费用版本二的凭据").toString("base64") });
   await page.reload();
+  await page.getByRole("tab", { name: "费用科目、费用及核对", exact: true }).click();
   await rowAction("查看历史");
   const history = page.getByRole("dialog", { name: "实际费用历史", exact: true });
   await history.getByRole("row").filter({ has: page.getByRole("cell", { name: "1", exact: true }) })
@@ -105,6 +121,7 @@ try {
   await close(history);
   s.finance.removeNode(user, project.id, node.id, { expected_version: 1 });
   await page.reload();
+  await page.getByRole("tab", { name: "费用科目、费用及核对", exact: true }).click();
   await page.getByRole("tab", { name: "费用科目", exact: true }).click();
   const deletedNode = page.getByRole("row").filter({ has: page.getByRole("cell", { name: node.name, exact: true }) });
   const includeDeleted = page.getByRole("checkbox", { name: "包含已删除", exact: true });
@@ -123,8 +140,47 @@ try {
       .getByRole("cell", { name: node.name, exact: true }).waitFor();
   }
   await page.screenshot({ path: join(output, "cost-category-history-1920.png"), animations: "disabled" });
+  await close(nodeHistory);
+  const activeNode = s.finance.node(user, project.id, { name: "复验科目" });
+  const activeTitle = "跨项目检索验收费用";
+  s.finance.cost(user, project.id, { ...input, cost_node_id: activeNode.id, title: activeTitle, amount_fen: 140000 });
+  await page.goto(portfolio);
+  await page.getByRole("tab", { name: "实际费用", exact: true }).click();
+  const crossSearch = page.getByPlaceholder("费用事项或项目编号");
+  const crossRow = page.getByRole("row").filter({ has: page.getByRole("cell", { name: activeTitle, exact: true }) });
+  assert.match(await crossRow.innerText(), /¥1,?400\.00/);
+  await crossSearch.fill(activeTitle);
+  await crossSearch.press("Enter");
+  await page.waitForURL(url => url.hash.includes("view=costs") && url.hash.includes("_list="));
+  const crossUrl = page.url();
+  await crossRow.getByRole("button", { name: "查看正式历史", exact: true }).click();
+  const crossHistory = page.getByRole("dialog", { name: "财务正式历史", exact: true });
+  await crossHistory.getByText(activeTitle, { exact: true }).first().waitFor();
+  assert.equal(page.url(), crossUrl);
+  await close(crossHistory);
+  await page.getByRole("tab", { name: "结算单", exact: true }).click();
+  await page.waitForURL(url => url.hash.endsWith("view=settlements"));
+  assert.equal(await page.getByPlaceholder("结算编号 / 项目名称 / 项目编号").inputValue(), "");
+  await page.goBack();
+  await page.waitForURL(url => url.href === crossUrl);
+  await crossRow.waitFor();
+  assert.equal(await crossSearch.inputValue(), activeTitle);
+  await page.reload();
+  await crossRow.waitFor();
+  assert.equal(await crossSearch.inputValue(), activeTitle);
+  await crossSearch.fill("不存在的费用");
+  await crossSearch.press("Enter");
+  await crossRow.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "重置", exact: true }).click();
+  await crossRow.waitFor();
+  assert.equal(await crossSearch.inputValue(), "");
   assert.deepEqual(errors, []);
-  console.log("YOULAI_COST_EVIDENCE_OK version-specific upload, original bytes, frozen write denial deleted-row evidence and archived category history");
+  console.log("YOULAI_COST_EVIDENCE_OK versioned evidence, deleted costs and categories, project-first workflow and cross-project return state");
+} catch (error) {
+  const output = resolve("test-results/youlai-y4");
+  mkdirSync(output, { recursive: true });
+  if (page) await page.screenshot({ path: join(output, "cost-evidence-failed-1920.png"), animations: "disabled" });
+  throw error;
 } finally {
   await browser?.close();
   await new Promise(done => server.shutdown(done));

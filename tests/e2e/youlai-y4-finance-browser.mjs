@@ -100,6 +100,7 @@ try{
   assert.deepEqual(found.draft.document.resolutions.map(x=>x.resolved_quantity_scaled),[20000,10000,30000]);
   assert.equal(found.draft.document.resolutions[0].evidence,"实际完成T15");
   assert.equal(f.s.finance.summary(f.project.id).settlement_fen,0);
+  await page.getByRole("tab", { name: "结算单", exact: true }).click();
   const billRow=page.getByRole("row").filter({hasText:found.number}).first();
   await billRow.getByRole("button",{name:"查看详情"}).click();
   const drawer=page.getByRole("dialog",{name:"结算正式事实及草稿"});

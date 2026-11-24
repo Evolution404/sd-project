@@ -53,7 +53,7 @@ try {
   await page.getByPlaceholder("密码").fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(url => url.hash.startsWith("#/dashboard"));
-  await page.goto(base + "/#/funding/finance");
+  await page.goto(base + "/#/funding/finance?view=settlements");
   await page.evaluate(() => {
     window.__worksheetDoubleLoading = false;
     const watch = new MutationObserver(() => {

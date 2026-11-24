@@ -4,6 +4,7 @@
     <div class="flex flex-wrap items-center justify-between gap-2">
       <h2 class="text-lg font-semibold">{{ projectContext.name }}<span class="ml-3">费用与结算</span></h2>
       <div class="page-heading-actions flex gap-2">
+        <el-button v-if="origin.source === 'finance-projects'" @click="backToFinanceProjects">返回项目财务列表</el-button>
         <el-button @click="router.push({ name: 'Projects', query: { project: projectContext.id } })">返回子项目</el-button>
       </div>
     </div>
@@ -13,7 +14,8 @@
     </el-tabs>
   </el-card>
   <el-card v-else-if="!projectId" data-guide-action="finance.cross" shadow="never" class="mb-3 shrink-0">
-    <el-tabs v-model="contextTab">
+    <el-tabs :model-value="portfolioView" @update:model-value="changePortfolioView">
+      <el-tab-pane name="projects"><template #label><span data-guide-action="finance.project-mode">按项目办理</span></template></el-tab-pane>
       <el-tab-pane label="结算单" name="settlements" />
       <el-tab-pane label="实际费用" name="costs" />
       <el-tab-pane label="费用核对" name="reconciliations" />
@@ -23,7 +25,21 @@
   <ProjectFinanceWorkspace v-if="projectContext && contextTab === 'costs'" :key="projectContext.id"
     :project-id="projectContext.id" :initial-tab="workspaceTab"
     :closed="projectContext.status === 'closed' || Boolean(projectContext.deleted)" />
-  <PortfolioFinance v-else-if="!projectId && (contextTab === 'costs' || contextTab === 'reconciliations')" :kind="contextTab" />
+  <CrudPage v-else-if="!projectId && portfolioView === 'projects'" embedded
+    :search-config="projectSearch" :table-config="projectTable">
+    <template #table-cell-name="{ row }">
+      <router-link :to="projectFinanceRoute(row)" custom v-slot="{ href, navigate }">
+        <el-link type="primary" :href="href" @click="navigate">{{ row.name }}</el-link>
+      </router-link>
+    </template>
+    <template #table-cell-display_status="{ row }">
+      <el-tag :type="row.deleted ? 'danger' : 'info'" effect="plain">{{ row.deleted ? "已删除" : row.display_status }}</el-tag>
+    </template>
+    <template #table-cell-approval="{ row }">
+      {{ row.approval ? projectMoney(row.approval.approved_budget_fen) : "尚未批准" }}
+    </template>
+  </CrudPage>
+  <PortfolioFinance v-else-if="!projectId && (portfolioView === 'costs' || portfolioView === 'reconciliations')" :kind="portfolioView" />
   <CrudPage embedded v-else ref="crud" :search-config="searchConfig" :table-config="tableConfig">
     <template #table-cell-project_name="{row}">
       <el-link type="primary" @click="router.push({ name: 'Projects', query: { project: row.project_id } })">{{ row.project_name || projectContext?.name || "历史项目" }}</el-link>
@@ -89,13 +105,14 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
+import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery, projectStatusChoices } from "@/utils/business/native-list-query";
 import { computed, nextTick, onActivated, onDeactivated, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
-import type { CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
+import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
+import { LIST_QUERY_KEY } from "@/components/Crud/utils/list-state";
 import ProjectFinanceWorkspace from "@/components/business/ProjectFinanceWorkspace.vue";
 import PortfolioFinance from "@/components/business/PortfolioFinance.vue";
 import SettlementFacts from "@/components/business/SettlementFacts.vue";
@@ -111,7 +128,9 @@ const router = useRouter();
 const origin = { ...route.query };
 const projectId = typeof origin.project === "string" ? origin.project : undefined;
 const workspaceTab = origin.work === "reconciliations" ? "reconciliations" : "costs";
-const contextTab = ref(projectId && origin.work ? "costs" : "settlements");
+const contextTab = ref(origin.work ? "costs" : "settlements");
+const portfolioView = origin.view === "costs" || origin.view === "reconciliations" || origin.view === "settlements"
+  ? origin.view : "projects";
 const projectContext = ref<ProjectDetail>();
 const exchangeOpen = ref(false), settlementQuery = ref("");
 const contextError = ref("");
@@ -135,6 +154,23 @@ usePageOverlays([chooseProject,detailsOpen,exchangeOpen],{invalidate:()=>{
   detail.value=undefined;approvedProjects.value=[];projectTotal.value=0;
 }});
 
+function changePortfolioView(view: string | number) {
+  void router.push({ name: "Finance", query: { view: view === "projects" ? undefined : String(view) } });
+}
+
+function projectFinanceRoute(project: ProjectRow) {
+  return { name: "Finance", query: {
+    project: project.id,
+    archive: project.deleted ? "true" : undefined,
+    source: "finance-projects",
+    sourceList: route.query[LIST_QUERY_KEY],
+  } };
+}
+
+function backToFinanceProjects() {
+  void router.push({ name: "Finance", query: { [LIST_QUERY_KEY]: origin.sourceList } });
+}
+
 function statusType(status: string) {
   return status === "approve" ? "success" : status === "draft" ? "info" : status === "return" ? "warning" : "primary";
 }
@@ -143,7 +179,7 @@ function navigate(name: string, params: Record<string, string>) {
   scrollTop = document.querySelector(".layout-content")?.scrollTop ?? 0;
   detailsOpen.value = false;
   chooseProject.value = false;
-  return router.push({ name, params, query: origin });
+  return router.push({ name, params, query: { ...route.query } });
 }
 
 function openWork(name: "SettlementEdit" | "SettlementVoid" | "SettlementReview", settlementId: string) {
@@ -195,6 +231,36 @@ function startSettlement(){
   if(projectContext.value)void selectProject(projectContext.value.id);
   else startCreate();
 }
+const projectSearch: CrudSearchConfig = {
+  fields: [
+    { type: "input", prop: "keywords", label: "子项目", attrs: { clearable: true, placeholder: "搜索项目名称或编号" } },
+    historyScopeField("finance.show-deleted"),
+  ],
+};
+const projectTable: CrudTableConfig<CrudRecord, ProjectRow> = {
+  stateKey: "finance:projects",
+  rowKey: "id",
+  table: { border: true },
+  tableTools: ["refresh", "columns", "search"],
+  async fetchData(query) {
+    const result = await listProjects({
+      page: Number(query.pageNum) || 1,
+      size: Number(query.pageSize) || 20,
+      keyword: String(query.keywords || ""),
+      ...nativeListQuery(query, ["display_status"], true),
+    });
+    return { list: result.items, total: result.total };
+  },
+  toolbarActions: [{ key: "create", label: "新增结算草稿", permission: "write", onClick: startCreate }],
+  columns: [
+    { prop: "name", label: "子项目", sortable: "custom", minWidth: 245, fixed: "left", cellType: "custom" },
+    { prop: "code", label: "项目编号", sortable: "custom", minWidth: 160 },
+    { prop: "approval", label: "批准预算", minWidth: 150, cellType: "custom" },
+    { prop: "display_status", label: "项目状态", minWidth: 120, sortable: "custom", cellType: "custom", hideable: false,
+      ...nativeColumnFilter("display_status", projectStatusChoices, true) },
+  ],
+};
+
 let settlementListSequence=0;
 const searchConfig:CrudSearchConfig={
   fields:[{type:"input",prop:"keywords",label:"结算单",attrs:{
@@ -239,7 +305,7 @@ const tableConfig:CrudTableConfig={
 onMounted(async () => {
   if (!projectId) return;
   try {
-    projectContext.value = await projectDetail(projectId);
+    projectContext.value = await projectDetail(projectId, origin.archive === "true");
   } catch (cause) {
     contextError.value = (cause as Error).message;
   }
