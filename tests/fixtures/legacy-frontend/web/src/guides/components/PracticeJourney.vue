@@ -166,4 +166,3 @@ onMounted(refresh);
 .scenario-steps li { padding: 6px 0; }
 .scenario-steps .el-tag { margin-left: 8px; }
 </style>
-
