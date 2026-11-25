@@ -35,6 +35,16 @@ export function assertCurrentSchema(connection: DatabaseSync): void {
     throw Error("Schema113结构与当前权威SQL不一致。请使用新独立目录或匹配的正式备份。");
 }
 
+/** Validate an existing dataset without initializing or changing its schema. */
+export function assertExistingDatabase(directory: string): void {
+  const db = new DatabaseSync(join(directory, "schema113.sqlite"), { readOnly: true });
+  try {
+    if (Number(db.prepare("PRAGMA user_version").get()?.user_version) !== 113)
+      throw Error("数据结构版本不兼容，禁止自动初始化或迁移");
+    assertCurrentSchema(db);
+  } finally { db.close(); }
+}
+
 export interface Database {
   directory: string;
   connection: DatabaseSync;

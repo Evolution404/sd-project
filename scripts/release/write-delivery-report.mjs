@@ -42,7 +42,7 @@ const report = [
   "正式包与演示包均由各自的发布清单记录宿主机验收。内网生产台账以单独的数据目录交付。",
   "",
   "首次初始化：22种常用单位、8个指定电压等级及5个内置角色。程序更新不自动覆盖已有字典。",
-  "正式包一键升级宿主验收："+(current.host_verification.offline_upgrade_restart?"通过（独立安装、备份恢复、账号、业务及附件验证）":"未验收")+"。Windows脚本仍需实机验收。",
+  "正式包独立数据目录版本切换宿主验收："+(current.host_verification.offline_upgrade_restart?"通过（原数据目录不复制、备份恢复、账号、业务及附件验证）":"未验收")+"。Windows脚本仍需实机验收。",
   "",
 ];
 // Ordinary manual packaging still supports uncommitted input. A final-gate invocation

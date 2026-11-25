@@ -1,7 +1,9 @@
 import { seedCommonDefinitions } from "./seed/common.mjs";
 import { createSystem } from "../dist/server/bootstrap.js";
 import { createInterface } from "node:readline/promises";
-const system = createSystem();
+import { packagedMode, newDatasetPath } from "../dist/server/platform/runtime/dataset.js";
+const directory=packagedMode()==="production"?newDatasetPath(process.env.DATA_DIR):undefined;
+const system = createSystem(directory);
 try {
   const cli = createInterface({ input: process.stdin, output: process.stdout });
   const username =

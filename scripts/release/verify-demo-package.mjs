@@ -78,7 +78,7 @@ z.extractall(out)
     assert.equal(digest(join(stage, "dist/web", name)), sha, "frontend artifact " + name);
   assert.equal(existsSync(join(stage,"node_modules/vite")),false);
   assert.equal(existsSync(join(stage,"node_modules/typescript")),false);
-  assert.equal(existsSync(join(stage,"初始化管理员.cmd")),false);
+  assert.equal(existsSync(join(stage,"创建空数据集.cmd")),false);
   const launchCommand=readFileSync(join(stage,"启动演示服务.cmd"),"utf8");
   assert.ok(launchCommand.includes("HOST=0.0.0.0"),"demo must bind LAN");
   assert.ok(launchCommand.includes("DATA_DIR=%~dp0data"),"demo data must be local to extracted folder");

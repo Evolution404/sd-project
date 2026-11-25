@@ -18,9 +18,15 @@ import {resolve,join,sep} from "node:path";
 import {spawn} from "node:child_process";
 import {createInterface} from "node:readline/promises";
 import {createSystem} from "../../dist/server/bootstrap.js";
+import {packagedMode,selectedDataset} from "../../dist/server/platform/runtime/dataset.js";
 
 const root=resolve(import.meta.dirname,"../..");
-const instances=join(root,"data-training","instances");
+const formal = packagedMode()==="production";
+const configured = join(root,"data-location.json");
+const trainingBase = formal
+  ? join(selectedDataset(process.env.DATA_DIR || (existsSync(configured)?JSON.parse(readFileSync(configured,"utf8")).data_dir:undefined)),"training")
+  : join(root,"data-training");
+const instances=join(trainingBase,"instances");
 const idPattern=/^[a-f0-9]{32}$/;
 const args=process.argv.slice(2);
 const command=args[0]||"help";

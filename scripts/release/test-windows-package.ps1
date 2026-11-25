@@ -97,22 +97,35 @@ try {
     $demoMarker = Read-Manifest (Join-Path $demoRoot 'data/DEMO-DATA.json')
     Assert-True ($demoMarker.asset_basis -ceq 'synthetic-fixture') 'The demo does not declare a synthetic asset source.'
 
+    $data = Join-Path $work '独立业务数据'
+    $restoredData = Join-Path $work '恢复数据'
+    $missing = Join-Path $work '不存在的数据'
+    Remove-Item Env:\DATA_DIR -ErrorAction SilentlyContinue
+    Invoke-PackageCommand $oldRoot '启动服务.cmd' $false
+    $env:DATA_DIR = $missing
+    Invoke-PackageCommand $oldRoot '启动服务.cmd' $false
+    Assert-True (!(Test-Path -LiteralPath $missing)) 'Start created an empty dataset.'
     $account = 'package-windows-admin'
     $password = [Guid]::NewGuid().ToString('N') + 'Win!'
     $env:SD_ADMIN_USER = $account
     $env:SD_ADMIN_PASSWORD = $password
-    Invoke-PackageCommand $oldRoot '初始化管理员.cmd' $true
-    Remove-Item Env:\SD_ADMIN_USER, Env:\SD_ADMIN_PASSWORD
+    $env:SD_NEW_DATA_DIR = $data
+    Invoke-PackageCommand $oldRoot '创建空数据集.cmd' $true
+    Remove-Item Env:\SD_ADMIN_USER, Env:\SD_ADMIN_PASSWORD, Env:\SD_NEW_DATA_DIR
+    $env:DATA_DIR = $data
+    Invoke-PackageCommand $oldRoot '选择数据目录.cmd' $true
+    Assert-True ((Read-Manifest (Join-Path $oldRoot 'data-location.json')).data_dir -eq $data) 'Selected path was not saved.'
+    Remove-Item Env:\DATA_DIR
     $port = Get-FreePort
     $env:PORT = [string]$port
-    $env:SD_UPGRADE_SOURCE_DIR = $oldRoot
     $unmanaged = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, $port)
     $unmanaged.Start()
     try {
-        Invoke-PackageCommand $nextRoot '一键升级.cmd' $false
-        Assert-True ($unmanaged.Server.IsBound) 'Upgrade affected an unmanaged listener.'
-        Assert-True (!(Test-Path -LiteralPath (Join-Path $nextRoot 'data'))) 'Unmanaged-service upgrade created destination data.'
+        $env:DATA_DIR = $data
+        Invoke-PackageCommand $nextRoot '停止服务.cmd' $false
+        Assert-True ($unmanaged.Server.IsBound) 'Stop affected an unmanaged listener.'
     } finally { $unmanaged.Stop() }
+    Remove-Item Env:\DATA_DIR
     $base = Start-Package $oldRoot '启动服务.cmd' $port
     try {
         Invoke-WebRequest -Uri "$base/api/dashboard" -UseBasicParsing | Out-Null
@@ -126,43 +139,57 @@ try {
     $tower = Write-Fact $base $session '/catalog/physical' @{ asset_no = 'WINDOWS-PACKAGE-TEST' }
     Assert-True ($tower.id) 'The administrator cannot register a tower on Windows.'
 
-    Invoke-PackageCommand $nextRoot '一键升级.cmd' $true
+    $env:DATA_DIR = $data
+    $env:PORT = [string](Get-FreePort)
+    Invoke-PackageCommand $nextRoot '启动服务.cmd' $false
+    Invoke-PackageCommand $nextRoot '备份数据库.cmd' $false
+    Invoke-PackageCommand $nextRoot '停止服务.cmd' $true
     Assert-True ($script:server.WaitForExit(10000)) 'The managed old CMD did not exit gracefully.'
     $oldExit = $script:server.ExitCode
     $oldOutput = Get-Content -LiteralPath (Join-Path $oldRoot 'acceptance.stdout') -Raw
     $oldErrors = Get-Content -LiteralPath (Join-Path $oldRoot 'acceptance.stderr') -Raw
-    Assert-True ($oldExit -eq 0 -and $oldOutput -match 'Server stopped\. Exit code: 0') ("Managed old CMD exit: [$oldExit]. `n$oldOutput`n$oldErrors")
+    Assert-True ($oldExit -eq 0 -and $oldOutput -match 'Server stopped. Exit code: 0') ("Managed old CMD exit: [$oldExit]. `n$oldOutput`n$oldErrors")
     $script:server = $null
+    Assert-True (!(Test-Path -LiteralPath (Join-Path $data '.sd-dataset.lock'))) 'Dataset lock was not released.'
 
     Invoke-PackageCommand $oldRoot '备份数据库.cmd' $true
-    $backup = Get-ChildItem -LiteralPath (Join-Path $oldRoot 'data/backups') -Directory | Select-Object -First 1
+    $backup = Get-ChildItem -LiteralPath (Join-Path $data 'backups') -Directory | Select-Object -First 1
     Assert-True ($backup) 'Backup CMD did not produce a backup.'
     $env:SD_RESTORE_BACKUP_DIR = $backup.FullName
+    $env:SD_RESTORE_TARGET_DIR = $restoredData
     Invoke-PackageCommand $restoredRoot '恢复业务数据.cmd' $true
     Invoke-PackageCommand $restoredRoot '恢复业务数据.cmd' $false
+    $env:DATA_DIR = $restoredData
     $restoredBase = Start-Package $restoredRoot '启动服务.cmd' (Get-FreePort)
     $restoredSession = Get-Session $restoredBase $account $password
     $restored = Invoke-RestMethod -Uri "$restoredBase/api/catalog/physical" -WebSession $restoredSession
     Assert-True ($restored.items.id -contains $tower.id) 'Restore did not preserve the tower identity.'
-    Stop-Package
+    Invoke-PackageCommand $restoredRoot '停止服务.cmd' $true
+    Assert-True ($script:server.WaitForExit(10000)) 'Restored service did not stop.'
+    $script:server = $null
 
-    $env:PORT = [string]$port
-    Assert-True ((Read-Manifest (Join-Path $nextRoot 'data/UPGRADE-RECEIPT.json')).verified) 'Upgrade did not verify its candidate.'
-    Assert-True (Test-Path -LiteralPath (Join-Path $oldRoot 'data/schema113.sqlite')) 'Upgrade removed the original database.'
-    Invoke-PackageCommand $nextRoot '一键升级.cmd' $false
+    $env:DATA_DIR = $data
+    Invoke-PackageCommand $nextRoot '选择数据目录.cmd' $true
+    Remove-Item Env:\DATA_DIR
     $newBase = Start-Package $nextRoot '启动服务.cmd' $port
     $newSession = Get-Session $newBase $account $password
     $upgraded = Invoke-RestMethod -Uri "$newBase/api/catalog/physical" -WebSession $newSession
-    Assert-True ($upgraded.items.id -contains $tower.id) 'Upgrade did not preserve the tower identity.'
-    Stop-Package
+    Assert-True ($upgraded.items.id -contains $tower.id) 'Replacement program did not open the original tower identity.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $data 'schema113.sqlite')) 'Original dataset was removed.'
+    foreach ($program in @($oldRoot,$restoredRoot,$nextRoot)) {
+        Assert-True (!(Test-Path -LiteralPath (Join-Path $program 'data'))) 'A program created a private database.'
+    }
+    Invoke-PackageCommand $nextRoot '停止服务.cmd' $true
+    Assert-True ($script:server.WaitForExit(10000)) 'Replacement program did not stop.'
+    $script:server = $null
 
     $demoBase = Start-Package $demoRoot '启动演示服务.cmd' (Get-FreePort)
     $demoSession = Get-Session $demoBase 'demo' 'demo'
     Invoke-RestMethod -Uri "$demoBase/api/dashboard" -WebSession $demoSession | Out-Null
-    Write-Output 'WINDOWS_PACKAGE_VERIFIED bundled Node, CMD and PowerShell, initialization, permissions, backup, restore, upgrade protection, and synthetic demo'
+    Write-Output 'WINDOWS_PACKAGE_VERIFIED bundled Node, CMD and PowerShell, explicit datasets, duplicate lock, permissions, backup, restore, replacement without data migration, and synthetic demo'
 } finally {
     Stop-Package
-    foreach ($name in @('SD_ADMIN_USER', 'SD_ADMIN_PASSWORD', 'DATA_DIR', 'HOST', 'PORT', 'SD_TEST_LAUNCHER', 'SD_UPGRADE_SOURCE_DIR', 'SD_RESTORE_BACKUP_DIR')) {
+    foreach ($name in @('SD_ADMIN_USER', 'SD_ADMIN_PASSWORD', 'DATA_DIR', 'HOST', 'PORT', 'SD_TEST_LAUNCHER', 'SD_NEW_DATA_DIR', 'SD_RESTORE_TARGET_DIR', 'SD_RESTORE_BACKUP_DIR')) {
         Remove-Item ("Env:\" + $name) -ErrorAction SilentlyContinue
     }
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force }

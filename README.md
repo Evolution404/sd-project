@@ -159,11 +159,11 @@ tests/
 - `dist/FINAL-DELIVERY-REPORT.md`：双包基线一致、校验通过后生成的交付报告。
 - `dist/server`、`dist/web`：正式编译产物，非历史归档。
 
-Windows 离线包采用锁定版本的 esbuild 将后端和 ExcelJS 的运行依赖合并为 ESM 模块及共享块，不再分发散装 `node_modules`。保留原启动、初始化、备份、恢复和升级入口，以及 Schema113 SQL、前端资源和第三方许可。发布门禁要求每个 ZIP 不超过 400 个文件、独立重建后端产物哈希一致、实际解包登录及 Excel 导出/导入预检通过。开发环境仍使用原 TypeScript 编译产物，内网无需 npm/pnpm。
+Windows 离线包采用锁定版本的 esbuild 将后端和 ExcelJS 的运行依赖合并为 ESM 模块及共享块，不再分发散装 `node_modules`。保留启动、选择数据目录、停止服务、备份及恢复入口，以及 Schema113 SQL、前端资源和第三方许可。发布门禁要求每个 ZIP 不超过 400 个文件、独立重建后端产物哈希一致、实际解包登录及 Excel 导出/导入预检通过。开发环境仍使用原 TypeScript 编译产物，内网无需 npm/pnpm。
 - `test-results/release/`：逐次发布日志；隔离旧前端测试证据位于 `test-results/legacy/`。
 - `.build/toolchains`、`.build/windows-cache`：本地工具链及官方运行时下载缓存。发布与隔离测试的临时工作区自动清理。
 
-Windows 10/11 x64 正式版解压至可写目录后运行初始化管理员和启动服务脚本。运行时为官方 Node24 x64 并校验 SHA256；包内仅含生产依赖、编译代码及必要文档。业务数据位于解压目录 data/，正式版初次启动独立初始化。Windows CMD、PowerShell、防火墙和文件锁行为须 Windows 实机验收，Mac 宿主验收不能替代 Windows 实机验收。
+Windows 10/11 x64 正式版解压后运行「启动服务.cmd」，选择已有独立数据目录（包含 schema113.sqlite），记住路径；也可通过 DATA_DIR 指定。缺失或不兼容的数据库一律拒绝启动，不自动创建空库。升级只需停止旧程序并让新程序连接同一数据目录，不迁移数据。空数据集创建和备份恢复均是独立维护操作。Windows CMD、PowerShell、防火墙和文件锁行为须 Windows 实机验收，Mac 宿主验收不能替代 Windows 实机验收。
 
 详细规范见 [统一发布与清理规范](docs/architecture/统一发布与清理规范.md)。
 
@@ -204,6 +204,6 @@ Windows 10/11 x64 正式版解压至可写目录后运行初始化管理员和�
 
 可通过 `ACCESS_LOG_RETENTION_DAYS` 和 `ACCESS_LOG_MAX_FILE_BYTES` 调整保留天数及单文件字节上限。响应头 `X-Request-ID` 对应每条日志的 `request_id`。日志不记录请求正文、密码、Cookie、认证头或查询字符串，客户端IP取真实连接。日志读写故障输出 `ACCESS_LOG_IO_FAILURE`，管理员界面提供诊断。详细验收记录见 `docs/implementation/访问日志与最终交付_2026-11-13.md`。
 
-## 真实台账内网首次部署
+## 独立真实台账数据集
 
-正式程序发布和真实初始化数据分开交付。不要用首次初始化数据覆盖内网当前数据，详见 [内网部署与数据升级规范](docs/architecture/内网部署与数据升级规范.md)。
+正式程序发布和真实台账数据集完全分离。只指定已有数据目录，切换程序无需复制数据；禁止用基础台账覆盖运行中的业务数据，详见 [内网部署与数据升级规范](docs/architecture/内网部署与数据升级规范.md)。

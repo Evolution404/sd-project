@@ -20,7 +20,7 @@ const root = resolve(import.meta.dirname, "../.."),
   zip = join(releaseOutput, "sd-project-win10-x64.zip"),
   temporary = mkdtempSync(join(tmpdir(), "sd113-package-")),
   stage = join(temporary, "release"),
-  data = join(stage, "data");
+  data = join(temporary, "independent-data");
 const hash = (path) =>
   createHash("sha256").update(readFileSync(path)).digest("hex");
 const receipt = JSON.parse(
@@ -96,7 +96,7 @@ assert.equal(sourceSnapshot(root).sha256, manifest.build_input_sha256, "发布�
 assert.deepEqual(sourceSnapshot(root).files, manifest.build_input_files_sha256);
 assert.equal(manifest.ps1_utf8_bom, true,
   "formal release must include its PowerShell 5.1 BOM entrypoint");
-assert.equal(manifest.data_location, "./data");
+assert.equal(manifest.data_location, "external-explicit");
 assert.equal(typeof manifest.worktree_dirty, "boolean");
 assert.match(manifest.build_input_sha256,/^[0-9a-f]{64}$/);
 assert.equal(manifest.worktree_dirty,receipt.worktree_dirty);
@@ -118,7 +118,10 @@ const shipped = spawnSync(
 assert.equal(shipped.status, 0);
 assert.equal(manifest.entrypoint, "dist/server/main.js");
 for(const [path,digest] of Object.entries(manifest.deployment_artifact_sha256))assert.equal(hash(join(stage,path)),digest,"部署脚本损坏 "+path);
-assert.ok(manifest.deployment_artifact_sha256["一键升级.cmd"]);
+assert.ok(manifest.deployment_artifact_sha256["选择数据目录.cmd"]);
+assert.ok(manifest.deployment_artifact_sha256["停止服务.cmd"]);
+assert.equal(existsSync(join(stage,"一键升级.cmd")),false);
+assert.equal(existsSync(join(stage,"初始化管理员.cmd")),false);
 assert.ok(manifest.deployment_artifact_sha256["恢复业务数据.cmd"]);
 for (const [path, digest] of Object.entries(manifest.server_source_sha256))
   assert.equal(hash(join(root, path)), digest, "服务端源码与发布提交不一致 " + path);
@@ -173,14 +176,23 @@ const initialized = spawnSync(
   { env, encoding: "utf8", timeout: 20000 },
 );
 assert.equal(initialized.status, 0, initialized.stderr);
-function launch(directory) {
-  const child = spawn(processExec, [join(stage, "dist/server/main.js")], {
+function launch(directory, application=stage) {
+  const child = spawn(processExec, [join(application, "dist/server/main.js")], {
     env: { ...env, DATA_DIR: directory, SD_MANAGED_SHUTDOWN: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   return child;
 }
 const processExec = process.execPath;
+const absent=join(temporary,"absent-dataset");
+const rejected=spawnSync(processExec,[join(stage,"dist/server/main.js")],{env:{...env,DATA_DIR:absent},encoding:"utf8",timeout:10000});
+assert.notEqual(rejected.status,0);
+assert.match(rejected.stderr,/禁止自动创建空库/);
+assert.equal(existsSync(absent),false);
+const noPath=spawnSync(processExec,[join(stage,"dist/server/main.js")],{env:{...env,DATA_DIR:""},encoding:"utf8",timeout:10000});
+assert.notEqual(noPath.status,0);
+assert.match(noPath.stderr,/必须显式指定/);
+assert.equal(existsSync(join(stage,"data")),false);
 let server = launch(data);
 async function ready() {
   await new Promise((resolve, reject) => {
@@ -295,6 +307,7 @@ try {
   await ready();
   const persistedLogs = await verifyPackageAccessLogs(base, logHeaders, data, loginRequestId);
   assert.ok(persistedLogs.files >= 2, "extracted package must rotate access logs by file size");
+  await stop();
   const backup = spawnSync(processExec, [join(stage, "scripts/backup.mjs")], {
     env,
     encoding: "utf8",
@@ -324,30 +337,36 @@ try {
   assert.equal(restoredAttachment.status, 200);
   assert.equal(await restoredAttachment.text(), "release-evidence");
   await stop();
-  // Exercise the deployed upgrade entry point against a second extraction of the
-  // actual release, with the first installation containing real test writes.
-  const upgraded=join(temporary,"upgraded-release");
+  // A replacement program opens exactly the original independent dataset.
+  // No database copy, migration, or re-initialization takes place.
+  const upgraded=join(temporary,"replacement-program");
   const second=spawnSync("python3",["-c",`import zipfile,sys
 with zipfile.ZipFile(sys.argv[1]) as z:
  z.extractall(sys.argv[2])`,zip,upgraded],{encoding:"utf8",timeout:90000});
   assert.equal(second.status,0,second.stderr);
-  server = launch(data);
+  server=launch(data);
   await ready();
-  const oldExited = new Promise(resolve => server.once("exit", resolve));
-  const upgrade=spawnSync(processExec,[join(upgraded,"scripts/upgrade.mjs"),stage,String(port)],{cwd:upgraded,env,encoding:"utf8",timeout:60000});
-  assert.equal(upgrade.status,0,upgrade.stderr+upgrade.stdout);
-  assert.match(upgrade.stdout,/UPGRADE_OK/);
-  assert.equal(await oldExited, 0, "upgrade must drain the managed old runtime and close its database");
-  assert.ok(existsSync(join(stage,"data/schema113.sqlite")));
-  const upgradeReceipt=JSON.parse(readFileSync(join(upgraded,"data/UPGRADE-RECEIPT.json"),"utf8"));
-  assert.equal(upgradeReceipt.verified,true);
-  assert.equal(upgradeReceipt.old_service_port,port);
-  assert.ok(existsSync(upgradeReceipt.backup));
-  const duplicate=spawnSync(processExec,[join(upgraded,"scripts/upgrade.mjs"),stage,String(port)],{cwd:upgraded,env,encoding:"utf8",timeout:30000});
+  const duplicate=spawnSync(processExec,[join(upgraded,"dist/server/main.js")],{
+    env:{...env,DATA_DIR:data,PORT:String(port+1),SD_MANAGED_SHUTDOWN:"1"},encoding:"utf8",timeout:10000});
   assert.notEqual(duplicate.status,0);
-  assert.match(duplicate.stderr,/拒绝覆盖/);
-  server=spawn(processExec,[join(upgraded,"dist/server/main.js")],{env:{...env,DATA_DIR:join(upgraded,"data")},stdio:["ignore","pipe","pipe"]});
+  assert.match(duplicate.stderr,/占用|受管服务记录/);
+  const busyBackup=spawnSync(processExec,[join(upgraded,"scripts/backup.mjs")],{
+    env:{...env,DATA_DIR:data},encoding:"utf8",timeout:10000});
+  assert.notEqual(busyBackup.status,0);
+  assert.match(busyBackup.stderr,/占用|受管服务记录/);
+  const oldExited=new Promise(resolve=>server.once("exit",resolve));
+  const shutdown=spawnSync(processExec,[join(upgraded,"scripts/dataset.mjs"),"stop"],{
+    env:{...env,DATA_DIR:data},cwd:upgraded,encoding:"utf8",timeout:45000});
+  assert.equal(shutdown.status,0,shutdown.stderr+shutdown.stdout);
+  assert.match(shutdown.stdout,/DATASET_STOPPED/);
+  assert.equal(await oldExited,0);
+  assert.equal(existsSync(join(data,".sd-dataset.lock")),false);
+  assert.ok(existsSync(join(data,"schema113.sqlite")));
+  server=launch(data,upgraded);
   await ready();
+  assert.equal(existsSync(join(stage,"data")),false);
+  assert.equal(existsSync(join(upgraded,"data")),false);
+  assert.equal(existsSync(join(upgraded,"data-training")),false);
   const afterUpgrade=await fetch(base+"/api/demands/"+demand.id,{headers:logHeaders});
   assert.equal(afterUpgrade.status,200);
   assert.equal((await afterUpgrade.json()).quantity_scaled,10000);
@@ -355,7 +374,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   assert.equal(upgradedFile.status,200);
   assert.equal(await upgradedFile.text(),"release-evidence");
   assert.deepEqual((await catalog("voltages")).map(v=>v.name).sort(),volts.map(v=>v.name).sort());
-  console.log("PORTABLE_UPGRADE_OK drained old runtime and preserved accounts, sessions, demand, attachment and reference data");
+  console.log("EXTERNAL_DATASET_SWITCH_OK same directory, accounts, sessions, demand, attachment and reference data; duplicate server rejected");
   receipt.host_verification = {
     verified_at: new Date().toISOString(),
     os: process.platform,
@@ -364,6 +383,9 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     actual_zip_extracted: true,
     backup_restore_restart: true,
     offline_upgrade_restart: true,
+    external_dataset_switch: true,
+    explicit_dataset_required: true,
+    duplicate_dataset_rejected: true,
     initial_reference_data: true,
     compact_server_reproducible: true,
     excel_roundtrip: true,

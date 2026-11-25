@@ -14,6 +14,7 @@ const entries = {
   connection: "database/connection.js",
   restore: "database/restore.js",
   "managed-shutdown": "platform/runtime/managed-shutdown.js",
+  dataset: "platform/runtime/dataset.js",
   exchange: "modules/exchange/service.js",
   workbook: "modules/exchange/workbook.js",
   auth: "platform/auth/service.js",
@@ -67,6 +68,7 @@ export async function buildCompactServer(root, output) {
   const result = await build({
     absWorkingDir:root, entryPoints, outdir:platform,
     bundle:true, splitting:true, platform:"node", format:"esm", target:"node24",
+    define:{"process.env.SD_PACKAGED_BUILD":JSON.stringify("1")},
     entryNames:"[name]", chunkNames:"chunk-[hash]", metafile:true,
     // CommonJS dependencies use Node built-ins. Do not rely on global require
     // or installed modules on the deployed Windows machine.

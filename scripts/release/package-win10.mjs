@@ -123,16 +123,17 @@ for (const [src, dest] of [
   ["scripts/restore-ui.ps1", "scripts/restore-ui.ps1"],
   ["scripts/windows/恢复业务数据.cmd", "恢复业务数据.cmd"],
   ["docs/architecture/内网部署与数据升级规范.md", "内网部署与数据升级说明.md"],
-  ["scripts/upgrade.mjs","scripts/upgrade.mjs"],
-  ["scripts/upgrade.ps1","scripts/upgrade.ps1"],
-  ["scripts/windows/一键升级.cmd","一键升级.cmd"],
+  ["scripts/dataset.mjs","scripts/dataset.mjs"],
+  ["scripts/dataset-ui.ps1","scripts/dataset-ui.ps1"],
+  ["scripts/windows/选择数据目录.cmd","选择数据目录.cmd"],
+  ["scripts/windows/停止服务.cmd","停止服务.cmd"],
   ["scripts/training/instance.mjs", "scripts/training/instance.mjs"],
   ["scripts/windows/启动训练环境.cmd", "启动训练环境.cmd"],
   ["scripts/windows/训练实例列表.cmd", "训练实例列表.cmd"],
   ["scripts/first-run.ps1", "scripts/first-run.ps1"],
-  ["scripts/windows/启动服务.cmd", "启动服务.cmd"],
-  ["scripts/windows/备份数据库.cmd", "备份数据库.cmd"],
-  ["scripts/windows/初始化管理员.cmd", "初始化管理员.cmd"],
+  [demoMode?"scripts/windows/启动演示服务.cmd":"scripts/windows/启动服务.cmd", "启动服务.cmd"],
+  [demoMode?"scripts/windows/备份演示数据库.cmd":"scripts/windows/备份数据库.cmd", "备份数据库.cmd"],
+  ["scripts/windows/创建空数据集.cmd", "创建空数据集.cmd"],
   ["README.md", "README.md"],
   ...[
     "docs/implementation/Schema113_重写执行计划_2026-11-08.md",
@@ -171,7 +172,7 @@ for (const [src, dest] of [
 const ps = readFileSync(join(stage, "scripts", "first-run.ps1"));
 if (ps.subarray(0, 3).toString("hex") !== "efbbbf")
   throw Error("PowerShell 5.1 requires UTF-8 BOM");
-for (const f of ["启动服务.cmd", "初始化管理员.cmd", "一键升级.cmd", "恢复业务数据.cmd"]) {
+for (const f of ["启动服务.cmd", "创建空数据集.cmd", "选择数据目录.cmd", "停止服务.cmd", "恢复业务数据.cmd"]) {
   if ([...readFileSync(join(stage, f))].some((c) => c >= 128))
     throw Error(f + " must be ASCII only");
 }
@@ -225,7 +226,8 @@ if (demoMode) {
   ].join("\r\n");
   writeFileSync(join(stage, "演示账号与部署说明.txt"), "\uFEFF" + note, "utf8");
   copyFileSync(join(stage, "启动服务.cmd"), join(stage, "启动演示服务.cmd"));
-  rmSync(join(stage, "初始化管理员.cmd"), { force: true });
+  rmSync(join(stage, "创建空数据集.cmd"), { force: true });
+  for(const name of ["选择数据目录.cmd","停止服务.cmd","scripts/dataset-ui.ps1","scripts/dataset.mjs"]) rmSync(join(stage,name),{force:true});
   rmSync(join(stage, "scripts/first-run.ps1"), { force: true });
   console.log("DEMO_DATA_CREATED", demo.demands, "demands,", demo.projects, "projects");
 }
@@ -257,8 +259,8 @@ function collectSourceFiles(dir) {
 collectSourceFiles(join(root, "server"));
 const sourceHashes = Object.fromEntries([...sourceFiles].sort()
   .map(path => [path, digestFile(join(root, path))]));
-const deploymentFiles = ["启动服务.cmd","一键升级.cmd","恢复业务数据.cmd","备份数据库.cmd","scripts/restore-ui.ps1","scripts/upgrade.ps1","scripts/upgrade.mjs","scripts/restore.mjs","scripts/backup.mjs","scripts/init-admin.mjs","scripts/seed/common.mjs","内网部署与数据升级说明.md",...(!demoMode?["初始化管理员.cmd","scripts/first-run.ps1"]:["启动演示服务.cmd","演示账号与部署说明.txt"])];
-for(const name of ["scripts/upgrade.ps1","scripts/restore-ui.ps1"])if(readFileSync(join(stage,name)).subarray(0,3).toString("hex")!=="efbbbf")throw Error(name+" requires BOM");
+const deploymentFiles = ["启动服务.cmd","恢复业务数据.cmd","备份数据库.cmd","scripts/restore-ui.ps1","scripts/restore.mjs","scripts/backup.mjs","scripts/init-admin.mjs","scripts/seed/common.mjs","内网部署与数据升级说明.md",...(!demoMode?["创建空数据集.cmd","scripts/first-run.ps1","选择数据目录.cmd","停止服务.cmd","scripts/dataset-ui.ps1","scripts/dataset.mjs"]:["启动演示服务.cmd","演示账号与部署说明.txt"])];
+for(const name of ["scripts/restore-ui.ps1",...(!demoMode?["scripts/dataset-ui.ps1","scripts/first-run.ps1"]:[])])if(readFileSync(join(stage,name)).subarray(0,3).toString("hex")!=="efbbbf")throw Error(name+" requires BOM");
 const manifest = {
   deployment_artifact_sha256:Object.fromEntries(deploymentFiles.map(name=>[name,digestFile(join(stage,name))])),
   product: "sd-project",
@@ -280,7 +282,7 @@ const manifest = {
   frontend_index_sha256: digestFile(join(stage, "dist", "web", "index.html")),
   ps1_utf8_bom: !demoMode,
   cmd_ascii_only: true,
-  data_location: "./data",
+  data_location: demoMode ? "./data" : "external-explicit",
   ...(demoMode ? {
     sample_data_included: true,
     sample_database_sha256: digestFile(join(stage, "data/schema113.sqlite")),
@@ -315,16 +317,20 @@ assert not any(x.startswith('node_modules/') for x in files)
 assert {'runtime/LICENSE.txt','dist/server/THIRD-PARTY-NOTICES.txt'}.issubset(files)
 assert len(files)<=400,('compact package exceeded 400-file budget',len(files))
 assert all(x<128 for x in z.read('启动服务.cmd'))
-assert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')
+assert '一键升级.cmd' not in files
+assert '初始化管理员.cmd' not in files
 manifest=json.loads(z.read('BUILD-MANIFEST.json'))
 assert manifest['server_bundle']['format']=='esbuild-esm-split-v1'
 if manifest['package_mode']=='demo':
  assert {'data/schema113.sqlite','data/DEMO-DATA.json','启动演示服务.cmd','演示账号与部署说明.txt'}.issubset(files)
- assert '初始化管理员.cmd' not in files
+ assert '创建空数据集.cmd' not in files
+ assert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')
  assert all(x<128 for x in z.read('启动演示服务.cmd'))
  assert manifest['sample_data_included'] is True
 else:
- assert {'scripts/first-run.ps1','初始化管理员.cmd'}.issubset(files)
+ assert {'scripts/first-run.ps1','创建空数据集.cmd','选择数据目录.cmd','停止服务.cmd','scripts/dataset-ui.ps1','scripts/dataset.mjs'}.issubset(files)
+ assert b'DATA_DIR=%~dp0data' not in z.read('启动服务.cmd')
+ assert manifest['data_location']=='external-explicit'
  assert z.read('scripts/first-run.ps1')[:3]==bytes.fromhex('efbbbf')
  assert not any(x.startswith('data/') for x in files)
  assert manifest['sample_data_included'] is False
