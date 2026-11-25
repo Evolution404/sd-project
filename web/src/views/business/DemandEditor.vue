@@ -11,7 +11,7 @@
             <el-button data-guide-action="demands.save"
               type="primary"
               :loading="saving"
-              :disabled="loading || !operation || !positions.length"
+              :disabled="loading || loadFailed || !operation || !positions.length"
               @click="persist()"
             >
               保存专业需求
@@ -19,7 +19,9 @@
           </div>
         </div>
       </template>
-      <el-alert v-if="error" class="mb-3" type="error" :title="error" :closable="false" show-icon />
+      <el-alert v-if="error" class="mb-3" type="error" :title="error" :closable="false" show-icon>
+        <el-button v-if="loadFailed" link type="primary" @click="load">重新读取专业需求</el-button>
+      </el-alert>
       <el-alert
         v-if="setupMissing"
         class="mb-3"
@@ -33,7 +35,7 @@
         <span v-else>请联系管理员配置后继续录入。</span>
       </el-alert>
 
-      <el-form label-position="top" novalidate :disabled="saving || loading">
+      <el-form label-position="top" novalidate :disabled="saving || loading || loadFailed">
         <el-tabs v-model="section">
           <el-tab-pane label="基本信息" name="basic">
             <el-form-item label="操作类型" required>
@@ -42,7 +44,7 @@
                 filterable
                 remote
                 :remote-method="searchOperations"
-                :disabled="Boolean(record)"
+                :disabled="Boolean(record) || loading || loadFailed"
                 :loading="loadingOperations"
                 placeholder="搜索操作名称"
                 @update:model-value="chooseOperation"
@@ -317,6 +319,7 @@ const route = useRoute(),
   router = useRouter();
 const user = useUserStore();
 const canConfigure = computed(() => user.userInfo.perms.includes("admin"));
+const loadFailed = ref(false);
 const section = ref("basic"),
   loading = ref(false),
   saving = ref(false),
@@ -789,6 +792,7 @@ function command(separate: boolean): DemandWriteInput {
   };
 }
 async function persist(separate = false) {
+  if (loadFailed.value) return;
   if (saving.value || !positions.value.length) return;
   saving.value = true;
   error.value = "";
@@ -823,6 +827,7 @@ async function load() {
   const id = typeof route.params.demandId === "string" ? route.params.demandId : "";
   baseline = "";
   error.value = "";
+  loadFailed.value = false;
   loading.value = true;
   section.value = "basic";
   if (id) {
@@ -900,7 +905,10 @@ async function load() {
     baseline = formState();
     restoreSetup();
   } catch (cause) {
-    if (seq === pageRequest) error.value = (cause as Error).message;
+    if (seq === pageRequest) {
+      error.value = (cause as Error).message;
+      loadFailed.value = true;
+    }
   } finally {
     if (seq === pageRequest) loading.value = false;
   }
