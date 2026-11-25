@@ -39,7 +39,7 @@
       {{ row.approval ? projectMoney(row.approval.approved_budget_fen) : "尚未批准" }}
     </template>
   </CrudPage>
-  <PortfolioFinance v-else-if="!projectId && (portfolioView === 'costs' || portfolioView === 'reconciliations')" :kind="portfolioView" @open-cost="showCostDetail" />
+  <PortfolioFinance v-else-if="!projectId && (portfolioView === 'costs' || portfolioView === 'reconciliations')" :kind="portfolioView" @open-record="showFinanceRecord" />
   <CrudPage embedded v-else ref="crud" :search-config="searchConfig" :table-config="tableConfig">
     <template #table-cell-project_name="{row}">
       <el-link type="primary" @click="router.push({ name: 'Projects', query: { project: row.project_id } })">{{ row.project_name || projectContext?.name || "历史项目" }}</el-link>
@@ -85,12 +85,12 @@
   </el-dialog>
 
 
-  <el-drawer v-model="costDetailsOpen" title="实际费用记录" size="min(96%, 1030px)" append-to-body destroy-on-close>
-    <BusinessHistoryViewer v-if="costTarget" :target="costTarget" />
+  <el-drawer v-model="recordDetailsOpen" :title="recordTarget?.kind === 'reconciliations' ? '正式费用核对记录' : '实际费用记录'" size="min(96%, 1030px)" append-to-body destroy-on-close>
+    <BusinessHistoryViewer v-if="recordTarget" :target="recordTarget" />
     <div class="mt-4 flex flex-wrap justify-end gap-2">
-      <el-button v-if="origin.source === 'portfolio-cost'" @click="backToCostPortfolio">返回跨项目费用</el-button>
-      <el-button v-if="!projectId && costTarget" @click="openCostInProject">查看所属项目</el-button>
-      <el-button @click="costDetailsOpen = false">关闭详情</el-button>
+      <el-button v-if="origin.source === 'portfolio-cost' || origin.source === 'portfolio-reconciliation'" @click="backToRecordPortfolio">返回跨项目{{ recordTarget?.kind === "reconciliations" ? "核对" : "费用" }}</el-button>
+      <el-button v-if="!projectId && recordTarget" @click="openRecordInProject">查看所属项目</el-button>
+      <el-button @click="recordDetailsOpen = false">关闭详情</el-button>
     </div>
   </el-drawer>
 
@@ -153,7 +153,6 @@ import { listProjects, projectDetail, projectMoney, type ProjectRow, type Projec
 import { listSettlements, settlementDetail, type SettlementDetails } from "@/api/business/finance";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
 import { settlementStatusText } from "@/utils/business/settlement-status";
-import type { HistoryTarget } from "../../../../server/shared/types/history";
 import { useUserStore } from "@/stores/user";
 
 const route = useRoute();
@@ -181,33 +180,39 @@ const detailId = ref("");
 const detailTitles = { facts: "结算正式事实及草稿", history: "结算正式历史", reconciliations: "结算逐笔对账" };
 const detailSection = ref<keyof typeof detailTitles>("facts");
 let portfolioRecord = "";
-let portfolioCost: { project: string; id: string } | undefined;
-const costDetailsOpen = ref(false);
-const costTarget = ref<HistoryTarget>();
-function showCostDetail(project: string, id: string) {
-  costTarget.value = { kind: "costs", project, id };
-  costDetailsOpen.value = true;
+type PortfolioRecordKind = "costs" | "reconciliations";
+type PortfolioRecordTarget = { kind: PortfolioRecordKind; project: string; id: string };
+let portfolioFinanceRecord: PortfolioRecordTarget | undefined;
+const recordDetailsOpen = ref(false);
+const recordTarget = ref<PortfolioRecordTarget>();
+function showFinanceRecord(kind: PortfolioRecordKind, project: string, id: string) {
+  recordTarget.value = { kind, project, id };
+  recordDetailsOpen.value = true;
 }
-function openCostInProject() {
-  const target = costTarget.value;
-  if (!target?.project) return;
-  portfolioCost = { project: target.project, id: target.id };
+function openRecordInProject() {
+  const target = recordTarget.value;
+  if (!target) return;
+  portfolioFinanceRecord = target;
   void router.push({ name: "Finance", query: {
-    project: target.project, work: "costs", record: target.id,
-    source: "portfolio-cost", sourceList: route.query[LIST_QUERY_KEY],
+    project: target.project, work: target.kind, record: target.id,
+    source: target.kind === "costs" ? "portfolio-cost" : "portfolio-reconciliation",
+    sourceList: route.query[LIST_QUERY_KEY],
   } });
 }
-function backToCostPortfolio() {
-  void router.push({ name: "Finance", query: { view: "costs", [LIST_QUERY_KEY]: origin.sourceList } });
+function backToRecordPortfolio() {
+  void router.push({ name: "Finance", query: {
+    view: origin.source === "portfolio-reconciliation" ? "reconciliations" : "costs",
+    [LIST_QUERY_KEY]: origin.sourceList,
+  } });
 }
 const detail = ref<SettlementDetails>();
 let detailSequence = 0;
 let scrollTop = 0;
 let deactivated = false;
-usePageOverlays([chooseProject,detailsOpen,exchangeOpen,costDetailsOpen],{invalidate:()=>{
+usePageOverlays([chooseProject,detailsOpen,exchangeOpen,recordDetailsOpen],{invalidate:()=>{
   detailSequence++;projectSequence++;
   detailsLoading.value=false;projectLoading.value=false;
-  detail.value=undefined;costTarget.value=undefined;approvedProjects.value=[];projectTotal.value=0;
+  detail.value=undefined;recordTarget.value=undefined;approvedProjects.value=[];projectTotal.value=0;
 }});
 
 function changePortfolioView(view: string | number) {
@@ -281,10 +286,10 @@ onActivated(async () => {
   await crud.value?.refresh();
   await nextTick();
   document.querySelector(".layout-content")?.scrollTo(0, scrollTop);
-  if (portfolioCost) {
-    const target = portfolioCost;
-    portfolioCost = undefined;
-    showCostDetail(target.project, target.id);
+  if (portfolioFinanceRecord) {
+    const target = portfolioFinanceRecord;
+    portfolioFinanceRecord = undefined;
+    showFinanceRecord(target.kind, target.project, target.id);
   }
   if (portfolioRecord) {
     const record = portfolioRecord;
@@ -390,7 +395,7 @@ onMounted(async () => {
   try {
     projectContext.value = await projectDetail(projectId, origin.archive === "true");
     if (typeof origin.record === "string") {
-      if (origin.work === "costs") showCostDetail(projectId, origin.record);
+      if (origin.work === "costs" || origin.work === "reconciliations") showFinanceRecord(origin.work, projectId, origin.record);
       else await showDetails(origin.record);
     }
   } catch (cause) {
