@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
 import { resolve, dirname, basename } from "node:path";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { httpServer } from "../../dist/server/platform/http/server.js";
@@ -16,13 +15,7 @@ const secretFile=resolve(dirname(directory),"."+basename(directory)+"-local-pass
 if(!fixture&&!assetSource&&!existsSync(directory))
   throw Error("首次创建真实台账演示需要显式设置 SD_ASSET_SOURCE");
 function localPassword(){
-  if(fixture)return process.env.SD_DEMO_PASSWORD||DEMO_PASSWORD;
-  if(existsSync(secretFile))return readFileSync(secretFile,"utf8").trim();
-  if(existsSync(directory))throw Error("真实台账演示已存在，缺少本机密码文件；拒绝重置");
-  mkdirSync(dirname(directory),{recursive:true,mode:0o700});
-  const password=randomBytes(24).toString("base64url");
-  writeFileSync(secretFile,password+"\n",{flag:"wx",mode:0o600});
-  return password;
+  return DEMO_PASSWORD;
 }
 if (!process.argv.includes("--seed-only")) {
   const { createServer } = await import("node:net");
@@ -65,7 +58,7 @@ if (process.argv.includes("--seed-only")) {
     console.log(description.join("\n"));
     console.log("\n浏览器地址：http://127.0.0.1:" + port);
     console.log("演示账号：" + DEMO_ACCOUNT);
-    if(fixture)console.log("演示密码："+password);else console.log("独立演示口令文件："+secretFile);
+    console.log("演示密码："+DEMO_PASSWORD);
     console.log(fixture?"注意：全部数据均为虚构示例。":"注意：基础台账来自真实导入，新增业务数据为虚构演示；仅本机授权测试，不可作为真实工程依据。");
   });
   server.on("error", err => {

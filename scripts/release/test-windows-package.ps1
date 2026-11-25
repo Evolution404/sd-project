@@ -157,7 +157,7 @@ try {
     Stop-Package
 
     $demoBase = Start-Package $demoRoot '启动演示服务.cmd' (Get-FreePort)
-    $demoSession = Get-Session $demoBase 'demo' 'DemoOnly-2026!'
+    $demoSession = Get-Session $demoBase 'demo' 'demo'
     Invoke-RestMethod -Uri "$demoBase/api/dashboard" -WebSession $demoSession | Out-Null
     Write-Output 'WINDOWS_PACKAGE_VERIFIED bundled Node, CMD and PowerShell, initialization, permissions, backup, restore, upgrade protection, and synthetic demo'
 } finally {

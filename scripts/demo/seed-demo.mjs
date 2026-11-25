@@ -7,7 +7,7 @@ import { createSystem } from "../../dist/server/bootstrap.js";
 import { today } from "../../dist/server/platform/auth/service.js";
 
 export const DEMO_ACCOUNT = "demo";
-export const DEMO_PASSWORD = "DemoOnly-2026!";
+export const DEMO_PASSWORD = "demo";
 const MARKER = "DEMO-DATA.json";
 const SEED_VERSION = 6;
 const OLDER_DEMO_VERSIONS = new Set([1, 2, 3, 4, 5]);
@@ -568,21 +568,19 @@ export function ensureDemoDatabase(dataDir, options = {}) {
     throw Error("目标目录已有非演示数据，拒绝写入：" + directory);
   if(useImportedAssets){
     if(!options.assetSource)throw Error("首次创建真实台账演示需要显式提供本地源文件");
-    if(typeof options.password!=="string"||options.password.length<16||options.password===DEMO_PASSWORD)
-      throw Error("真实台账演示必须使用独立的强密码，不允许固定演示凭据");
     mkdirSync(dirname(directory),{recursive:true,mode:0o700});
     const staging=mkdtempSync(join(dirname(directory),".real-demo-import-"));
     const output=join(staging,"seed"),candidate=join(output,"data");
     try{
       const result=spawnSync(process.execPath,[resolve(import.meta.dirname,"../import/line-statistics.mjs"),options.assetSource,output],{
-        env:{...process.env,SD_SEED_ACCOUNT:DEMO_ACCOUNT,SD_ADMIN_PASSWORD:options.password},encoding:"utf8",timeout:180000
+        env:{...process.env,SD_SEED_ACCOUNT:DEMO_ACCOUNT,SD_ADMIN_PASSWORD:DEMO_PASSWORD},encoding:"utf8",timeout:180000
       });
       if(result.status!==0)throw Error("真实台账导入失败："+result.stderr);
       const system=createSystem(candidate);
       let populated;
       try{
         const before=counts(system);
-        populated=populate(system,options.password,true);
+        populated=populate(system,DEMO_PASSWORD,true);
         for(const key of ["lines","physicalTowers","logicalTowers","spans"])if(before[key]!==populated[key])throw Error("演示业务写入改变真实基础台账数量："+key);
         if(!system.database.verifyIntegrity())throw Error("演示数据完整性检查未通过");
         const imported=JSON.parse(readFileSync(join(output,"IMPORT-RECEIPT.json"),"utf8"));
@@ -598,7 +596,7 @@ export function ensureDemoDatabase(dataDir, options = {}) {
   mkdirSync(directory,{recursive:true});
   const system = createSystem(directory);
   try {
-    const result = populate(system, options.password || DEMO_PASSWORD);
+    const result = populate(system, DEMO_PASSWORD);
     if (!system.database.verifyIntegrity())
       throw Error("演示数据完整性检查未通过");
     const metadata = {

@@ -15,6 +15,8 @@ function root(t) {
 }
 
 test("demo first launch supplies linked business sample records in its own SQLite", t => {
+  assert.equal(DEMO_ACCOUNT, "demo");
+  assert.equal(DEMO_PASSWORD, DEMO_ACCOUNT);
   const dir = root(t);
   const target = join(dir, "demo");
   const result = ensureDemoDatabase(target);
