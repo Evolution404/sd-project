@@ -1,6 +1,16 @@
 <template>
-  <el-dialog v-model="open" :title="title" width="min(95vw, 960px)" append-to-body destroy-on-close
-    :before-close="close" :close-on-click-modal="false">
+  <section v-if="open" :aria-label="title" data-guide-workspace class="page-container">
+    <el-card class="page-content" shadow="never">
+      <template #header>
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold">{{ title }}</h2>
+          <div class="page-heading-actions">
+            <el-button :disabled="saving" @click="close()">{{ readonly ? "关闭" : "取消" }}</el-button>
+            <el-button v-if="!readonly" type="primary" :disabled="loading || Boolean(loadError)" :loading="saving"
+              data-guide-action="standards.save" @click="save">保存正式版本</el-button>
+          </div>
+        </div>
+      </template>
     <el-skeleton v-if="loading" :rows="7" animated />
     <el-alert v-else-if="loadError" type="error" :title="loadError" :closable="false">
       <el-button type="primary" link @click="load">重新读取</el-button>
@@ -72,8 +82,8 @@
           </el-col>
         </el-row>
       </el-form>
-      <OperationAttributesEditor v-if="tab === 'attributes'" ref="attributesEditor" v-model="form.attributes"
-        :units="units" :readonly="readonly || saving" />
+      <OperationAttributesEditor v-if="attributesOpened" v-show="tab === 'attributes'" ref="attributesEditor" v-model="form.attributes"
+        :units="units" :readonly="readonly" :disabled="saving" />
       <section v-if="tab === 'versions'" aria-label="正式版本与引用">
         <el-empty v-if="!details" description="首次保存后建立正式版本" />
         <template v-else>
@@ -123,12 +133,8 @@
         </template>
       </section>
     </template>
-    <template #footer>
-      <el-button :disabled="saving" @click="close()">{{ readonly ? "关闭" : "取消" }}</el-button>
-      <el-button v-if="!readonly" type="primary" :disabled="loading || Boolean(loadError)" :loading="saving"
-        data-guide-action="standards.save" @click="save">保存正式版本</el-button>
-    </template>
-  </el-dialog>
+    </el-card>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -157,6 +163,8 @@ const historicalVersion = ref<number>();
 const historical = computed(() => details.value?.versions.find(version => version.version === historicalVersion.value));
 const historicalAttributes = computed<OperationAttribute[]>(() => JSON.parse(historical.value?.attributes_schema_json || "[]"));
 const attributesEditor = ref<InstanceType<typeof OperationAttributesEditor>>();
+const attributesOpened = ref(false);
+watch(tab, value => { if (value === "attributes") attributesOpened.value = true; });
 let sequence = 0;
 let baseline = "";
 
@@ -186,6 +194,7 @@ async function load() {
   loadError.value = "";
   saveError.value = "";
   tab.value = "basic";
+  attributesOpened.value = false;
   historicalVersion.value = undefined;
   loading.value = Boolean(props.operationId);
   try {
@@ -211,10 +220,11 @@ async function load() {
 }
 
 function dirty() {
-  return open.value && !props.readonly && Boolean(baseline) && baseline !== JSON.stringify(form.value);
+  return open.value && !props.readonly && Boolean(baseline) && (baseline !== JSON.stringify(form.value) || attributesEditor.value?.changed());
 }
 async function allowClose() {
-  if (saving.value || (attributesEditor.value && !(await attributesEditor.value.allowClose()))) return false;
+  if (saving.value) return false;
+  await attributesEditor.value?.finishEditing();
   if (!dirty()) return true;
   try {
     await ElMessageBox.confirm("操作定义尚未保存，确定放弃？", "离开操作定义编制", {
@@ -225,10 +235,8 @@ async function allowClose() {
     return false;
   }
 }
-async function close(done?: () => void) {
-  if (!(await allowClose())) return;
-  if (done) done();
-  else open.value = false;
+async function close() {
+  if (await allowClose()) open.value = false;
 }
 async function save() {
   if (loading.value || saving.value || props.readonly) return;
@@ -240,7 +248,9 @@ async function save() {
   saving.value = true;
   saveError.value = "";
   try {
-    await saveStandard("operations", form.value, props.operationId);
+    const attributes = attributesEditor.value ? await attributesEditor.value.prepare() : form.value.attributes;
+    if (!attributes) { tab.value = "attributes"; return; }
+    await saveStandard("operations", { ...form.value, attributes }, props.operationId);
     open.value = false;
     emit("saved");
     ElMessage.success("操作正式版本已保存");

@@ -126,7 +126,7 @@ try {
     await page.screenshot({ path: join(screenshots, `demand-editor-${width}-${colorScheme}.png`), animations: "disabled" });
     await page.goto(origin + "/#/standards/pricing");
     await page.getByRole("button", { name: "新增参考价格", exact: true }).click();
-    const priceEditor = page.getByRole("dialog", { name: "新增参考价格规则" });
+    const priceEditor = page.getByRole("region", { name: "新增参考价格规则", exact: true });
     await priceEditor.getByRole("button",{name:"保存正式规则",exact:true}).waitFor();
     const priceSave=await priceEditor.getByRole("button",{name:"保存正式规则",exact:true}).boundingBox();
     assert.ok(priceSave && priceSave.y>=0 && priceSave.y+priceSave.height<=page.viewportSize().height,
@@ -140,7 +140,8 @@ try {
     await page.screenshot({ path: join(screenshots, `price-operation-picker-${width}-${colorScheme}.png`), animations: "disabled" });
     await operation.press("Escape");
     await priceEditor.getByRole("button", { name: "保存正式规则" }).click();
-    await priceEditor.getByText("请填写规则名称、操作类型、价格来源、价格日期、生效日期和依据", { exact: true }).waitFor();
+    await priceEditor.getByText("请修正主规则工作表", { exact: true }).waitFor();
+    await priceEditor.getByRole("alert").getByText(/请填写规则名称/).waitFor();
     geometry.push({key:"price-validation",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `price-validation-${width}-${colorScheme}.png`), animations: "disabled" });
     await priceEditor.getByRole("button", { name: "取消", exact: true }).click();

@@ -238,6 +238,27 @@ export function validateAttributeSchema(raw: unknown): OperationAttribute[] {
   }
   return raw as OperationAttribute[];
 }
+export function validateWorksheetOptionLabels(schema: OperationAttribute[], previous: readonly OperationAttribute[]) {
+  const before = new Map(previous.map(field => [field.key, field]));
+  for (const field of schema) {
+    if (field.source !== "manual" || (field.type !== "select" && field.type !== "multiselect")) continue;
+    const prior = before.get(field.key);
+    const old = prior && "options" in prior ? prior.options : [];
+    const counts = new Map<string, number>(), previousCounts = new Map<string, number>();
+    for (const option of field.options) counts.set(option.label.trim(), (counts.get(option.label.trim()) || 0) + 1);
+    for (const option of old) previousCounts.set(option.label.trim(), (previousCounts.get(option.label.trim()) || 0) + 1);
+    for (const option of field.options) {
+      const label = option.label.trim(), count = counts.get(label) || 0;
+      const unchanged = prior?.type === field.type && old.some(item => item.value === option.value && item.label === option.label);
+      requireValue(
+        (count === 1 && !label.includes(",") && (field.type !== "multiselect" || !label.includes("/"))) ||
+          (unchanged && count <= (previousCounts.get(label) || 0)),
+        field.label + "的选项名称须唯一，且不可使用工作表保留的分隔符",
+      );
+    }
+  }
+}
+
 export function normalizeAttributeValues(
   schema: OperationAttribute[],
   scope: AttributeScope,

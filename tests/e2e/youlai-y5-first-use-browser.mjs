@@ -70,7 +70,8 @@ try {
   await choose(object, "归属单元", "物理杆塔");
   await save(object);
   await page.getByRole("button", { name: "配置操作类型" }).click();
-  const definition = await newRecord("新增操作类型");
+  await page.getByRole("button", { name: "新增操作类型", exact: true }).click();
+  const definition = page.getByRole("region", { name: "新增操作类型", exact: true });
   await definition.getByRole("textbox", { name: "名称" }).fill("安装防鸟装置");
   await choose(definition, "作业对象", "防鸟装置");
   await choose(definition, "固定计量单位", "套");

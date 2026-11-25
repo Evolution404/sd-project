@@ -34,7 +34,7 @@ try{
   await page.screenshot({path:join(shots,"material-crud-list-1920.png"),fullPage:true});
   const table=page.locator(".el-table").first();
   assert.ok(await table.getByText("XP-70").count());
-  await page.getByRole("button",{name:"新增物资"}).click();
+  await page.getByRole("button",{name:"新增物资",exact:true}).click();
   const dialog=page.getByRole("dialog").last();
   await dialog.getByRole("textbox",{name:"物资名称"}).fill("新型防鸟罩");
   await dialog.getByRole("textbox",{name:"型号"}).fill("F-900");

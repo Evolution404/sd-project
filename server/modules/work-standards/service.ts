@@ -1,9 +1,12 @@
+import type { OperationAttribute } from "../../shared/types/operation-attributes.js";
+
+import { versionedEntryBatch } from "../../platform/versioned-entry-batch.js";
 import type { WorkStandardRepository } from "../../database/repositories/work-standards.js";
 import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
 import type { Actor, ListQuery } from "../../shared/types/contracts.js";
 import { isObject } from "../../shared/types/contracts.js";
-import { validateAttributeSchema } from "../../shared/operation-attributes.js";
+import { validateAttributeSchema, validateWorksheetOptionLabels } from "../../shared/operation-attributes.js";
 import { quantityPrecisionFromFields } from "../../shared/quantity-precision.js";
 import type {
   OperationRecord,
@@ -138,7 +141,7 @@ export function createWorkStandards(
       return result;
     });
   }
-  function attributes(value: unknown): string {
+  function attributes(value: unknown, previous: OperationAttribute[]): string {
     try {
       const document = jsonDocument(value, "附加属性");
       requireValue(Array.isArray(document.value), "附加属性须为定义清单");
@@ -146,6 +149,7 @@ export function createWorkStandards(
         requireValue(isObject(field), "附加属性定义无效");
         return { ...field, key: field.key || id() };
       }));
+      validateWorksheetOptionLabels(schema, previous);
       for (const field of schema) {
         if ((field.type === "integer" || field.type === "decimal") && field.unit_id) {
           const unit = repository.unitVersion(field.unit_id, field.unit_version!);
@@ -239,8 +243,10 @@ export function createWorkStandards(
         integer(quantity, "建议数量", 1), adoptedUnit.fields_json, adoptedUnit.name,
         "default_quantity_scaled",
       );
-      const schema = attributes(input.attributes_schema_json === undefined
-        ? previous?.attributes_schema_json || [] : input.attributes_schema_json);
+      const priorAttributes = JSON.parse(previous?.attributes_schema_json || "[]") as OperationAttribute[];
+      const schema = input.attributes_schema_json === undefined
+        ? previous?.attributes_schema_json || "[]"
+        : attributes(input.attributes_schema_json, priorAttributes);
       if (!previous)
         repository.createOperation({
           id: operationId,
@@ -325,6 +331,17 @@ export function createWorkStandards(
     });
   }
   return {
+    entryBatch(actor: Actor, kind: "objects" | "operations", input: Record<string, unknown>, commit: boolean) {
+      const objects = kind === "objects";
+      const common = objects ? ["name", "object_position", "attribution_unit", "reason"]
+        : ["name", "sort_order", "default_target_object", "completion_standard", "entry_hint", "default_quantity_scaled", "reason"];
+      return versionedEntryBatch(actor, kind, input, {
+        permission: "admin", transaction: database.transaction,
+        createFields: objects ? common : [...common, "work_object_id", "default_unit_id"],
+        updateFields: [...common, "expected_version"],
+        save: row => (objects ? saveObject(actor, row.values, row.id) : saveOperation(actor, row.values, row.id)).id,
+      }, commit);
+    },
     objectDetail(key: string) {
       return {
         item: getObject(key, true),

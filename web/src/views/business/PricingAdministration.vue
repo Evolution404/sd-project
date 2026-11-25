@@ -1,5 +1,5 @@
 <template>
-  <CrudPage ref="crud" :search-config="searchConfig" :table-config="tableConfig">
+  <CrudPage v-show="!ruleOpen" ref="crud" :search-config="searchConfig" :table-config="tableConfig">
     <template #table-cell-pricing_mode="{row}">
       {{ modelLabels[row.pricing_mode as PricingMode] || row.pricing_mode }}
     </template>

@@ -1,5 +1,6 @@
 <template>
   <div class="page-container">
+    <div v-show="!operationOpen" class="page-container">
     <DemandSetupNavigation />
     <el-tabs v-model="kind" class="mb-4">
       <el-tab-pane name="objects" label="作业对象"/>
@@ -20,8 +21,26 @@
         {{row.attribution_unit==='physical_tower'?'物理杆塔':'逻辑杆塔'}}
       </template>
     </CrudPage>
+    </div>
     <OperationDefinitionEditor v-model="operationOpen" :operation-id="operationId" :readonly="operationReadonly"
       :objects="objects" :units="units" @saved="crud?.refresh()" />
+    <VersionedBatchWorksheet v-if="batchOpen" ref="batchEditor" :config="batchConfig" :revise="batchRevise"
+      @close="batchOpen = false" @saved="batchSaved">
+      <el-form v-if="batchKind === 'operations' && !batchRevise" novalidate inline>
+        <el-form-item label="作业对象">
+          <el-select v-model="batchObject" filterable placeholder="选择作业对象" style="width:220px">
+            <el-option v-for="option in objects.filter(row => row.status === 'active')" :key="option.id"
+              :label="option.name" :value="option.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="固定计量单位">
+          <el-select v-model="batchUnit" filterable placeholder="选择计量单位" style="width:200px">
+            <el-option v-for="option in units.filter(row => row.status === 'active')" :key="option.id"
+              :label="option.name" :value="option.id" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+    </VersionedBatchWorksheet>
     <el-drawer v-model="historyOpen" :title="title+'正式版本与采用记录'"
       size="min(90vw, 680px)" append-to-body>
       <el-skeleton v-if="historyLoading" animated :rows="6"/>
@@ -44,7 +63,7 @@
 </template>
 <script setup lang="ts">
 import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
-import {computed,ref,onMounted,watch} from "vue";
+import {computed,defineAsyncComponent,ref,onMounted,watch} from "vue";
 import { useRoute } from "vue-router";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import DemandSetupNavigation from "@/components/business/DemandSetupNavigation.vue";
@@ -53,6 +72,9 @@ import {listDictionaries, type DictionaryRow} from "@/api/business/dictionaries"
 import {listStandards,getStandard,standardDetail,saveStandard,
   type WorkKind,type WorkForm,type WorkStandardRow} from "@/api/business/standards";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
+import { exactScaledDecimalText, formatScaledDecimal } from "@/utils/business/fixed-scale";
+import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
+import { usePageOverlays } from "@/composables/usePageOverlays";
 import OperationDefinitionEditor from "@/components/business/OperationDefinitionEditor.vue";
 
 defineOptions({name:"StandardsAdministration"});
@@ -72,6 +94,83 @@ function openOperation(id?: string, readonly = false) {
   operationReadonly.value = readonly;
   operationOpen.value = true;
 }
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("@/components/business/VersionedBatchWorksheet.vue"));
+const batchOpen = ref(false), batchRevise = ref(false), batchKind = ref<WorkKind>("objects");
+const batchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+const batchObject = ref(""), batchUnit = ref("");
+const positions = { body: "本体", corridor: "通道" } as const;
+const attribution = { physical_tower: "物理杆塔", logical_tower: "逻辑杆塔" } as const;
+function openBatch(revise: boolean) {
+  batchKind.value = kind.value;
+  batchRevise.value = revise;
+  batchObject.value = ""; batchUnit.value = "";
+  batchOpen.value = true;
+}
+function batchSaved() {
+  batchOpen.value = false;
+  void crud.value?.refresh();
+  void refreshReferences();
+}
+usePageOverlays([batchOpen], { mayLeave: () => batchOpen.value ? batchEditor.value?.mayLeave() ?? true : true });
+const batchConfig = computed<VersionedBatchEntryConfig>(() => {
+  const entry = batchKind.value;
+  const object = entry === "objects";
+  const singular = object ? "作业对象" : "操作类型";
+  return {
+    title: (batchRevise.value ? "批量修订" : "批量新增") + singular,
+    endpoint: "/api/catalog/" + entry + "/entry-batch",
+    createReady: object || Boolean(batchObject.value && batchUnit.value),
+    initial: (): Record<string, string> => object ? { object_position: "本体", attribution_unit: "物理杆塔" } : { sort_order: "100" },
+    columns: [
+      { key: "name", title: "名称", width: 245, editable: true, required: true },
+      ...(object ? [
+        { key: "object_position", title: "对象位置", width: 145, editable: true, required: true, options: Object.values(positions) },
+        { key: "attribution_unit", title: "归属单元", width: 165, editable: true, required: true, options: Object.values(attribution) },
+      ] : [
+        { key: "sort_order", title: "排序", width: 110, editable: true, numeric: true, required: true },
+        { key: "default_target_object", title: "默认部位", width: 195, editable: true },
+        { key: "default_quantity_scaled", title: "建议数量", width: 130, editable: true, numeric: true },
+        { key: "completion_standard", title: "验收标准", width: 235, editable: true },
+        { key: "entry_hint", title: "录入提示", width: 235, editable: true },
+      ]),
+      { key: "reason", title: "修订说明", width: 230, editable: true },
+    ],
+    async choices(keyword, page) {
+      const result = await listStandards(entry, { keyword, page, size: 20 });
+      return { total: result.total, items: result.items.map(row => ({
+        id: row.id, code: row.code, name: row.name, version: row.version_no ?? row.version ?? 1,
+        context: row.work_object_id_label,
+        fields: {
+          name: row.name, reason: "",
+          ...(object ? {
+            object_position: positions[row.object_position as keyof typeof positions],
+            attribution_unit: attribution[row.attribution_unit as keyof typeof attribution],
+          } : {
+            sort_order: String(row.sort_order ?? 100), default_target_object: row.default_target_object || "",
+            default_quantity_scaled: row.default_quantity_scaled == null ? "" : formatScaledDecimal(row.default_quantity_scaled, 4),
+            completion_standard: row.completion_standard || "", entry_hint: row.entry_hint || "",
+          }),
+        },
+      })) };
+    },
+    values(fields, record) {
+      const common = { name: fields.name.trim(), reason: fields.reason || "" };
+      if (object) return { ...common,
+        object_position: fields.object_position === "本体" ? "body" : "corridor",
+        attribution_unit: fields.attribution_unit === "物理杆塔" ? "physical_tower" : "logical_tower" };
+      const order = Number(fields.sort_order);
+      if (!/^[0-9]+$/.test(fields.sort_order) || !Number.isSafeInteger(order))
+        throw Object.assign(Error("排序须为非负整数"), { field: "sort_order" });
+      const quantity = fields.default_quantity_scaled?.trim();
+      const scaled = quantity ? exactScaledDecimalText(quantity, 4) : null;
+      if (quantity && (scaled === null || scaled <= 0))
+        throw Object.assign(Error("建议数量须为正数，最多四位小数"), { field: "default_quantity_scaled" });
+      return { ...common, sort_order: order, default_target_object: fields.default_target_object || "",
+        default_quantity_scaled: scaled, completion_standard: fields.completion_standard || null, entry_hint: fields.entry_hint || "",
+        ...(record ? {} : { work_object_id: batchObject.value, default_unit_id: batchUnit.value }) };
+    },
+  };
+});
 const historyOpen=ref(false),historyLoading=ref(false);
 const history=ref<{versions:Array<{version?:number;version_no?:number;name:string;
   status:string;reason?:string;recorded_at?:string;changed_at?:string}>}|null>(null);
@@ -95,9 +194,13 @@ const tableConfig=computed<CrudTableConfig>(()=>({
       page:q.pageNum||1,size:q.pageSize||20,keyword:q.keywords||"",...nativeListQuery(query, ["status"])});
     return {list:result.items,total:result.total};
   },
-  toolbarActions: kind.value === "objects"
-    ? [{ key: "create", label: "新增作业对象", permission: "admin" }]
-    : [{ key: "create-operation", label: "新增操作类型", permission: "admin", onClick: () => openOperation() }],
+  toolbarActions: [
+    kind.value === "objects"
+      ? { key: "create", label: "新增作业对象", permission: "admin" }
+      : { key: "create-operation", label: "新增操作类型", permission: "admin", onClick: () => openOperation() },
+    { key: "batch-create", label: "批量新增", permission: "admin", onClick: () => openBatch(false) },
+    { key: "batch-revise", label: "批量修订", permission: "admin", onClick: () => openBatch(true) },
+  ],
   tableTools:["refresh","columns","search"],
   columns:[
     {prop:"code",sortable:"custom",label:"编码",minWidth:145,fixed:"left"},

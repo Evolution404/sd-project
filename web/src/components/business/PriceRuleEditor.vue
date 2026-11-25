@@ -1,24 +1,35 @@
 <template>
-  <el-dialog v-model="open" :title="title" width="min(95vw, 980px)" append-to-body destroy-on-close align-center
-    :before-close="close" :close-on-click-modal="false">
+  <section v-if="open" :aria-label="title" data-guide-workspace class="page-container">
+    <el-card class="page-content" shadow="never">
+      <template #header>
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold">{{ title }}</h2>
+          <div class="page-heading-actions">
+            <el-button :disabled="busy" @click="close()">{{ readonly ? "关闭" : "取消" }}</el-button>
+            <el-button v-if="!readonly" type="primary" :loading="saving" :disabled="loading || checking || Boolean(loadError)"
+              data-guide-action="pricing.save" @click="save">保存正式规则</el-button>
+          </div>
+        </div>
+      </template>
     <el-skeleton v-if="loading" animated :rows="8" />
     <el-alert v-else-if="loadError" type="error" :title="loadError" :closable="false">
       <el-button link type="primary" @click="load">重新加载</el-button>
     </el-alert>
     <template v-else>
-      <el-scrollbar max-height="calc(100dvh - 170px)">
       <el-tabs v-model="tab">
         <el-tab-pane label="基本信息" name="basic" />
         <el-tab-pane name="conditions"><template #label><span data-guide-action="pricing.condition">适用条件</span></template></el-tab-pane>
         <el-tab-pane label="计价方式" name="formula" />
       </el-tabs>
       <el-alert v-if="error" type="error" :title="error" :closable="false" class="mb-3" />
+      <PriceRuleMainWorksheet v-if="!readonly" v-show="tab === 'basic'" ref="mainWorksheet"
+        v-model="form" :voltages="voltages" :materials="materials" :disabled="busy" />
       <el-form novalidate :model="form" :disabled="readonly || busy" label-position="top">
-        <el-row v-if="tab === 'basic'" :gutter="16">
-          <el-col :span="12">
+        <el-row v-if="tab === 'basic'" :gutter="16" class="mt-3">
+          <el-col v-if="readonly" :span="12">
             <el-form-item label="规则名称" required><el-input v-model="form.title" /></el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col v-if="readonly" :span="12">
             <el-form-item label="状态">
               <el-radio-group v-model="form.status"><el-radio value="active">启用</el-radio><el-radio data-guide-action="pricing.retire" value="inactive">停用</el-radio></el-radio-group>
             </el-form-item>
@@ -39,14 +50,14 @@
                 v-model="form.adoptLatest">采用当前正式操作版本</el-checkbox>
             </el-form-item>
           </el-col>
-          <el-col :span="12"><el-form-item label="价格来源" required><el-input v-model="form.price_source" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="修订理由"><el-input v-model="form.reason" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="价格日期" required><el-date-picker v-model="form.price_date" type="date" value-format="YYYY-MM-DD" /></el-form-item></el-col>
-          <el-col :span="12"><el-form-item label="生效日期" required><el-date-picker v-model="form.effective_on" type="date" value-format="YYYY-MM-DD" /></el-form-item></el-col>
-          <el-col :span="24"><el-form-item label="计价依据" required><el-input v-model="form.basis" type="textarea" /></el-form-item></el-col>
+          <el-col v-if="readonly" :span="12"><el-form-item label="价格来源" required><el-input v-model="form.price_source" /></el-form-item></el-col>
+          <el-col v-if="readonly" :span="12"><el-form-item label="修订理由"><el-input v-model="form.reason" /></el-form-item></el-col>
+          <el-col v-if="readonly" :span="12"><el-form-item label="价格日期" required><el-date-picker v-model="form.price_date" type="date" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+          <el-col v-if="readonly" :span="12"><el-form-item label="生效日期" required><el-date-picker v-model="form.effective_on" type="date" value-format="YYYY-MM-DD" /></el-form-item></el-col>
+          <el-col v-if="readonly" :span="24"><el-form-item label="计价依据" required><el-input v-model="form.basis" type="textarea" /></el-form-item></el-col>
         </el-row>
         <template v-else-if="tab === 'conditions'">
-          <el-row :gutter="16">
+          <el-row v-if="readonly" :gutter="16">
             <el-col :span="12">
               <el-form-item label="适用电压等级">
                 <el-select v-model="form.voltage_level_id" clearable filterable>
@@ -73,44 +84,13 @@
           </el-row>
           <el-alert v-if="definitionError" :title="definitionError" :closable="false" type="error" />
           <el-alert v-else-if="loadingDefinition" title="正在读取所采用的正式操作定义" :closable="false" type="info" />
-          <template v-else>
-            <el-card v-for="field in features" :key="field.key" shadow="never" class="mb-2">
-              <el-checkbox :model-value="Boolean(form.conditions[field.key])"
-                @change="toggleCondition(field, Boolean($event))">限制{{ field.label }}</el-checkbox>
-              <div v-if="form.conditions[field.key]" class="grid grid-cols-2 gap-x-3">
-                <template v-if="field.type === 'integer' || field.type === 'decimal'">
-                  <el-form-item label="匹配方式">
-                    <el-select :model-value="form.conditions[field.key].op" @update:model-value="setOperator(field.key, $event)">
-                      <el-option label="范围匹配" value="range" /><el-option label="精确匹配" value="eq" />
-                    </el-select>
-                  </el-form-item>
-                  <template v-if="form.conditions[field.key].op === 'range'">
-                    <el-form-item label="最小值"><el-input v-model="form.conditions[field.key].min" inputmode="decimal" /></el-form-item>
-                    <el-form-item label="最大值"><el-input v-model="form.conditions[field.key].max" inputmode="decimal" /></el-form-item>
-                  </template>
-                  <el-form-item v-else label="适用数值">
-                    <el-input :model-value="String(form.conditions[field.key].value ?? '')" inputmode="decimal"
-                      @update:model-value="form.conditions[field.key].value = $event" />
-                  </el-form-item>
-                </template>
-                <el-form-item v-else-if="field.type === 'boolean'" label="适用取值">
-                  <el-select v-model="form.conditions[field.key].value">
-                    <el-option label="是" :value="true" /><el-option label="否" :value="false" />
-                  </el-select>
-                </el-form-item>
-                <el-form-item v-else label="适用取值">
-                  <el-select v-model="form.conditions[field.key].value" filterable>
-                    <el-option v-for="choice in choices(field)" :key="choice.value" :value="choice.value" :label="choice.label" />
-                  </el-select>
-                </el-form-item>
-              </div>
-            </el-card>
-            <div v-for="key in obsoleteConditions" :key="key" class="mb-2">
-              <el-alert type="warning" title="已采用的操作定义不再提供该条件" :closable="false">
-                <el-button v-if="!readonly" link type="danger" data-guide-action="pricing.condition-remove" @click="delete form.conditions[key]">移除原条件</el-button>
-              </el-alert>
-            </div>
-          </template>
+          <el-table v-if="readonly && definition" :data="historicalConditions" border empty-text="未采用附加计价条件">
+            <el-table-column label="计价属性" prop="label" min-width="130" />
+            <el-table-column label="匹配方式" prop="operation" width="135" />
+            <el-table-column label="适用取值" prop="value" min-width="150" />
+            <el-table-column label="最小值" prop="min" min-width="130" />
+            <el-table-column label="最大值" prop="max" min-width="130" />
+          </el-table>
         </template>
         <template v-else>
           <el-row :gutter="16">
@@ -150,6 +130,9 @@
           </template>
         </template>
       </el-form>
+      <PriceConditionsWorksheet v-if="!readonly && conditionsOpened && definition"
+        v-show="tab === 'conditions'" :key="definition.operation_id + ':' + definition.version" ref="conditionsWorksheet"
+        v-model="form.conditions" :features="features" :choices="choices" :disabled="busy" />
       <template v-if="tab === 'formula' && !readonly">
         <el-divider>试算</el-divider>
         <el-form :disabled="busy" novalidate label-position="top">
@@ -171,14 +154,9 @@
             :title="preview.warning + '。相关规则 ' + preview.overlaps.map(rule => rule.title).join('、')" />
         </template>
       </template>
-      </el-scrollbar>
     </template>
-    <template #footer>
-      <el-button :disabled="busy" @click="close()">{{ readonly ? "关闭" : "取消" }}</el-button>
-      <el-button v-if="!readonly" type="primary" :loading="saving" :disabled="loading || checking || Boolean(loadError)"
-        data-guide-action="pricing.save" @click="save">保存正式规则</el-button>
-    </template>
-  </el-dialog>
+    </el-card>
+  </section>
 </template>
 
 <script setup lang="ts">
@@ -194,6 +172,8 @@ import { fenToYuan } from "@/api/business/funding";
 import { getPrice, loadPriceForm, previewPrice, savePrice, type PriceRule } from "@/api/business/pricing";
 import { modelOptions, rateBases, readFormula } from "@/api/business/price-formula";
 import PriceFormulaFields from "./PriceFormulaFields.vue";
+import PriceRuleMainWorksheet from "./PriceRuleMainWorksheet.vue";
+import PriceConditionsWorksheet from "./PriceConditionsWorksheet.vue";
 
 const props = defineProps<{ id?: string; readonly: boolean; operations: WorkStandardRow[];
   voltages: OptionItem[]; materials: OptionItem[]; natures: OptionItem[] }>();
@@ -203,6 +183,10 @@ const title = computed(() => props.readonly ? "查看参考价格规则" : props
 const record = ref<PriceRule>();
 const form = ref(loadPriceForm());
 const tab = ref("basic");
+const mainWorksheet = ref<InstanceType<typeof PriceRuleMainWorksheet>>();
+const conditionsWorksheet = ref<InstanceType<typeof PriceConditionsWorksheet>>();
+const conditionsOpened = ref(false);
+watch(tab, value => { if (value === "conditions") conditionsOpened.value = true; });
 const error = ref(""), loadError = ref(""), definitionError = ref("");
 const loading = ref(false), saving = ref(false), checking = ref(false), loadingDefinition = ref(false);
 const busy = computed(() => saving.value || checking.value);
@@ -212,6 +196,13 @@ const sampleQuantity = ref("1"), sampleBases = ref<Record<string, string>>({});
 const componentModels = modelOptions.filter(row => row.value !== "composite");
 const features = computed<OperationAttribute[]>(() => (JSON.parse(definition.value?.attributes_schema_json || "[]") as OperationAttribute[])
   .filter(field => field.enabled && field.pricing));
+const historicalConditions = computed(() => Object.entries(form.value.conditions).map(([key, value]) => {
+  const field = features.value.find(item => item.key === key);
+  const display = typeof value.value === "boolean" ? value.value ? "是" : "否" : value.value;
+  return { label: field?.label || "历史属性", operation: value.op === "eq" ? "精确匹配" : "范围匹配",
+    value: field?.type === "select" ? choices(field).find(item => item.value === value.value)?.label || "已采用正式选项" : display,
+    min: value.min, max: value.max };
+}));
 const obsoleteConditions = computed(() => Object.keys(form.value.conditions).filter(key => !features.value.some(field => field.key === key)));
 const requiredBases = computed(() => {
   const models = form.value.formula.mode === "composite" ? form.value.components.map(component => component.formula) : [form.value.formula];
@@ -227,19 +218,13 @@ function choices(field: OperationAttribute): OptionItem[] {
   return field.asset_field === "voltage_level_id" ? props.voltages
     : field.asset_field === "tower_material" ? props.materials : props.natures;
 }
-function setOperator(key: string, op: "range" | "eq") {
-  form.value.conditions[key] = { op };
-}
-function toggleCondition(field: OperationAttribute, enabled: boolean) {
-  if (enabled) setOperator(field.key, field.type === "integer" || field.type === "decimal" ? "range" : "eq");
-  else delete form.value.conditions[field.key];
-}
 async function load() {
   const request = ++sequence;
   loading.value = Boolean(props.id);
   error.value = "";
   loadError.value = "";
   tab.value = "basic";
+  conditionsOpened.value = false;
   record.value = undefined;
   preview.value = undefined;
   baseline = "";
@@ -275,7 +260,15 @@ async function loadDefinition() {
     if (token === definitionSequence) loadingDefinition.value = false;
   }
 }
-function validate() {
+async function validate() {
+  if (mainWorksheet.value && !await mainWorksheet.value.prepare()) {
+    tab.value = "basic";
+    throw Error("请修正主规则工作表");
+  }
+  if (conditionsWorksheet.value && !await conditionsWorksheet.value.prepare()) {
+    tab.value = "conditions";
+    throw Error("请修正计价条件工作表");
+  }
   if (!form.value.title.trim() || !form.value.operation_id || !form.value.price_source.trim() ||
     !form.value.price_date || !form.value.effective_on || !form.value.basis.trim()) {
     tab.value = "basic";
@@ -295,7 +288,7 @@ async function save() {
   saving.value = true;
   error.value = "";
   try {
-    validate();
+    await validate();
     await savePrice(form.value, record.value);
     open.value = false;
     emit("saved");
@@ -312,7 +305,7 @@ async function runPreview() {
   error.value = "";
   preview.value = undefined;
   try {
-    validate();
+    await validate();
     preview.value = await previewPrice(form.value, sampleQuantity.value, sampleBases.value, record.value);
   } catch (cause) {
     error.value = (cause as Error).message;
@@ -321,10 +314,12 @@ async function runPreview() {
   }
 }
 function dirty() {
-  return open.value && !props.readonly && Boolean(baseline) && baseline !== JSON.stringify(form.value);
+  return open.value && !props.readonly && Boolean(baseline) && (baseline !== JSON.stringify(form.value) || mainWorksheet.value?.changed() || conditionsWorksheet.value?.changed());
 }
 async function allowClose() {
   if (busy.value) return false;
+  await mainWorksheet.value?.finishEditing();
+  await conditionsWorksheet.value?.finishEditing();
   if (!dirty()) return true;
   try {
     await ElMessageBox.confirm("规则尚未保存，确定放弃？", "放弃参考价格修改", {
@@ -335,10 +330,8 @@ async function allowClose() {
     return false;
   }
 }
-async function close(done?: () => void) {
-  if (!(await allowClose())) return;
-  if (done) done();
-  else open.value = false;
+async function close() {
+  if (await allowClose()) open.value = false;
 }
 watch(open, active => { if (active) void load(); else sequence++; });
 watch(() => [open.value, loading.value, form.value.operation_id, form.value.adoptLatest], loadDefinition);

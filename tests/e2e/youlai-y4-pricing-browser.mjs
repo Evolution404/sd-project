@@ -1,3 +1,5 @@
+import {selectWorksheetCell,worksheetCanvas} from "./youlai-business-worksheet-helpers.mjs";
+import {pasteSettlementCells} from "./youlai-settlement-grid-helpers.mjs";
 import assert from "node:assert/strict";
 import {fixture} from "../helpers.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
@@ -18,6 +20,7 @@ let browser,page;
 try{
   browser=await chromium.launch({headless:true,channel:"chrome"});
   page=await browser.newPage({viewport:{width:1920,height:1080}});
+  await page.context().grantPermissions(["clipboard-read","clipboard-write"],{origin:base});
   const errors=[];
   page.on("pageerror",error=>errors.push(error.message));
   await page.goto(base+"/#/login");
@@ -29,7 +32,7 @@ try{
   await page.getByText("每塔基费及套费",{exact:true}).first().waitFor({timeout:12000});
   const row=page.getByRole("row").filter({hasText:"每塔基费及套费"});
   await row.getByRole("button",{name:"修订"}).click();
-  let dialog=page.getByRole("dialog",{name:"修订参考价格规则"});
+  let dialog=page.getByRole("region",{name:"修订参考价格规则",exact:true});
   await dialog.getByText("操作版本：V1",{exact:true}).waitFor();
   await dialog.getByRole("tab",{name:"计价方式"}).click();
   await dialog.getByRole("textbox",{name:"单位费（元）"}).fill("33.21");
@@ -63,22 +66,22 @@ try{
     ["composite","复合计价","7.00"],
   ]) {
     await page.getByRole("button",{name:"新增参考价格",exact:true}).click();
-    dialog=page.getByRole("dialog",{name:"新增参考价格规则"});
-    await input("规则名称","新版规则验收 "+label);
+    dialog=page.getByRole("region",{name:"新增参考价格规则",exact:true});
     await choose("操作类型",f.operation.name);
     await dialog.getByText("操作版本：V2",{exact:true}).waitFor();
-    await input("价格来源","现场工料备案");
-    await input("计价依据","批准来源范围及测算复核");
-    for(const name of ["价格日期","生效日期"]) {
-      const date=dialog.getByLabel(name);
-      await date.fill("2026-11-20");
-      await date.press("Enter");
-    }
+    const main=await worksheetCanvas(dialog.getByRole("region",{name:"参考价格主规则",exact:true}));
+    await selectWorksheetCell(main,1,0,[250,110,185,135,135,250]);
+    await pasteSettlementCells(page,["新版规则验收 "+label,"启用","现场工料备案","2026-11-20","2026-11-20","批准来源范围及测算复核"].join("\t"));
     if (mode === "fixed") {
       await dialog.getByRole("tab",{name:"适用条件"}).click();
-      await dialog.getByText("限制施工系数",{exact:true}).click();
-      await input("最小值","1.25");
-      await input("最大值","2.50");
+      const conditions=dialog.getByRole("region",{name:"动态计价条件",exact:true});
+      await conditions.getByRole("button",{name:"添加计价条件",exact:true}).click();
+      const picker=page.getByRole("dialog",{name:"选择计价属性",exact:true});
+      await picker.getByRole("row").filter({hasText:"施工系数"}).locator("label.el-checkbox").click();
+      await picker.getByRole("button",{name:"添加所选条件（1）",exact:true}).click();
+      const grid=await worksheetCanvas(conditions);
+      await selectWorksheetCell(grid,1,3,[240,150,220,150,150]);
+      await pasteSettlementCells(page,"1.25\t2.50");
     }
     await dialog.getByRole("tab",{name:"计价方式"}).click();
     await choose("计价模型",label);

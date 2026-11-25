@@ -35,6 +35,7 @@ export interface WorksheetRow {
   readonly label: string;
   readonly values: Readonly<Record<string, string>>;
   readonly locked?: boolean;
+  readonly unremovable?: boolean;
   readonly readonlyFields?: readonly string[];
 }
 export type WorksheetValues = Readonly<Record<string, Readonly<Record<string, string>>>>;
@@ -299,7 +300,7 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
   const historySubscription = history.undoRedoStatus$.subscribe(() => onHistory?.(history.getUndoRedoStatus(book.getId())));
   subscriptions.push({dispose: () => historySubscription.unsubscribe()});
   const selection = () => sheet.getSelection()?.getActiveRange()?.getRange();
-  function selectedRowIds(): string[] {
+  function selectedRowIds(forRemoval = false): string[] {
     const filtered = filteredRows();
     const ranges=sheet.getSelection()?.getActiveRangeList().map(range=>range.getRange())??[];
     const ids=new Set<string>();
@@ -308,13 +309,13 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       // never treat that gesture as an implicit request to remove all rows.
       if(range.startRow===0)continue;
       for(let r=Math.max(1,range.startRow);r<=Math.min(rows.length,range.endRow);r++)
-        if (!hiddenRows.has(r) && !filtered.has(r) && !rows[r - 1].locked) ids.add(rows[r - 1].id);
+        if (!hiddenRows.has(r) && !filtered.has(r) && !rows[r - 1].locked && !(forRemoval && rows[r - 1].unremovable)) ids.add(rows[r - 1].id);
     }
     return [...ids];
   }
   async function removeSelectedRows(){
     if (!onRowsChange || disposed) return;
-    const ids = selectedRowIds();
+    const ids = selectedRowIds(true);
     if (!ids.length) { onNotice("请先选择明细行，再执行「" + (removalLabel ?? "移除选中行") + "」"); return; }
     await finishEditing();
     if (disposed) return;
@@ -322,7 +323,7 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
     const filtered = filteredRows();
     const remove = ids.filter(id => {
       const index = rowNumbers.get(id);
-      return index !== undefined && !hiddenRows.has(index) && !filtered.has(index) && !rows[index - 1].locked;
+      return index !== undefined && !hiddenRows.has(index) && !filtered.has(index) && !rows[index - 1].locked && !rows[index - 1].unremovable;
     });
     if (!remove.length) return;
     const removed = new Set(remove);
@@ -793,7 +794,8 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       if (!replacement || isHidden(rowNumbers.get(row.id)!) || row.locked) return;
       const current = entries[row.id];
       const values = { ...replacement.values };
-      for (const column of columns) if (column.editable) values[column.key] = current[column.key] ?? "";
+      for (const column of columns) if (writable(row, column) && writable(replacement, column))
+        values[column.key] = current[column.key] ?? "";
       undo.push({ index, row, values: current });
       redo.push({ index, row: replacement, values });
     });
