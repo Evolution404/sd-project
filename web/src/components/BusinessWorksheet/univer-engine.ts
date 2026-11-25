@@ -1,12 +1,14 @@
 import {
   BooleanNumber, BorderStyleTypes, CellValueType, HorizontalAlign, LifecycleStages, LocaleType,
   VerticalAlign, WrapStrategy, createUniver, defaultTheme, mergeLocales, IUndoRedoService,
+  CommandType, ICommandService, IConfigService, IContextService, IUniverInstanceService, LocalUndoRedoService,
+  type IMutation, type IMutationInfo, type IUndoRedoItem,
   type ICellData, type IRange, type IStyleData, type IWorkbookData,
 } from "@univerjs/presets";
-import { AutoFillUIController, IMenuManagerService, ContextMenuPosition, ContextMenuGroup, IAutoFillService, AUTO_FILL_APPLY_TYPE, IRenderManagerService, getViewportByCell, ILayoutService, ISheetClipboardService, SheetPasteShortKeyCommand, type ISheetPasteByShortKeyParams, SetRangeValuesMutation, type ISetRangeValuesMutationParams, SetRowHiddenMutation, SetRowVisibleMutation, UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
+import { AutoFillUIController, IMenuManagerService, ContextMenuPosition, ContextMenuGroup, IAutoFillService, AUTO_FILL_APPLY_TYPE, IRenderManagerService, getViewportByCell, ILayoutService, ISheetClipboardService, SheetPasteShortKeyCommand, type ISheetPasteByShortKeyParams, SetRangeValuesMutation, type ISetRangeValuesMutationParams, SetRowHiddenMutation, SetRowVisibleMutation, SetRangeProtectionMutation, SetWorksheetRowCountMutation, RangeProtectionRuleModel, SheetsSelectionsService, UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
 import sheetsZhCN from "@univerjs/preset-sheets-core/locales/zh-CN";
 import { UniverSheetsDataValidationPreset } from "@univerjs/preset-sheets-data-validation";
-import { UniverSheetsFilterPreset, type IFilterColumn } from "@univerjs/preset-sheets-filter";
+import { UniverSheetsFilterPreset, ReCalcSheetsFilterMutation, SetSheetsFilterRangeMutation } from "@univerjs/preset-sheets-filter";
 import { UniverSheetsSortPreset, SortRangeCommand, type ISortRangeCommandParams } from "@univerjs/preset-sheets-sort";
 import validationZhCN from "@univerjs/preset-sheets-data-validation/locales/zh-CN";
 import filterZhCN from "@univerjs/preset-sheets-filter/locales/zh-CN";
@@ -29,11 +31,11 @@ export interface WorksheetColumn {
   required?: boolean;
 }
 export interface WorksheetRow {
-  id: string;
-  label: string;
-  values: Readonly<Record<string, string>>;
-  locked?: boolean;
-  readonlyFields?: readonly string[];
+  readonly id: string;
+  readonly label: string;
+  readonly values: Readonly<Record<string, string>>;
+  readonly locked?: boolean;
+  readonly readonlyFields?: readonly string[];
 }
 export type WorksheetValues = Readonly<Record<string, Readonly<Record<string, string>>>>;
 export interface WorksheetIssue {
@@ -53,7 +55,7 @@ interface WorksheetOptions {
   dark: boolean;
   primary: string;
   onChange: (entries: WorksheetValues) => void;
-  onRemoveRows?: (ids: string[]) => void;
+  onRowsChange?: (rows: readonly WorksheetRow[]) => void;
   onSelection: (text: string) => void;
   onNotice: (text: string) => void;
   onValidation: (issues: WorksheetIssue[]) => void;
@@ -91,12 +93,8 @@ function cellStyle(bg: string, fg: string, extra: IStyleData = {}): IStyleData {
 }
 
 function workbookData(rows: readonly WorksheetRow[], columns: readonly WorksheetColumn[], name: string, workbookId: string, sheetId: string): IWorkbookData {
-  const text = (value: string | null, style: string): ICellData =>
-    ({ v: value, t: CellValueType.STRING, s: style });
-  const headers = columns.map(column => text(column.title, column.editable ? "editableHeader" : "header"));
-  const contents = rows.map(row => columns.map((column, index) => text(row.values[column.key] || null,
-    writable(row, column) ? (column.numeric ? "quantity" : "evidence") :
-      index === 0 ? "position" : column.numeric ? "number" : "readonly")));
+  const headers = columns.map(column => headerCell(column, column.title));
+  const contents = rows.map(row => columns.map((column, index) => rowCell(row, column, index, row.values)));
   return {
     id: workbookId, appVersion: "1.6.1", locale: LocaleType.ZH_CN,
     name, sheetOrder: [sheetId],
@@ -131,89 +129,66 @@ function draftCell(value: string): ICellData {
   return { v: value === "" ? null : value, t: CellValueType.STRING, p: null, f: null };
 }
 
-const structureCommand = /^sheet\.command\.(?:insert|remove|delete-(?:range|row|col)|move-|merge|sort|cut|set-(?:row|col)-(?:hidden|visible))/;
-
-type SortRule = {colIndex:number;type:"asc"|"desc"};
-type FilterCriteria = Array<{column:number;criteria:IFilterColumn}>;
-/** Sorting is a view operation. Protected data never moves via a sheet mutation.
- * Rebuild only before the first data edit; preserve filter criteria and stable identity.
- * The native header sort menu supplies the requested column/direction. */
-export function createBusinessWorksheet(options:WorksheetOptions) {
-  let rows = options.rows.slice();
-  let sort:SortRule[] = [];
-  let criteria:FilterCriteria = [];
-  let disposed=false, sorting=false, filledOnly=false;
-  let dark=options.dark, primary=options.primary;
-  const collator=new Intl.Collator("zh-CN",{numeric:true,sensitivity:"base"});
-  function build() {
-    const rowNumbers=new Map(rows.map((row,index)=>[row.id,index+1]));
-    return createInstance({
-      ...options, rows, dark, primary,
-      columns:options.columns.map((col,i)=>({...col,title:col.title+(sort.some(rule=>rule.colIndex===i)?(sort.find(rule=>rule.colIndex===i)!.type==="asc"?" ↑":" ↓"):"")})),
-      validate:values=>options.validate(values).map(issue=>{
-        const row=rowNumbers.get(issue.rowId)??issue.row;
-        return {...issue,row,cell:cellAddress(row,issue.column)};
-      }),
-    },criteria,requestSort);
-  }
-  let active=build();
-  function requestSort(rules:SortRule[], filters:FilterCriteria) {
-    if(disposed||sorting)return;
-    sorting=true;
-    const wasInert=options.host.inert;
-    options.host.inert=true;
-    queueMicrotask(async ()=>{
-      try{
-        if(disposed)return;
-        sort=rules;criteria=filters;
-        rows=options.rows.slice().sort((a,b)=>{
-          for(const rule of sort){
-            const column=options.columns[rule.colIndex];
-            if(!column)continue;
-            const av=a.values[column.key]??"", bv=b.values[column.key]??"";
-            if(!av||!bv){if(av!==bv)return av? -1:1;continue;}
-            const n=column.numeric&&Number.isFinite(Number(av))&&Number.isFinite(Number(bv))?Number(av)-Number(bv):collator.compare(av,bv);
-            if(n)return rule.type==="asc"?n:-n;
-          }
-          return 0;
-        });
-        active.dispose();
-        options.host.replaceChildren();
-        active=build();
-        await active.ready;
-        if(disposed)return;
-        active.filterFilled(filledOnly);
-        options.onNotice("已按 "+sort.map(rule=>options.columns[rule.colIndex].title+(rule.type==="asc"?" 升序":" 降序")).join("、")+" 排列");
-      }catch(error){options.onNotice(error instanceof Error?error.message:String(error));}
-      finally{sorting=false;if(!disposed)options.host.inert=wasInert;}
-    });
-  }
-  return {
-    get ready(){return active.ready;},
-    finishEditing:()=>active.finishEditing(),
-    selectedRowIds:()=>sorting?[]:active.selectedRowIds(),
-    removeSelectedRows:()=>sorting?Promise.resolve():active.removeSelectedRows(),
-    isEditing:()=>sorting||active.isEditing(),
-    prepareSave:()=>sorting?Promise.resolve(null):active.prepareSave(),
-    focusCell:(row:number,col:number,keyboard=false)=>active.focusCell(row,col,keyboard),
-    filterFilled(value:boolean){filledOnly=value;active.filterFilled(value);},
-    clearFilters(){filledOnly=false;active.clearFilters();},
-    fillColumn:(field:string,value:(row:WorksheetRow)=>string,label:string)=>active.fillColumn(field,value,label),
-    undo:()=>sorting?Promise.resolve():active.undo(),
-    redo:()=>sorting?Promise.resolve():active.redo(),
-    theme(d:boolean,p:string){dark=d;primary=p;active.theme(d,p);},
-    dispose(){disposed=true;active.dispose();},
-  };
+function headerCell(column: WorksheetColumn, title: string): ICellData {
+  return { v: title, t: CellValueType.STRING, s: column.editable ? "editableHeader" : "header" };
 }
-function createInstance({ host, rows, columns, name, dark, primary, onChange, onSelection, onNotice, onValidation, onHistory, onVisibleCount, onRemoveRows, validate, filled, describe }: WorksheetOptions, initialCriteria:FilterCriteria, onSortRequest:(rules:SortRule[],filters:FilterCriteria)=>void) {
+
+function rowCell(row: WorksheetRow, column: WorksheetColumn, index: number, fields: WorksheetRow["values"]): ICellData {
+  const style = writable(row, column) ? (column.numeric ? "quantity" : "evidence") :
+    index === 0 ? "position" : column.numeric ? "number" : "readonly";
+  return { ...draftCell(fields[column.key] ?? ""), s: style };
+}
+
+const structureCommand = /^sheet\.command\.(?:insert|remove|delete-(?:range|row|col)|move-|merge|sort|cut|reorder-|set-(?:row|col)-(?:hidden|visible))/;
+type SortRule = {colIndex: number; type: "asc" | "desc"};
+type StableCells = Array<{ id: string; values: Record<number, string> }>;
+interface IndexedRow { index: number; row: WorksheetRow; values: WorksheetRow["values"]; }
+interface RowChange { add?: IndexedRow[]; remove?: string[]; }
+
+function compareDecimal(left: string, right: string) {
+  const pattern = /^[+-]?\d+(?:\.\d+)?$/;
+  if (!pattern.test(left) || !pattern.test(right)) return undefined;
+  const [leftInteger, leftFraction = ""] = left.split(".");
+  const [rightInteger, rightFraction = ""] = right.split(".");
+  const precision = Math.max(leftFraction.length, rightFraction.length);
+  const a = BigInt(leftInteger + leftFraction.padEnd(precision, "0"));
+  const b = BigInt(rightInteger + rightFraction.padEnd(precision, "0"));
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// Keep the SDK's stack, grouping, undo/redo commands and keyboard shortcuts.
+// On these private workbooks, translate positional edit mutations at the point
+// the native command records them. View and permission changes do not add steps.
+export function createBusinessWorksheet({ host, rows: initialRows, columns, name, dark, primary, onChange, onRowsChange, onSelection, onNotice, onValidation, onHistory, onVisibleCount, validate, filled, describe }: WorksheetOptions) {
+  let rows = initialRows.slice();
+  let businessRows = rows;
+  let rowNumbers = new Map(rows.map((row, index) => [row.id, index + 1]));
+  let sort: SortRule[] = [];
+  let projecting = false;
+  let protectionRuleId: string | undefined;
+  const collator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
+  const cellsMutationId = "business.worksheet.stable-cells";
+  const rowsMutationId = "business.worksheet.rows";
   const workbookId = "business-workbook-"+(++workbookSequence);
   const sheetId = workbookId+"-sheet";
   const { univer, univerAPI } = createUniver({
     theme: brandTheme(primary), darkMode: dark, locale: LocaleType.ZH_CN,
+    override: [[IUndoRedoService, {
+      deps: [IUniverInstanceService, ICommandService, IContextService, IConfigService],
+      useFactory: (instances: IUniverInstanceService, commands: ICommandService, contexts: IContextService, config: IConfigService) =>
+        new class extends LocalUndoRedoService {
+          override pushUndoRedo(item: IUndoRedoItem) {
+            if (item.unitID !== workbookId) return super.pushUndoRedo(item);
+            const undoMutations = stableMutations(item.undoMutations);
+            const redoMutations = stableMutations(item.redoMutations);
+            if (undoMutations.length && redoMutations.length) super.pushUndoRedo({ ...item, undoMutations, redoMutations });
+          }
+        }(instances, commands, contexts, config),
+    }]],
     locales: { [LocaleType.ZH_CN]: mergeLocales(sheetsZhCN,validationZhCN,filterZhCN,sortZhCN) },
     presets: [UniverSheetsCorePreset({
       container: host, header: false, toolbar: false, formulaBar: false, footer: false,
-      contextMenu: Boolean(onRemoveRows), disableTextFormatAlert: true, disableTextFormatMark: true,
+      contextMenu: Boolean(onRowsChange), disableTextFormatAlert: true, disableTextFormatMark: true,
       sheets: {
         enableFillHandle: true, selectionAnimation: false, protectedRangeShadow: "none",
         clipboardConfig: { hidePasteOptions: true },
@@ -231,6 +206,47 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
   });
   const book = univerAPI.createWorkbook(workbookData(rows, columns, name, workbookId, sheetId));
   const sheet = book.getActiveSheet();
+  const identity = { unitId: workbookId, subUnitId: sheetId };
+  function stableMutations(mutations: IMutationInfo[]): IMutationInfo[] {
+    return mutations.flatMap(mutation => {
+      if (mutation.id === rowsMutationId) return [mutation];
+      if (mutation.id !== SetRangeValuesMutation.id) return [];
+      const params = mutation.params as ISetRangeValuesMutationParams;
+      if (params.subUnitId !== sheetId || !params.cellValue) return [];
+      const cells: StableCells = [];
+      for (const [index, values] of Object.entries(params.cellValue as Record<number, Record<number, ICellData | null>>)) {
+        const row = rows[Number(index) - 1];
+        if (!row || !values) continue;
+        const editable: Record<number, string> = {};
+        for (const [key, cell] of Object.entries(values)) {
+          const column = Number(key);
+          if (writable(row, columns[column]) && (cell === null || Object.hasOwn(cell, "v"))) {
+            editable[column] = String(cell?.v ?? "");
+          }
+        }
+        if (Object.keys(editable).length) cells.push({ id: row.id, values: editable });
+      }
+      return cells.length ? [{ id: cellsMutationId, params: cells }] : [];
+    });
+  }
+  const cellsMutation: IMutation<StableCells, boolean> = {
+    id: cellsMutationId, type: CommandType.MUTATION,
+    handler(_, patch) {
+      const cellValue: NonNullable<ISetRangeValuesMutationParams["cellValue"]> = {};
+      for (const change of patch) {
+        const row = rowNumbers.get(change.id);
+        if (row === undefined) return false;
+        cellValue[row] = Object.fromEntries(Object.entries(change.values).map(([column, value]) => [column, draftCell(value)]));
+      }
+      return univerAPI.syncExecuteCommand(SetRangeValuesMutation.id, { ...identity, cellValue });
+    },
+  };
+  const rowsMutation: IMutation<RowChange, boolean> = {
+    id: rowsMutationId, type: CommandType.MUTATION,
+    handler(_, change) { return changeRows(change); },
+  };
+  const commands = univer.__getInjector().get(ICommandService);
+  subscriptions.push(commands.registerCommand(cellsMutation), commands.registerCommand(rowsMutation));
   // Univer's single-list widget opens its dropdown on any pointer hit.
   // Reserve the native dropdown for the arrow; ordinary cell selection must
   // leave the sheet keyboard focus and the fill handle available.
@@ -282,6 +298,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
   subscriptions.push({dispose: () => historySubscription.unsubscribe()});
   const selection = () => sheet.getSelection()?.getActiveRange()?.getRange();
   function selectedRowIds(): string[] {
+    const filtered = filteredRows();
     const ranges=sheet.getSelection()?.getActiveRangeList().map(range=>range.getRange())??[];
     const ids=new Set<string>();
     for(const range of ranges){
@@ -289,26 +306,34 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
       // never treat that gesture as an implicit request to remove all rows.
       if(range.startRow===0)continue;
       for(let r=Math.max(1,range.startRow);r<=Math.min(rows.length,range.endRow);r++)
-        if(!isHidden(r)&&!rows[r-1].locked)ids.add(rows[r-1].id);
+        if (!hiddenRows.has(r) && !filtered.has(r) && !rows[r - 1].locked) ids.add(rows[r - 1].id);
     }
     return [...ids];
   }
   async function removeSelectedRows(){
-    if(!onRemoveRows||disposed)return;
-    const ids=selectedRowIds();
-    if(!ids.length){onNotice("请选择需要移除的作业位置");return;}
+    if (!onRowsChange || disposed) return;
+    const ids = selectedRowIds();
+    if (!ids.length) { onNotice("请选择需要移除的作业位置"); return; }
     await finishEditing();
-    if(disposed)return;
+    if (disposed) return;
     readEntries();
-    onRemoveRows(ids);
+    const filtered = filteredRows();
+    const remove = ids.filter(id => {
+      const index = rowNumbers.get(id);
+      return index !== undefined && !hiddenRows.has(index) && !filtered.has(index) && !rows[index - 1].locked;
+    });
+    if (!remove.length) return;
+    const removed = new Set(remove);
+    const add = businessRows.flatMap((row, index) => removed.has(row.id)
+      ? [{ index, row, values: entries[row.id] }] : []);
+    recordRows({ remove }, { add });
   }
 
-  let entries: WorksheetValues = Object.fromEntries(rows.map(row => [row.id, row.values]));
+  let entries: WorksheetValues = Object.fromEntries(rows.map(row => [row.id, { ...row.values }]));
   let disposed = false;
   let filledOnly = false;
   let hiddenRows = new Set<number>();
   let validated = false;
-  let hasDataEdits=false;
   let initialized=false;
   let flash = false;
   let flashTimers: number[] = [];
@@ -409,7 +434,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
 
   function readEntries() {
     const changed = new Map<string, Record<string, string>>();
-    for (const { column, index } of editableColumns) {
+    for (const { column, index } of rows.length ? editableColumns : []) {
       const values = sheet.getRange(1, index, rows.length, 1).getValues();
       for (const [rowIndex, row] of rows.entries()) {
         if (!writable(row, column)) continue;
@@ -422,13 +447,15 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     }
     if (changed.size) {
       entries = { ...entries, ...Object.fromEntries(changed) };
-      hasDataEdits ||= initialized;
     }
     return publishEntries();
   }
 
   function publishEntries() {
-    const errors = validate(entries);
+    const errors = validate(entries).flatMap(issue => {
+      const row = rowNumbers.get(issue.rowId);
+      return row === undefined ? [] : [{ ...issue, row, cell: cellAddress(row, issue.column) }];
+    });
     if (validated) showValidation(errors);
     else {
       errorCells.clear();
@@ -474,7 +501,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     book.onSelectionChange(ranges => updateSelection(ranges.at(-1))),
     univerAPI.addEvent(univerAPI.Event.CellPointerDown, () => onNotice("")),
     univerAPI.addEvent(univerAPI.Event.SelectionChanged, event => updateSelection(event.selections.at(-1))),
-    univerAPI.addEvent(univerAPI.Event.SheetValueChanged, () => { if (initialized) readEntries(); }),
+    univerAPI.addEvent(univerAPI.Event.SheetValueChanged, () => { if (initialized && !projecting) readEntries(); }),
     univerAPI.addEvent(univerAPI.Event.SheetRangeFiltered, reportVisible),
     univerAPI.addEvent(univerAPI.Event.SheetRangeFilterCleared, reportVisible),
     univerAPI.addEvent(univerAPI.Event.BeforeSheetEditStart, event => {
@@ -485,7 +512,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
       } else onNotice("");
     }),
     univerAPI.addEvent(univerAPI.Event.BeforeCommandExecute, event => {
-      if(initialized&&/^(?:sheets?\.command\..*data-validation|sheet\.operation\.open-validation-panel)/.test(event.id)){
+      if(initialized&&!projecting&&/^(?:sheets?\.command\..*data-validation|sheet\.operation\.open-validation-panel)/.test(event.id)){
         event.cancel=true;return;
       }
       if(event.id==="sheet.operation.show-data-validation-dropdown"&&pointer){
@@ -510,20 +537,15 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
       // sheet mutation; business identity removal is the only permitted effect.
       if(event.id==="sheet.command.remove-row-confirm"||event.id==="sheet.command.remove-row"){
         event.cancel=true;
-        if(onRemoveRows)queueMicrotask(()=>void removeSelectedRows());
+        if (onRowsChange) queueMicrotask(() => void removeSelectedRows());
         return;
       }
       if(event.id===SortRangeCommand.id){
         event.cancel=true;
-        const params=event.params as ISortRangeCommandParams;
-        const rules=params.orderRules;
-        if(hasDataEdits||book.isCellEditing()){onNotice("已有编辑历史，请先保存或取消本次修改后再排序");return;}
-        if(!rules?.length||rules.some(rule=>rule.colIndex<0||rule.colIndex>=columns.length))return;
-        const criteria=columns.flatMap((_,column)=>{
-          const value=filter()?.getColumnFilterCriteria(column);
-          return value?[{column,criteria:structuredClone(value)}]:[];
-        });
-        onSortRequest(rules,criteria);
+        const { orderRules } = event.params as ISortRangeCommandParams;
+        if (orderRules?.length && orderRules.every(rule => columns[rule.colIndex])) {
+          queueMicrotask(() => void sortRows(orderRules));
+        }
         return;
       }
       if((hiddenRows.size||filteredRows().size)&&/sheet\.command\.(?:auto-fill|refill|clear-selection-content|clear-selection-all)/.test(event.id)){
@@ -571,24 +593,189 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     }),
   );
 
-  const locked = [sheet.getRange(0, 0, 1, columns.length)];
-  columns.forEach((column, index) => {
+  function columnRanges(column: WorksheetColumn, index: number, editable: boolean): IRange[] {
+    const ranges: IRange[] = [];
     let start = -1;
     for (let i = 0; i <= rows.length; i++) {
-      const lock = i < rows.length && !writable(rows[i], column);
-      if (lock && start < 0) start = i;
-      if (!lock && start >= 0) {
-        locked.push(sheet.getRange(start + 1, index, i - start, 1));
+      const matches = i < rows.length && writable(rows[i], column) === editable;
+      if (matches && start < 0) start = i;
+      if (!matches && start >= 0) {
+        ranges.push({ startRow: start + 1, endRow: i, startColumn: index, endColumn: index });
         start = -1;
       }
     }
-  });
+    return ranges;
+  }
+
+  const lockedRanges = () => [
+    { startRow: 0, endRow: 0, startColumn: 0, endColumn: columns.length - 1 },
+    ...columns.flatMap((column, index) => columnRanges(column, index, false)),
+  ];
+  const toSheetRange = (range: IRange) => sheet.getRange(range.startRow, range.startColumn,
+    range.endRow - range.startRow + 1, range.endColumn - range.startColumn + 1);
   const protectedRanges = sheet.getWorksheetPermission().protectRanges([{
-    ranges: locked,
+    ranges: lockedRanges().map(toSheetRange),
     options: { name: "业务只读信息", allowViewByOthers: true },
-  }]).then(async rules => {
-    for (const rule of rules) if (!disposed) await rule.setPoint(univerAPI.Enum.RangePermissionPoint.Edit, false);
+  }]).then(async ([rule]) => {
+    if (disposed) return;
+    await rule.setPoint(univerAPI.Enum.RangePermissionPoint.Edit, false);
+    protectionRuleId = rule.id;
   });
+
+  function refreshDropdowns() {
+    for (const rule of sheet.getDataValidations()) rule.delete();
+    for (const [index, column] of columns.entries()) {
+      if (!column.options?.length || !column.editable) continue;
+      const ranges = columnRanges(column, index, true).map(toSheetRange);
+      if (!ranges.length) continue;
+      const rule = univerAPI.newDataValidation().requireValueInList([...column.options], column.multiple ?? false, true)
+        .setAllowBlank(!column.required).setAllowInvalid(true).build();
+      ranges[0].setDataValidation(rule);
+      if (ranges.length > 1) ranges[0].getDataValidation()?.setRanges(ranges);
+    }
+  }
+
+  function projectRows() {
+    const oldRows = rows;
+    const selections = univer.__getInjector().get(SheetsSelectionsService);
+    const previous = selections.getCurrentSelections();
+    const input = businessRows.slice();
+    if (sort.length) input.sort((a, b) => {
+      for (const { colIndex, type } of sort) {
+        const column = columns[colIndex];
+        const av = entries[a.id][column.key] ?? "", bv = entries[b.id][column.key] ?? "";
+        if (!av || !bv) { if (av !== bv) return av ? -1 : 1; continue; }
+        const result = (column.numeric ? compareDecimal(av, bv) : undefined) ?? collator.compare(av, bv);
+        if (result) return type === "asc" ? result : -result;
+      }
+      return 0;
+    });
+
+    projecting = true;
+    try {
+      const allColumns = { startColumn: 0, endColumn: columns.length - 1 };
+      if (hiddenRows.size) {
+        univerAPI.syncExecuteCommand(SetRowVisibleMutation.id, { ...identity, ranges: [...hiddenRows].map(row =>
+          ({ ...allColumns, startRow: row, endRow: row })) });
+        hiddenRows = new Set();
+      }
+      rows = input;
+      rowNumbers = new Map(rows.map((row, index) => [row.id, index + 1]));
+      refreshSheetData(oldRows.length);
+      const model = univer.__getInjector().get(RangeProtectionRuleModel);
+      const rule = protectionRuleId && model.getRule(workbookId, sheetId, protectionRuleId);
+      if (rule) univerAPI.syncExecuteCommand(SetRangeProtectionMutation.id, {
+        ...identity, ruleId: rule.id, rule: { ...rule, ranges: lockedRanges() },
+      });
+      refreshDropdowns();
+      univerAPI.syncExecuteCommand(SetSheetsFilterRangeMutation.id, { ...identity, range: {
+        ...allColumns, startRow: 0, endRow: rows.length,
+      } });
+      univerAPI.syncExecuteCommand(ReCalcSheetsFilterMutation.id, identity);
+      updateVisibleRows();
+      const filtered = filteredRows();
+      const next = previous.flatMap(({ range, primary, style }) => {
+        if (range.startRow === 0) return [];
+        const selected = oldRows.slice(range.startRow - 1, range.endRow)
+          .map(row => rowNumbers.get(row.id)).filter((row): row is number => row !== undefined && !hiddenRows.has(row) && !filtered.has(row))
+          .sort((a, b) => a - b);
+        const segments: IRange[] = [];
+        for (const row of selected) {
+          const last = segments.at(-1);
+          if (last?.endRow === row - 1) last.endRow = row;
+          else segments.push({ ...range, startRow: row, endRow: row });
+        }
+        return segments.map(segment => ({
+          range: segment, style, primary: primary && {
+            ...segment, endRow: segment.startRow, endColumn: segment.startColumn,
+            actualRow: segment.startRow, actualColumn: segment.startColumn, isMerged: false, isMergedMainCell: false,
+          },
+        }));
+      });
+      if (next.length) selections.setSelections(workbookId, sheetId, next);
+      else {
+        const first = rows.findIndex((_, index) => !hiddenRows.has(index + 1) && !filtered.has(index + 1));
+        sheet.setActiveRange(sheet.getRange(first + 1, 0));
+      }
+      sheet.refreshCanvas();
+    } finally {
+      projecting = false;
+    }
+  }
+
+  function refreshSheetData(previousLength: number) {
+    if (rows.length > previousLength) {
+      univerAPI.syncExecuteCommand(SetWorksheetRowCountMutation.id, { ...identity, rowCount: rows.length + 1 });
+    }
+    const cellValue: NonNullable<ISetRangeValuesMutationParams["cellValue"]> = {};
+    cellValue[0] = Object.fromEntries(columns.map((column, index) => {
+      const order = sort.find(rule => rule.colIndex === index)?.type;
+      return [index, headerCell(column, column.title + (order ? (order === "asc" ? " ↑" : " ↓") : ""))];
+    }));
+    for (const [index, row] of rows.entries()) {
+      cellValue[index + 1] = Object.fromEntries(columns.map((column, col) => [col, rowCell(row, column, col, entries[row.id])]));
+    }
+    for (let index = rows.length + 1; index <= previousLength; index++) {
+      cellValue[index] = Object.fromEntries(columns.map((_, col) => [col, null]));
+    }
+    univerAPI.syncExecuteCommand(SetRangeValuesMutation.id, { ...identity, cellValue });
+    if (rows.length < previousLength) {
+      univerAPI.syncExecuteCommand(SetWorksheetRowCountMutation.id, { ...identity, rowCount: rows.length + 1 });
+    }
+  }
+
+  async function sortRows(rules: SortRule[]) {
+    await finishEditing();
+    if (disposed) return;
+    readEntries();
+    sort = rules;
+    projectRows();
+    publishEntries();
+    onNotice("已按 " + rules.map(rule => columns[rule.colIndex].title + (rule.type === "asc" ? " 升序" : " 降序")).join("、") + " 排列");
+  }
+
+  function changeRows({ add = [], remove = [] }: RowChange) {
+    if (!onRowsChange || disposed) return false;
+    const removed = new Set(remove);
+    const next = businessRows.filter(row => !removed.has(row.id));
+    const draft = { ...entries };
+    for (const id of remove) delete draft[id];
+    for (const { row, index, values } of add) {
+      next.splice(index, 0, row);
+      draft[row.id] = values;
+    }
+    businessRows = next;
+    entries = draft;
+    projectRows();
+    onRowsChange(next);
+    publishEntries();
+    return true;
+  }
+
+  function recordRows(redo: RowChange, undo: RowChange) {
+    if (!univerAPI.syncExecuteCommand(rowsMutationId, redo)) return false;
+    history.pushUndoRedo({
+      unitID: workbookId, undoMutations: [{ id: rowsMutationId, params: undo }],
+      redoMutations: [{ id: rowsMutationId, params: redo }],
+    });
+    return true;
+  }
+
+  async function addRows(newRows: readonly WorksheetRow[]) {
+    if (!onRowsChange) return false;
+    await finishEditing();
+    if (disposed) return false;
+    const known = new Set(businessRows.map(row => row.id));
+    const additions = newRows.filter(row => {
+      if (known.has(row.id)) return false;
+      known.add(row.id);
+      return true;
+    });
+    if (!additions.length) return false;
+    readEntries();
+    return recordRows({ add: additions.map((row, index) => ({ row, index: businessRows.length + index, values: { ...row.values } })) },
+      { remove: additions.map(row => row.id) });
+  }
 
   async function finishEditing() {
     if (book.isCellEditing()) await book.endEditingAsync(true);
@@ -630,19 +817,8 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
         },
       }));
 
-      // Register native validation only for editable ranges; do not let the user edit the rule.
-      for(const [columnIndex,column] of columns.entries()){
-        if(!column.options?.length||!column.editable)continue;
-        const rule=univerAPI.newDataValidation().requireValueInList([...column.options],column.multiple??false,true)
-          .setAllowBlank(!column.required).setAllowInvalid(true).build();
-        let start=-1;
-        for(let i=0;i<=rows.length;i++){
-          const allowed=i<rows.length&&writable(rows[i],column);
-          if(allowed&&start<0)start=i;
-          if(!allowed&&start>=0){sheet.getRange(start+1,columnIndex,i-start,1).setDataValidation(rule);start=-1;}
-        }
-      }
-      if(onRemoveRows){
+      refreshDropdowns();
+      if (onRowsChange) {
         // Retain the SDK's own context menu and delete-row item. Other context
         // commands can change the protected workbook schema, so hide them.
         const manager=univer.__getInjector().get(IMenuManagerService);
@@ -666,17 +842,19 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
             if(node.item)config[node.item.id]=allowed.has(node.item.id)?{hidden:false,disabled:false}:{hidden:true};
         manager.updateMenuConfig(config);
       }
-      const nativeFilter=sheet.getRange(0,0,rows.length+1,columns.length).createFilter();
-      if(!nativeFilter)throw Error("工作表原生筛选初始化失败");
-      for(const item of initialCriteria)nativeFilter.setColumnFilterCriteria(item.column,item.criteria);
-      history.clearUndoRedo(book.getId());
+      // Header-only sheets also need a native filter model so the first add
+      // can extend its range without creating a new workbook or history.
+      const filterCreated = univerAPI.syncExecuteCommand(SetSheetsFilterRangeMutation.id, {
+        ...identity, range: { startRow: 0, endRow: rows.length, startColumn: 0, endColumn: columns.length - 1 },
+      });
+      if (!filterCreated) throw Error("工作表原生筛选初始化失败");
       const index = rows.findIndex(row => columns.some(column => writable(row, column)));
       if (index >= 0) sheet.setActiveRange(sheet.getRange(index + 1, columns.findIndex(column => writable(rows[index], column))));
       initialized = true;
       publishEntries();
     }),
     finishEditing,
-    selectedRowIds, removeSelectedRows,
+    selectedRowIds, removeSelectedRows, addRows,
     isEditing: () => book.isCellEditing(),
     async prepareSave() {
       await finishEditing();

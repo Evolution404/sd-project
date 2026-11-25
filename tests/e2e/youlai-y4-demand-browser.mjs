@@ -94,7 +94,16 @@ try {
   await pickNativeRows(page,{title:"选择预计物资",placeholder:"搜索名称、规格或型号",queries:[["预计物资专项",/预计物资专项/]],confirm:"添加预计物资"});
   const materialWork=page.locator('[data-grid-key="demands:materials"]');
   const materialCanvas=await worksheetCanvas(materialWork);
-  await typeWorksheetCell(page,materialCanvas,1,2,[180,95,125,150],"3");
+  const materialWidths = [180, 95, 125, 150];
+  await typeWorksheetCell(page, materialCanvas, 1, 2, materialWidths, "3");
+  await selectWorksheetCell(materialCanvas, 1, 0, materialWidths);
+  await selectWorksheetCell(materialCanvas, 1, 2, materialWidths);
+  await page.keyboard.press("ControlOrMeta+Z");
+  await materialWork.getByRole("button", { name: "重做", exact: true }).waitFor();
+  assert.equal((await copySettlementSelection(page)).trim(), "1");
+  await materialWork.getByRole("button", { name: "重做", exact: true }).click();
+  await selectWorksheetCell(materialCanvas, 1, 2, materialWidths);
+  assert.equal((await copySettlementSelection(page)).trim(), "3");
   await page.getByRole("tab",{name:"作业位置（2）"}).click();
   await page.getByRole("button",{name:"保存专业需求"}).click();
   const duplicate=page.getByRole("dialog",{name:"核对疑似重复需求"});

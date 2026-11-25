@@ -11,7 +11,7 @@
             <el-button data-guide-action="demands.save"
               type="primary"
               :loading="saving"
-              :disabled="loading || loadFailed || !operation || !positions.length"
+              :disabled="loading || loadFailed || addingPositions || !operation || !positions.length"
               @click="persist()"
             >
               保存专业需求
@@ -125,14 +125,14 @@
                 <NativeRecordPicker v-if="positionPickerOpen" title="选择作业设备" placeholder="搜索杆塔、线路或档距"
                   confirm-label="添加所选位置" confirm-guide="demands.location-select-confirm"
                   :columns="positionPickerColumns" :loader="loadPositionPage" :selectable="canSelectPosition"
-                  @close="positionPickerOpen=false" @confirm="addPositions"/>
+                  :saving="addingPositions" @close="positionPickerOpen=false" @confirm="addPositions"/>
               </div>
-              <div v-if="positions.length" aria-label="作业位置数量工作表">
+              <div aria-label="作业位置数量工作表">
                 <BusinessWorksheet ref="positionSheet" data-grid-key="demands:positions"
                   name="作业位置数量" :session-key="positionSession"
                   :rows="positionRows" :columns="positionColumns" :validate="validatePositions"
                   :disabled="saving" removable :remove-guide="'demands.location-remove-bulk'"
-                  @remove-rows="removePositions" @change="updatePosition">
+                  @rows-change="changePositionRows" @change="updatePosition">
                   <template #toolbar>
                     <el-button v-if="complexPositionFields.length" :disabled="saving" @click="openPositionDetails">位置属性</el-button>
                   </template>
@@ -240,7 +240,7 @@ import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vu
 import DemandTowerQuickPicker from "@/components/business/DemandTowerQuickPicker.vue";
 import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
-import type { WorksheetColumn, WorksheetValues, WorksheetIssue } from "@/components/BusinessWorksheet/univer-engine";
+import type { WorksheetColumn, WorksheetRow, WorksheetValues, WorksheetIssue } from "@/components/BusinessWorksheet/univer-engine";
 import { validateAttributeValue } from "../../../../server/shared/operation-attributes";
 import { useUserStore } from "@/stores/user";
 import { randomRequestId } from "@/utils/business/request-id";
@@ -364,6 +364,8 @@ const detailPositionId = ref("");
 const detailPosition = computed(()=>positions.value.find(row=>row.id===detailPositionId.value));
 const positions = ref<Position[]>([]),
   materials = ref<ExpectedMaterial[]>([]);
+const positionDrafts = new WeakMap<WorksheetRow, Position>();
+let positionDraftSequence = 0;
 const duplicates = ref<DemandEditorRecord[]>([]),
   duplicateOpen = ref(false),
   duplicateReason = ref("");
@@ -435,26 +437,34 @@ function attributeInput(field:OperationAttribute,raw:string):AttributeValues[str
 }
 const complexPositionFields = computed(() => positionFields.value.filter(field =>
   !scalarPositionFields.value.some(item => item.key === field.key)));
-const positionSession = computed(() => JSON.stringify([operation.value?.id, operation.value?.version, positions.value.map(row=>row.id)]));
+const positionSession = ref("0");
+let positionSessionSequence = 0;
+const addingPositions = ref(false);
+function resetPositionSession() {
+  positionSession.value = String(++positionSessionSequence);
+}
 const materialSession = computed(() => JSON.stringify(materials.value.map(row=>row.id)));
 function openPositionDetails(){
   const ids=positionSheet.value?.selectedRowIds()??[];
   if(ids.length!==1){ElMessage.warning("请选择单个作业位置");return;}
   detailPositionId.value=ids[0];
 }
-function removePositions(ids:string[]){
-  if(saving.value)return;
-  const removed=new Set(ids);
-  positions.value=positions.value.filter(row=>!removed.has(row.id));
-  if(removed.has(detailPositionId.value))detailPositionId.value="";
+function changePositionRows(rows: readonly WorksheetRow[]) {
+  positions.value = rows.map(row => positionDrafts.get(row)!);
+  if (!positions.value.some(row => row.id === detailPositionId.value)) detailPositionId.value = "";
 }
-const positionRows = computed(() => positions.value.map(row => ({
-  id: row.id, label: row.label, values: {
-    label: row.label, line: row.line, quantity: row.quantity, specification: row.specification, workMode: row.workMode,
-    startTower:row.startTower,endTower:row.endTower,physicalCode:row.physicalCode,
-    ...Object.fromEntries(scalarPositionFields.value.map(field => ["attribute:"+field.key,attributeText(field,row.attributes[field.key])])),
-  },
-})));
+function positionRow(row: Position): WorksheetRow {
+  const worksheetRow = {
+    id: row.id, label: row.label, values: {
+      label: row.label, line: row.line, quantity: row.quantity, specification: row.specification, workMode: row.workMode,
+      startTower: row.startTower, endTower: row.endTower, physicalCode: row.physicalCode,
+      ...Object.fromEntries(scalarPositionFields.value.map(field => ["attribute:" + field.key, attributeText(field, row.attributes[field.key])])),
+    },
+  };
+  positionDrafts.set(worksheetRow, row);
+  return worksheetRow;
+}
+const positionRows = computed(() => positions.value.map(positionRow));
 const materialRows = computed(() => materials.value.map(row => ({
   id: row.id,label: row.label,values:{label:row.label,unit:row.unit,quantity:row.quantity,note:row.note,model:row.model,materialSpecification:row.materialSpecification},
 })));
@@ -466,8 +476,8 @@ const positionColumns = computed<WorksheetColumn[]>(()=>[
   {key:"specification",title:"设备规格",width:170,editable:true},
   {key:"workMode",title:"作业方式",width:125,editable:true,options:Object.values(workModes),required:true},
   ...scalarPositionFields.value.map(field=>({key:"attribute:"+field.key,title:field.label,width:160,editable:true,numeric:field.type==="integer"||field.type==="decimal",options:attributeOptions(field),multiple:field.type==="multiselect",required:field.requirement==="save"})),
-  ...(positions.value.some(row=>row.location.location_kind==="span")?[{key:"startTower",title:"起点杆塔号",width:125},{key:"endTower",title:"终点杆塔号",width:125}]:[]),
-  ...(positions.value.some(row=>row.location.location_kind==="physical_tower")?[{key:"physicalCode",title:"物理杆塔编号",width:150}]:[]),
+  ...(positionKinds.value.includes("span")?[{key:"startTower",title:"起点杆塔号",width:125},{key:"endTower",title:"终点杆塔号",width:125}]:[]),
+  ...(positionKinds.value.includes("physical_tower")?[{key:"physicalCode",title:"物理杆塔编号",width:150}]:[]),
 ]);
 const materialColumns: WorksheetColumn[] = [
   {key:"label",title:"物资名称",width:180},
@@ -603,6 +613,7 @@ async function chooseOperation(id: string) {
     form.attributes = defaults(demandFields.value);
     detailPositionId.value = "";
     positions.value = [];
+    resetPositionSession();
     kind.value = positionKinds.value[0];
     resetPositionSearch();
   } catch (cause) {
@@ -628,46 +639,65 @@ const materialPickerColumns: {key:keyof Material;label:string;width?:number}[] =
 ];
 function resetPositionSearch(){positionPickerOpen.value=false;quickPickerOpen.value=false;}
 function loadPositionPage(keyword:string,page:number){return listEquipment(catalogs[kind.value],{keyword,page,size:20});}
-function canSelectPosition(row:EquipmentRow){return !row.deleted&&!["retired","inactive"].includes(row.status)&&!positions.value.some(item=>item.id===kind.value+":"+row.id);}
+function locationId(location: DemandLocationInput) {
+  return location.physical_tower_id || location.logical_tower_id || location.span_id;
+}
+const selectedLocations = computed(() => new Set(positions.value.map(row =>
+  row.location.location_kind + ":" + locationId(row.location))));
+function canSelectPosition(row: EquipmentRow) {
+  return !row.deleted && !["retired", "inactive"].includes(row.status) &&
+    !selectedLocations.value.has(kind.value + ":" + row.id);
+}
 function loadMaterialPage(keyword:string,page:number){return queryMaterials({keyword,page,pageSize:20,status:"active"});}
 function canSelectMaterial(row:Material){return !row.deleted&&row.status==="active"&&!materials.value.some(item=>item.id===row.id);}
-async function addQuickPositions(selected:EquipmentRow[],lineId:string) {
-  await addPositions(selected,lineId);
-  quickPickerOpen.value=false;
+async function addQuickPositions(selected: EquipmentRow[], lineId: string) {
+  if (await addPositions(selected, lineId)) quickPickerOpen.value = false;
 }
-async function addPositions(selected:EquipmentRow[],contextLineId?:string) {
-  await positionSheet.value?.finishEditing();
-  const type=kind.value;
-  const additions=[...new Map(selected.filter(canSelectPosition).map(row=>[row.id,row])).values()];
-  if(positions.value.length+additions.length>5000){ElMessage.error("一条需求最多5000处作业位置");return;}
-  for(const row of additions){
-    const id=row.id;
-    if(!canSelectPosition(row))continue;
-    const locationKey =
-      type === "physical_tower"
-        ? "physical_tower_id"
-        : type === "logical_tower"
-          ? "logical_tower_id"
-          : "span_id";
-    positions.value.push({
-      id: type + ":" + id,
+async function addPositions(selected: EquipmentRow[], contextLineId?: string) {
+  if (addingPositions.value || loading.value || saving.value) return false;
+  const sheet = positionSheet.value;
+  if (!sheet) return false;
+  const type = kind.value;
+  const additions = [...new Map(selected.filter(canSelectPosition).map(row => [row.id, row])).values()];
+  if (positions.value.length + additions.length > 5000) {
+    ElMessage.error("一条需求最多5000处作业位置");
+    return false;
+  }
+  if (!additions.length) return false;
+  addingPositions.value = true;
+  const locationKey = type === "physical_tower" ? "physical_tower_id" : type === "logical_tower" ? "logical_tower_id" : "span_id";
+  const next = additions.map(row => {
+    const position: Position = {
+      id: type + ":" + row.id + ":" + ++positionDraftSequence,
       label: deviceLabel(row),
-      line: row.line_id_label || row.line_name || row.bindings?.find(b=>b.line_id===contextLineId)?.line_name || "",
-      startTower:row.start_tower_no||"",endTower:row.end_tower_no||"",physicalCode:row.tower_code||"",
+      line: row.line_id_label || row.line_name || row.bindings?.find(binding => binding.line_id === contextLineId)?.line_name || "",
+      startTower: row.start_tower_no || "", endTower: row.end_tower_no || "", physicalCode: row.tower_code || "",
       quantity: formatScaledDecimal(operation.value?.default_quantity_scaled, 4),
       specification: "",
       location: {
         location_kind: type,
-        [locationKey]: id,
+        [locationKey]: row.id,
         ...(type === "span" ? { span_version: row.version } : {}),
-        ...(type === "physical_tower" && contextLineId ? {context_line_id:contextLineId} : {}),
+        ...(type === "physical_tower" && contextLineId ? { context_line_id: contextLineId } : {}),
         quantity_scaled: 0,
       },
       workMode: workModes.unspecified,
       attributes: defaults(positionFields.value),
-    });
+    };
+    return positionRow(position);
+  });
+  try {
+    if (await sheet.addRows(next)) {
+      positionPickerOpen.value = false;
+      return true;
+    }
+    ElMessage.error("作业位置工作表尚未就绪，请检查工作表加载状态");
+  } catch (cause) {
+    ElMessage.error((cause as Error).message);
+  } finally {
+    addingPositions.value = false;
   }
-  positionPickerOpen.value=false;
+  return false;
 }
 async function addMaterials(selected:Material[]) {
   await materialSheet.value?.finishEditing();
@@ -924,6 +954,7 @@ async function load() {
         context_line_id: row.context_line_id,
       },
     }));
+    resetPositionSession();
     materials.value = (old?.materials || []).map((row) => ({
       id: row.material_id,
       label: row.material_name,

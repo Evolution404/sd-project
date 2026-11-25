@@ -9,7 +9,7 @@ const props = defineProps<{
   validate: (values: WorksheetValues) => WorksheetIssue[]; disabled?: boolean;
   sessionKey: string; undoGuide?: string; redoGuide?: string; removable?: boolean; removeGuide?: string;
 }>();
-const emit = defineEmits<{ change: [values: WorksheetValues]; "readiness-change": [ready: boolean]; "remove-rows": [ids: string[]] }>();
+const emit = defineEmits<{ change: [values: WorksheetValues]; "readiness-change": [ready: boolean]; "rows-change": [rows: readonly WorksheetRow[]] }>();
 const settings = useSettingsStore();
 const host = ref<HTMLElement>(), panel = ref<HTMLElement>();
 const ready = ref(false), failure = ref(""), notice = ref(""), selection = ref("");
@@ -20,10 +20,12 @@ const current = shallowRef<WorksheetValues>({});
 let baseline: WorksheetValues = {};
 let engine: ReturnType<typeof createBusinessWorksheet> | undefined;
 let generation = 0;
+let pendingLoad: Promise<void>;
 const dark = computed(() => settings.resolvedTheme === ThemeMode.DARK);
 const primary = () => getComputedStyle(document.documentElement).getPropertyValue("--el-color-primary").trim() || "#165dff";
-const changed = computed(() => Object.entries(current.value).some(([id, fields]) =>
-  props.columns.some(column => column.editable && (fields[column.key] ?? "") !== (baseline[id]?.[column.key] ?? ""))));
+const changed = computed(() => Object.keys(current.value).length !== Object.keys(baseline).length ||
+  Object.entries(current.value).some(([id, fields]) => !baseline[id] ||
+    props.columns.some(column => column.editable && (fields[column.key] ?? "") !== (baseline[id][column.key] ?? ""))));
 watch([dark, () => settings.themeColors.primary], () => engine?.theme(dark.value, primary()), { flush: "post" });
 watch(ready, value => emit("readiness-change", value), { immediate: true, flush: "sync" });
 
@@ -32,10 +34,10 @@ async function load() {
   const started = performance.now();
   ready.value = false; engine?.dispose(); engine = undefined;
   issues.value = []; failure.value = ""; notice.value = ""; selection.value = ""; canUndo.value = false; canRedo.value = false;
-  const rows = props.rows.map(row => ({ ...row, values: { ...row.values }, readonlyFields: row.readonlyFields && [...row.readonlyFields] }));
+  const rows = props.rows.slice();
   const columns = props.columns.map(column => ({ ...column }));
-  baseline = Object.fromEntries(rows.map(row => [row.id, row.values])); current.value = baseline;
-  if (!rows.length) { ready.value = true; return; }
+  baseline = Object.fromEntries(rows.map(row => [row.id, { ...row.values }])); current.value = baseline;
+  if (!rows.length && !props.removable) { ready.value = true; return; }
   const snapshotReady = performance.now();
   try {
     const { createBusinessWorksheet: create } = await import("./univer-engine");
@@ -47,7 +49,7 @@ async function load() {
       host: host.value, rows, columns, name: props.name, dark: dark.value, primary: primary(),
       filled: values => columns.some(column => column.editable && Boolean(values[column.key])),
       validate: values => props.validate(values),
-      onRemoveRows: props.removable ? ids=>{if(token===generation&&!props.disabled)emit("remove-rows",ids);} : undefined,
+      onRowsChange: props.removable ? draft => { if (token === generation) emit("rows-change", draft); } : undefined,
       onChange: values => { if (token === generation) { current.value = values; emit("change", values); } },
       onSelection: value => { if (token === generation) selection.value = value; },
       onNotice: value => { if (token === generation) notice.value = value; },
@@ -73,7 +75,10 @@ async function load() {
     engine?.dispose(); engine = undefined; failure.value = (cause as Error).message;
   }
 }
-watch(() => props.sessionKey, () => { void load(); }, { immediate: true });
+function startLoad() {
+  pendingLoad = load();
+}
+watch(() => props.sessionKey, startLoad, { immediate: true });
 onBeforeUnmount(() => { generation++; engine?.dispose(); });
 async function prepareSave() {
   if (!props.rows.length) return {};
@@ -91,15 +96,21 @@ async function prepareSave() {
   if (!values && issues.value.length) { await nextTick(); panel.value?.scrollIntoView({ block: "nearest" }); }
   return values ?? null;
 }
-defineExpose({ prepareSave, selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
+async function addRows(rows: readonly WorksheetRow[]) {
+  const token = generation;
+  await pendingLoad;
+  if (token !== generation || !ready.value || props.disabled || !engine) return false;
+  return engine.addRows(rows);
+}
+defineExpose({ prepareSave, addRows, selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
   changed: () => changed.value || Boolean(engine?.isEditing()), undo: () => engine?.undo(), redo: () => engine?.redo() });
 </script>
 <template>
   <section class="business-worksheet" :aria-label="name">
     <ElAlert v-if="failure" type="error" :title="name + '加载失败'" :description="failure" :closable="false">
-      <ElButton @click="load">重新加载</ElButton>
+      <ElButton @click="startLoad">重新加载</ElButton>
     </ElAlert>
-    <ElEmpty v-else-if="!rows.length" description="暂无明细" />
+    <ElEmpty v-else-if="!rows.length && !removable" description="暂无明细" />
     <div v-else data-guide-action="common.draft-grid" class="worksheet-frame" :aria-busy="!ready">
       <div class="worksheet-toolbar">
         <span>共 {{ rows.length }} 行</span><span>显示 {{visibleCount}} 行</span><span>{{ changed ? "有未保存修改" : "未修改" }}</span>

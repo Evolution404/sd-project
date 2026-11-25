@@ -129,11 +129,19 @@ try{
  await page.screenshot({path:join(out,"native-voltage-dropdown.png")});
  await page.getByText("220kV",{exact:true}).last().click();
  await page.getByRole("button",{name:"保存 1 条修改",exact:true}).waitFor();
- // Dirty sorting is refused, rather than losing draft or native undo history.
+ // Sort by current draft values, then replay the same edit at its new row.
  await header(2);
  await page.getByText("降序",{exact:true}).click();
- await region.getByText(/已有编辑历史/).waitFor();
- await page.getByRole("button",{name:"保存 1 条修改",exact:true}).waitFor();
+ await region.getByText(/已按 电压等级 降序 排列/).waitFor();
+ const rowAfterSort = ([
+   await read(1,0), await read(2,0), await read(3,0),
+ ]).indexOf(lineB.line_code) + 1;
+ assert.ok(rowAfterSort === 1 || rowAfterSort === 2);
+ assert.equal(await read(rowAfterSort),"220kV");
+ await undo(0);
+ assert.equal(await read(rowAfterSort),"35kV");
+ await redo(1);
+ assert.equal(await read(rowAfterSort),"220kV");
 
  await page.getByRole("button",{name:"保存 1 条修改",exact:true}).click();
  await page.getByRole("button",{name:"确认保存",exact:true}).click();
