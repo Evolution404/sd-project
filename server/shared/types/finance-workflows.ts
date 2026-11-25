@@ -141,6 +141,7 @@ export type SettlementListStatus = "draft" | "submit" | "approve" | "return" | "
 
 export interface ReconciliationSettlementChoice {
   id: string;
+  cost_node_id: string;
   settlement_id: string;
   number: string;
   amount_fen: number;

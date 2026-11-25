@@ -8,7 +8,7 @@ const mappings:Record<string,Record<string,string>>={
   prices:{"create-rule":"pricing.create","view-rule":"pricing.detail","edit-rule":"pricing.edit",history:"pricing.history"},
   settlements:{create:"finance.settlement-draft",exchange:"excel.import",detail:"finance.settlement-detail","edit-draft":"finance.edit-draft"},
   "finance:costs":{register:"finance.cost",history:"finance.history",reconcile:"finance.reconcile",revise:"finance.cost-revise",void:"finance.cost-void",remove:"finance.cost-delete"},
-  "finance:reconciliations":{history:"finance.history",edit:"finance.reconcile-revise",void:"finance.reconcile-void",remove:"finance.reconcile-delete"},
+  "finance:reconciliations":{reconcile:"finance.reconcile",history:"finance.history",edit:"finance.reconcile-revise",void:"finance.reconcile-void",remove:"finance.reconcile-delete"},
   "finance:portfolio":{trace:"finance.history"},
   "equipment:lines":{create:"ledger.line"}, "equipment:physical":{create:"ledger.physical"},
   "equipment:towers":{create:"ledger.logical"}, "equipment:spans":{create:"ledger.span"},

@@ -25,7 +25,7 @@ export function financeListRepository(store: Store) {
           WHERE c.project_id=?`,
         parameters: [projectId], deletionKey: "entry_id",
         columns: ["id", "title", "status", "amount_fen", "occurred_on", "version_no",
-          "cost_node_name", "created_at"],
+          "cost_node_id", "cost_node_name", "created_at"],
         search: ["title", "evidence", "invoice_number", "cost_node_name"],
       };
       const page = searchPage<CostRow>(store, "costs", source, query);
@@ -104,18 +104,19 @@ export function financeListRepository(store: Store) {
     searchReconciliationItems(projectId: string, query: ListQuery) {
       return searchPage<ReconciliationSettlementChoice>(store, "settlements", {
         sql: `SELECT line.settlement_item_version_id AS id, bill.id AS settlement_id,
-          bill.number, bill.created_at, line.amount_fen, adopted.name AS cost_node_name,
+          bill.number, bill.created_at, line.amount_fen, category.cost_node_id, adopted.name AS cost_node_name,
           demand.demand_no
           FROM v_effective_settlement_items line
           JOIN settlements bill ON bill.id=line.settlement_id
           JOIN settlement_item_versions item ON item.id=line.settlement_item_version_id
+          JOIN settlement_items category ON category.id=line.id
           JOIN project_cost_node_versions adopted ON adopted.id=item.cost_node_version_id
           LEFT JOIN project_demand_scopes scope ON scope.id=line.project_scope_id
           LEFT JOIN demands demand ON demand.id=scope.demand_id
           WHERE line.project_id=?`,
         parameters: [projectId],
         deletionKey: "settlement_id",
-        columns: ["id", "settlement_id", "number", "created_at", "amount_fen", "cost_node_name", "demand_no"],
+        columns: ["id", "settlement_id", "number", "created_at", "amount_fen", "cost_node_id", "cost_node_name", "demand_no"],
         search: ["id", "number", "cost_node_name", "demand_no"],
       }, { ...query, deleted: false });
     },

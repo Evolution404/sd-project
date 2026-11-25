@@ -74,7 +74,7 @@ export interface CostReconciliation {
   item_amount_fen: number; item_cost_node_name: string;
 }
 export interface ReconciliationItem {
-  id: string; number: string; cost_node_name: string; amount_fen: number; demand_no: string | null;
+  id: string; cost_node_id?: string; number: string; cost_node_name: string; amount_fen: number; demand_no: string | null;
 }
 const projectPath=(id:string)=>"/api/projects/"+encodeURIComponent(id);
 const listParams=(page:number,size:number,keyword:string,deleted=false)=>new URLSearchParams({
@@ -219,8 +219,8 @@ export function listCostReconciliations(projectId:string,page:number,size:number
   params.set("project_id",projectId);
   return get("/api/reconciliations?"+applyNativeListQuery(params, options));
 }
-export function listReconciliationItems(projectId:string,keyword:string,page=1):Promise<Page<ReconciliationItem>>{
-  return get(projectPath(projectId)+"/reconciliation-items?"+listParams(page,20,keyword));
+export function listReconciliationItems(projectId: string, keyword: string, page = 1, filters?: Record<string, string>): Promise<Page<ReconciliationItem>> {
+  return get(projectPath(projectId) + "/reconciliation-items?" + applyNativeListQuery(listParams(page, 20, keyword), { filters }));
 }
 export function saveCostReconciliation(input:{
   cost_version_id:string;settlement_item_version_id:string;reconciled_cost_fen:number;

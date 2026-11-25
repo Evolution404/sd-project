@@ -1,6 +1,6 @@
 <template>
   <div class="page-main">
-  <el-tabs v-model="tab" class="shrink-0">
+  <el-tabs v-if="!settlementId" v-model="tab" class="shrink-0">
     <el-tab-pane name="nodes"><template #label><span data-guide-action="finance.categories">费用科目</span></template></el-tab-pane>
     <el-tab-pane label="实际费用" name="costs" />
     <el-tab-pane name="reconciliations"><template #label><span data-guide-action="finance.reconciliation-section">费用核对</span></template></el-tab-pane>
@@ -94,7 +94,7 @@
   <el-dialog v-model="reconciliationOpen" :title="reconciliationTarget ? '修订费用核对' : '核对实际费用与结算明细'" width="min(90vw, 680px)"
     append-to-body :close-on-click-modal="false">
     <el-form label-position="top" novalidate :disabled="busy">
-      <el-descriptions title="采用实际费用" border :column="2" class="mb-3">
+      <el-descriptions v-if="reconciliationTarget || costTarget" title="采用实际费用" border :column="2" class="mb-3">
         <el-descriptions-item label="费用事项">{{ reconciliationTarget?.cost_title ?? costTarget?.title }}</el-descriptions-item>
         <el-descriptions-item label="版本">{{ reconciliationTarget?.cost_version ?? costTarget?.version_no }}</el-descriptions-item>
         <el-descriptions-item label="金额">{{ projectMoney(reconciliationTarget?.cost_amount_fen ?? costTarget?.amount_fen) }}</el-descriptions-item>
@@ -109,6 +109,9 @@
           <el-button @click="reconciliationPickerOpen=true">选择生效结算明细</el-button>
         </div>
       </el-form-item>
+      <el-form-item v-if="settlementId && !reconciliationTarget" label="实际费用" required>
+        <el-button :disabled="!selectedReconciliationItem?.cost_node_id" @click="costPickerOpen = true">选择实际费用</el-button>
+      </el-form-item>
       <el-form-item label="核对实际费用（元）" required><el-input v-model="reconciliationForm.cost" inputmode="decimal" /></el-form-item>
       <el-form-item label="核对结算金额（元）" required><el-input v-model="reconciliationForm.settlement" inputmode="decimal" /></el-form-item>
       <el-form-item label="核对依据"><el-input v-model="reconciliationForm.evidence" type="textarea" /></el-form-item>
@@ -122,6 +125,9 @@
 
   <NativeRecordPicker v-if="reconciliationOpen && reconciliationPickerOpen" single title="选择生效结算明细" placeholder="搜索结算单编号或费用科目" confirm-label="确认选择"
     :columns="reconciliationPickerColumns" :loader="loadReconciliationPage" @close="reconciliationPickerOpen=false" @confirm="selectReconciliationItem"/>
+  <NativeRecordPicker v-if="reconciliationOpen && costPickerOpen" single title="选择实际费用"
+    placeholder="搜索费用事项或发票号" confirm-label="确认费用" :columns="costPickerColumns"
+    :loader="loadCostPickerPage" @close="costPickerOpen = false" @confirm="selectCostForReconciliation" />
   <el-drawer v-model="historyOpen" :title="historyTitle" size="min(90vw, 670px)" append-to-body>
     <el-table :data="historyRows" row-key="id" border v-loading="historyLoading">
       <el-table-column prop="version" label="版本" width="85" />
@@ -162,11 +168,11 @@ import {
   type ActualCost, type CostNode, type CostReconciliation, type ReconciliationItem,
 } from "@/api/business/finance";
 
-const props = defineProps<{ projectId: string; closed: boolean; initialTab?: "costs" | "reconciliations" }>();
+const props = defineProps<{ projectId: string; closed: boolean; initialTab?: "costs" | "reconciliations"; settlementId?: string }>();
 const user = useUserStore();
 const canWrite = computed(() => user.userInfo.perms.includes("write"));
 const canAdmin = computed(() => user.userInfo.perms.includes("admin"));
-const tab = ref<"nodes" | "costs" | "reconciliations">(props.initialTab || "costs");
+const tab = ref<"nodes" | "costs" | "reconciliations">(props.settlementId ? "reconciliations" : props.initialTab || "costs");
 const nodes = ref<CostNode[]>([]);
 const loadingNodes = ref(false);
 const includeDeletedNodes = ref(false);
@@ -181,17 +187,37 @@ const nodeForm = reactive({ name: "", parent_id: null as string | null, status: 
 const costForm = reactive({ title: "", cost_node_id: "", amount: "", occurred_on: "", invoice_number: "", evidence: "", reason: "" });
 const reconciliationForm = reactive({ item: "", cost: "", settlement: "", evidence: "", final: false });
 const reconciliationPickerOpen=ref(false);
+const costPickerOpen = ref(false);
 const selectedReconciliationItem=ref<ReconciliationItem>();
 type ReconciliationChoice=ReconciliationItem & {amount:string};
 const reconciliationPickerColumns:{key:keyof ReconciliationChoice;label:string;width?:number}[]=[
   {key:"number",label:"结算编号"},{key:"cost_node_name",label:"费用科目"},{key:"demand_no",label:"需求编号"},{key:"amount",label:"金额"}];
 async function loadReconciliationPage(keyword:string,page:number){
-  const result=await listReconciliationItems(props.projectId,keyword,page);
+  const filters: Record<string, string> = {};
+  if (props.settlementId) filters.settlement_id = props.settlementId;
+  if (!props.settlementId && costTarget.value) filters.cost_node_id = costTarget.value.cost_node_id;
+  const result=await listReconciliationItems(props.projectId,keyword,page,filters);
   return {...result,items:result.items.map(row=>({...row,amount:projectMoney(row.amount_fen)}))};
 }
 function selectReconciliationItem(rows:ReconciliationChoice[]){
   if(!rows[0])return;
+  if (props.settlementId && costTarget.value?.cost_node_id !== rows[0].cost_node_id) costTarget.value = undefined;
   selectedReconciliationItem.value=rows[0];reconciliationForm.item=rows[0].id;reconciliationPickerOpen.value=false;
+}
+type CostChoice = ActualCost & { amount: string };
+const costPickerColumns: { key: keyof CostChoice; label: string }[] = [
+  { key: "title", label: "费用事项" }, { key: "cost_node_name", label: "费用科目" },
+  { key: "occurred_on", label: "发生日期" }, { key: "amount", label: "实际金额" },
+];
+async function loadCostPickerPage(keyword: string, page: number) {
+  const category = selectedReconciliationItem.value?.cost_node_id;
+  if (!category) return { items: [], total: 0 };
+  const result = await listActualCosts(props.projectId, page, 20, keyword, false, { filters: { status: "active", cost_node_id: category } });
+  return { ...result, items: result.items.map(row => ({ ...row, amount: projectMoney(row.amount_fen) })) };
+}
+function selectCostForReconciliation(rows: CostChoice[]) {
+  costTarget.value = rows[0];
+  costPickerOpen.value = false;
 }
 const busy = ref(false);
 const historyOpen = ref(false);
@@ -205,7 +231,7 @@ function openEvidence(owner: string, readonly: boolean) {
   evidenceOpen.value = true;
 }
 let historyRequest = 0;
-usePageOverlays([nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,historyOpen,evidenceOpen],{
+usePageOverlays([nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,costPickerOpen,historyOpen,evidenceOpen],{
   async mayLeave(){
     if(busy.value)return false;
     if(!nodeOpen.value&&!costOpen.value&&!reconciliationOpen.value)return true;
@@ -341,11 +367,11 @@ function removeCost(row: ActualCost) {
   });
 }
 
-function openReconciliation(row: ActualCost) {
+function openReconciliation(row?: ActualCost) {
   costTarget.value = row;
   reconciliationTarget.value = undefined;
   Object.assign(reconciliationForm, { item: "", cost: "", settlement: "", evidence: "", final: false });
-  selectedReconciliationItem.value=undefined;reconciliationPickerOpen.value=false;
+  selectedReconciliationItem.value=undefined;reconciliationPickerOpen.value=false;costPickerOpen.value=false;
   reconciliationOpen.value = true;
 }
 function editReconciliation(row: CostReconciliation) {
@@ -362,7 +388,8 @@ function persistReconciliation() {
   run(async () => {
     const current = reconciliationTarget.value;
     const costVersionId = current?.cost_version_id ?? costTarget.value?.id;
-    if (!costVersionId || !reconciliationForm.item) throw Error("请选择生效结算明细");
+    if (!reconciliationForm.item) throw Error("请选择生效结算明细");
+    if (!costVersionId) throw Error("请选择实际费用");
     await saveCostReconciliation({
       cost_version_id: costVersionId, settlement_item_version_id: reconciliationForm.item,
       reconciled_cost_fen: yuanToFen(reconciliationForm.cost), reconciled_settlement_fen: yuanToFen(reconciliationForm.settlement),
@@ -372,7 +399,7 @@ function persistReconciliation() {
     reconciliationOpen.value = false;
     tab.value = "reconciliations";
     ElMessage.success("费用核对已保存");
-    if (current) await reconciliationCrud.value?.refresh();
+    await reconciliationCrud.value?.refresh();
   });
 }
 function voidReconciliation(row: CostReconciliation) {
@@ -462,11 +489,15 @@ const reconciliationSearch: CrudSearchConfig = { fields: [{ type: "input", prop:
   clearable: true, placeholder: "搜索核对依据",
 } },historyScopeField("finance.reconcile-show-deleted")] };
 const reconciliationTable: CrudTableConfig<CrudRecord, CostReconciliation> = {
-  stateKey:"finance:reconciliations:"+props.projectId,
+  stateKey: "finance:reconciliations:" + (props.settlementId || props.projectId),
   rowKey: "record_id", table: { border: true }, tableTools: ["refresh", "columns", "search"],
+  toolbarActions: [{ key: "reconcile", label: "新增正式核对", permission: "cost.confirm",
+    visible: () => Boolean(props.settlementId) && !props.closed, onClick: () => openReconciliation() }],
   async fetchData(query) {
+    const options = nativeListQuery(query);
+    if (props.settlementId) options.filters = { ...options.filters, settlement_id: props.settlementId };
     const result = await listCostReconciliations(props.projectId, Number(query.pageNum) || 1, Number(query.pageSize) || 20,
-      String(query.keywords ?? ""), nativeListQuery(query));
+      String(query.keywords ?? ""), options);
     return { list: result.items, total: result.total };
   },
   columns: [
@@ -492,5 +523,5 @@ const reconciliationTable: CrudTableConfig<CrudRecord, CostReconciliation> = {
   ],
 };
 
-onMounted(loadNodes);
+onMounted(() => { if (!props.settlementId) void loadNodes(); });
 </script>

@@ -85,11 +85,23 @@
   </el-dialog>
 
 
-  <el-drawer v-model="detailsOpen" title="结算正式事实及草稿" size="min(95vw, 950px)" append-to-body>
+  <el-drawer v-model="detailsOpen" :title="reconciling ? '结算逐笔对账' : '结算正式事实及草稿'" size="min(95vw, 950px)" append-to-body destroy-on-close>
     <el-skeleton v-if="detailsLoading" animated :rows="7" />
     <el-alert v-else-if="detailError" type="error" :title="detailError" :closable="false" />
+    <section v-else-if="detail && reconciling" class="flex h-full min-h-0 flex-col gap-3" aria-label="结算逐笔对账">
+      <el-descriptions :column="2" border class="shrink-0">
+        <el-descriptions-item label="结算编号">{{ detail.number }}</el-descriptions-item>
+        <el-descriptions-item label="结算方式">按子费用</el-descriptions-item>
+      </el-descriptions>
+      <div class="flex shrink-0 justify-end"><el-button @click="reconciling = false">返回结算详情</el-button></div>
+      <ProjectFinanceWorkspace :key="detail.id" :project-id="detail.project_id" :settlement-id="detail.id"
+        :closed="Boolean(detail.write_blocked_reason)" />
+    </section>
     <template v-else-if="detail">
       <SettlementFacts :detail="detail" />
+      <div class="mt-4 flex flex-wrap justify-end gap-2">
+        <el-button v-if="!detail.deleted && detail.effective_mode === 'itemized'" data-guide-action="finance.reconciliation-section" @click="reconciling = true">逐笔对账</el-button>
+      </div>
       <div v-if="!detail.deleted && !detail.write_blocked_reason" class="mt-4 flex flex-wrap justify-end gap-2">
         <el-button v-if="canWrite && detail.draft" data-guide-action="finance.edit-draft" @click="openWork('SettlementEdit', detail.id)">编辑草稿</el-button>
         <template v-if="canWrite && !detail.draft && ['approve', 'return', 'reject'].includes(detail.status)">
@@ -144,6 +156,7 @@ const projectPage = ref(1), projectTotal = ref(0);
 let appliedProjectKeyword = "", projectSequence = 0;
 const approvedProjects = ref<ProjectRow[]>([]);
 const detailsOpen = ref(false), detailsLoading = ref(false), detailError = ref("");
+const reconciling = ref(false);
 const detail = ref<SettlementDetails>();
 let detailSequence = 0;
 let scrollTop = 0;
@@ -192,6 +205,7 @@ function selectProject(id: string) {
 
 async function showDetails(id: string) {
   const sequence = ++detailSequence;
+  reconciling.value = false;
   detailsOpen.value = true;
   detailsLoading.value = true;
   detail.value = undefined;

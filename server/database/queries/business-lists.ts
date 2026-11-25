@@ -155,7 +155,7 @@ const financeSources: Record<FinanceListKind, ListSource> = {
 };
 
 const exactFilters = new Set(["id", "status", "display_status", "role", "object_position",
-  "attribution_unit", "pricing_mode", "scope", "work_mode"]);
+  "attribution_unit", "pricing_mode", "scope", "work_mode", "settlement_id", "cost_node_id"]);
 
 function normalizedFacet(column: string) {
   return `NULLIF(CAST(${column} AS TEXT),'')`;
