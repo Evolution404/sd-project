@@ -1,7 +1,7 @@
 import {pickDemandPositions} from "./youlai-business-worksheet-helpers.mjs";
 import assert from "node:assert/strict";
 import {worksheetCanvas,selectWorksheetCell,typeWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
-import {copySettlementSelection} from "./youlai-settlement-grid-helpers.mjs";
+import {pasteSettlementCells,copySettlementSelection} from "./youlai-settlement-grid-helpers.mjs";
 import { existsSync, mkdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { chromium } from "playwright";
@@ -104,6 +104,26 @@ try {
   await materialWork.getByRole("button", { name: "重做", exact: true }).click();
   await selectWorksheetCell(materialCanvas, 1, 2, materialWidths);
   assert.equal((await copySettlementSelection(page)).trim(), "3");
+  await materialWork.getByRole("button", { name: "移除选中物资", exact: true }).click();
+  await page.getByRole("tab", { name: "预计物资（0）", exact: true }).waitFor();
+  await materialWork.getByRole("button", { name: "撤销", exact: true }).click();
+  await page.getByRole("tab", { name: "预计物资（1）", exact: true }).waitFor();
+  await selectWorksheetCell(materialCanvas, 1, 2, materialWidths);
+  assert.equal((await copySettlementSelection(page)).trim(), "3");
+  await page.getByRole("tab", { name: "需求来源", exact: true }).click();
+  const addSource = page.getByRole("button", { name: "新增来源行", exact: true });
+  await addSource.click();
+  const sourceWork = page.locator('[data-grid-key="demands:sources"]');
+  const sourceCanvas = await worksheetCanvas(sourceWork);
+  await addSource.click();
+  await sourceWork.getByText("共 2 行", { exact: true }).waitFor();
+  await selectWorksheetCell(sourceCanvas, 1, 0, [420, 150]);
+  await pasteSettlementCells(page, "浏览器来源甲\t2026-11-20\n浏览器来源乙\t2026-02-31");
+  await page.getByRole("button", { name: "保存专业需求" }).click();
+  await sourceWork.getByText(/请输入有效的发现日期/).waitFor();
+  assert.equal(s.demands.search({page:1,page_size:20,q:"浏览器登记",filters:{}}).total,0);
+  await selectWorksheetCell(sourceCanvas, 2, 1, [420, 150]);
+  await pasteSettlementCells(page, "2026-11-21");
   await page.getByRole("tab",{name:"作业位置（2）"}).click();
   await page.getByRole("button",{name:"保存专业需求"}).click();
   const duplicate=page.getByRole("dialog",{name:"核对疑似重复需求"});
@@ -120,6 +140,10 @@ try {
   await drawer.getByText("作业位置（2）").waitFor();
   const [created]=s.demands.search({page:1,page_size:20,q:"浏览器登记",filters:{}}).items;
   assert.ok(created);
+  const savedSources = s.demands.get(created.id).sources;
+  assert.deepEqual(savedSources.map(row => [row.description, row.discovered_on]).sort(), [
+    ["浏览器来源乙", "2026-11-21"], ["浏览器来源甲", "2026-11-20"],
+  ]);
   assert.deepEqual(s.demands.get(created.id).work_locations.map(row=>row.quantity_scaled),[20000,10000]);
   assert.equal(s.demands.get(created.id).work_locations[1].physical_tower_id,addedTower.id);
   assert.equal(s.demands.get(created.id).materials[0].material_id,expectedMaterial.id);

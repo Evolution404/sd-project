@@ -193,7 +193,7 @@ export interface DemandService {
 export interface DemandCatalog {
   get(kind: "operations", key: string, includeDeleted?: boolean): OperationRecord;
   get(kind: "objects", key: string, includeDeleted?: boolean): WorkObjectRecord;
-  get(kind: "units" | "priorities", key: string, includeDeleted?: boolean): DictionaryItem;
+  get(kind: "units" | "priorities" | "tower_materials" | "tower_natures", key: string, includeDeleted?: boolean): DictionaryItem;
   get(kind: "materials", key: string, includeDeleted?: boolean): MaterialRecord;
   get(kind: EquipmentCatalogKind, key: string, includeDeleted?: boolean): EquipmentRecord;
   audit(actor: Actor, entity: string, id: string, action: string, before: unknown, after: unknown): void;

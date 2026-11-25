@@ -56,7 +56,15 @@ export async function handleExchange(context: RouteContext): Promise<{
                 }), ({ assets: "设备台账", demands: "需求", settlements: "结算" } as Record<string, string>)[key] + (url.searchParams.get("report") === "true" ? "报表" : "数据维护"));
                 return;
             }
-            if (sub === "preview") {
+            if (sub === "worksheet-preview") {
+                requireValue(!read && context.method === "POST" && key === "demands", "只允许预检需求工作表", 405);
+                const preview = exchange.previewDemandWorksheet(actor, input);
+                result = {
+                    ...preview,
+                    documents: preview.documents.map(({ id, number, action, sheet, row }) => ({ id, number, action, sheet, row })),
+                };
+            }
+            else if (sub === "preview") {
                 requireValue(Buffer.isBuffer(input), "请上传xlsx文件");
                 const preview = await exchange.preview(actor, kindValue(key), input, {
                     mode: exchangeMode(url.searchParams.get("mode")),

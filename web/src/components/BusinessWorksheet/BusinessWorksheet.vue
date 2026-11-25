@@ -7,11 +7,12 @@ import type { createBusinessWorksheet, WorksheetColumn, WorksheetRow, WorksheetV
 const props = defineProps<{
   name: string; rows: readonly WorksheetRow[]; columns: readonly WorksheetColumn[];
   validate: (values: WorksheetValues) => WorksheetIssue[]; disabled?: boolean;
-  sessionKey: string; undoGuide?: string; redoGuide?: string; removable?: boolean; removeGuide?: string;
+  sessionKey: string; undoGuide?: string; redoGuide?: string; removable?: boolean; removeGuide?: string; removeLabel?: string;
 }>();
 const emit = defineEmits<{ change: [values: WorksheetValues]; "readiness-change": [ready: boolean]; "rows-change": [rows: readonly WorksheetRow[]] }>();
 const settings = useSettingsStore();
 const host = ref<HTMLElement>(), panel = ref<HTMLElement>();
+const activeCanvas = ref(false);
 const ready = ref(false), failure = ref(""), notice = ref(""), selection = ref("");
 const canUndo = ref(false), canRedo = ref(false);
 const visibleCount=ref(0);
@@ -29,7 +30,7 @@ const changed = computed(() => Object.keys(current.value).length !== Object.keys
 watch([dark, () => settings.themeColors.primary], () => engine?.theme(dark.value, primary()), { flush: "post" });
 watch(ready, value => emit("readiness-change", value), { immediate: true, flush: "sync" });
 
-async function load() {
+async function load(empty = false) {
   const token = ++generation;
   const started = performance.now();
   ready.value = false; engine?.dispose(); engine = undefined;
@@ -37,7 +38,8 @@ async function load() {
   const rows = props.rows.slice();
   const columns = props.columns.map(column => ({ ...column }));
   baseline = Object.fromEntries(rows.map(row => [row.id, { ...row.values }])); current.value = baseline;
-  if (!rows.length && !props.removable) { ready.value = true; return; }
+  activeCanvas.value = rows.length > 0 || empty;
+  if (!activeCanvas.value) { ready.value = true; return; }
   const snapshotReady = performance.now();
   try {
     const { createBusinessWorksheet: create } = await import("./univer-engine");
@@ -50,6 +52,7 @@ async function load() {
       filled: values => columns.some(column => column.editable && Boolean(values[column.key])),
       validate: values => props.validate(values),
       onRowsChange: props.removable ? draft => { if (token === generation) emit("rows-change", draft); } : undefined,
+      removalLabel: props.removeLabel ?? "移除选中位置",
       onChange: values => { if (token === generation) { current.value = values; emit("change", values); } },
       onSelection: value => { if (token === generation) selection.value = value; },
       onNotice: value => { if (token === generation) notice.value = value; },
@@ -97,12 +100,14 @@ async function prepareSave() {
   return values ?? null;
 }
 async function addRows(rows: readonly WorksheetRow[]) {
+  if (props.disabled || !props.removable) return false;
+  if (!engine && !props.rows.length && ready.value) pendingLoad = load(true);
   const token = generation;
   await pendingLoad;
   if (token !== generation || !ready.value || props.disabled || !engine) return false;
   return engine.addRows(rows);
 }
-defineExpose({ prepareSave, addRows, selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
+defineExpose({ prepareSave, addRows, focusField: (id: string, field: string) => engine?.focusField(id, field), selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
   changed: () => changed.value || Boolean(engine?.isEditing()), undo: () => engine?.undo(), redo: () => engine?.redo() });
 </script>
 <template>
@@ -117,7 +122,7 @@ defineExpose({ prepareSave, addRows, selectedRowIds:()=>engine?.selectedRowIds()
         <ElButton :data-guide-action="undoGuide" :disabled="!ready || disabled || !canUndo" @click="engine?.undo()">撤销</ElButton>
         <ElButton :data-guide-action="redoGuide" :disabled="!ready || disabled || !canRedo" @click="engine?.redo()">重做</ElButton>
         <ElButton :disabled="!ready || disabled" @click="engine?.clearFilters()">清除筛选</ElButton>
-        <ElButton v-if="removable" :data-guide-action="removeGuide" type="danger" plain :disabled="!ready || disabled" @click="engine?.removeSelectedRows()">移除选中位置</ElButton>
+        <ElButton v-if="removable" :data-guide-action="removeGuide" type="danger" plain :disabled="!ready || disabled" @click="engine?.removeSelectedRows()">{{ removeLabel ?? "移除选中位置" }}</ElButton>
         <slot name="toolbar" />
         <span>可填写</span><span>灰底只读</span><span>红底错误</span>
       </div>
@@ -128,9 +133,10 @@ defineExpose({ prepareSave, addRows, selectedRowIds:()=>engine?.selectedRowIds()
           {{ issue.message }}
         </div>
       </div>
-      <div ref="host" class="worksheet-canvas" role="region" :aria-label="name + '工作表'" :data-ready="ready"
+      <ElEmpty v-if="!activeCanvas" description="暂无明细" :image-size="48" />
+      <div v-show="activeCanvas" ref="host" class="worksheet-canvas" role="region" :aria-label="name + '工作表'" :data-ready="ready"
         :inert="!ready || disabled" :style="{ '--worksheet-height': (Math.min(rows.length, 14) * 34 + 80) + 'px' }" @wheel.prevent />
-      <div class="worksheet-status" aria-live="polite">{{ !ready ? "正在加载工作表…" : notice || selection || "选中单元格开始录入" }}</div>
+      <div v-if="activeCanvas" class="worksheet-status" aria-live="polite">{{ !ready ? "正在加载工作表…" : notice || selection || "选中单元格开始录入" }}</div>
     </div>
   </section>
 </template>

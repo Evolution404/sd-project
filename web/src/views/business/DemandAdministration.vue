@@ -1,5 +1,7 @@
 <template>
+  <DemandBulkEditor v-if="bulk" :mode="bulk.mode" :records="bulk.records" @cancel="bulk = null" @saved="closeBulk" />
   <CrudPage
+    v-show="!bulk"
     ref="crudRef"
     :search-config="searchConfig"
     :table-config="tableConfig"
@@ -138,7 +140,7 @@
 import { locationDisplayFields } from "../../../../server/shared/location-display";
 
 import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
-import { computed, ref, watch } from "vue";
+import { computed, defineAsyncComponent, ref, shallowRef, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
 import CrudPage from "@/components/Crud/CrudPage.vue";
@@ -163,6 +165,12 @@ const canConfirm=computed(()=>userStore.userInfo.perms.includes("demand.activate
 const canWrite=computed(()=>userStore.userInfo.perms.includes("write"));
 const crudRef=ref<InstanceType<typeof CrudPage>>();
 const exchangeOpen=ref(false),appliedQuery=ref("");
+const DemandBulkEditor = defineAsyncComponent(() => import("./DemandBulkEditor.vue"));
+const bulk = shallowRef<{ mode: "create" | "update"; records: DemandRow[] } | null>(null);
+function closeBulk() {
+  bulk.value = null;
+  void crudRef.value?.refresh(true);
+}
 const batchTargets=ref<HandlingTarget[]|null>(null),exchangeIds=ref<string[]>([]);
 let listRequest=0;
 const detailVisible=ref(false),detailLoading=ref(false);
@@ -220,6 +228,10 @@ const tableConfig:CrudTableConfig={
   },
   toolbarActions:[
     {key:"create",label:"新增专业需求",permission:"write",onClick:()=>editDemand()},
+    {key:"batch-create",label:"批量新增需求",permission:"write",onClick:()=>{bulk.value={mode:"create",records:[]};}},
+    {key:"batch-update",label:"批量修订资料",permission:"write",
+      disabled:({selectedRows})=>!selectedRows.length||selectedRows.length>5000||selectedRows.some(row=>row.deleted||row.status==="cancelled"),
+      onClick:({selectedRows})=>{bulk.value={mode:"update",records:selectedRows as DemandRow[]};}},
     {key:"excel-import",label:"导入 Excel",permission:"write",onClick:({selectedKeys})=>{exchangeIds.value=selectedKeys.map(String);exchangeOpen.value=true;}},
     {key:"export-selection",label:"导出所选需求",permission:"read",disabled:({selectedKeys})=>!selectedKeys.length,onClick:({selectedKeys})=>exportReport(selectedKeys.map(String))},
     {key:"batch-confirm",label:"批量确认需求",permission:"demand.activate",disabled:({selectedRows})=>!selectedRows.length||selectedRows.length>100,onClick:({selectedRows})=>{batchTargets.value=selectedRows.map(row=>({id:String(row.id),expected_version:Number(row.current_version)}))}},

@@ -1,5 +1,5 @@
 <template>
-  <div data-guide-workspace class="page-container" v-loading="loading">
+  <div data-guide-workspace class="page-container" :aria-busy="loading">
     <el-card class="page-content demand-editor-card" shadow="never">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -19,6 +19,7 @@
           </div>
         </div>
       </template>
+      <el-skeleton v-if="loading && !operation" :rows="2" animated />
       <el-alert v-if="error" class="mb-3" type="error" :title="error" :closable="false" show-icon>
         <el-button v-if="loadFailed" link type="primary" @click="load">重新读取专业需求</el-button>
       </el-alert>
@@ -131,7 +132,7 @@
                 <BusinessWorksheet ref="positionSheet" data-grid-key="demands:positions"
                   name="作业位置数量" :session-key="positionSession"
                   :rows="positionRows" :columns="positionColumns" :validate="validatePositions"
-                  :disabled="saving" removable :remove-guide="'demands.location-remove-bulk'"
+                  :disabled="saving || loading || loadFailed" removable :remove-guide="'demands.location-remove-bulk'"
                   @rows-change="changePositionRows" @change="updatePosition">
                   <template #toolbar>
                     <el-button v-if="complexPositionFields.length" :disabled="saving" @click="openPositionDetails">位置属性</el-button>
@@ -141,7 +142,7 @@
               <el-dialog v-if="detailPosition" :model-value="true" :title="'位置属性：'+detailPosition.label"
                 append-to-body width="600px" @close="detailPositionId=''">
                 <el-form label-position="top" novalidate>
-                  <DemandAttributeFields v-model="detailPosition.attributes" :fields="complexPositionFields" />
+                  <DemandAttributeFields v-model="detailPosition.attributes" :fields="complexPositionFields" require-unique-labels />
                 </el-form>
                 <template #footer><el-button type="primary" @click="detailPositionId=''">完成</el-button></template>
               </el-dialog>
@@ -156,34 +157,22 @@
                 :columns="materialPickerColumns" :loader="loadMaterialPage" :selectable="canSelectMaterial"
                 :saving="loadingMaterial" @close="materialPickerOpen=false" @confirm="addMaterials"/>
             </div>
-            <BusinessWorksheet v-if="materials.length" ref="materialSheet" data-grid-key="demands:materials"
-              name="预计物资" :session-key="materialSession"
+            <BusinessWorksheet ref="materialSheet" data-grid-key="demands:materials"
+              name="预计物资" :session-key="demandSessionKey"
               :rows="materialRows" :columns="materialColumns" :validate="validateMaterial"
-              :disabled="saving" @change="updateMaterial" />
-            <div class="flex flex-wrap gap-2 mt-3">
-              <el-button v-for="item in materials" :key="item.id" link type="danger"
-                data-guide-action="demands.material-remove"
-                @click="materials = materials.filter(row => row.id !== item.id)">移除 {{ item.label }}</el-button>
-            </div>
+              :disabled="saving || loading || loadFailed" removable remove-label="移除选中物资" remove-guide="demands.material-remove"
+              @rows-change="changeMaterialRows" @change="updateMaterial" />
           </section>
 
           <section data-demand-section="sources" class="demand-form-section"><h3>需求来源</h3>
-            <el-table
-              v-if="record?.sources.length"
-              :data="record.sources"
-              row-key="id"
-              border
-              class="mb-3"
-            >
-              <el-table-column prop="description" label="已有来源" min-width="180" />
-              <el-table-column prop="discovered_on" label="发现日期" width="135" />
-            </el-table>
-            <el-form-item data-guide-action="demands.source" label="补充来源说明">
-              <el-input v-model="form.source" type="textarea" />
-            </el-form-item>
-            <el-form-item v-if="form.source" label="发现日期">
-              <el-date-picker v-model="form.discovery" type="date" value-format="YYYY-MM-DD" />
-            </el-form-item>
+            <div class="business-control-row mb-3">
+              <el-button data-guide-action="demands.source" type="primary" :disabled="saving || loading" @click="addSource">新增来源行</el-button>
+            </div>
+            <BusinessWorksheet ref="sourceSheet" data-grid-key="demands:sources"
+              name="需求来源" :session-key="demandSessionKey"
+              :rows="sourceRows" :columns="sourceColumns" :validate="validateSources"
+              :disabled="saving || loading || loadFailed" removable remove-label="移除选中来源" remove-guide="demands.source-remove"
+              @rows-change="changeSourceRows" @change="updateSources" />
           </section>
         </el-form>
       </div>
@@ -241,7 +230,7 @@ import DemandTowerQuickPicker from "@/components/business/DemandTowerQuickPicker
 import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
 import type { WorksheetColumn, WorksheetRow, WorksheetValues, WorksheetIssue } from "@/components/BusinessWorksheet/univer-engine";
-import { validateAttributeValue } from "../../../../server/shared/operation-attributes";
+import { attributeInput, attributeOptions, attributeText, worksheetAttribute } from "@/components/business/demand-worksheet-attributes";
 import { useUserStore } from "@/stores/user";
 import { randomRequestId } from "@/utils/business/request-id";
 import DemandAttributeFields from "@/components/business/DemandAttributeFields.vue";
@@ -274,6 +263,7 @@ import {
 import type { OperationRecord } from "../../../../server/shared/types/work-standards";
 import type { DemandLocationInput } from "../../../../server/shared/types/demands";
 import type {
+  AssetAttribute,
   AttributeValues,
   OperationAttribute,
 } from "../../../../server/shared/types/operation-attributes";
@@ -296,6 +286,7 @@ interface Position {
   specification: string;
   workMode: string;
   attributes: AttributeValues;
+  assetLabels: Record<AssetAttribute, string>;
   location: DemandLocationInput;
 }
 interface ExpectedMaterial {
@@ -308,6 +299,12 @@ interface ExpectedMaterial {
   note: string;
   original?: number;
   precision?: number;
+}
+interface SourceDraft {
+  id: string;
+  description: string;
+  date: string;
+  locked?: boolean;
 }
 const kindLabel = { physical_tower: "物理杆塔", logical_tower: "逻辑杆塔", span: "档距" };
 const catalogs: Record<DemandLocationInput["location_kind"], EquipmentKind> = {
@@ -363,8 +360,11 @@ const positionPickerOpen = ref(false), quickPickerOpen = ref(false), materialPic
 const detailPositionId = ref("");
 const detailPosition = computed(()=>positions.value.find(row=>row.id===detailPositionId.value));
 const positions = ref<Position[]>([]),
-  materials = ref<ExpectedMaterial[]>([]);
+  materials = ref<ExpectedMaterial[]>([]), sources = ref<SourceDraft[]>([]);
 const positionDrafts = new WeakMap<WorksheetRow, Position>();
+const materialDrafts = new WeakMap<WorksheetRow, ExpectedMaterial>();
+const sourceDrafts = new WeakMap<WorksheetRow, SourceDraft>();
+let sourceSequence = 0;
 let positionDraftSequence = 0;
 const duplicates = ref<DemandEditorRecord[]>([]),
   duplicateOpen = ref(false),
@@ -374,10 +374,8 @@ const form = reactive({
   target: "",
   completion: "",
   reason: "",
-  source: "",
   expectedOn: null as string | null,
   priority: null as string | null,
-  discovery: null as string | null,
   attributes: {} as AttributeValues,
 });
 let baseline = "",
@@ -401,49 +399,19 @@ const positionKinds = computed<DemandLocationInput["location_kind"][]>(() =>
 );
 const positionSheet = ref<InstanceType<typeof BusinessWorksheet>>();
 const materialSheet = ref<InstanceType<typeof BusinessWorksheet>>();
-function attributeOptions(field:OperationAttribute):string[]|undefined{
-  if(field.type==="boolean")return ["是","否"];
-  if(field.type==="select"||field.type==="multiselect")return field.options.map(option=>option.label);
-}
-function worksheetAttribute(field:OperationAttribute){
-  if(field.source!=="manual")return false;
-  const labels=attributeOptions(field);
-  // Ambiguous labels or labels containing native list delimiters use the original
-  // per-position Element Plus form, not an unsafe composite label.
-  return !labels||(new Set(labels).size===labels.length&&labels.every(label=>!label.includes(",")&&(field.type!=="multiselect"||!label.includes("/"))));
-}
+const sourceSheet = ref<InstanceType<typeof BusinessWorksheet>>();
 const scalarPositionFields = computed(() => positionFields.value.filter(worksheetAttribute));
-function attributeText(field:OperationAttribute,value:AttributeValues[string]|undefined):string{
-  if(value===undefined)return "";
-  if(field.type==="boolean")return value===true?"是":value===false?"否":String(value);
-  if(field.type==="select"||field.type==="multiselect"){
-    const label=(v:unknown)=>field.options.find(option=>option.value===v)?.label??String(v);
-    return Array.isArray(value)?value.map(label).join("/"):label(value);
-  }
-  return String(value);
-}
-function attributeInput(field:OperationAttribute,raw:string):AttributeValues[string]{
-  if(field.type==="integer")return validateAttributeValue(field,exactScaledDecimalText(raw,0));
-  if(field.type==="boolean")return validateAttributeValue(field,raw==="是"?true:raw==="否"?false:raw);
-  if(field.type==="select"||field.type==="multiselect"){
-    const code=(label:string)=>{
-      const matches=field.options.filter(option=>option.label===label);
-      if(matches.length!==1)throw Error(field.label+"不在正式选项中");
-      return matches[0].value;
-    };
-    return validateAttributeValue(field,field.type==="select"?code(raw):raw.split("/").map(code));
-  }
-  return validateAttributeValue(field,raw);
-}
+const assetPositionFields = computed(() => positionFields.value.filter(field => field.source === "asset" && field.asset_field));
 const complexPositionFields = computed(() => positionFields.value.filter(field =>
-  !scalarPositionFields.value.some(item => item.key === field.key)));
+  field.source === "manual" && !worksheetAttribute(field)));
 const positionSession = ref("0");
 let positionSessionSequence = 0;
 const addingPositions = ref(false);
 function resetPositionSession() {
   positionSession.value = String(++positionSessionSequence);
 }
-const materialSession = computed(() => JSON.stringify(materials.value.map(row=>row.id)));
+const demandSession = ref(0);
+const demandSessionKey = computed(() => String(demandSession.value));
 function openPositionDetails(){
   const ids=positionSheet.value?.selectedRowIds()??[];
   if(ids.length!==1){ElMessage.warning("请选择单个作业位置");return;}
@@ -459,15 +427,43 @@ function positionRow(row: Position): WorksheetRow {
       label: row.label, line: row.line, quantity: row.quantity, specification: row.specification, workMode: row.workMode,
       startTower: row.startTower, endTower: row.endTower, physicalCode: row.physicalCode,
       ...Object.fromEntries(scalarPositionFields.value.map(field => ["attribute:" + field.key, attributeText(field, row.attributes[field.key])])),
+      ...Object.fromEntries(assetPositionFields.value.map(field => ["attribute:" + field.key, row.assetLabels[field.asset_field!] ?? ""])),
     },
   };
   positionDrafts.set(worksheetRow, row);
   return worksheetRow;
 }
 const positionRows = computed(() => positions.value.map(positionRow));
-const materialRows = computed(() => materials.value.map(row => ({
-  id: row.id,label: row.label,values:{label:row.label,unit:row.unit,quantity:row.quantity,note:row.note,model:row.model,materialSpecification:row.materialSpecification},
-})));
+function materialRow(row: ExpectedMaterial): WorksheetRow {
+  const worksheetRow: WorksheetRow = {
+    id: row.id, label: row.label, values: {
+      label: row.label, unit: row.unit, quantity: row.quantity, note: row.note,
+      model: row.model, materialSpecification: row.materialSpecification,
+    },
+  };
+  materialDrafts.set(worksheetRow, row);
+  return worksheetRow;
+}
+const materialRows = computed(() => materials.value.map(materialRow));
+function changeMaterialRows(rows: readonly WorksheetRow[]) {
+  materials.value = rows.map(row => materialDrafts.get(row)!);
+}
+function sourceRow(row: SourceDraft): WorksheetRow {
+  const worksheetRow: WorksheetRow = {
+    id: row.id, label: row.locked ? "已有来源" : "补充来源", locked: row.locked,
+    values: { description: row.description, date: row.date },
+  };
+  sourceDrafts.set(worksheetRow, row);
+  return worksheetRow;
+}
+const sourceRows = computed(() => sources.value.map(sourceRow));
+function changeSourceRows(rows: readonly WorksheetRow[]) {
+  sources.value = rows.map(row => sourceDrafts.get(row)!);
+}
+const sourceColumns: WorksheetColumn[] = [
+  { key: "description", title: "来源说明", width: 420, editable: true, required: true },
+  { key: "date", title: "发现日期", width: 150, editable: true },
+];
 const total = computed(() => positions.value.reduce((sum,row)=>sum+(exactScaledDecimalText(row.quantity,4)||0),0));
 const positionColumns = computed<WorksheetColumn[]>(()=>[
   {key:"label",title:"作业位置",width:180},
@@ -475,6 +471,7 @@ const positionColumns = computed<WorksheetColumn[]>(()=>[
   {key:"quantity",title:"需求数量",width:125,editable:true,numeric:true},
   {key:"specification",title:"设备规格",width:170,editable:true},
   {key:"workMode",title:"作业方式",width:125,editable:true,options:Object.values(workModes),required:true},
+  ...assetPositionFields.value.map(field => ({ key: "attribute:" + field.key, title: field.label, width: 160 })),
   ...scalarPositionFields.value.map(field=>({key:"attribute:"+field.key,title:field.label,width:160,editable:true,numeric:field.type==="integer"||field.type==="decimal",options:attributeOptions(field),multiple:field.type==="multiselect",required:field.requirement==="save"})),
   ...(positionKinds.value.includes("span")?[{key:"startTower",title:"起点杆塔号",width:125},{key:"endTower",title:"终点杆塔号",width:125}]:[]),
   ...(positionKinds.value.includes("physical_tower")?[{key:"physicalCode",title:"物理杆塔编号",width:150}]:[]),
@@ -489,7 +486,7 @@ const materialColumns: WorksheetColumn[] = [
 ];
 
 function formState() {
-  return JSON.stringify([operation.value?.id, form, positions.value, materials.value]);
+  return JSON.stringify([operation.value?.id, form, positions.value, materials.value, sources.value]);
 }
 function dirty() {
   return Boolean(baseline && baseline !== formState());
@@ -498,6 +495,7 @@ async function guardExit() {
   if (saving.value) return false;
   await positionSheet.value?.finishEditing();
   await materialSheet.value?.finishEditing();
+  await sourceSheet.value?.finishEditing();
   if (!dirty()) return true;
   try {
     await ElMessageBox.confirm("专业需求有未保存的修改，确定离开？", "离开需求编辑", {
@@ -511,7 +509,7 @@ async function guardExit() {
   }
 }
 function beforeUnload(event: BeforeUnloadEvent) {
-  if (!dirty() && !saving.value && !positionSheet.value?.changed() && !materialSheet.value?.changed()) return;
+  if (!dirty() && !saving.value && !positionSheet.value?.changed() && !materialSheet.value?.changed() && !sourceSheet.value?.changed()) return;
   event.preventDefault();
   event.returnValue = true;
 }
@@ -525,7 +523,8 @@ async function openSetup() {
   const token = setupToken.value || randomRequestId();
   const original = baseline;
   try {
-    sessionStorage.setItem(setupStorageKey(token), JSON.stringify(form));
+    await sourceSheet.value?.finishEditing();
+    sessionStorage.setItem(setupStorageKey(token), JSON.stringify({ ...form, sources: sources.value }));
     baseline = formState();
     const failure = await router.push({ name: "Operations", query: { resumeDemand: token, setupTab: "operations" } });
     if (failure) baseline = original;
@@ -539,13 +538,15 @@ function restoreSetup() {
   if (!token || record.value) return;
   const raw = sessionStorage.getItem(setupStorageKey(token));
   if (!raw) return;
-  const saved = JSON.parse(raw) as Partial<typeof form>;
-  for (const key of ["problem", "target", "completion", "reason", "source"] as const) {
+  const saved = JSON.parse(raw) as Partial<typeof form> & { sources?: SourceDraft[]; source?: string; discovery?: string };
+  for (const key of ["problem", "target", "completion", "reason"] as const) {
     if (typeof saved[key] === "string") form[key] = saved[key];
   }
-  for (const key of ["expectedOn", "priority", "discovery"] as const) {
+  for (const key of ["expectedOn", "priority"] as const) {
     if (typeof saved[key] === "string") form[key] = saved[key];
   }
+  const drafts = saved.sources ?? (saved.source?.trim() ? [{ description: saved.source, date: saved.discovery ?? "" }] : []);
+  sources.value = drafts.map(row => ({ id: "source-draft-" + ++sourceSequence, description: row.description, date: row.date }));
   ElMessage.info("已恢复专业需求草稿");
 }
 function returnToList(id?: string) {
@@ -667,10 +668,13 @@ async function addPositions(selected: EquipmentRow[], contextLineId?: string) {
   addingPositions.value = true;
   const locationKey = type === "physical_tower" ? "physical_tower_id" : type === "logical_tower" ? "logical_tower_id" : "span_id";
   const next = additions.map(row => {
+    const bindings = row.bindings?.filter(binding => !binding.logical_deleted && binding.logical_status !== "retired") ?? [];
+    const lineIds = new Set(bindings.map(binding => binding.line_id));
+    const binding = bindings.find(item => contextLineId ? item.line_id === contextLineId : lineIds.size === 1);
     const position: Position = {
       id: type + ":" + row.id + ":" + ++positionDraftSequence,
       label: deviceLabel(row),
-      line: row.line_id_label || row.line_name || row.bindings?.find(binding => binding.line_id === contextLineId)?.line_name || "",
+      line: row.line_id_label || row.line_name || binding?.line_name || "",
       startTower: row.start_tower_no || "", endTower: row.end_tower_no || "", physicalCode: row.tower_code || "",
       quantity: formatScaledDecimal(operation.value?.default_quantity_scaled, 4),
       specification: "",
@@ -683,6 +687,11 @@ async function addPositions(selected: EquipmentRow[], contextLineId?: string) {
       },
       workMode: workModes.unspecified,
       attributes: defaults(positionFields.value),
+      assetLabels: {
+        voltage_level_id: row.voltage_level_name || binding?.voltage_name || "",
+        tower_material: row.tower_material_label || "",
+        tower_nature: row.tower_nature_label || "",
+      },
     };
     return positionRow(position);
   });
@@ -708,8 +717,8 @@ async function addMaterials(selected:Material[]) {
       const unit=await readDictionary("units",row.unit_id);
       return {id:row.id,label:row.name,model:row.model||"",materialSpecification:row.specification||"",unit:unit.name,quantity:"1",note:"",precision:await unitPrecision(unit.id,unit.version)};
     }));
-    materials.value.push(...additions);
-    materialPickerOpen.value=false;
+    if (await materialSheet.value?.addRows(additions.map(materialRow))) materialPickerOpen.value = false;
+    else if (additions.length) ElMessage.error("预计物资工作表尚未就绪，请检查工作表加载状态");
   }catch(cause){ElMessage.error((cause as Error).message);}
   finally{loadingMaterial.value=false;}
 }
@@ -782,6 +791,37 @@ function validateMaterial(values:WorksheetValues):WorksheetIssue[] {
   });
   return issues;
 }
+function validateSources(values: WorksheetValues): WorksheetIssue[] {
+  const issues: WorksheetIssue[] = [];
+  for (const [index, row] of sources.value.entries()) {
+    if (row.locked) continue;
+    const { description = "", date = "" } = values[row.id] ?? {};
+    if (!description.trim()) issues.push(worksheetIssue(index + 1, 0, row.id, "description", "补充来源", Error("请填写来源说明")));
+    if (date && (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) ||
+      new Date(date).toISOString().slice(0, 10) !== date)) {
+      issues.push(worksheetIssue(index + 1, 1, row.id, "date", "补充来源", Error("请输入有效的发现日期，格式为 YYYY-MM-DD")));
+    }
+  }
+  return issues;
+}
+function updateSources(values: WorksheetValues) {
+  for (const row of sources.value) {
+    const fields = values[row.id];
+    if (!fields || row.locked) continue;
+    row.description = fields.description ?? "";
+    row.date = fields.date ?? "";
+  }
+}
+async function addSource() {
+  if (saving.value || loading.value) return;
+  const row = sourceRow({ id: "source-draft-" + ++sourceSequence, description: "", date: "" });
+  try {
+    if (await sourceSheet.value?.addRows([row])) return;
+    ElMessage.error("需求来源工作表尚未就绪，请检查工作表加载状态");
+  } catch (cause) {
+    ElMessage.error((cause as Error).message);
+  }
+}
 function updatePosition(values:WorksheetValues) {
   for(const row of positions.value){
     const fields=values[row.id]; if(!fields)continue;
@@ -844,9 +884,9 @@ function command(separate: boolean): DemandWriteInput {
       quantity_scaled: quantity(row.quantity, row.precision, row.label + "的", row.original),
       note: row.note,
     })),
-    ...(form.source.trim()
-      ? { sources: [{ description: form.source.trim(), discovered_on: form.discovery }] }
-      : {}),
+    sources: sources.value.filter(row => !row.locked).map(row => ({
+      description: row.description.trim(), discovered_on: row.date || null,
+    })),
     ...(separate
       ? {
           duplicate_decision: "separate",
@@ -869,8 +909,10 @@ async function persist(separate = false) {
     await loadMaterialPrecisions();
     const p = await positionSheet.value?.prepareSave();
     const m = await materialSheet.value?.prepareSave();
+    const provenance = await sourceSheet.value?.prepareSave();
     if (positions.value.length && !p) { navigateSection("positions"); throw Error("请检查作业位置工作表"); }
     if (materials.value.length && !m) { navigateSection("materials"); throw Error("请检查预计物资工作表"); }
+    if (sources.value.some(row => !row.locked) && !provenance) { navigateSection("sources"); throw Error("请检查需求来源工作表"); }
     const saved = await saveDemand(command(separate), record.value?.id);
     savedId = saved.id;
     duplicateOpen.value = false;
@@ -929,9 +971,7 @@ async function load() {
       priority: old?.priority_id || null,
       attributes: { ...old?.attributes },
       reason: "",
-      source: "",
-      discovery: null,
-    });
+        });
     detailPositionId.value = "";
     positions.value = (old?.work_locations || []).map((row) => ({
       id: row.location_kind + ":" + (row.physical_tower_id || row.logical_tower_id || row.span_id),
@@ -944,6 +984,7 @@ async function load() {
       specification: row.location_snapshot_json.specification,
       workMode: workModes[row.work_mode],
       attributes: { ...row.attributes },
+      assetLabels: row.asset_labels,
       location: {
         location_kind: row.location_kind,
         quantity_scaled: row.quantity_scaled,
@@ -969,9 +1010,14 @@ async function load() {
       kind.value = positionKinds.value[0];
       resetPositionSearch();
     } else void searchOperations("");
+    sources.value = (old?.sources ?? []).map(row => ({
+      id: row.id, description: row.description, date: row.discovered_on ?? "", locked: true,
+    }));
     await loadMaterialPrecisions();
+    if (seq !== pageRequest) return;
     baseline = formState();
     restoreSetup();
+    demandSession.value++;
   } catch (cause) {
     if (seq === pageRequest) {
       error.value = (cause as Error).message;

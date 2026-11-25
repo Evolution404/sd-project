@@ -3,6 +3,7 @@ import type {
   ExchangeMode,
   ExchangePreview as FullExchangePreview,
   WorkbookKind,
+  WorkbookPrimitive,
 } from "../../../../server/shared/types/exchange";
 
 export type { ExchangeCommitResult, ExchangeMode, WorkbookKind };
@@ -35,6 +36,17 @@ export async function previewWorkbook(
     headers: { "Content-Type": excelType },
     body: file,
     signal,
+  });
+  return response.json() as Promise<ExchangePreview>;
+}
+
+export type DemandWorksheetTables = Record<"documents" | "work_locations" | "materials" | "sources", Record<string, WorkbookPrimitive | string[]>[]>;
+
+export async function previewDemandWorksheet(mode: "create" | "update", rows: DemandWorksheetTables): Promise<ExchangePreview> {
+  const response = await checkedResponse("/demands/worksheet-preview", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode, rows }),
   });
   return response.json() as Promise<ExchangePreview>;
 }

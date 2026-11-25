@@ -197,6 +197,7 @@ export interface ExchangeCommitResult {
   timings_ms:{revalidation:number;business_writes:number};
   submitted_at:string;
   kind:WorkbookKind;
+  source?: "worksheet";
 }
 export interface ExchangePreview {
   token: string;

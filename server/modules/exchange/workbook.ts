@@ -65,6 +65,11 @@ const technicalColumns = new Set([
   "field_key",
   "primary_source_id",
 ]);
+export function parseBusinessCell(key: string, value: unknown): unknown {
+  const places = decimalPlaces[key];
+  return places ? scaledDecimal(value, places, key) : internalChoice(key, value);
+}
+
 function externalChoice(key:string, value:unknown):unknown {
   return typeof value === "string" ? businessChoices[key]?.[value] || value : value;
 }
@@ -400,13 +405,7 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
           const value = cellValue(row.getCell(column));
           rawValues[key]=value;
           if (value !== KEEP && value !== KEEP_LABEL && value !== null) {
-            const places = decimalPlaces[key];
-            data[key] =
-              value === CLEAR || value === CLEAR_LABEL
-                ? null
-                : places
-                  ? scaledDecimal(value, places, key)
-                  : internalChoice(key, value);
+            data[key] = value === CLEAR || value === CLEAR_LABEL ? null : parseBusinessCell(key, value);
           }
         } catch (error) {
           issues.push(

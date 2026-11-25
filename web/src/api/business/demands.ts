@@ -1,6 +1,7 @@
 import { applyNativeListQuery, type NativeListOptions } from "@/utils/business/native-list-query";
 import { randomRequestId } from "@/utils/business/request-id";
 import type { DemandWriteInput, NormalizedDemand } from "../../../../server/shared/types/demands";
+import type { AssetAttribute } from "../../../../server/shared/types/operation-attributes";
 export type { DemandWriteInput } from "../../../../server/shared/types/demands";
 /** Domain-specific adapter for the authoritative demand endpoints. */
 export interface DemandLocation {
@@ -37,7 +38,8 @@ export interface DemandDetail extends DemandRow {
   materials:Array<{item_no:number;material_name:string;quantity_scaled:number;note:string;model?:string;specification?:string}>;
   sources:Array<{id:string;description:string;discovered_on:string|null}>;
 }
-export type DemandEditorRecord = Omit<DemandDetail, keyof NormalizedDemand | "materials"> & Omit<NormalizedDemand, "materials"> & {
+export type DemandEditorRecord = Omit<DemandDetail, keyof NormalizedDemand | "materials"> & Omit<NormalizedDemand, "materials" | "work_locations"> & {
+  work_locations: (NormalizedDemand["work_locations"][number] & { asset_labels: Record<AssetAttribute, string> })[];
   materials: (NormalizedDemand["materials"][number] & { material_name: string; unit_snapshot: string; model?:string; specification?:string })[];
   duplicate_review_token: string;
 };

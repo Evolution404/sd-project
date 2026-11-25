@@ -56,6 +56,7 @@ interface WorksheetOptions {
   primary: string;
   onChange: (entries: WorksheetValues) => void;
   onRowsChange?: (rows: readonly WorksheetRow[]) => void;
+  removalLabel?: string;
   onSelection: (text: string) => void;
   onNotice: (text: string) => void;
   onValidation: (issues: WorksheetIssue[]) => void;
@@ -159,7 +160,7 @@ function compareDecimal(left: string, right: string) {
 // Keep the SDK's stack, grouping, undo/redo commands and keyboard shortcuts.
 // On these private workbooks, translate positional edit mutations at the point
 // the native command records them. View and permission changes do not add steps.
-export function createBusinessWorksheet({ host, rows: initialRows, columns, name, dark, primary, onChange, onRowsChange, onSelection, onNotice, onValidation, onHistory, onVisibleCount, validate, filled, describe }: WorksheetOptions) {
+export function createBusinessWorksheet({ host, rows: initialRows, columns, name, dark, primary, onChange, onRowsChange, removalLabel, onSelection, onNotice, onValidation, onHistory, onVisibleCount, validate, filled, describe }: WorksheetOptions) {
   let rows = initialRows.slice();
   let businessRows = rows;
   let rowNumbers = new Map(rows.map((row, index) => [row.id, index + 1]));
@@ -313,7 +314,7 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
   async function removeSelectedRows(){
     if (!onRowsChange || disposed) return;
     const ids = selectedRowIds();
-    if (!ids.length) { onNotice("请选择需要移除的作业位置"); return; }
+    if (!ids.length) { onNotice("请先选择明细行，再执行「" + (removalLabel ?? "移除选中行") + "」"); return; }
     await finishEditing();
     if (disposed) return;
     readEntries();
@@ -869,6 +870,14 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       return entries;
     },
     focusCell,
+    focusField(id: string, field: string) {
+      const row = rowNumbers.get(id);
+      if (row === undefined) return false;
+      const column = columns.findIndex(item => item.key === field);
+      const target = column < 0 ? columns.findIndex(item => item.editable) : column;
+      focusCell(row, Math.max(0, target), true);
+      return true;
+    },
     filterFilled(value: boolean) { filledOnly = value; updateVisibleRows(); },
     clearFilters(){filledOnly=false;filter()?.removeFilterCriteria();updateVisibleRows();},
     fillColumn(field: string, value: (row: WorksheetRow) => string, label: string) {
