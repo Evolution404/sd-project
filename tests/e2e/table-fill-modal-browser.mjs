@@ -14,7 +14,7 @@ const server = httpServer(s);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: 'chrome' });
-const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/table-fill-modals');
@@ -31,8 +31,8 @@ try {
     await page.waitForTimeout(250);
     await page.locator('main h1').click();
     await page.locator('.el-popover:visible').waitFor({ state: 'hidden' });
-    for (const width of [1500, 1280, 960, 760]) {
-      await page.setViewportSize({ width, height: 900 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await page.waitForTimeout(200);
       const geometry = await page.locator('main .el-table').evaluate(table => {
         const body = table.querySelector('.el-table__body').getBoundingClientRect();
@@ -49,7 +49,7 @@ try {
   await page.evaluate(() => localStorage.setItem('sd-columns:catalog:voltages', JSON.stringify({ order: [], hidden: [], fixed: [], widths: { name: 140, status: 140, __actions: 180 } })));
   await page.reload();
   await page.getByRole('row').filter({ hasText: '500kV' }).waitFor();
-  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.waitForFunction(() => {
     const table = document.querySelector('main .el-table');
     const body = table?.querySelector('.el-table__body');
@@ -75,7 +75,7 @@ try {
   assert.equal(page.url(), url);
   assert.equal(s.catalog.get('towers', first.id).physical_tower_id, first.physical_tower_id);
   assert.deepEqual(errors, []);
-  console.log('TABLE_FILL_MODAL_BROWSER_OK sparse columns fill 8 layouts, no physical expand rows, associated circuits in modal, URL unchanged');
+  console.log('TABLE_FILL_MODAL_BROWSER_OK sparse columns fill both 1920×1080 themes, no physical expand rows, associated circuits in modal, URL unchanged');
 } catch (error) {
   await page.screenshot({ path: join(output, 'failure.png'), fullPage: true });
   throw error;

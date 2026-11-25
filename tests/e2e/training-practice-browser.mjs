@@ -23,7 +23,7 @@ await new Promise(resolve => server.listen(0,"127.0.0.1",resolve));
 const base = "http://127.0.0.1:"+server.address().port;
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? {headless:true} : {headless:true,channel:"chrome"});
-const page = await browser.newPage({viewport:{width:1450,height:1000}});
+const page = await browser.newPage({viewport:{width:1920,height:1080}});
 const out = "test-results/p10/practice-journey";
 mkdirSync(out,{recursive:true});
 const detail = page.locator(".business-detail-dialog:visible");
@@ -239,7 +239,7 @@ try {
   const roleNames=["editor","verifier","viewer"];
   for(const role of roleNames) {
     system.auth.saveUser(user,{username:"practice-"+role,password,role,status:"active"});
-    const restricted=await browser.newPage({viewport:{width:1150,height:900}});
+    const restricted=await browser.newPage({viewport:{width:1920,height:1080}});
     try {
       await restricted.goto(base+"/#/projects?project="+projectId+"&tab=scope");
       await restricted.getByLabel("用户名",{exact:true}).fill("practice-"+role);

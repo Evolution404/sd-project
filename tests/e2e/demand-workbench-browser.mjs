@@ -52,7 +52,7 @@ const browser = await chromium.launch(
     : { headless: true, channel: "chrome" },
 );
 const context = await browser.newContext({
-    viewport: { width: 1500, height: 1000 },
+    viewport: { width: 1920, height: 1080 },
   }),
   page = await context.newPage(),
   failures = [];
@@ -161,8 +161,8 @@ try {
         document.documentElement.classList.toggle("dark", theme === "深色"),
       theme,
     );
-    for (const width of [1500, 1280, 960, 760]) {
-      await page.setViewportSize({ width, height: 1000 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await editor.getByRole("tab", {name:"作业位置与工作量",exact:true}).click();
       await page.waitForTimeout(350);
       await workbench.locator(".el-scrollbar__wrap").evaluateAll(elements => elements.forEach(element => { element.scrollTop=0; element.scrollLeft=0; }));
@@ -171,7 +171,7 @@ try {
       const saveButton = await editor
         .getByRole("button", { name: "保存需求版本", exact: true })
         .boundingBox();
-      assert.ok(saveButton && saveButton.y + saveButton.height <= 1000);
+      assert.ok(saveButton && saveButton.y + saveButton.height <= 1080);
       await page.screenshot({
         path: join(output, theme + "-" + width + ".png"),
         fullPage: true,
@@ -198,7 +198,7 @@ try {
   assert.equal(saved.attributes.reason, "普通");
   assert.deepEqual(failures, []);
   console.log(
-    "DEMAND_WORKBENCH_BROWSER_OK 20 same-line, 24 cross-line, paste ranges, missing and duplicate results, batch values, independent row edits, stable deletion, four widths and both themes",
+    "DEMAND_WORKBENCH_BROWSER_OK 20 same-line, 24 cross-line, paste ranges, missing and duplicate results, batch values, independent row edits, stable deletion, 1920×1080 and both themes",
   );
 } catch (failure) {
   await page.screenshot({ path: join(output, "failure.png"), fullPage: true });

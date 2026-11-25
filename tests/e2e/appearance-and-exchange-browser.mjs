@@ -17,7 +17,7 @@ const browser = await chromium.launch(
     : { headless: true, channel: "chrome" },
 );
 const context = await browser.newContext({
-  viewport: { width: 1450, height: 1000 }, colorScheme: "light",
+  viewport: { width: 1920, height: 1080 }, colorScheme: "light",
 });
 const page = await context.newPage(), errors = [];
 page.on("pageerror", error => errors.push(error.message));

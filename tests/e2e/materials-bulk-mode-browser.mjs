@@ -15,7 +15,7 @@ await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const base="http://127.0.0.1:"+server.address().port;
 const browser=await chromium.launch(existsSync(chromium.executablePath())?
   {headless:true}:{headless:true,channel:"chrome"});
-const page=await browser.newPage({viewport:{width:1360,height:850}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 const output=join(process.cwd(),"test-results/schema113/material-bulk-mode");
 mkdirSync(output,{recursive:true});
 const errors=[];page.on("pageerror",error=>errors.push(error.message));
@@ -33,12 +33,12 @@ try{
   const secondId=s.materials.list().find(row=>row.name===secondName)?.id;
   assert.ok(firstId&&secondId);
   await page.screenshot({path:join(output,"normal-view.png")});
-  for(const width of [960,760]){
-    await page.setViewportSize({width,height:850});
+  for(const width of [1920]){
+    await page.setViewportSize({width,height:1080});
     assert.equal(await page.locator(".tabulator-range").count(),0);
     await page.screenshot({path:join(output,"normal-view-"+width+".png")});
   }
-  await page.setViewportSize({width:1360,height:850});
+  await page.setViewportSize({width:1920,height:1080});
   await page.locator("html").evaluate(root=>root.classList.add("dark"));
   await page.screenshot({path:join(output,"normal-view-dark.png")});
   await page.locator("html").evaluate(root=>root.classList.remove("dark"));

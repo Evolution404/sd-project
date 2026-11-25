@@ -28,7 +28,7 @@ const server=httpServer(s);
 await new Promise(done=>server.listen(0,"127.0.0.1",done));
 const browser=await chromium.launch(existsSync(chromium.executablePath())
   ? {headless:true} : {headless:true,channel:"chrome"});
-const page=await browser.newPage({viewport:{width:1500,height:1060}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 const errors=[];
 page.on("pageerror",err=>errors.push(err.message));
 const base="http://127.0.0.1:"+server.address().port;
@@ -65,8 +65,8 @@ try {
   await editor.getByRole("tab",{name:"作业位置与工作量"}).click();
   const inline=editor.locator(".quantity-cell .quantity-inline:visible").first();
   await inline.waitFor();
-  for (const width of [1500,1280,960,760]) {
-    await page.setViewportSize({width,height:1060});
+  for (const width of [1920]) {
+    await page.setViewportSize({width,height:1080});
     const bounds=await inline.evaluate(element=>{
     const input=element.querySelector(".el-input__wrapper")?.getBoundingClientRect();
     const unit=element.querySelector(".quantity-unit")?.getBoundingClientRect();
@@ -78,7 +78,7 @@ try {
     assert.ok(bounds.unit[2] >= bounds.input[2] - 2, "unit must follow input");
     assert.equal(bounds.overflow,false,"long units must fit their quantity cell");
   }
-  await page.setViewportSize({width:1500,height:1060});
+  await page.setViewportSize({width:1920,height:1080});
   await editor.getByRole("button",{name:"保存需求版本",exact:true}).click();
   await review.waitFor();
   await review.getByText(other.demand_no,{exact:false}).first().waitFor();

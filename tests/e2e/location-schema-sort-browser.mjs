@@ -36,7 +36,7 @@ const server=httpServer(s);
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await chromium.launch(existsSync(chromium.executablePath()) ?
   {headless:true}:{headless:true,channel:"chrome"});
-const context=await browser.newContext({viewport:{width:1440,height:970}});
+const context=await browser.newContext({viewport:{width:1920,height:1080}});
 const page=await context.newPage(), errors=[], writes=[], catalogCalls=[];
 page.on("pageerror",error=>errors.push(error.message));
 page.on("request",request=>{

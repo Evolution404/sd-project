@@ -17,7 +17,7 @@ const server=httpServer(s);
 await new Promise(done=>server.listen(0,"127.0.0.1",done));
 const browser=await chromium.launch(existsSync(chromium.executablePath())
   ? {headless:true}:{headless:true,channel:"chrome"});
-const page=await browser.newPage({viewport:{width:1370,height:980}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 const exceptions=[];
 page.on("pageerror",err=>exceptions.push(err.message));
 const base="http://127.0.0.1:"+server.address().port;

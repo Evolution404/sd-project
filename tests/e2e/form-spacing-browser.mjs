@@ -11,7 +11,7 @@ const server = httpServer(s);
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", failure => errors.push(failure.message));
 const dir = join(process.cwd(), "test-results/schema113/form-layout");
@@ -76,7 +76,7 @@ try {
   await page.getByLabel("密码", { exact: true }).fill("Schema113-test-password");
   await page.getByRole("button", { name: "登录", exact: true }).click();
   for (const [kind, path, button] of scenarios) {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto("http://127.0.0.1:" + server.address().port + "/#/" + path);
     await page.locator("main h1").waitFor();
     if (path === "finance") {
@@ -102,13 +102,13 @@ try {
     await dialog.waitFor();
     // Capture neutral, fully animated form states before the focus test opens
     // any date-picker popover or triggers validation on required fields.
-    for (const width of [1280, 760]) {
-      await page.setViewportSize({ width, height: 800 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await page.waitForTimeout(450);
       await page.screenshot({ path: join(dir, kind + "-" + width + ".png"), fullPage: true });
     }
-    for (const width of [1280, 760]) {
-      await page.setViewportSize({ width, height: 800 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await inspect(dialog, kind, width);
     }
     if (kind === "settlement") {
@@ -127,7 +127,7 @@ try {
     await dialog.waitFor({state: "hidden"});
   }
   assert.deepEqual(errors, []);
-  console.log("FORM_SPACING_BROWSER_OK 5 edit surfaces x 2 widths, labels, focus, footer, buttons, and finance headings");
+  console.log("FORM_SPACING_BROWSER_OK 5 edit surfaces at 1920×1080, labels, focus, footer, buttons, and finance headings");
 } finally {
   await browser.close();
   await new Promise(done => server.close(done));

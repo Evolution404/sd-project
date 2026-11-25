@@ -15,7 +15,7 @@ const browser = await chromium.launch(
       ? { headless: true }
       : { headless: true, channel: "chrome" },
   ),
-  page = await browser.newPage({ viewport: { width: 1500, height: 1100 } }),
+  page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113");

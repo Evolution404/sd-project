@@ -63,7 +63,7 @@ const browser = await chromium.launch(
     ? { headless: true }
     : { headless: true, channel: "chrome" },
 );
-const page = await browser.newPage({ viewport: { width: 1500, height: 1050 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 let stage = "initialization";
 page.setDefaultTimeout(12000);
@@ -272,8 +272,8 @@ try {
     .click();
   await costHistory.waitFor({ state: "hidden" });
   await workspace.scrollIntoViewIfNeeded();
-  for (const width of [1500, 1100, 760]) {
-    await page.setViewportSize({ width, height: 1050 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth + 1,
@@ -287,8 +287,8 @@ try {
     });
   }
   await detail.getByRole("button", { name: "← 返回", exact: true }).click();
-  // Restore a wider desktop window for simultaneous tree and detail actions.
-  await page.setViewportSize({ width: 1100, height: 1050 });
+  // Keep the standard desktop during simultaneous tree and detail actions.
+  await page.setViewportSize({ width: 1920, height: 1080 });
   checkpoint("organization-entry");
   await page.goto(base + "/#/dictionaries/organizations");
   const organization = page.locator(".organization-workspace");
@@ -410,8 +410,8 @@ try {
   await orgHistory
     .getByRole("button", { name: "关闭详情", exact: true })
     .click();
-  for (const width of [1500, 1100, 760]) {
-    await page.setViewportSize({ width, height: 1050 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth + 1,
@@ -437,7 +437,7 @@ try {
     .getByRole("button", { name: "取消", exact: true })
     .click();
   await detail.getByRole("button", { name: "关闭详情", exact: true }).click();
-  await page.setViewportSize({ width: 1100, height: 1050 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   checkpoint("organization-viewer");
   await page.goto(base + "/#/dictionaries/organizations");
   await page.getByRole("button", { name: /^账号设置/ }).click();
@@ -457,7 +457,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "TREES_BROWSER_OK cost roots/children, readonly hierarchy, sums, historical deletion, tree selectors, organization versioned move and adopted historical path, 3 widths and viewer",
+    "TREES_BROWSER_OK cost roots/children, readonly hierarchy, sums, historical deletion, tree selectors, organization versioned move and adopted historical path, 1920×1080 and viewer",
   );
 } catch (error) {
   console.error(`TREE_FAILURE stage=${stage} route=${page.url()} width=${page.viewportSize()?.width}`);

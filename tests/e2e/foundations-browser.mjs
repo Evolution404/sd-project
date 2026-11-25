@@ -21,7 +21,7 @@ const browser = await chromium.launch(
     ? { headless: true }
     : { headless: true, channel: "chrome" },
 );
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } }),
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/foundations");
@@ -173,7 +173,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "FOUNDATIONS_BROWSER_OK dictionaries CRUD, material immutable units, version/audit history, modal URL, 3 widths and viewer",
+    "FOUNDATIONS_BROWSER_OK dictionaries CRUD, material immutable units, version/audit history, modal URL, 1920×1080 and viewer",
   );
 } catch (error) {
   await page.screenshot({ path: join(output, "failure.png"), fullPage: true });

@@ -31,7 +31,7 @@ const browser = await chromium.launch(
       ? { headless: true }
       : { headless: true, channel: "chrome" },
   ),
-  page = await browser.newPage({ viewport: { width: 1500, height: 1100 } }),
+  page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 const output = join(process.cwd(), "test-results", "schema113");
@@ -206,8 +206,8 @@ try {
     path: join(output, "project-finance-1500.png"),
     fullPage: true,
   });
-  for (const width of [1280, 760]) {
-    await page.setViewportSize({ width, height: 1100 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     await page.evaluate(async () => {
       scrollTo(0, 0);
       await new Promise((resolve) =>

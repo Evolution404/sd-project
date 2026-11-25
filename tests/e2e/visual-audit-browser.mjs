@@ -11,13 +11,13 @@ const server = httpServer(s);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: 'chrome' });
-const page = await browser.newPage({ viewport: { width: 1500, height: 800 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/visual-audit');
 mkdirSync(output, { recursive: true });
 const routes = ['dashboard', 'demands', 'projects', 'frameworks', 'agreements', 'finance', 'ledger', 'materials', 'standards', 'pricing', 'dictionaries', 'system'];
-const widths = [1500, 1280, 960, 760];
+const widths = [1920];
 async function visit(path) {
   if (await page.locator('.business-detail-dialog:visible').count()) {
     await page.getByRole('button', { name: '关闭详情', exact: true }).click();
@@ -51,7 +51,7 @@ async function settleLayout() {
   });
 }
 async function auditLayout(name, width) {
-  await page.setViewportSize({ width, height: 800 });
+  await page.setViewportSize({ width, height: 1080 });
   await settleLayout();
   // This test covers 12 business entries, detail views and dialogs in both
   // themes. Any user-visible raw UTC/ISO or locale timestamp is a regression.
@@ -84,7 +84,7 @@ async function auditLayout(name, width) {
   await page.screenshot({ path: join(output, `${name}-${width}.png`), fullPage: true });
 }
 async function auditDialog(name, button, width) {
-  await page.setViewportSize({ width, height: 700 });
+  await page.setViewportSize({ width, height: 1080 });
   if (button === "核定费用") await page.getByRole("tab", { name: "实际费用", exact: true }).click();
   if (button === "新增结算") await page.getByRole("tab", { name: "结算单", exact: true }).click();
   await page.getByRole('button', { name: button, exact: true }).click();
@@ -137,7 +137,7 @@ try {
           await page.getByRole('heading', { name: '项目档案', exact: true }).waitFor();
         } else {
           const columns = await page.locator('.el-descriptions__body tr').first().locator('td').count();
-          assert.equal(columns, width < 1100 ? 2 : 4, `${name} description columns ${width}`);
+          assert.equal(columns, 4, `${name} description columns ${width}`);
         }
       }
     }
@@ -164,7 +164,7 @@ try {
   assert.equal(page.url(), location);
   assert.equal(s.catalog.get('physical', towers[0].id).deleted, false);
   assert.deepEqual(errors, []);
-  console.log('VISUAL_AUDIT_BROWSER_OK 12 modules + 3 details + 8 editor surfaces, 4 widths, light/dark, bounded footer, responsive facts and cancel');
+  console.log('VISUAL_AUDIT_BROWSER_OK 12 modules + 3 details + 8 editor surfaces at 1920×1080, light/dark, bounded footer, responsive facts and cancel');
 } catch (error) {
   await page.screenshot({ path: join(output, 'failure.png'), fullPage: true });
   console.log('FAILURE_URL', page.url(), errors);

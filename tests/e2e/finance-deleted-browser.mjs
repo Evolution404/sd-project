@@ -16,7 +16,7 @@ const server = httpServer(s);
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 760, height: 820 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const out = join(process.cwd(), "test-results/schema113/finance-deleted");
 mkdirSync(out, { recursive: true });
 try {
@@ -60,7 +60,7 @@ try {
   for (const action of ["更正", "作废费用", "管理员删除"])
     assert.equal(await page.getByRole("menuitem", { name: action, exact: true }).last().isDisabled(), true);
   await page.keyboard.press("Escape");
-  await page.screenshot({ path: join(out, "deleted-finance-760.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "deleted-finance-1920.png"), fullPage: true });
   console.log("FINANCE_DELETED_BROWSER_OK");
 } catch (error) {
   await page.screenshot({ path: join(out, "failure.png"), fullPage: true });

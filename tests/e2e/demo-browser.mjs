@@ -25,7 +25,7 @@ test("demo can be explored in the real browser without any manual master-data se
   });
   browser = await chromium.launch(existsSync(chromium.executablePath())
     ? { headless: true } : { headless: true, channel: "chrome" });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   const errors = [];
   page.on("pageerror", error => errors.push(error.message));
   const base = "http://127.0.0.1:" + server.address().port;

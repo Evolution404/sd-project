@@ -32,7 +32,7 @@ const server = httpServer(s);
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1450, height: 1000 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 try {
   await page.goto("http://127.0.0.1:" + server.address().port
     + "/#/projects/" + project.id + "/finance");

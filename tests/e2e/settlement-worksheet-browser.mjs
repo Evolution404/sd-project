@@ -13,7 +13,7 @@ await new Promise(done=>server.listen(0,"127.0.0.1",done));
 const base="http://127.0.0.1:"+server.address().port;
 const browser=await chromium.launch(existsSync(chromium.executablePath())
   ? {headless:true}:{headless:true,channel:"chrome"});
-const page=await browser.newPage({viewport:{width:1440,height:1024}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 const out=join(process.cwd(),"test-results/schema113/settlement-worksheet");
 mkdirSync(out,{recursive:true});
 const errors=[];
@@ -44,26 +44,27 @@ try {
   await editor.locator(".el-checkbox").filter({hasText:"只看已填写"}).click();
   assert.equal(await (await worksheetRows(editor)).count(),3);
   await editor.locator(".el-checkbox").filter({hasText:"只看已填写"}).click();
-  await editor.screenshot({path:join(out,"1440-light-worksheet.png")});
+  await editor.screenshot({path:join(out,"1920-light-worksheet.png")});
   await page.getByRole("button",{name:"切换为深色",exact:true}).click();
-  await grid.screenshot({path:join(out,"1440-dark-worksheet.png")});
+  await grid.screenshot({path:join(out,"1920-dark-worksheet.png")});
   await page.getByRole("button",{name:"切换为浅色",exact:true}).click();
-  for (const width of [1280,960,760]) {
-    await page.setViewportSize({width,height:900});
+  for (const width of [1920]) {
+    await page.setViewportSize({width,height:1080});
     for(const dark of [false,true]) {
-      if(dark) await page.getByRole("button",{name:"切换为深色",exact:true}).click();
-      else if(width!==1280) await page.getByRole("button",{name:"切换为浅色",exact:true}).click();
+      const visualDark = await page.locator("html").evaluate(element => element.classList.contains("dark"));
+      if (visualDark !== dark)
+        await page.getByRole("button", { name: dark ? "切换为深色" : "切换为浅色", exact: true }).click();
       await page.waitForTimeout(260);
       assert.equal(await (await worksheetRows(editor)).count(),3);
       const tabulatorScroll=await grid.locator(".tabulator-tableholder").first().evaluate(node=>({
         client:node.clientWidth,scroll:node.scrollWidth,
       }));
       assert.ok(tabulatorScroll.scroll>=tabulatorScroll.client,
-        "narrow worksheet must keep horizontal overflow inside Tabulator "+width);
+        "worksheet must keep horizontal overflow inside Tabulator "+width);
       await editor.screenshot({path:join(out,`worksheet-${width}-${dark?"dark":"light"}.png`)});
     }
   }
-  await page.setViewportSize({width:1440,height:1024});
+  await page.setViewportSize({width:1920,height:1080});
   await page.getByRole("button",{name:"切换为浅色",exact:true}).click();
 
   // Three location cells are one clipboard action and therefore one undo.

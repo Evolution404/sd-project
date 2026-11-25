@@ -37,7 +37,7 @@ const contexts=[],errors=[];
 const output=join(process.cwd(),"test-results/schema113/finance-roles");
 mkdirSync(output,{recursive:true});
 async function as(role) {
-  const context=await browser.newContext({viewport:{width:1450,height:1040}});
+  const context=await browser.newContext({viewport:{width:1920,height:1080}});
   contexts.push(context);
   const page=await context.newPage();
   page.on("pageerror",err=>errors.push(role+": "+err.message));

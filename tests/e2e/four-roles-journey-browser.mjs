@@ -32,7 +32,7 @@ const output=join(process.cwd(),"test-results/schema113/four-roles");
 mkdirSync(output,{recursive:true});
 const openPages=[];
 async function openAs(role,path="/#/demands?demand="+pending.id) {
-  const context=await browser.newContext({viewport:{width:1280,height:920}});
+  const context=await browser.newContext({viewport:{width:1920,height:1080}});
   const page=await context.newPage();
   openPages.push(context);
   page.on("pageerror",error=>errors.push(role+": "+error.message));

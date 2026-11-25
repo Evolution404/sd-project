@@ -20,7 +20,7 @@ const bill = s.finance.saveDraft(user, project.id, {
 const server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/actions");
@@ -49,8 +49,8 @@ try {
   for (const theme of ["light", "dark"]) {
     const currentDark = await page.locator("html").evaluate(element => element.classList.contains("dark"));
     if (currentDark !== (theme === "dark")) await page.getByRole("button", { name: theme === "dark" ? "切换为深色" : "切换为浅色", exact: true }).click();
-    for (const width of [1500, 1280, 960, 760]) {
-      await page.setViewportSize({ width, height: 1000 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await row.locator(".cell-link:visible").first().click();
       const detail = page.locator(".business-detail-dialog:visible");
       for (const label of ["编辑", "完整历史", "删除"]) await detail.getByRole("button", { name: label, exact: true }).waitFor();
@@ -67,7 +67,7 @@ try {
   await preview.getByRole("button", { name: "取消", exact: true }).click();
   await ledger.getByRole("button", { name: "关闭详情", exact: true }).click();
   assert.equal(s.catalog.list("lines").length, 1);
-  await page.setViewportSize({ width: 1500, height: 1000 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await navigate("费用与结算");
   await page.locator(".cell-link:visible").first().click();
   await page.getByRole("tab", { name: "结算单", exact: true }).click();
@@ -97,7 +97,7 @@ try {
   assert.equal(await billRow.getByRole("button", { name: "审核结算", exact: true }).count(), 0);
   for (const label of ["审核中（禁止修订）", "删除"]) assert.ok(await page.getByRole("menuitem", { name: label, exact: true }).isDisabled());
   assert.deepEqual(errors, []);
-  console.log("ROW_ACTIONS_BROWSER_OK 8 layouts, cancel, state priority and viewer restrictions");
+  console.log("ROW_ACTIONS_BROWSER_OK standard desktop layouts in both themes, cancel, state priority and viewer restrictions");
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));

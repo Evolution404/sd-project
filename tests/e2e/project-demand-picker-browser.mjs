@@ -25,7 +25,7 @@ const server=httpServer(s);
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await chromium.launch(existsSync(chromium.executablePath())?{headless:true}:{headless:true,channel:"chrome"});
 const errors=[];
-const page=await browser.newPage({viewport:{width:1450,height:930}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 page.on("pageerror",error=>errors.push(error.message));
 const out=join(process.cwd(),"test-results/schema113/project-demand-picker");
 mkdirSync(out,{recursive:true});

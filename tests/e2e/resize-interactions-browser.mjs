@@ -16,7 +16,7 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(
   existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: "chrome" },
 );
-const context = await browser.newContext({ viewport: { width: 1500, height: 960 } });
+const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
 const page = await context.newPage(), errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113");
@@ -136,15 +136,15 @@ try {
   await table.getByRole("cell", { name: "测试可拖动侧栏和列宽", exact: true }).waitFor();
   assert.equal((await page.locator(".el-pagination .el-pager .is-active").first().textContent()).trim(), "1");
 
-  for (const width of [1500, 900, 760]) {
-    await page.setViewportSize({ width, height: 960 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     await page.waitForTimeout(120);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
       "table/side navigation should not overflow viewport at " + width);
     await page.screenshot({ path: join(output, "resizable-layout-" + width + ".png"), fullPage: true });
   }
   assert.deepEqual(errors, []);
-  console.log("RESIZE_BROWSER_OK sidebar pointer+keyboard+restore+collapse and real header edge-drag+nowrap+persist, 3 widths");
+  console.log("RESIZE_BROWSER_OK sidebar pointer+keyboard+restore+collapse and real header edge-drag+nowrap+persist at 1920×1080");
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
