@@ -8,6 +8,8 @@ import { httpServer } from "../../dist/server/platform/http/server.js";
 const cleanup = [];
 const { s, user, project, framework, node, scope, towers } = approvedFixture({ after: done => cleanup.push(done) });
 const otherProject = s.projects.save(user, { name: "跨项目归属验收", framework_id: framework.id });
+const cost = s.finance.cost(user, project.id, { cost_node_id: node.id,
+  title: "跨项目费用直开验证", occurred_on: "2026-11-10", amount_fen: 140000, evidence: "合成费用凭据" });
 const original = s.finance.saveDraft(user, project.id, {
   mode: "itemized",
   items: [{ cost_node_id: node.id, amount_fen: 10800, evidence: "第一笔正式结算依据" }],
@@ -42,6 +44,37 @@ try {
   await page.getByPlaceholder("密码").fill("Schema113-test-password");
   await button(page, "登录").click();
   await page.waitForURL(/#\/dashboard/);
+  await page.goto(origin + "/#/funding/finance");
+  assert.equal(await page.getByRole("tab", { name: "按项目办理" }).getAttribute("aria-selected"), "true");
+  await page.getByRole("tab", { name: "实际费用", exact: true }).click();
+  const keyword = page.getByPlaceholder("费用事项或项目编号");
+  await keyword.fill("跨项目费用直开验证");
+  await keyword.press("Enter");
+  await page.waitForURL(url => url.hash.includes("_list="));
+  const costPortfolio = page.url();
+  const costLink = page.getByRole("button", { name: "跨项目费用直开验证", exact: true });
+  const costDrawer = page.getByRole("dialog", { name: "实际费用记录", exact: true });
+  await costLink.click();
+  await costDrawer.getByRole("heading", { name: "跨项目费用直开验证" }).waitFor();
+  await costDrawer.getByText("合成费用凭据", { exact: true }).waitFor();
+  await costDrawer.getByText("¥1400.00", { exact: true }).first().waitFor();
+  await button(costDrawer, "查看所属项目").click();
+  await page.waitForURL(url => url.hash.includes("project=" + project.id) && url.hash.includes("record=" + cost.entry_id));
+  await costDrawer.getByRole("heading", { name: "跨项目费用直开验证" }).waitFor();
+  const invalidCost = await page.request.get(origin + "/api/projects/" + otherProject.id + "/costs/" + cost.entry_id);
+  assert.equal(invalidCost.status(), 404);
+  const invalidCostHistory = await page.request.get(origin + "/api/history/costs/" + cost.entry_id + "?project=" + otherProject.id);
+  assert.equal(invalidCostHistory.status(), 404);
+  await button(costDrawer, "返回跨项目费用").click();
+  await page.waitForURL(url => url.href === costPortfolio);
+  await costDrawer.getByRole("heading", { name: "跨项目费用直开验证" }).waitFor();
+  assert.equal(await keyword.inputValue(), "跨项目费用直开验证");
+  await page.screenshot({ path: join(screenshots, "portfolio-direct-cost-1920.png"), animations: "disabled" });
+  await button(costDrawer, "关闭详情").click();
+  await costDrawer.waitFor({ state: "hidden" });
+  await page.reload();
+  await costLink.waitFor();
+  assert.equal(await costDrawer.isVisible(), false);
   await page.goto(origin + "/#/funding/finance?view=settlements");
   const amount = page.getByPlaceholder("输入本次金额");
   await amount.fill("¥166.00");
@@ -60,6 +93,18 @@ try {
   await details.getByText("¥166.00", { exact: true }).waitFor();
   const invalidOwner = await page.request.get(origin + "/api/projects/" + otherProject.id + "/settlements/" + draft.id);
   assert.equal(invalidOwner.status(), 404, await invalidOwner.text());
+  await button(details, "重新读取结算").click();
+  await details.getByText("¥166.00", { exact: true }).waitFor();
+  await close(details);
+  await button(bill(original.number), "查看详情").click();
+  await details.getByText(original.number, { exact: true }).waitFor();
+  await button(details, "查看正式历史").click();
+  const insideHistory = page.getByRole("dialog", { name: "结算正式历史", exact: true });
+  await insideHistory.getByRole("heading", { name: "结算单 " + original.number, exact: true }).waitFor();
+  assert.equal(await insideHistory.getByRole("heading", { name: "结算单 " + draft.number, exact: true }).count(), 0);
+  await button(insideHistory, "返回结算详情").click();
+  await button(details, "重新读取结算").click();
+  await details.getByText("¥108.00", { exact: true }).first().waitFor();
   await button(details, "返回跨项目结算").click();
   await page.waitForURL(url => url.href === portfolio);
   await details.getByText(draft.number, { exact: true }).waitFor();
@@ -87,8 +132,13 @@ try {
   await page.screenshot({ path: join(screenshots, "portfolio-direct-settlement-history-1920.png"), animations: "disabled" });
   await button(history, "返回结算详情").click();
   await details.getByText(original.number, { exact: true }).waitFor();
+  await close(details);
+  await page.goto(origin + "/#/funding/finance?project=" + project.id);
+  await button(bill(draft.number), "查看详情").click();
+  await button(details, "重新读取结算").click();
+  await details.getByText("¥166.00", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
-  console.log("YOULAI_FINANCE_RECORD_SOURCE_OK exact yuan filtering, project ownership, restored source drawer and selected immutable history");
+  console.log("YOULAI_FINANCE_RECORD_SOURCE_OK direct cost and settlement, exact yuan filtering, project ownership, restored source drawers and selected immutable history");
 } catch (error) {
   await page.screenshot({ path: join(screenshots, "portfolio-direct-settlement-failure-1920.png") }).catch(() => undefined);
   throw error;

@@ -1,5 +1,9 @@
 <template>
   <CrudPage embedded :key="kind" :search-config="search" :table-config="table">
+    <template #table-cell-label="{ row }">
+      <el-button v-if="kind === 'costs'" link type="primary" @click="emit('open-cost', String(row.project_id), String(row.id))">{{ row.label }}</el-button>
+      <span v-else>{{ row.label }}</span>
+    </template>
     <template #table-cell-project_name="{ row }">
       <el-link type="primary" @click="openProject(String(row.project_id))">{{ row.project_name }}</el-link>
     </template>
@@ -26,6 +30,7 @@ import { projectMoney } from "@/api/business/projects";
 import BusinessHistoryViewer from "./BusinessHistoryViewer.vue";
 
 const props = defineProps<{ kind: "costs" | "reconciliations" }>();
+const emit = defineEmits<{ "open-cost": [project: string, id: string] }>();
 const router = useRouter();
 const open = ref(false);
 const target = ref<HistoryTarget>();
@@ -47,7 +52,7 @@ const table = computed<CrudTableConfig>(() => ({
     return { list: result.items, total: result.total };
   },
   columns: [
-    { prop: "label", sortable: "custom", label: "费用事项", minWidth: 170, fixed: "left" },
+    { prop: "label", sortable: "custom", label: "费用事项", cellType: "custom", minWidth: 170, fixed: "left" },
     { prop: "project_name", sortable: "custom", label: "所属项目", cellType: "custom", minWidth: 195 },
     { prop: "project_code", sortable: "custom", label: "项目编号", minWidth: 115 },
     { prop: "amount_fen", sortable: "custom", label: props.kind === "costs" ? "实际金额" : "已核对结算金额", cellType: "custom", minWidth: 135 },

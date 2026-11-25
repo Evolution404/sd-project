@@ -39,7 +39,7 @@
       {{ row.approval ? projectMoney(row.approval.approved_budget_fen) : "尚未批准" }}
     </template>
   </CrudPage>
-  <PortfolioFinance v-else-if="!projectId && (portfolioView === 'costs' || portfolioView === 'reconciliations')" :kind="portfolioView" />
+  <PortfolioFinance v-else-if="!projectId && (portfolioView === 'costs' || portfolioView === 'reconciliations')" :kind="portfolioView" @open-cost="showCostDetail" />
   <CrudPage embedded v-else ref="crud" :search-config="searchConfig" :table-config="tableConfig">
     <template #table-cell-project_name="{row}">
       <el-link type="primary" @click="router.push({ name: 'Projects', query: { project: row.project_id } })">{{ row.project_name || projectContext?.name || "历史项目" }}</el-link>
@@ -84,6 +84,15 @@
     </template>
   </el-dialog>
 
+
+  <el-drawer v-model="costDetailsOpen" title="实际费用记录" size="min(96%, 1030px)" append-to-body destroy-on-close>
+    <BusinessHistoryViewer v-if="costTarget" :target="costTarget" />
+    <div class="mt-4 flex flex-wrap justify-end gap-2">
+      <el-button v-if="origin.source === 'portfolio-cost'" @click="backToCostPortfolio">返回跨项目费用</el-button>
+      <el-button v-if="!projectId && costTarget" @click="openCostInProject">查看所属项目</el-button>
+      <el-button @click="costDetailsOpen = false">关闭详情</el-button>
+    </div>
+  </el-drawer>
 
   <el-drawer v-model="detailsOpen" :title="detailTitles[detailSection]" size="min(95vw, 950px)" append-to-body destroy-on-close>
     <el-skeleton v-if="detailsLoading" animated :rows="7" />
@@ -144,6 +153,7 @@ import { listProjects, projectDetail, projectMoney, type ProjectRow, type Projec
 import { listSettlements, settlementDetail, type SettlementDetails } from "@/api/business/finance";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
 import { settlementStatusText } from "@/utils/business/settlement-status";
+import type { HistoryTarget } from "../../../../server/shared/types/history";
 import { useUserStore } from "@/stores/user";
 
 const route = useRoute();
@@ -171,14 +181,33 @@ const detailId = ref("");
 const detailTitles = { facts: "结算正式事实及草稿", history: "结算正式历史", reconciliations: "结算逐笔对账" };
 const detailSection = ref<keyof typeof detailTitles>("facts");
 let portfolioRecord = "";
+let portfolioCost: { project: string; id: string } | undefined;
+const costDetailsOpen = ref(false);
+const costTarget = ref<HistoryTarget>();
+function showCostDetail(project: string, id: string) {
+  costTarget.value = { kind: "costs", project, id };
+  costDetailsOpen.value = true;
+}
+function openCostInProject() {
+  const target = costTarget.value;
+  if (!target?.project) return;
+  portfolioCost = { project: target.project, id: target.id };
+  void router.push({ name: "Finance", query: {
+    project: target.project, work: "costs", record: target.id,
+    source: "portfolio-cost", sourceList: route.query[LIST_QUERY_KEY],
+  } });
+}
+function backToCostPortfolio() {
+  void router.push({ name: "Finance", query: { view: "costs", [LIST_QUERY_KEY]: origin.sourceList } });
+}
 const detail = ref<SettlementDetails>();
 let detailSequence = 0;
 let scrollTop = 0;
 let deactivated = false;
-usePageOverlays([chooseProject,detailsOpen,exchangeOpen],{invalidate:()=>{
+usePageOverlays([chooseProject,detailsOpen,exchangeOpen,costDetailsOpen],{invalidate:()=>{
   detailSequence++;projectSequence++;
   detailsLoading.value=false;projectLoading.value=false;
-  detail.value=undefined;approvedProjects.value=[];projectTotal.value=0;
+  detail.value=undefined;costTarget.value=undefined;approvedProjects.value=[];projectTotal.value=0;
 }});
 
 function changePortfolioView(view: string | number) {
@@ -252,6 +281,11 @@ onActivated(async () => {
   await crud.value?.refresh();
   await nextTick();
   document.querySelector(".layout-content")?.scrollTo(0, scrollTop);
+  if (portfolioCost) {
+    const target = portfolioCost;
+    portfolioCost = undefined;
+    showCostDetail(target.project, target.id);
+  }
   if (portfolioRecord) {
     const record = portfolioRecord;
     portfolioRecord = "";
@@ -355,7 +389,10 @@ onMounted(async () => {
   if (!projectId) return;
   try {
     projectContext.value = await projectDetail(projectId, origin.archive === "true");
-    if (typeof origin.record === "string") await showDetails(origin.record);
+    if (typeof origin.record === "string") {
+      if (origin.work === "costs") showCostDetail(projectId, origin.record);
+      else await showDetails(origin.record);
+    }
   } catch (cause) {
     contextError.value = (cause as Error).message;
   }
