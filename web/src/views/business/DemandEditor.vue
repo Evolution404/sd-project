@@ -133,7 +133,7 @@
                   :rows="positionRows" :columns="positionColumns" :validate="validatePositions"
                   :disabled="saving" @change="updatePosition" />
               </div>
-              <el-collapse v-if="positions.length" v-model="expandedPositions" class="mt-3" aria-label="作业方式及位置属性">
+              <el-collapse v-if="positions.length" v-model="expandedPositions" class="mt-3" aria-label="位置属性及移除">
                 <el-collapse-item
                   v-for="position in visiblePositionDetails"
                   :key="position.id"
@@ -141,13 +141,6 @@
                   :title="position.label"
                 >
                   <template v-if="expandedPositions.includes(position.id)">
-                    <el-form-item label="作业方式">
-                      <el-select v-model="position.workMode" style="width: 180px">
-                        <el-option label="未明确" value="unspecified" />
-                        <el-option label="停电" value="outage" />
-                        <el-option label="不停电" value="non_outage" />
-                      </el-select>
-                    </el-form-item>
                     <DemandAttributeFields v-model="position.attributes" :fields="complexPositionFields" />
                     <el-button
                       link
@@ -295,6 +288,13 @@ import type {
   OperationAttribute,
 } from "../../../../server/shared/types/operation-attributes";
 
+const workModes = { unspecified: "未明确", outage: "停电", non_outage: "不停电" } as const;
+function workModeInput(value: string): NonNullable<DemandLocationInput["work_mode"]> {
+  const mode = (Object.keys(workModes) as Array<keyof typeof workModes>).find(key => workModes[key] === value);
+  if (!mode) throw Error("作业方式须选择未明确、停电或不停电");
+  return mode;
+}
+
 interface Position {
   id: string;
   label: string;
@@ -304,7 +304,7 @@ interface Position {
   physicalCode: string;
   quantity: string;
   specification: string;
-  workMode: NonNullable<DemandLocationInput["work_mode"]>;
+  workMode: string;
   attributes: AttributeValues;
   location: DemandLocationInput;
 }
@@ -457,7 +457,7 @@ watch(() => positions.value.length, count => {
 });
 const positionRows = computed(() => positions.value.map(row => ({
   id: row.id, label: row.label, values: {
-    label: row.label, line: row.line, quantity: row.quantity, specification: row.specification,
+    label: row.label, line: row.line, quantity: row.quantity, specification: row.specification, workMode: row.workMode,
     startTower:row.startTower,endTower:row.endTower,physicalCode:row.physicalCode,
     ...Object.fromEntries(scalarPositionFields.value.map(field => ["attribute:"+field.key,attributeText(field,row.attributes[field.key])])),
   },
@@ -471,6 +471,7 @@ const positionColumns = computed<WorksheetColumn[]>(()=>[
   {key:"line",title:"线路",width:145},
   {key:"quantity",title:"需求数量",width:125,editable:true,numeric:true},
   {key:"specification",title:"设备规格",width:170,editable:true},
+  {key:"workMode",title:"作业方式",width:125,editable:true,options:Object.values(workModes),required:true},
   ...scalarPositionFields.value.map(field=>({key:"attribute:"+field.key,title:field.label,width:160,editable:true,numeric:field.type==="integer"||field.type==="decimal",options:attributeOptions(field),multiple:field.type==="multiselect",required:field.requirement==="save"})),
   ...(positions.value.some(row=>row.location.location_kind==="span")?[{key:"startTower",title:"起点杆塔号",width:125},{key:"endTower",title:"终点杆塔号",width:125}]:[]),
   ...(positions.value.some(row=>row.location.location_kind==="physical_tower")?[{key:"physicalCode",title:"物理杆塔编号",width:150}]:[]),
@@ -670,7 +671,7 @@ async function addPositions(selected:EquipmentRow[],contextLineId?:string) {
         ...(type === "physical_tower" && contextLineId ? {context_line_id:contextLineId} : {}),
         quantity_scaled: 0,
       },
-      workMode: "unspecified",
+      workMode: workModes.unspecified,
       attributes: defaults(positionFields.value),
     });
   }
@@ -739,12 +740,14 @@ function validatePositions(values:WorksheetValues):WorksheetIssue[] {
     const raw=values[row.id]||{};
     try { quantity(raw.quantity??"",precision.value,"位置数量"); }
     catch(cause){issues.push(worksheetIssue(index+1,2,row.id,"quantity",row.label,cause));}
-    scalarPositionFields.value.forEach((field,i)=>{
+    try { workModeInput(raw.workMode??""); }
+    catch(cause){issues.push(worksheetIssue(index+1,positionColumns.value.findIndex(col=>col.key==="workMode"),row.id,"workMode",row.label,cause));}
+    scalarPositionFields.value.forEach((field)=>{
       const key="attribute:"+field.key, text=raw[key]??"";
       try {
         if (!text.trim()) { if(field.requirement==="save") throw Error(field.label+"不能为空"); return; }
         attributeInput(field,text);
-      }catch(cause){issues.push(worksheetIssue(index+1,i+4,row.id,key,row.label,cause));}
+      }catch(cause){issues.push(worksheetIssue(index+1,positionColumns.value.findIndex(col=>col.key===key),row.id,key,row.label,cause));}
     });
   });
   return issues;
@@ -760,7 +763,7 @@ function validateMaterial(values:WorksheetValues):WorksheetIssue[] {
 function updatePosition(values:WorksheetValues) {
   for(const row of positions.value){
     const fields=values[row.id]; if(!fields)continue;
-    row.quantity=fields.quantity??""; row.specification=fields.specification??"";
+    row.quantity=fields.quantity??""; row.specification=fields.specification??""; row.workMode=fields.workMode??"";
     for(const field of scalarPositionFields.value){
       const value=fields["attribute:"+field.key]??"";
       if(value==="")delete row.attributes[field.key];
@@ -810,7 +813,7 @@ function command(separate: boolean): DemandWriteInput {
     work_locations: positions.value.map((row) => ({
       ...row.location,
       specification: row.specification,
-      work_mode: row.workMode,
+      work_mode: workModeInput(row.workMode),
       quantity_scaled: quantity(row.quantity, precision.value, row.label + "的"),
       attributes: attributesForSave(row.attributes, positionFields.value),
     })),
@@ -918,7 +921,7 @@ async function load() {
       physicalCode:row.location_snapshot_json.physical_code||"",
       quantity: formatScaledDecimal(row.quantity_scaled, 4),
       specification: row.location_snapshot_json.specification,
-      workMode: row.work_mode,
+      workMode: workModes[row.work_mode],
       attributes: { ...row.attributes },
       location: {
         location_kind: row.location_kind,

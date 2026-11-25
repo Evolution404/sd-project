@@ -12,7 +12,7 @@ const shapes=[[100,10,1000],[500,15,2000],[1000,20,3000]];
 const cases=shapes.map(([rows,columns,targetMs])=>{
   const operation=save("operations",{
     name:`正式工作表尺寸性能 ${rows}×${columns}`, work_object_id:object.id,default_unit_id:unit.id,completion_standard:"测试业务标准",
-    attributes_schema_json:Array.from({length:columns-5},(_,index)=>({
+    attributes_schema_json:Array.from({length:columns-6},(_,index)=>({
       key:"size_probe_"+index,label:"尺寸试验属性"+index,scope:"location",source:"manual",type:"text",
       requirement:"optional",pricing:false,enabled:true,sort_order:index+1,hint:"",
     })),
@@ -56,19 +56,17 @@ try{
       results.push(result);
       console.log("WORKSHEET_EXACT_DIMENSION_RESULT",JSON.stringify(result));
       if (rows === 100) {
-        const details = page.locator('.el-collapse[aria-label="作业方式及位置属性"]');
+        const details = page.locator('.el-collapse[aria-label="位置属性及移除"]');
         const pagination = page.locator(".el-pagination .el-pager");
         const position = details.locator(".el-collapse-item").filter({ hasText: "EXACT-100-99" });
         assert.equal(await details.locator(".el-collapse-item").count(), 20);
         await pagination.getByText("5", { exact: true }).click();
         await position.getByRole("button").first().click();
-        const mode = position.getByText("未明确", { exact: true });
-        await mode.click();
-        await page.getByRole("option", { name: "停电", exact: true }).click();
+        await position.getByRole("button",{name:"移除该位置"}).waitFor();
         await pagination.getByText("1", { exact: true }).click();
         assert.equal(await position.count(), 0);
         await pagination.getByText("5", { exact: true }).click();
-        await position.getByText("停电", { exact: true }).waitFor();
+        await position.getByRole("button",{name:"移除该位置"}).waitFor();
         assert.equal(measurement.rows, 100);
         console.log("WORKSHEET_DETAIL_PAGING_OK all 100 records and native position metadata across pages");
       }

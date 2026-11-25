@@ -243,6 +243,37 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     host.removeEventListener("pointercancel",clearPointer,true);
   }});
 
+  // Univer renders only the configured sheet columns/rows, but its canvas
+  // spans the host. Wheel over unused canvas must reach the surrounding form;
+  // wheel over real cells remains local, including at a scroll boundary.
+  function routeBlankWheel(event: WheelEvent) {
+    if (event.ctrlKey || event.metaKey || !rows.length || !columns.length) return;
+    const render=univer.__getInjector().get(IRenderManagerService).getRenderUnitById(book.getId());
+    const canvas=render?.engine.getCanvasElement();
+    const viewport=render&&getViewportByCell(1,columns.length-1,render.scene,sheet.getSheet());
+    if(!render||!canvas||!viewport)return;
+    const bounds=canvas.getBoundingClientRect();
+    const zoom=render.scene.getAncestorScale();
+    const scale=bounds.width/(parseFloat(canvas.style.width)||bounds.width);
+    const last=sheet.getRange(1,columns.length-1).getCellRect();
+    const right=bounds.left+(last.right-viewport.viewportScrollX)*scale*zoom.scaleX;
+    // Do not intercept the native vertical scrollbar or column/row headers.
+    if(event.clientX<=right+1 || event.clientX>=bounds.right-14 ||
+       event.clientY<bounds.top+25*scale || event.clientY>=bounds.bottom-14)return;
+    event.stopImmediatePropagation();
+    event.preventDefault();
+    for(let parent=host.parentElement;parent;parent=parent.parentElement){
+      const style=getComputedStyle(parent);
+      if(!/(auto|scroll)/.test(style.overflowY)||parent.scrollHeight<=parent.clientHeight+1)continue;
+      const multiplier=event.deltaMode===1?16:event.deltaMode===2?parent.clientHeight:1;
+      const before=parent.scrollTop;
+      parent.scrollTop+=event.deltaY*multiplier;
+      if(parent.scrollTop!==before)return;
+    }
+  }
+  host.addEventListener("wheel",routeBlankWheel,{capture:true,passive:false});
+  subscriptions.push({dispose(){host.removeEventListener("wheel",routeBlankWheel,true);}});
+
   const history = univer.__getInjector().get(IUndoRedoService);
   const historySubscription = history.undoRedoStatus$.subscribe(() => onHistory?.(history.getUndoRedoStatus(book.getId())));
   subscriptions.push({dispose: () => historySubscription.unsubscribe()});
