@@ -177,10 +177,19 @@ export interface SettlementDemandLabel {
   problem_description: string;
   unit: string;
 }
+export interface SettlementLocationLabel {
+  location_kind: string;
+  line_name: string;
+  tower_no: string;
+  asset_no: string;
+  physical_code: string;
+  start_tower_no: string;
+  end_tower_no: string;
+}
 export interface SettlementDocumentDetails {
   approval_version_no: number;
   items: (SettlementItemInput & { cost_node_name: string; demand: SettlementDemandLabel | null })[];
-  resolutions: (SettlementResolutionInput & { demand: SettlementDemandLabel })[];
+  resolutions: (SettlementResolutionInput & { demand: SettlementDemandLabel; position: SettlementLocationLabel })[];
 }
 export interface SettlementDetails extends SettlementWorkflow {
   deleted: boolean;

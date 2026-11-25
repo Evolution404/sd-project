@@ -37,6 +37,12 @@
     </el-table-column>
     <el-table-column prop="demand.problem_description" label="问题描述" min-width="210" />
     <el-table-column prop="location_item_no" label="批准位置序号" min-width="125" />
+    <el-table-column prop="position.line_name" label="线路名称" min-width="150" />
+    <el-table-column prop="position.tower_no" label="杆塔号" min-width="110" />
+    <el-table-column prop="position.start_tower_no" label="档距起点" min-width="110" />
+    <el-table-column prop="position.end_tower_no" label="档距终点" min-width="110" />
+    <el-table-column prop="position.asset_no" label="物理杆塔铭牌" min-width="150" />
+    <el-table-column prop="position.physical_code" label="物理杆塔编号" min-width="150" />
     <el-table-column label="解决量" min-width="105">
       <template #default="{row}">{{ formatScaledDecimal(row.resolved_quantity_scaled, 4) }}</template>
     </el-table-column>

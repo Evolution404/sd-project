@@ -1,5 +1,5 @@
 import { locationDisplayFields } from "../../shared/location-display.js";
-import type { SettlementDemandLabel, SettlementVersion } from "../../shared/types/finance-workflows.js";
+import type { SettlementDemandLabel, SettlementLocationLabel, SettlementVersion } from "../../shared/types/finance-workflows.js";
 import type { createStore } from "./store.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
@@ -129,7 +129,20 @@ export function financeReadRepository(store: Store) {
           json_extract(sc.snapshot_json,'$.unit_snapshot') AS unit
         FROM project_approval_scope_versions sc JOIN demands d ON d.id=sc.demand_id
         WHERE sc.approval_version_id=?`, approvalId);
-      return { version_no: approval.version_no, scopes };
+      // Read only the work locations of the adopted, immutable approval/demand versions.
+      const positions = store.query<{project_scope_id:string;location_item_no:number;location_kind:string;snapshot_json:string}>(`
+        SELECT sc.project_scope_id,loc.location_item_no,work.location_kind,work.location_snapshot_json AS snapshot_json
+        FROM project_approval_scope_versions sc
+        JOIN project_approval_work_locations loc ON loc.approval_scope_version_id=sc.id
+        JOIN demand_version_work_locations work ON work.demand_id=sc.demand_id
+          AND work.demand_version=sc.demand_version AND work.item_no=loc.location_item_no
+        WHERE sc.approval_version_id=?`, approvalId);
+      return { version_no: approval.version_no, scopes,
+        positions: positions.map(({snapshot_json,...position}): SettlementLocationLabel & {project_scope_id:string;location_item_no:number} => {
+          const {line_name,tower_no,asset_no,physical_code,start_tower_no,end_tower_no} =
+            locationDisplayFields(position.location_kind,JSON.parse(snapshot_json));
+          return {...position,line_name,tower_no,asset_no,physical_code,start_tower_no,end_tower_no};
+        }) };
     },
     effectiveSettlementReport(ids: string[]) {
       const values = JSON.stringify(ids);

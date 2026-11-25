@@ -2,7 +2,7 @@ import { applyNativeListQuery, type NativeListOptions } from "@/utils/business/n
 import { yuanToFen } from "./funding";
 import { randomRequestId } from "@/utils/business/request-id";
 import type { FinanceListItem } from "../../../../server/shared/types/finance";
-import type { SettlementDemandLabel } from "../../../../server/shared/types/finance-workflows";
+import type { SettlementDemandLabel, SettlementLocationLabel } from "../../../../server/shared/types/finance-workflows";
 
 export type SettlementMode = "project_total" | "itemized";
 export interface SettlementItemInput {
@@ -51,7 +51,7 @@ export interface SettlementDetails extends SettlementRow {
   document_details?:{
     approval_version_no:number;
     items:Array<SettlementItemInput&{cost_node_name:string;id?:string}>;
-    resolutions:Array<SettlementResolutionInput&{demand:SettlementDemandLabel}>;
+    resolutions:Array<SettlementResolutionInput&{demand:SettlementDemandLabel;position:SettlementLocationLabel}>;
   }|null;
 }
 interface Page<T>{items:T[];total:number}

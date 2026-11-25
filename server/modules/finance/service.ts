@@ -225,6 +225,8 @@ export function createFinance(
       requireValue(label?.demand_no && label.unit, "无法读取结算采用的需求及计量单位", 409);
       return label;
     }
+    const positions = new Map(approval.positions.map(({ project_scope_id, location_item_no, ...position }) =>
+      [project_scope_id + ":" + location_item_no, position]));
     const categories = new Map(draft?.items.length
       ? repo.projectCostNodes(row.project_id).map(node => [node.id, node.name])
       : []);
@@ -235,8 +237,11 @@ export function createFinance(
         requireValue(item.cost_node_name, "无法读取结算采用的费用科目", 409);
         return { ...item, cost_node_name: item.cost_node_name, demand: item.project_scope_id ? demand(item.project_scope_id) : null };
       }),
-      resolutions: (draft?.resolutions ?? row.resolutions).map(resolution =>
-        ({ ...resolution, demand: demand(resolution.project_scope_id) })),
+      resolutions: (draft?.resolutions ?? row.resolutions).map(resolution => {
+        const position = positions.get(resolution.project_scope_id + ":" + resolution.location_item_no);
+        requireValue(position, "无法读取结算采用的批准位置", 409);
+        return { ...resolution, demand: demand(resolution.project_scope_id), position };
+      }),
     } };
   }
   // Approved quantities are project-specific; exclude this settlement when revising.

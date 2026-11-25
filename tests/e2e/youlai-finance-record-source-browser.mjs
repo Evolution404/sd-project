@@ -6,7 +6,7 @@ import { approvedFixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const cleanup = [];
-const { s, user, project, framework, node, scope } = approvedFixture({ after: done => cleanup.push(done) });
+const { s, user, project, framework, node, scope, towers } = approvedFixture({ after: done => cleanup.push(done) });
 const otherProject = s.projects.save(user, { name: "跨项目归属验收", framework_id: framework.id });
 const original = s.finance.saveDraft(user, project.id, {
   mode: "itemized",
@@ -15,6 +15,8 @@ const original = s.finance.saveDraft(user, project.id, {
 });
 s.finance.submit(user, original.id, { expected_version: 0, expected_edit_version: 1 });
 s.finance.review(user, original.id, { expected_version: 1, expected_event_seq: 1, action: "approve" });
+// Changing the current equipment master must not rewrite the adopted approval location.
+s.catalog.save(user, "physical", { expected_version: towers[0].version, asset_no: "T15-修订后" }, towers[0].id);
 const draft = s.finance.saveDraft(user, project.id, {
   mode: "project_total", amount_fen: 16600, basis: "第二笔单独保存的草稿",
 });
@@ -72,6 +74,9 @@ try {
   await button(bill(original.number), "查看详情").click();
   await details.getByRole("cell", { name: "套", exact: true }).waitFor();
   await details.getByRole("cell", { name: "首笔位置完成依据", exact: true }).waitFor();
+  await details.getByRole("columnheader", { name: "物理杆塔铭牌", exact: true }).waitFor();
+  await details.getByRole("cell", { name: "T15", exact: true }).waitFor();
+  assert.equal(await details.getByRole("cell", { name: "T15-修订后", exact: true }).count(), 0);
   await details.getByRole("columnheader", { name: "费用科目", exact: true }).waitFor();
   await button(details, "重新读取结算").click();
   await details.getByText("¥108.00", { exact: true }).first().waitFor();
