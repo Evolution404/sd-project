@@ -42,13 +42,16 @@ mkdirSync(screenshots, { recursive: true });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const button = (scope, name) => scope.getByRole("button", { name, exact: true });
+async function openFinance(browserPage) {
+  await browserPage.goto(origin + "/#/login");
+  await browserPage.getByPlaceholder("用户名").fill("admin");
+  await browserPage.getByPlaceholder("密码").fill("Schema113-test-password");
+  await button(browserPage, "登录").click();
+  await browserPage.waitForURL(/#\/dashboard/);
+  await browserPage.goto(origin + "/#/funding/finance?project=" + project.id);
+}
 try {
-  await page.goto(origin + "/#/login");
-  await page.getByPlaceholder("用户名").fill("admin");
-  await page.getByPlaceholder("密码").fill("Schema113-test-password");
-  await button(page, "登录").click();
-  await page.waitForURL(/#\/dashboard/);
-  await page.goto(origin + "/#/funding/finance?project=" + project.id);
+  await openFinance(page);
   await page.getByRole("tab", { name: "结算单", exact: true }).waitFor();
   const billSearch = page.getByPlaceholder("结算编号 / 项目名称 / 项目编号");
   await billSearch.fill(selected.number);
@@ -90,11 +93,12 @@ try {
   await form.getByRole("textbox", { name: "核对结算金额（元）" }).fill("10");
   await form.getByRole("textbox", { name: "核对依据" }).fill("目标结算跨页核对证据");
   await button(form, "保存核对").click();
+  await form.waitFor({ state: "hidden" });
   await scoped.getByText("目标结算跨页核对证据", { exact: true }).waitFor();
   assert.equal(await scoped.getByText("另一结算核对证据").count(), 0);
   const persisted = s.finance.reconciliations(project.id).find(row => row.evidence === "目标结算跨页核对证据");
   assert.deepEqual([persisted.cost_version_id, persisted.settlement_item_version_id], [cost.id, selected.items[0].id]);
-  await page.screenshot({ path: join(screenshots, "settlement-scoped-reconciliation-1920.png"), animations: "disabled" });
+  await page.screenshot({ path: join(screenshots, "settlement-scoped-reconciliation-1920-light.png"), animations: "disabled" });
   await button(scoped, "返回结算详情").click();
   await details.getByText("目标结算凭据", { exact: true }).waitFor();
   await details.locator(".el-drawer__close-btn").click();
@@ -125,6 +129,20 @@ try {
   await page.getByText("实际费用起始的跨页核对", { exact: true }).waitFor();
   const portfolio = s.finance.reconciliations(project.id).find(row => row.evidence === "实际费用起始的跨页核对");
   assert.deepEqual([portfolio.cost_version_id, portfolio.settlement_item_version_id], [cost.id, differentBill.id]);
+  const dark = await browser.newPage({ viewport: { width: 1920, height: 1080 }, colorScheme: "dark" });
+  dark.on("pageerror", error => errors.push(error.message));
+  await openFinance(dark);
+  await dark.waitForFunction(() => document.documentElement.classList.contains("dark"));
+  const filter = dark.getByPlaceholder("结算编号 / 项目名称 / 项目编号");
+  await filter.fill(selected.number);
+  await filter.press("Enter");
+  const darkRow = dark.getByRole("row").filter({ has: dark.getByRole("cell", { name: selected.number, exact: true }) });
+  await button(darkRow, "查看详情").click();
+  await button(dark.getByRole("dialog", { name: "结算正式事实及草稿", exact: true }), "逐笔对账").click();
+  const darkDrawer = dark.getByRole("dialog", { name: "结算逐笔对账", exact: true });
+  await darkDrawer.getByText("目标结算跨页核对证据", { exact: true }).waitFor();
+  assert.equal(await darkDrawer.getByText("实际费用起始的跨页核对", { exact: true }).count(), 0);
+  await dark.screenshot({ path: join(screenshots, "settlement-scoped-reconciliation-1920-dark.png"), animations: "disabled" });
   assert.deepEqual(errors, []);
   console.log("YOULAI_SCOPED_RECONCILIATION_OK independent bill scope, 35 matching costs and 35 approved settlements, stable cross-page selection in both directions");
 } catch (error) {
