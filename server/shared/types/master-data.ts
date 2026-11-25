@@ -111,3 +111,13 @@ export type DictionaryDetail = DefinitionDetail<
   DictionaryVersion
 >;
 export type MaterialDetail = DefinitionDetail<MaterialRecord, MaterialVersion>;
+
+export const MAX_MATERIAL_WORKSHEET_ROWS = 100;
+export const MATERIAL_CREATE_WORKSHEET_FIELDS = ["name", "unit_id", "model", "specification", "note"] as const;
+export interface MaterialWorksheetIssue { row: number; field?: string; message: string }
+export interface MaterialWorksheetResult {
+  count: number;
+  issues: MaterialWorksheetIssue[];
+  fingerprint?: string;
+  ids?: string[];
+}

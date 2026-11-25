@@ -14,18 +14,13 @@
 <script setup lang="ts">
 import {computed,ref,watch} from "vue";
 import NativeRecordPicker from "./NativeRecordPicker.vue";
+import { equipmentReferenceColumns } from "./equipment-reference-columns";
 import {getEquipment,listEquipment,type EquipmentRow,type EquipmentKind} from "@/api/business/equipment";
 const props=defineProps<{modelValue?:string|null;kind:EquipmentKind;title:string;lineId?:string;mainOnly?:boolean;clearable?:boolean;disabled?:boolean}>();
 const emit=defineEmits<{"update:modelValue":[value:string|null]}>();
 const open=ref(false),selected=ref<EquipmentRow>();
 let generation=0;
-const columns=computed<{key:keyof EquipmentRow;label:string;width?:number}[]>(()=>props.kind==="lines"?[
-  {key:"name",label:"线路名称",width:180},{key:"voltage_level_name",label:"电压等级"},{key:"line_code",label:"线路编号"}
-]:props.kind==="physical"?[
-  {key:"tower_code",label:"物理杆塔编号"},{key:"asset_no",label:"现场铭牌"},{key:"tower_material_label",label:"杆塔材质"},{key:"model",label:"型号"}
-]:[
-  {key:"line_id_label",label:"所属线路",width:180},{key:"voltage_level_name",label:"电压等级"},{key:"tower_no",label:"杆塔号"},{key:"logical_code",label:"逻辑杆塔编号"}
-]);
+const columns=computed(() => equipmentReferenceColumns(props.kind));
 watch(()=>[props.kind,props.modelValue] as const,async ([kind,id])=>{
   const token=++generation;
   if(!id){selected.value=undefined;return}

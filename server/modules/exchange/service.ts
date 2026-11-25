@@ -28,6 +28,7 @@ import type {DetailKind} from "./details.js";
 import {financeSettlementDraft} from "../finance/draft-input.js";
 import {createExchangeExporter} from "./export.js";
 import { parseOnlineDemands } from "./online-demands.js";
+import { parseOnlineAssets } from "./online-assets.js";
 export function createExchange(system:ExchangePorts) {
   const { exchangePersistence, catalog, demands, finance } = system;
   const assets = createAssetExchange(system);
@@ -672,6 +673,48 @@ export function createExchange(system:ExchangePorts) {
     };
   }
 
+  function previewAssetWorksheet(actor: Actor, input: unknown) {
+    authorize(actor, "admin");
+    const started = performance.now();
+    const parsed = parseOnlineAssets(input, system.equipment);
+    const mode = "create";
+    const sha256 = digest("asset-worksheet:" + JSON.stringify(parsed));
+    const previous = previousWorkbook(actor, "assets", sha256);
+    if (previous) return previousPreview(previous);
+    const parsedAt = performance.now();
+    const prepared = assets.prepare(parsed, mode);
+    const discard = new Error("discard asset worksheet preview");
+    if (!prepared.issues.length) {
+      try {
+        exchangePersistence.withDocumentSavepoint(() => {
+          for (const doc of prepared.documents) {
+            try {
+              exchangePersistence.withDocumentSavepoint(() => assets.execute(actor, doc));
+            } catch (cause) {
+              if (!(cause instanceof BusinessError)) throw cause;
+              prepared.issues.push(issue(doc.sheet, doc.row, Object.keys(cause.fields)[0] || "document", doc.number, cause.message));
+            }
+          }
+          throw discard;
+        });
+      } catch (cause) {
+        if (cause !== discard) throw cause;
+      }
+    }
+    prepared.invalid_document_count = new Set(prepared.issues.map(item => item.sheet + "/" + item.row)).size;
+    const token = id();
+    const timestamp = now();
+    exchangePersistence.createBatch({
+      id: token,
+      draft_json: JSON.stringify({ kind: "assets", source: "worksheet", mode, sha256, parsed, worksheetInput: input, ...prepared }),
+      created_by: actor.id, created_at: timestamp, updated_at: timestamp,
+    });
+    return {
+      token, ...prepared, summary: counts(prepared),
+      timings_ms: { parse: parsedAt - started, total: performance.now() - started },
+    };
+  }
+
   function previousPreview(prior: { token: string; result: ExchangeCommitResult }): ExchangePreview {
     return {
       token: prior.token, documents: [], issues: prior.result.issues, previous: prior.result,
@@ -679,7 +722,7 @@ export function createExchange(system:ExchangePorts) {
       timings_ms: { parse: 0, total: 0 },
     };
   }
-  function counts(prepared:ExchangePrepareResult) {
+  function counts(prepared:Pick<ExchangePrepareResult, "document_count" | "invalid_document_count" | "documents" | "issues">) {
     return {
       documents: prepared.document_count,
       invalid_documents: prepared.invalid_document_count,
@@ -722,6 +765,12 @@ export function createExchange(system:ExchangePorts) {
           system.projects.authorizeOwnedProject(actor, "write", body.projectId);
         const previous = previousWorkbook(actor, body.kind, body.sha256, body.projectId);
         requireValue(previous?.token === body.repeatOf, "此文件已被导入，请重新上传并查看上次结果。", 409);
+        if (online && body.kind === "assets") {
+          const live = parseOnlineAssets(body.worksheetInput, system.equipment);
+          requireValue(JSON.stringify(live) === JSON.stringify(body.parsed),
+            "采用的设备引用已变化，请重新预检", 409,
+            { issues: live.issues.map(problem => problem.sheet + " 第" + problem.row + "行：" + problem.reason) });
+        }
         const prepared =
             body.kind === "assets"
               ? assets.prepare(body.parsed, body.mode)
@@ -757,6 +806,12 @@ export function createExchange(system:ExchangePorts) {
                 number: resultNumber, id: result.id, action: document.action,
               });
             } catch (error) {
+              if (online && error instanceof BusinessError && error.status !== 403) {
+                const field = Object.keys(error.fields)[0] || "document";
+                throw new BusinessError(error.message, error.status, {
+                  issues: [document.sheet + " 第" + document.row + "行 " + field + "：" + error.message],
+                });
+              }
               if (input.atomic || (error instanceof BusinessError && error.status === 403)) throw error;
               failures.push(
                 issue(
@@ -825,6 +880,7 @@ export function createExchange(system:ExchangePorts) {
   return {
     preview,
     previewDemandWorksheet,
+    previewAssetWorksheet,
     commit,
     exportData,
     projectReport(actor: Actor, ids: string[], listQuery?: ListQuery) {

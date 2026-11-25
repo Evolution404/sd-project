@@ -14,6 +14,8 @@
     </template>
   </CrudPage>
   <MaterialBulkEditor v-if="bulkMode" :records="bulkRecords" :page="bulkPage" :total="bulkTotal" @cancel="endBulkEdit(false)" @saved="endBulkEdit(true)" />
+  <CatalogCreateWorksheet v-if="createBatchOpen" ref="createBatchEditor" kind="materials"
+    :options="{unit_id:unitOptions}" @close="createBatchOpen = false" @saved="createdBatch" />
   <el-drawer v-model="historyVisible" title="物资正式版本历史" size="640px" append-to-body>
     <el-skeleton v-if="historyLoading" :rows="6" animated />
     <template v-else>
@@ -39,7 +41,9 @@
 
 <script setup lang="ts">
 import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
-import {nextTick,onMounted,ref} from "vue";
+import {defineAsyncComponent,nextTick,onMounted,ref} from "vue";
+import {usePageOverlays} from "@/composables/usePageOverlays";
+import {MAX_MATERIAL_WORKSHEET_ROWS} from "../../../../server/shared/types/master-data";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import MaterialBulkEditor from "./MaterialBulkEditor.vue";
 import type {CrudRecord,CrudSearchConfig,CrudTableConfig,CrudFormConfig} from "@/components/Crud/types";
@@ -53,6 +57,14 @@ defineOptions({name:"MaterialsAdministration"});
 
 const crud=ref<InstanceType<typeof CrudPage>>();
 const unitOptions=ref<OptionItem[]>([]);
+const CatalogCreateWorksheet = defineAsyncComponent(() => import("@/components/business/CatalogCreateWorksheet.vue"));
+const createBatchOpen = ref(false);
+const createBatchEditor = ref<InstanceType<typeof CatalogCreateWorksheet>>();
+async function createdBatch() {
+  createBatchOpen.value = false;
+  await crud.value?.refresh();
+}
+usePageOverlays([createBatchOpen], { mayLeave: () => createBatchOpen.value ? createBatchEditor.value?.mayLeave() ?? true : true });
 const bulkMode=ref(false);
 const bulkRecords=ref<Material[]>([]);
 const bulkPage=ref(1),bulkTotal=ref(0);
@@ -63,7 +75,7 @@ function startBulkEdit({selectedRows}: {selectedRows:readonly CrudRecord[]}) {
   if(!loaded?.rows.length){ElMessage.warning("请先查询需要批量编辑的物资");return}
   const source=selectedRows.length ? selectedRows as readonly Material[] : loaded.rows;
   const selected=source.filter(row=>!row.deleted);
-  if(selected.length>100){ElMessage.warning("单次批量编辑最多100条，请缩小范围或使用Excel导入");return}
+  if(selected.length>MAX_MATERIAL_WORKSHEET_ROWS){ElMessage.warning("单次批量编辑最多"+MAX_MATERIAL_WORKSHEET_ROWS+"条，请缩小范围");return}
   bulkRecords.value=selected.map(row=>({...row}));
   if(!bulkRecords.value.length){ElMessage.warning("当前页只有已删除记录，不能编辑");return}
   bulkPage.value=loaded.page;bulkTotal.value=loaded.total;bulkMode.value=true;
@@ -106,6 +118,7 @@ const tableConfig:CrudTableConfig={
   },
   toolbarActions:[
     {key:"create",label:"新增物资",permission:"admin"},
+    {key:"bulk-create",label:"批量新增物资",permission:"admin",onClick:()=>{createBatchOpen.value=true}},
     {key:"bulk",label:"进入批量编辑",permission:"admin",disabled:({selectedRows})=>!selectedRows.some(row=>!row.deleted)&&!loadedPage.value?.rows.some(row=>!row.deleted),onClick:startBulkEdit},
   ],
   tableTools:["refresh","columns","search"],

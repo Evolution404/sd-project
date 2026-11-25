@@ -19,9 +19,10 @@ import {computed,onMounted,onUnmounted,ref,shallowRef} from "vue";
 import {onBeforeRouteLeave,onBeforeRouteUpdate} from "vue-router";
 import {ElMessage,ElMessageBox} from "element-plus";
 import {listRouteIdentity} from "@/components/Crud/utils/list-state";
+import {randomRequestId} from "@/utils/business/request-id";
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
 import type {WorksheetColumn,WorksheetRow,WorksheetValues,WorksheetIssue} from "@/components/BusinessWorksheet/univer-engine";
-import {bulkUpdateEquipment,type EquipmentRow} from "@/api/business/equipment";
+import {bulkUpdateEquipment,previewEquipmentBatch,type EquipmentRow} from "@/api/business/equipment";
 import type {OptionItem} from "@/api/common";
 import {EQUIPMENT_BULK_FIELDS,EQUIPMENT_FIELD_META,equipmentStatus,equipmentLineKind,type EquipmentBulkKind} from "../../../../server/shared/equipment-bulk";
 import {exactScaledDecimalText,formatScaledDecimal} from "@/utils/business/fixed-scale";
@@ -123,16 +124,27 @@ onBeforeRouteLeave(leaveRoute);
 onBeforeRouteUpdate((to,from)=>listRouteIdentity(to.fullPath)===listRouteIdentity(from.fullPath)?true:leaveRoute());
 onMounted(()=>window.addEventListener("beforeunload",beforeUnload));
 onUnmounted(()=>window.removeEventListener("beforeunload",beforeUnload));
+let writeProof:{fingerprint:string;key:string;input:string}|undefined;
 async function save(){
   if(!ready.value||saving.value)return;
   saving.value=true;
   try{
     const values=await sheet.value?.prepareSave();if(!values)return;
     const pending=collect(values);if(!pending.length){ElMessage.info("没有需要保存的修改");return}
+    const input=JSON.stringify(pending);
+    if(writeProof?.input!==input){
+      const {fingerprint}=await previewEquipmentBatch(props.kind,pending);
+      writeProof={fingerprint,key:randomRequestId(),input};
+    }
     await ElMessageBox.confirm("将为 "+pending.length+" 条设备生成新正式版本，任一验证失败整批回滚。确认保存？","提交设备批量修改",{type:"warning",confirmButtonText:"确认保存",cancelButtonText:"继续编辑"});
-    const result=await bulkUpdateEquipment(props.kind,pending);
+    const result=await bulkUpdateEquipment(props.kind,pending,writeProof);
     ElMessage.success("已更新 "+result.count+" 条设备的正式版本");emit("saved");
-  }catch(e){if(e!=="cancel"&&e!=="close")ElMessage.error(e instanceof Error?e.message:String(e))}
+  }catch(e){
+    if(e==="cancel"||e==="close")return;
+    const failure=e as Error & {fields?:{batch_id?:string;batch_field?:string}};
+    if(failure.fields?.batch_id)sheet.value?.focusField(failure.fields.batch_id,failure.fields.batch_field||"");
+    ElMessage.error(failure.message);
+  }
   finally{saving.value=false}
 }
 </script>

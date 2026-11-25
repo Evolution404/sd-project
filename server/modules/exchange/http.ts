@@ -57,8 +57,8 @@ export async function handleExchange(context: RouteContext): Promise<{
                 return;
             }
             if (sub === "worksheet-preview") {
-                requireValue(!read && context.method === "POST" && key === "demands", "只允许预检需求工作表", 405);
-                const preview = exchange.previewDemandWorksheet(actor, input);
+                requireValue(!read && context.method === "POST" && (key === "demands" || key === "assets"), "工作表预检请求无效", 405);
+                const preview = key === "assets" ? exchange.previewAssetWorksheet(actor, input) : exchange.previewDemandWorksheet(actor, input);
                 result = {
                     ...preview,
                     documents: preview.documents.map(({ id, number, action, sheet, row }) => ({ id, number, action, sheet, row })),

@@ -26,3 +26,12 @@ export const EQUIPMENT_FIELD_META:Record<string,{title:string;type:"text"|"selec
   display_name:{title:"显示名称",type:"text"},operations_team:{title:"运维班组",type:"text"},management_department:{title:"管理部门",type:"text"},
   transmission_center_length_mm:{title:"管辖长度（米）",type:"number",precision:3},
 };
+
+export const MAX_EQUIPMENT_WORKSHEET_ROWS = 100;
+
+export const EQUIPMENT_CREATE_WORKSHEET_FIELDS = {
+  lines: ["name", "voltage_name", "line_kind", "parent_line_id", "junction_tower_id"],
+  physical: EQUIPMENT_BULK_FIELDS.physical,
+  towers: ["line_id", "physical_tower_id", ...EQUIPMENT_BULK_FIELDS.towers],
+  spans: ["line_id", "start_tower_id", "end_tower_id", "transmission_center_length_mm"],
+} as const;

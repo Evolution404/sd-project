@@ -25,9 +25,10 @@ import { computed, onMounted, onUnmounted, ref, shallowRef } from "vue";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { listRouteIdentity } from "@/components/Crud/utils/list-state";
 import { ElMessage, ElMessageBox } from "element-plus";
+import {randomRequestId} from "@/utils/business/request-id";
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
 import type { WorksheetColumn, WorksheetRow, WorksheetValues, WorksheetIssue } from "@/components/BusinessWorksheet/univer-engine";
-import { bulkUpdateMaterial, type Material } from "@/api/business/materials";
+import { bulkUpdateMaterial, previewMaterialBatch, type Material } from "@/api/business/materials";
 defineOptions({ name:"MaterialBulkEditor" });
 const props = defineProps<{ records: Material[]; page: number; total: number }>();
 const emit = defineEmits<{cancel:[],saved:[]}>();
@@ -82,6 +83,7 @@ onBeforeRouteLeave(leaveRoute);
 onBeforeRouteUpdate((to,from)=>listRouteIdentity(to.fullPath)===listRouteIdentity(from.fullPath)?true:leaveRoute());
 onMounted(()=>window.addEventListener("beforeunload",beforeUnload));
 onUnmounted(()=>window.removeEventListener("beforeunload",beforeUnload));
+let writeProof:{fingerprint:string;key:string;input:string}|undefined;
 async function save(){
   if(!ready.value||saving.value)return;
   saving.value=true;
@@ -90,12 +92,22 @@ async function save(){
     if(!values)return;
     const pending=collect(values);
     if(!pending.length){ElMessage.info("没有需要保存的修改");return}
+    const input=JSON.stringify(pending);
+    if(writeProof?.input!==input){
+      const {fingerprint}=await previewMaterialBatch(pending);
+      writeProof={fingerprint,key:randomRequestId(),input};
+    }
     await ElMessageBox.confirm("将为 "+pending.length+" 条物资生成新正式版本，任一验证失败整批回滚。确认保存？",
       "提交批量修改",{type:"warning",confirmButtonText:"确认保存",cancelButtonText:"继续编辑"});
-    const result=await bulkUpdateMaterial(pending);
+    const result=await bulkUpdateMaterial(pending,writeProof);
     ElMessage.success("已更新 "+result.count+" 条物资的正式版本");
     emit("saved");
-  }catch(e){if(e!=="cancel"&&e!=="close")ElMessage.error((e as Error).message)}
+  }catch(e){
+    if(e==="cancel"||e==="close")return;
+    const failure=e as Error & {fields?:{batch_id?:string;batch_field?:string}};
+    if(failure.fields?.batch_id)sheet.value?.focusField(failure.fields.batch_id,failure.fields.batch_field||"");
+    ElMessage.error(failure.message);
+  }
   finally{saving.value=false}
 }
 </script>

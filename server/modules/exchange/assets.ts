@@ -116,6 +116,9 @@ export function createAssetExchange(system: ExchangePorts) {
       values.line_id = refs.line(
         row.line_name, row.voltage_name, row.line_id,
       ).id;
+      if (row.physical_tower_id && !row.id) {
+        requireValue(resolveEquipment("physical", row.physical_tower_id).status === "active", "共塔须采用仍在运的物理实体");
+      }
       if (row.sharing_line_name || row.sharing_tower_no) {
         requireValue(
           row.sharing_line_name && row.sharing_tower_no,
@@ -473,7 +476,7 @@ export function createAssetExchange(system: ExchangePorts) {
       const key = doc.kind === "lines"
         ? JSON.stringify(["line", row.name, row.voltage_name || ""])
         : doc.kind === "physical"
-          ? JSON.stringify(["physical", row.id || row._row])
+          ? JSON.stringify(["physical", row.id || doc.row])
         : doc.kind === "towers"
           ? JSON.stringify(["tower", row.line_name, row.voltage_name || "",
             row.tower_no])

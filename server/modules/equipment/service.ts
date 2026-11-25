@@ -1,3 +1,4 @@
+import { locateCatalogBatchRow, previewCatalogBatch, verifyCatalogBatch } from "../../platform/catalog-batch-preview.js";
 import { authorize, id, now } from "../../platform/auth/service.js";
 import type { AuditService } from "../../platform/audit/service.js";
 import type { Database } from "../../database/connection.js";
@@ -23,7 +24,7 @@ import {
   text,
 } from "../../shared/errors/business-error.js";
 import { catalogDefinitions } from "../catalog/definitions.js";
-import { EQUIPMENT_BULK_FIELDS, isEquipmentBulkKind } from "../../shared/equipment-bulk.js";
+import { EQUIPMENT_BULK_FIELDS, isEquipmentBulkKind, MAX_EQUIPMENT_WORKSHEET_ROWS } from "../../shared/equipment-bulk.js";
 
 export function isEquipmentKind(kind: string): kind is EquipmentCatalogKind {
   return ["voltages", "lines", "physical", "towers", "spans"].includes(kind);
@@ -367,9 +368,10 @@ export function createEquipment(
   function bulk(actor: Actor, kind: EquipmentCatalogKind, input: unknown) {
     authorize(actor, "admin");
     requireValue(isEquipmentBulkKind(kind), "此设备类别不支持批量维护", 422);
-    requireValue(isObject(input) && Array.isArray(input.rows) && input.rows.length >= 1 && input.rows.length <= 100,
-      "每次请选择1至100条设备", 422);
+    requireValue(isObject(input) && Array.isArray(input.rows) && input.rows.length >= 1 && input.rows.length <= MAX_EQUIPMENT_WORKSHEET_ROWS,
+      "单次设备维护不得超过 " + MAX_EQUIPMENT_WORKSHEET_ROWS + " 条", 422);
     const rows = input.rows;
+    verifyCatalogBatch(actor, kind, rows, input.fingerprint);
     const allowed = new Set<string>(EQUIPMENT_BULK_FIELDS[kind]);
     return database.transaction(() => {
       const ids = new Set<string>();
@@ -378,9 +380,12 @@ export function createEquipment(
         const key = text(row.id, "设备ID");
         requireValue(!ids.has(key), "批次内设备身份重复", 422);
         ids.add(key);
-        const prior = get(kind, key);
-        expectedVersion(prior.version, row.expected_version);
-        requireValue(prior.status !== "retired", "退役设备请走独立历史维护流程", 422);
+        const prior = locateCatalogBatchRow(key, () => {
+          const record = get(kind, key);
+          expectedVersion(record.version, row.expected_version);
+          requireValue(record.status !== "retired", "退役设备请走独立历史维护流程", 422);
+          return record;
+        });
         requireValue(isObject(row.changes) && Object.keys(row.changes).length > 0, "修改字段不能为空", 422);
         const changes: Record<string, unknown> = {};
         for (const [field, raw] of Object.entries(row.changes)) {
@@ -421,7 +426,8 @@ export function createEquipment(
           }
         }
       }
-      for (const row of changed) save(actor, kind, { ...row.changes, expected_version: row.version, reason: "批量维护普通设备资料" }, row.key);
+      for (const row of changed) locateCatalogBatchRow(row.key, () =>
+        save(actor, kind, { ...row.changes, expected_version: row.version, reason: "批量维护普通设备资料" }, row.key));
       return {count: changed.length, ids: changed.map(row => row.key)};
     });
   }
@@ -440,6 +446,9 @@ export function createEquipment(
     get,
     save,
     bulk,
+    previewBulk(actor: Actor, kind: EquipmentCatalogKind, input: Record<string, unknown>) {
+      return previewCatalogBatch(actor, kind, input.rows, database.transaction, () => bulk(actor, kind, { rows: input.rows }));
+    },
     list: (
       kind: EquipmentCatalogKind,
       includeDeleted = false,

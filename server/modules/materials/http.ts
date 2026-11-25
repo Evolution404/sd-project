@@ -61,8 +61,16 @@ export async function handleMaterials(
       ),
     };
   requireValue(method === "POST", "物资写入请求方法无效", 405);
-  if (sub === "bulk") return {
-    result: mutate("admin", () => system.materials.saveBatch(actor,input.rows)),
+  if (sub === "worksheet" && subKey === "preview")
+    return { result: system.materials.createWorksheet(actor, input.rows) };
+  if (sub === "worksheet" && subKey === "commit") {
+    const fingerprint = input.fingerprint;
+    requireValue(typeof fingerprint === "string" && /^[0-9a-f]{64}$/.test(fingerprint), "请先完成物资工作表预检");
+    return { result: mutate("admin", () => system.materials.createWorksheet(actor, input.rows, fingerprint)) };
+  }
+  if (sub === "bulk" && subKey === "preview") return { result: system.materials.previewBulk(actor, input.rows) };
+  if (sub === "bulk" && !subKey) return {
+    result: mutate("admin", () => system.materials.saveBatch(actor, input.rows, input.fingerprint)),
   };
   return {
     result: mutate("admin", () =>

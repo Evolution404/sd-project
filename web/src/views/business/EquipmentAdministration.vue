@@ -31,6 +31,8 @@
     </CrudPage>
     <EquipmentBulkEditor v-if="bulkMode && bulkKind" :kind="bulkKind" :records="bulkRecords" :options="options"
       @cancel="endBulk(false)" @saved="endBulk(true)"/>
+    <CatalogCreateWorksheet v-if="createBatchOpen && createBatchKind" ref="createBatchEditor"
+      :kind="createBatchKind" :options="options" @close="createBatchOpen = false" @saved="createdBatch" />
     <BusinessExchangeDialog v-if="exchangeOpen" kind="assets" :asset-kind="exchangeKind"
       :applied-query="equipmentQuery" @close="exchangeOpen = false" @changed="refreshAssets" />
     <el-drawer v-model="detailVisible" :title="title+'设备关系与正式历史'"
@@ -98,10 +100,11 @@
 <script setup lang="ts">
 import {equipmentLineKind,equipmentStatus,EQUIPMENT_LINE_KINDS} from "../../../../server/shared/equipment-bulk";
 import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
-import {computed,nextTick,onMounted,ref} from "vue";
+import {computed,defineAsyncComponent,nextTick,onMounted,ref} from "vue";
+import {usePageOverlays} from "@/composables/usePageOverlays";
 import EquipmentBulkEditor from "./EquipmentBulkEditor.vue";
 import EquipmentReferenceField from "@/components/business/EquipmentReferenceField.vue";
-import {isEquipmentBulkKind,type EquipmentBulkKind} from "../../../../server/shared/equipment-bulk";
+import {isEquipmentBulkKind,MAX_EQUIPMENT_WORKSHEET_ROWS,type EquipmentBulkKind} from "../../../../server/shared/equipment-bulk";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import PhysicalTowerReplacement from "@/components/business/PhysicalTowerReplacement.vue";
 import DemandSetupNavigation from "@/components/business/DemandSetupNavigation.vue";
@@ -154,6 +157,19 @@ async function onReplaced(tower: EquipmentRow) {
   await showDetail(tower.id);
   await Promise.all([crud.value?.refresh(), refreshReferences()]);
 }
+const CatalogCreateWorksheet = defineAsyncComponent(() => import("@/components/business/CatalogCreateWorksheet.vue"));
+const createBatchOpen = ref(false), createBatchKind = ref<EquipmentBulkKind>();
+const createBatchEditor = ref<InstanceType<typeof CatalogCreateWorksheet>>();
+function startCreateBatch() {
+  if (!isEquipmentBulkKind(kind.value)) return;
+  createBatchKind.value = kind.value;
+  createBatchOpen.value = true;
+}
+async function createdBatch() {
+  createBatchOpen.value = false;
+  await refreshAssets();
+}
+usePageOverlays([createBatchOpen], { mayLeave: () => createBatchOpen.value ? createBatchEditor.value?.mayLeave() ?? true : true });
 const bulkMode=ref(false),bulkKind=ref<EquipmentBulkKind>(),bulkRecords=ref<EquipmentRow[]>([]);
 const loadedPage=ref<EquipmentRow[]>([]);
 const editableEquipment=(row:CrudRecord)=>!row.deleted&&row.status!=="retired";
@@ -162,7 +178,7 @@ function startBulk({selectedRows}:{selectedRows:readonly CrudRecord[]}){
   const source=selectedRows.length?selectedRows as readonly EquipmentRow[]:loadedPage.value;
   const selected=source.filter(editableEquipment);
   if(!selected.length){ElMessage.warning("请选择可维护的设备");return}
-  if(selected.length>100){ElMessage.warning("单次批量编辑最多100条");return}
+  if(selected.length>MAX_EQUIPMENT_WORKSHEET_ROWS){ElMessage.warning("单次批量编辑最多"+MAX_EQUIPMENT_WORKSHEET_ROWS+"条");return}
   bulkKind.value=kind.value;bulkRecords.value=selected.map(row=>({...row}));bulkMode.value=true;
 }
 async function endBulk(saved:boolean){bulkMode.value=false;await nextTick();if(saved)await refreshAssets()}
@@ -195,6 +211,7 @@ const tableConfig=computed<CrudTableConfig>(()=>({
   },
   toolbarActions:[
     {key:"create",label:"新增"+title.value,permission:"admin"},
+    {key:"bulk-create",label:"批量新增",permission:"admin",visible:()=>isEquipmentBulkKind(kind.value),onClick:startCreateBatch},
     {key:"bulk",label:"进入批量编辑",permission:"admin",visible:()=>isEquipmentBulkKind(kind.value),
       disabled:({selectedRows})=>!selectedRows.some(editableEquipment)&&!loadedPage.value.some(editableEquipment),onClick:startBulk},
     {key:"exchange",label:"导入 Excel",permission:"admin",visible:()=>Boolean(exchangeKind.value),

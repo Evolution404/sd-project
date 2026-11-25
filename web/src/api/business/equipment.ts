@@ -28,13 +28,16 @@ export interface PhysicalReplacementPreview {
   physical: EquipmentRow;
   bindings: EquipmentRow[];
 }
-async function request<T>(path:string,method="GET",input?:unknown):Promise<T>{
+async function request<T>(path:string,method="GET",input?:unknown,requestKey?:string):Promise<T>{
  const response=await fetch("/api/catalog/"+path,{method,credentials:"same-origin",
   ...(method==="GET"?{}:{headers:{"Content-Type":"application/json",
-   "Idempotency-Key":randomRequestId()},body:JSON.stringify(input??{})})});
+   "Idempotency-Key":requestKey ?? randomRequestId()},body:JSON.stringify(input??{})})});
  const data:unknown=await response.json().catch(()=>({}));
- if(!response.ok)throw Error(typeof data==="object"&&data&&"message" in data?
-  String(data.message):"HTTP "+response.status);
+ if(!response.ok){
+  const message=typeof data==="object"&&data&&"message" in data ? String(data.message) : "HTTP "+response.status;
+  const fields=typeof data==="object"&&data&&"fields" in data ? data.fields : undefined;
+  throw Object.assign(Error(message),{fields});
+ }
  return data as T;
 }
 export function listEquipment(kind:EquipmentKind,opts:{
@@ -123,6 +126,11 @@ export function equipmentForm(row:EquipmentRow):EquipmentForm{
    length_text:row.transmission_center_length_mm==null?"":formatScaledDecimal(row.transmission_center_length_mm,3)};
 }
 
-export function bulkUpdateEquipment(kind:Exclude<EquipmentKind,"voltages">,rows:{id:string;expected_version:number;changes:Record<string,unknown>}[]){
- return request<{count:number;ids:string[]}>(kind+"/bulk","POST",{rows});
+type EquipmentBatchRow={id:string;expected_version:number;changes:Record<string,unknown>};
+export function previewEquipmentBatch(kind:Exclude<EquipmentKind,"voltages">,rows:EquipmentBatchRow[]){
+  return request<{result:{count:number;ids:string[]};fingerprint:string}>(kind+"/bulk/preview","POST",{rows});
+}
+export function bulkUpdateEquipment(kind:Exclude<EquipmentKind,"voltages">,rows:EquipmentBatchRow[],
+  proof?: { fingerprint: string; key: string }){
+  return request<{count:number;ids:string[]}>(kind+"/bulk","POST",{rows,fingerprint:proof?.fingerprint},proof?.key);
 }

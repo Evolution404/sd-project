@@ -6,6 +6,8 @@ import type {
   WorkbookPrimitive,
 } from "../../../../server/shared/types/exchange";
 
+import type { EquipmentBulkKind } from "../../../../server/shared/equipment-bulk";
+
 export type { ExchangeCommitResult, ExchangeMode, WorkbookKind };
 export type ExchangePreview = Omit<FullExchangePreview, "documents"> & {
   documents: Pick<FullExchangePreview["documents"][number], "id" | "number" | "action" | "sheet" | "row">[];
@@ -49,6 +51,13 @@ export async function previewDemandWorksheet(mode: "create" | "update", rows: De
     body: JSON.stringify({ mode, rows }),
   });
   return response.json() as Promise<ExchangePreview>;
+}
+
+export async function previewAssetWorksheet(kind: EquipmentBulkKind, rows: Record<string, string>[]): Promise<ExchangePreview> {
+  const result = await checkedResponse("/assets/worksheet-preview", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind, rows }),
+  });
+  return result.json() as Promise<ExchangePreview>;
 }
 
 export async function commitWorkbook(
