@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import * as nativeIcons from "../../web/node_modules/@element-plus/icons-vue/dist/index.js";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
@@ -38,8 +38,8 @@ test("server-side routes contain only allowlisted components and granted modules
       "business/ProjectsAdministration","business/ProjectApprovalAdministration","business/FinanceAdministration","business/SettlementCompose","business/SettlementReview","business/StandardsAdministration","business/PricingAdministration","business/EquipmentAdministration",
       "business/DictionariesAdministration","system/role/index","business/UserAdministration","business/AuditAdministration","business/AccessAdministration"].includes(route.component));
     assert.ok(route.path && route.meta?.title);
-    assert.ok(existsSync(new URL("../../web/src/assets/icons/" + route.meta.icon + ".svg", import.meta.url)),
-      "missing bundled menu icon " + route.meta.icon);
+    assert.match(route.meta.icon, /^el-icon-[A-Z][A-Za-z]+$/, "menu icon must be a native Element Plus icon");
+    assert.ok(nativeIcons[route.meta.icon.slice("el-icon-".length)], "missing native menu icon " + route.meta.icon);
   }
   assert.equal(reduced.status,"active");
 });

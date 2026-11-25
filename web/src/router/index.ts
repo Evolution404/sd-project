@@ -46,7 +46,7 @@ export const constantRoutes: RouteRecordRaw[] = [
         name: "Dashboard",
         meta: {
           title: "dashboard",
-          icon: "homepage",
+          icon: "el-icon-House",
           affix: true,
           // 开发环境关闭首页缓存：KeepAlive 缓存与 HMR 叠加会导致组件实例失效、页面空白
           keepAlive: !import.meta.env.DEV,
@@ -66,7 +66,7 @@ export const constantRoutes: RouteRecordRaw[] = [
         path: "profile",
         name: "Profile",
         component: () => import("@/views/workspace/account/index.vue"),
-        meta: { title: "个人中心", icon: "user", hidden: true },
+        meta: { title: "个人中心", icon: "el-icon-User", hidden: true },
       },
     ],
   },
