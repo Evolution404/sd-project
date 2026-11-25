@@ -269,67 +269,6 @@
     </div>
 
     <el-dialog
-      v-model="exportDialogVisible"
-      :close-on-click-modal="!exporting"
-      :close-on-press-escape="!exporting"
-      :show-close="!exporting"
-      :align-center="true"
-      title="导出数据"
-      width="600px"
-      style="padding-right: 0"
-      @close="closeExportDialog"
-    >
-      <el-alert v-if="exportError" :title="exportError" type="error" :closable="false" />
-      <el-scrollbar max-height="60vh">
-        <el-form
-          ref="exportFormRef"
-          novalidate
-          style="padding-right: var(--el-dialog-padding-primary)"
-          :model="exportForm"
-          :rules="exportRules"
-        >
-          <el-form-item label="文件名" prop="fileName">
-            <el-input v-model="exportForm.fileName" clearable />
-          </el-form-item>
-          <el-form-item label="工作表名" prop="sheetName">
-            <el-input v-model="exportForm.sheetName" clearable />
-          </el-form-item>
-          <el-form-item label="数据来源" prop="scope">
-            <el-select v-model="exportForm.scope">
-              <el-option label="当前数据 (当前页的数据)" :value="ExportScope.CURRENT" />
-              <el-option
-                label="选中数据 (所有选中的数据)"
-                :value="ExportScope.SELECTED"
-                :disabled="selectedRows.length <= 0"
-              />
-              <el-option
-                label="全量数据 (所有分页的数据)"
-                :value="ExportScope.ALL"
-                :disabled="tableConfig.fetchExportRows === undefined"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item label="字段" prop="fields">
-            <el-checkbox-group v-model="exportForm.fields">
-              <template v-for="col in columns" :key="col.prop">
-                <el-checkbox
-                  v-if="col.prop && col.cellType !== 'actions'"
-                  :value="col.prop"
-                  :label="col.label"
-                />
-              </template>
-            </el-checkbox-group>
-          </el-form-item>
-        </el-form>
-      </el-scrollbar>
-      <template #footer>
-        <div style="padding-right: var(--el-dialog-padding-primary)">
-          <el-button type="primary" :loading="exporting" @click="handleExport">确定</el-button>
-          <el-button :disabled="exporting" @click="closeExportDialog">取消</el-button>
-        </div>
-      </template>
-    </el-dialog>
-    <el-dialog
       v-model="importModalVisible"
       :close-on-click-modal="!importing"
       :close-on-press-escape="!importing"
@@ -354,7 +293,7 @@
               ref="uploadRef"
               v-model:file-list="importFormData.files"
               class="w-full"
-              :accept="isFileImport ? '.xlsx,.xls' : '.xlsx'"
+              accept=".xlsx,.xls"
               :disabled="importing"
               :drag="true"
               :limit="1"
@@ -419,10 +358,9 @@ import {
   type TableInstance,
 } from "element-plus";
 import { reactive, ref, computed, watch, nextTick, onMounted,onActivated,onDeactivated } from "vue";
-import type { Column, Workbook } from "exceljs";
 import { cloneDeep } from "lodash-es";
 import { downloadFile } from "@/utils/download";
-import { parseWorksheetRows, readImportSummary } from "./utils/workbook";
+import { readImportSummary } from "./utils/workbook";
 import type {
   CrudTableConfig,
   CrudRecord,
@@ -864,107 +802,8 @@ async function handleDelete(
   await refresh().catch(() => undefined);
 }
 
-const fields: string[] = [];
-columns.value.forEach((item) => {
-  if (item.prop !== undefined && item.cellType !== "actions") {
-    fields.push(item.prop);
-  }
-});
-/**
- * 浏览器导出的数据范围
- */
-const enum ExportScope {
-  CURRENT = "current",
-  SELECTED = "selected",
-  ALL = "all",
-}
-const exportDialogVisible = ref(false);
+// All workbook parsing and generation belongs to the server.
 const exporting = ref(false);
-const exportError = ref("");
-const exportFormRef = ref<FormInstance>();
-const exportForm = reactive({
-  fileName: "",
-  sheetName: "",
-  fields,
-  scope: ExportScope.CURRENT,
-});
-const exportRules: FormRules = {
-  fields: [{ required: true, message: "请选择字段" }],
-  scope: [{ required: true, message: "请选择数据来源" }],
-};
-
-/**
- * 打开浏览器导出表单
- */
-function openExportDialog() {
-  exportError.value = "";
-  exportDialogVisible.value = true;
-}
-/**
- * 校验导出配置并生成文件，失败保留弹窗
- */
-async function handleExport(): Promise<void> {
-  if (exporting.value) return;
-  exporting.value = true;
-  exportError.value = "";
-  try {
-    if (!(await exportFormRef.value?.validate().catch(() => false))) return;
-    await exportRows();
-    closeExportDialog();
-  } catch (error) {
-    exportError.value = error instanceof Error ? error.message : "导出失败，请重试";
-  } finally {
-    exporting.value = false;
-  }
-}
-
-/**
- * 关闭并重置导出表单
- */
-function closeExportDialog() {
-  exportDialogVisible.value = false;
-  exportFormRef.value?.resetFields();
-  nextTick(() => {
-    exportFormRef.value?.clearValidate();
-  });
-}
-/**
- * 按需加载 ExcelJS 并创建工作簿
- */
-async function createWorkbook(): Promise<Workbook> {
-  const ExcelJS = await import("exceljs");
-  return new ExcelJS.Workbook();
-}
-
-/**
- * 按所选字段和数据范围生成 Excel 文件
- */
-async function exportRows(): Promise<void> {
-  const query = getExportQuery();
-  const fileName = exportForm.fileName || "export";
-  const sheetName = exportForm.sheetName || "sheet";
-  const exportColumns: Partial<Column>[] = columns.value
-    .filter(
-      (col) =>
-        col.cellType !== "actions" && col.label && col.prop && exportForm.fields.includes(col.prop),
-    )
-    .map((col) => ({ header: col.label, key: col.prop }));
-  const scope = exportForm.scope;
-  let rows = cloneDeep(scope === ExportScope.SELECTED ? selectedRows.value : pageData.value);
-  if (scope === ExportScope.SELECTED && !rows.length) throw new Error("请先勾选导出记录");
-  if (scope === ExportScope.ALL) {
-    const action = props.tableConfig.fetchExportRows;
-    if (!action) throw new Error("未配置全量导出接口");
-    rows = await action(query);
-  }
-  const workbook = await createWorkbook();
-  const worksheet = workbook.addWorksheet(sheetName);
-  worksheet.columns = exportColumns;
-  worksheet.addRows(rows);
-  saveXlsx(await workbook.xlsx.writeBuffer(), fileName);
-}
-
-const isFileImport = ref(false);
 const uploadRef = ref<UploadInstance>();
 const importModalVisible = ref(false);
 const importing = ref(false);
@@ -980,12 +819,12 @@ const importFormRules: FormRules = {
 };
 
 /**
- * 打开导入表单，区分文件上传与浏览器解析
+ * 打开文件导入表单
  */
-function handleOpenImportModal(isFile: boolean = false) {
+function handleOpenImportModal() {
+  if (!props.tableConfig.importFile) throw new Error("未配置文件导入接口");
   importError.value = "";
   importModalVisible.value = true;
-  isFileImport.value = isFile;
 }
 /**
  * 用新文件替换已选文件
@@ -1015,7 +854,7 @@ async function handleImportSubmit(): Promise<void> {
   importError.value = "";
   try {
     if (!(await importFormRef.value?.validate().catch(() => false))) return;
-    const result = isFileImport.value ? await importFile() : await importRows();
+    const result = await importFile();
     const summary = readImportSummary(result);
     if (summary && summary.invalidCount > 0) {
       importError.value =
@@ -1060,22 +899,6 @@ async function importFile(): Promise<unknown> {
   return action(file);
 }
 /**
- * 解析 Excel 首张工作表，将数据行交给导入回调
- */
-async function importRows(): Promise<unknown> {
-  const action = props.tableConfig.importRows;
-  if (!action) throw new Error("未配置数据导入接口");
-  const file = importFormData.files[0]?.raw;
-  if (!file) throw new Error("请选择导入文件");
-  const workbook = await createWorkbook();
-  await workbook.xlsx.load(await file.arrayBuffer());
-  const worksheet = workbook.getWorksheet(1);
-  if (!worksheet) throw new Error("工作簿没有工作表");
-  const rows = parseWorksheetRows(worksheet);
-  if (!rows.length) throw new Error("未解析到数据");
-  return action(rows);
-}
-/**
  * 执行内置工具，或发出自定义工具栏事件
  */
 async function handleToolbar(key: string): Promise<void> {
@@ -1093,18 +916,10 @@ async function handleToolbar(key: string): Promise<void> {
       await handleDelete();
       break;
     case "import":
-      if (config.value.importFile && config.value.importRows && !config.value.importMode)
-        throw new Error("同时配置两种导入回调时，请指定 importMode");
-      handleOpenImportModal(
-        config.value.importMode ? config.value.importMode === "file" : !!config.value.importFile,
-      );
+      handleOpenImportModal();
       break;
     case "export":
-      if (config.value.exportFile && config.value.fetchExportRows && !config.value.exportMode)
-        throw new Error("同时配置两种导出回调时，请指定 exportMode");
-      if (config.value.exportMode ? config.value.exportMode === "file" : !!config.value.exportFile)
-        await exportFile();
-      else openExportDialog();
+      await exportFile();
       break;
     default:
       emit("toolbar-action", key);
@@ -1377,13 +1192,6 @@ function clearFilters(): void {
 }
 
 if (props.autoLoad !== false) void loadData().catch(() => undefined);
-
-/**
- * 将工作簿保存为 .xlsx 文件
- */
-function saveXlsx(fileData: BlobPart, fileName: string): void {
-  downloadFile({ data: fileData }, fileName.endsWith(".xlsx") ? fileName : fileName + ".xlsx");
-}
 
 defineExpose({
   loadData,

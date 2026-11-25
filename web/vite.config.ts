@@ -20,6 +20,7 @@ const pathSrc = resolve(import.meta.dirname, "src");
 
 export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
   const env = loadEnv(mode, import.meta.dirname, "");
+  const spaDirectiveModules = new Set<string>();
   const port = Number(env.APP_PORT) || undefined;
   // Y1 local integration must not send business requests to upstream demo servers.
   const proxyTarget = process.env.SD_API_TARGET || "http://127.0.0.1:8787";
@@ -101,6 +102,16 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
         dts: false,
         // dts: "types/components.d.ts",
       }),
+      {
+        name: "sd-spa-compatibility-report",
+        apply: "build",
+        closeBundle() {
+          if (spaDirectiveModules.size)
+            console.info("SPA_COMPATIBILITY_NOTICE: " + spaDirectiveModules.size +
+              " third-party React modules declare use client; client-only SPA, no RSC boundary. " +
+              [...spaDirectiveModules].sort().join(", "));
+        },
+      },
       distVersionPlugin,
     ],
     // 预加载项目必需的依赖
@@ -112,7 +123,6 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
         "pinia",
         "axios",
         "@vueuse/core",
-        "exceljs",
         "path-to-regexp",
         "echarts/core",
         "echarts/renderers",
@@ -135,13 +145,28 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
     },
     // 构建配置（Vite 8 使用 Rolldown + Oxc）
     build: {
-      // 单个 chunk 告警阈值（kB），取略高于最大 vendor 包的值
+      // 固定体积预算，不通过提高阈值消除告警
       chunkSizeWarningLimit: 1200,
       // 跳过 gzip 体积统计，加快构建
       reportCompressedSize: false,
+      manifest: true,
       // CSS 压缩默认 Lightning CSS、JS 压缩默认 Oxc，无需显式配置
       rolldownOptions: {
+        // Report the known RSC-only directive once per module in this SPA.
+        // Every other warning/error is passed through unchanged.
+        onLog(level, log, handler) {
+          const origin = (log.id || log.message).replaceAll("\\", "/");
+          const known = origin.match(/node_modules\/(@radix-ui\/react-[a-z-]+|cmdk|sonner)\//);
+          if (level === "warn" && log.code === "MODULE_LEVEL_DIRECTIVE" &&
+              /["']use client["']/.test(log.message) && known) {
+            spaDirectiveModules.add(known[1]!);
+            return;
+          }
+          handler(level, log);
+        },
+        preserveEntrySignatures: false,
         output: {
+          strictExecutionOrder: true,
           // 产物按 assets/、css/、img/、fonts/、media/ 分类输出；资源目录避开 nginx 已占用的 /js/ 子路径
           entryFileNames: "assets/[name].[hash].js",
           chunkFileNames: "assets/[name].[hash].js",
@@ -157,6 +182,48 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
           },
           codeSplitting: {
             groups: [
+              {
+                name: "worksheet-react",
+                test: /node_modules[\\/](react|react-dom|scheduler|@radix-ui|sonner|cmdk)[\\/]/,
+                priority: 30,
+                includeDependenciesRecursively: false,
+              },
+              {
+                name: "worksheet-render",
+                test: /node_modules[\\/]@univerjs[\\/]engine-render[\\/]/,
+                priority: 20,
+                maxSize: 1150000,
+                includeDependenciesRecursively: false,
+                entriesAware: true,
+              },
+              {
+                name: "worksheet-formula",
+                test: /node_modules[\\/]@univerjs[\\/](engine-formula|sheets-formula|sheets-formula-ui)[\\/]/,
+                priority: 20,
+                maxSize: 1150000,
+                includeDependenciesRecursively: false,
+              },
+              {
+                name: "worksheet-core",
+                test: /node_modules[\\/]@univerjs[\\/](core|sheets|protocol|themes)[\\/]/,
+                priority: 20,
+                maxSize: 1150000,
+                includeDependenciesRecursively: false,
+              },
+              {
+                name: "worksheet-ui",
+                test: /node_modules[\\/]@univerjs[\\/](design|ui|sheets-ui|docs-ui|icons|icons-svg)[\\/]/,
+                priority: 20,
+                maxSize: 1150000,
+                includeDependenciesRecursively: false,
+              },
+              {
+                name: "worksheet-plugins",
+                test: /node_modules[\\/]@univerjs[\\/]/,
+                priority: 10,
+                maxSize: 1150000,
+                includeDependenciesRecursively: false,
+              },
               // 框架核心，每个页面都依赖
               {
                 name: "vendor-vue",

@@ -48,13 +48,7 @@ export function resolveComponent(componentPath: string) {
     viewModules[`${VIEW_PREFIX}${path}/index.vue`] ||
     viewModules[`${VIEW_PREFIX}internal/error/404.vue`]
   );
-  if (path !== "business/DemandEditor") return loadView;
-  return () => {
-    // Request the worksheet module while the editor view itself is loading.
-    // The editor and worksheet still own their data and error states.
-    void import("@/components/BusinessWorksheet/univer-engine").catch(() => {});
-    return loadView();
-  };
+  return loadView;
 }
 
 /**

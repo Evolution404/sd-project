@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { requireNode24, sourceSnapshot } from "./release/source-snapshot.mjs";
+import { checkFrontendBudget } from "./release/check-frontend-budget.mjs";
 
 requireNode24();
 const root = resolve(import.meta.dirname, "..");
@@ -22,3 +23,4 @@ const result = spawnSync(process.execPath, [pnpm, "--dir", "web", "run", "build"
   },
 });
 process.exitCode = result.status ?? 1;
+if (process.exitCode === 0) checkFrontendBudget(resolve(root, "dist/web"));

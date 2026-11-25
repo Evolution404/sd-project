@@ -158,18 +158,10 @@ export interface CrudTableConfig<TQuery = CrudRecord, TItem = CrudRecord> {
   deleteByIds?: (ids: string) => Promise<unknown>;
   /** 后端导出的网络请求函数(需返回 promise) */
   exportFile?: (queryParams: Partial<TQuery>) => Promise<AxiosResponse<Blob>>;
-  /** 前端全量导出的网络请求函数(需返回 promise) */
-  fetchExportRows?: (queryParams: Partial<TQuery>) => Promise<TItem[]>;
   /** 导入模板 */
   importTemplate?: string | (() => Promise<AxiosResponse<Blob>>);
   /** 后端导入的网络请求函数(需返回 promise) */
   importFile?: (file: File) => Promise<unknown>;
-  /** 前端导入的网络请求函数(需返回 promise) */
-  importRows?: (data: CrudRecord[]) => Promise<unknown>;
-  /** 同时提供两种导入回调时必须指定 */
-  importMode?: "file" | "rows";
-  /** 同时提供两种导出回调时必须指定 */
-  exportMode?: "file" | "rows";
   /** 主键名(默认为 id) */
   rowKey?: string;
   /** 左侧按钮，未配置时不显示 */
