@@ -7,7 +7,7 @@ import type { createBusinessWorksheet, WorksheetColumn, WorksheetRow, WorksheetV
 const props = defineProps<{
   name: string; rows: readonly WorksheetRow[]; columns: readonly WorksheetColumn[];
   validate: (values: WorksheetValues) => WorksheetIssue[]; disabled?: boolean;
-  sessionKey: string; undoGuide?: string; redoGuide?: string; removable?: boolean; removeGuide?: string; removeLabel?: string;
+  sessionKey: string; visibleRow?: (row: WorksheetRow) => boolean; undoGuide?: string; redoGuide?: string; removable?: boolean; removeGuide?: string; removeLabel?: string;
 }>();
 const emit = defineEmits<{ change: [values: WorksheetValues]; "readiness-change": [ready: boolean]; "rows-change": [rows: readonly WorksheetRow[]] }>();
 const settings = useSettingsStore();
@@ -29,6 +29,7 @@ const changed = computed(() => Object.keys(current.value).length !== Object.keys
     props.columns.some(column => column.editable && (fields[column.key] ?? "") !== (baseline[id][column.key] ?? ""))));
 watch([dark, () => settings.themeColors.primary], () => engine?.theme(dark.value, primary()), { flush: "post" });
 watch(ready, value => emit("readiness-change", value), { immediate: true, flush: "sync" });
+watch(() => props.visibleRow, value => { if (ready.value) engine?.setRowVisibility(value); });
 
 async function load(empty = false) {
   const token = ++generation;
@@ -52,7 +53,7 @@ async function load(empty = false) {
       filled: values => columns.some(column => column.editable && Boolean(values[column.key])),
       validate: values => props.validate(values),
       onRowsChange: props.removable ? draft => { if (token === generation) emit("rows-change", draft); } : undefined,
-      removalLabel: props.removeLabel ?? "移除选中位置",
+      removalLabel: props.removeLabel ?? "移除选中位置", visibleRow: props.visibleRow,
       onChange: values => { if (token === generation) { current.value = values; emit("change", values); } },
       onSelection: value => { if (token === generation) selection.value = value; },
       onNotice: value => { if (token === generation) notice.value = value; },
@@ -71,6 +72,7 @@ async function load(empty = false) {
         readinessMs: Math.round(performance.now()-created),
         totalMs: Math.round(performance.now()-started),
       });
+      engine.setRowVisibility(props.visibleRow);
       ready.value = true;
     }
   } catch (cause) {

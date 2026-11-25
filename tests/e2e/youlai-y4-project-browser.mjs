@@ -1,7 +1,6 @@
-import {pickNativeRows} from "./youlai-business-worksheet-helpers.mjs";
+import {pickNativeRows, selectWorksheetCell, worksheetCanvas, typeWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
 import { enterSettlementQuantity, settlementCanvas } from "./youlai-settlement-grid-helpers.mjs";
 import assert from "node:assert/strict";
-import {worksheetCanvas,typeWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { chromium } from "playwright";
@@ -66,7 +65,7 @@ try {
   }
   let page = editor;
   await page.goto(base + "#/business/projects");
-  await page.getByRole("button",{name:"新增子项目"}).click();
+  await page.getByRole("button",{name:"新增子项目",exact:true}).click();
   const dialog=page.getByRole("dialog").last();
   await dialog.getByRole("textbox",{name:"项目名称"}).fill("新版项目操作验收");
   await dialog.getByRole("combobox",{name:"年度框架"}).click();
@@ -80,7 +79,8 @@ try {
   const projectUrl = base + "#/business/projects?project=" + project.id;
   await viewer.goto(projectUrl);
   await viewer.getByRole("button",{name:"关闭详情"}).waitFor();
-  assert.equal(await viewer.getByRole("button",{name:"新增子项目"}).count(),0);
+  assert.equal(await viewer.getByRole("button",{name:"新增子项目",exact:true}).count(),0);
+  assert.equal(await viewer.getByRole("button",{name:"批量新增子项目",exact:true}).count(),0);
   assert.equal(await viewer.getByRole("button",{name:"确认入库"}).count(),0);
   await page.getByText("新版项目操作验收",{exact:true}).first().click();
   await page.getByRole("button",{name:"关联需求"}).click();
@@ -105,7 +105,7 @@ try {
   await leave.getByRole("button",{name:"继续办理"}).click();
   await leave.waitFor({state:"hidden"});
   assert.equal(await page.getByRole("textbox",{name:"拟批准预算（元）"}).inputValue(),"1200.00");
-  await page.getByRole("button",{name:"添加批准物资（0）",exact:true}).click();
+  await page.getByRole("button",{name:"添加批准物资",exact:true}).click();
   const materialPicker=page.getByRole("dialog",{name:"选择批准物资"});
   await materialPicker.getByRole("row").filter({hasText:"批准专用物资"}).locator("label.el-checkbox").click();
   await materialPicker.getByRole("button",{name:"添加所选物资（1）"}).click();
@@ -125,7 +125,7 @@ try {
   await page.getByRole("row").filter({hasText:"批准专用物资"}).getByText("3",{exact:true}).waitFor();
   assert.deepEqual(persisted.approvals[0].scopes[0].locations.map(row=>row.approved_quantity_scaled),
     positions.map(row=>row.quantity_scaled));
-  await page.getByRole("button",{name:/按承接范围核价/}).click();
+  await page.getByRole("button",{name:"集中核价"}).click();
   const quote=page.getByRole("dialog",{name:"批准范围参考报价"});
   await quote.getByText("完整参考价 ¥2520.00",{exact:true}).waitFor();
   await quote.getByRole("button",{name:"确认正式报价"}).click();
@@ -168,7 +168,9 @@ try {
   await page.getByRole("textbox",{name:"变更原因"}).fill("补充相邻杆塔的现场任务");
   await pickNativeRows(page,{title:"选择候选需求",placeholder:"按需求编号或问题描述搜索",queries:[["新增候选杆塔防鸟任务",/新增候选杆塔防鸟任务/]],confirm:"纳入变更草稿"});
   await page.getByText("新增完整承接范围",{exact:true}).waitFor();
-  await page.getByRole("button",{name:/移除 批准专用物资/}).click();
+  const changeMaterials=await worksheetCanvas(page.getByRole("region",{name:"批准物资数量",exact:true}));
+  await selectWorksheetCell(changeMaterials,1,0,[140,180,110,145,125]);
+  await page.getByRole("button",{name:"移除选中物资",exact:true}).click();
   await page.getByRole("button",{name:"核对变更差异"}).click();
   await page.getByRole("dialog",{name:"核对正式变更差异"}).getByRole("row").filter({hasText:"批准专用物资"}).getByText("移除",{exact:true}).waitFor();
   await page.getByRole("dialog",{name:"核对正式变更差异"}).getByRole("button",{name:"确认并保存变更草稿"}).click();

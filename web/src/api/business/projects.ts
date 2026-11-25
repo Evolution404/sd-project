@@ -1,3 +1,4 @@
+import type { ProjectProfileBatchPreview, ProjectProfileBatchRow } from "../../../../server/shared/types/projects";
 import { applyNativeListQuery, type NativeListOptions } from "@/utils/business/native-list-query";
 import { fenToYuan, yuanToFen, listFunding, type FundingRow } from "./funding";
 import type { DemandLocation, DemandRow } from "./demands";
@@ -157,11 +158,11 @@ export interface ProjectHistory {
 }
 interface Page<T>{items:T[];total:number;page:number;page_size:number}
 const root="/api/projects";
-async function req<T>(path:string,method="GET",input?:unknown):Promise<T>{
+async function req<T>(path:string,method="GET",input?:unknown,requestKey?:string):Promise<T>{
   const response=await fetch(root+path,{
     method,credentials:"same-origin",
     ...(method==="GET"?{}:{headers:{
-      "Content-Type":"application/json","Idempotency-Key":randomRequestId(),
+      "Content-Type":"application/json","Idempotency-Key":requestKey ?? randomRequestId(),
     },body:JSON.stringify(input??{})}),
   });
   const body:unknown=await response.json().catch(()=>({}));
@@ -239,6 +240,13 @@ export async function saveProject(form:ProjectForm,id?:string):Promise<ProjectDe
     ...(id?{expected_version:form.profile_version,
       expected_funding_version:form.expected_funding_version}:{}),
   });
+}
+export function previewProjectProfiles(rows: ProjectProfileBatchRow[]) {
+  return req<ProjectProfileBatchPreview>("/profile-batch/preview", "POST", { rows });
+}
+export function commitProjectProfiles(rows: ProjectProfileBatchRow[], fingerprint: string, requestKey: string) {
+  return req<{ results: { ref: string; id: string; profile_version: number }[] }>(
+    "/profile-batch/commit", "POST", { rows, fingerprint }, requestKey);
 }
 export function createProjectFromDemand(form:ProjectForm,demand:{id:string;current_version:number}):Promise<ProjectDetail>{
   return req("/from-demand","POST",{

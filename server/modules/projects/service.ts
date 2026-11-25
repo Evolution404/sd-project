@@ -2,7 +2,7 @@ import type { HistoryQuery } from "../../shared/types/history.js";
 import type { HandlingTarget, HandlingReviewRow } from "../../shared/types/handling-batch.js";
 import type { ProjectApprovalScopeInput, ProjectApprovalCandidateProposal, ProjectScopeListItem } from "../../shared/types/projects.js";
 import { ordinaryLinkReason, approvalDraftReason, projectDeleteReason } from "../../shared/project-lifecycle.js";
-import { authorize, id, now, today } from "../../platform/auth/service.js";
+import { authorize, digest, id, now, today } from "../../platform/auth/service.js";
 import { authorizeProject, hasProjectScope } from "../../platform/auth/project-access.js";
 import type { ProjectAccess } from "../../shared/types/project-access.js";
 import {
@@ -14,6 +14,7 @@ import {
 } from "../../shared/errors/business-error.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import { projectDisplayStatus } from "../../shared/project-display-status.js";
+import { MAX_PROJECT_PROFILE_BATCH } from "../../shared/types/projects.js";
 import type { Actor, ListQuery } from "../../shared/types/contracts.js";
 import type { CatalogService } from "../catalog/service.js";
 import type { DemandService } from "../../shared/types/demands.js";
@@ -23,7 +24,7 @@ import type { ProjectPersistenceRepository } from "../../database/repositories/p
 import type { QuantityUnitRepository } from "../../database/repositories/quantity-units.js";
 import type { ProjectManagementInput, ProjectFromDemandInput,
   ProjectApprovalVersion, ProjectFundingVersion, ProjectApprovalInput, ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
-  ProjectVersionAction, ProjectFundingInput } from "../../shared/types/projects.js";
+  ProjectVersionAction, ProjectFundingInput, ProjectProfileBatchRow, ProjectProfileBatchIssue, ProjectProfileBatchPreview } from "../../shared/types/projects.js";
 
 export function createProjects(
   repo: ProjectPersistenceRepository,
@@ -153,8 +154,21 @@ export function createProjects(
     });
   }
 
+  function validateProfileInput(input: ProjectManagementInput) {
+    for (const field of ["planned_start_on", "planned_end_on"] as const) {
+      const value = input[field];
+      requireValue(value == null || value === "" || (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+        Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value),
+        "计划日期无效", 422, { [field]: "请输入有效日期，格式为 YYYY-MM-DD" });
+    }
+    const estimate = input.preliminary_estimate_fen;
+    requireValue(estimate == null || (Number.isSafeInteger(estimate) && estimate >= 0),
+      "初步估算必须是非负金额", 422, { preliminary_estimate_fen: "请输入非负金额" });
+  }
+
   function save(actor: Actor, input: ProjectManagementInput, key?: string) {
     authorize(actor, "write");
+    validateProfileInput(input);
     return repo.transaction(() => {
       const previous = key ? get(key) : null;
       if (previous) {
@@ -277,6 +291,52 @@ export function createProjects(
       return get(projectId);
     });
   }
+  function profileFingerprint(actor: Actor, rows: ProjectProfileBatchRow[]) {
+    return digest(JSON.stringify(["project-profiles", actor.id, rows]));
+  }
+  function runProfileBatch(actor: Actor, rows: ProjectProfileBatchRow[]) {
+    authorize(actor, "write");
+    requireValue(rows.length >= 1 && rows.length <= MAX_PROJECT_PROFILE_BATCH, "批量项目档案超出允许范围");
+    const issues: ProjectProfileBatchIssue[] = [];
+    const results: { ref: string; id: string; profile_version: number }[] = [];
+    for (const row of rows) {
+      try {
+        const saved = save(actor, row.values, row.id);
+        results.push({ ref: row.ref, id: saved.id, profile_version: saved.profile_version });
+      } catch (failure) {
+        if (!(failure instanceof BusinessError)) throw failure;
+        issues.push({ ref: row.ref, field: Object.keys(failure.fields)[0], message: failure.message });
+      }
+    }
+    return { issues, results };
+  }
+  function previewProfileBatch(actor: Actor, rows: ProjectProfileBatchRow[]): ProjectProfileBatchPreview {
+    const discard = new Error("discard project profile preview");
+    let issues: ProjectProfileBatchIssue[] = [];
+    try {
+      repo.transaction(() => {
+        issues = runProfileBatch(actor, rows).issues;
+        // The same domain writes are executed in savepoints. Roll back the whole
+        // batch, including identities, ordering counters and audit events.
+        throw discard;
+      });
+    } catch (failure) {
+      if (failure !== discard) throw failure;
+    }
+    return { count: rows.length, issues, ...(issues.length ? {} : { fingerprint: profileFingerprint(actor, rows) }) };
+  }
+  function commitProfileBatch(actor: Actor, rows: ProjectProfileBatchRow[], fingerprint: string) {
+    authorize(actor, "write");
+    requireValue(profileFingerprint(actor, rows) === fingerprint, "批量档案内容已变化，请重新预检", 409);
+    return repo.transaction(() => {
+      const { issues, results } = runProfileBatch(actor, rows);
+      requireValue(!issues.length, "批量档案校验失败，全部未写入", 422, {
+        rows: issues.map(issue => "档案 " + issue.ref + "：" + issue.message),
+      });
+      return { results };
+    });
+  }
+
   function stage(actor: Actor, key: string,
     stageName: "stocked" | "approved" | "closed", permission: string, version: number) {
     authorize(actor, permission);
@@ -633,6 +693,8 @@ export function createProjects(
   return {
     get,
     save,
+    previewProfileBatch,
+    commitProfileBatch,
     approvalDraft,
     approvalBlockReason,
     agreementOptions,

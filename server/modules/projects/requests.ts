@@ -1,7 +1,8 @@
 import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
+import { MAX_PROJECT_PROFILE_BATCH } from "../../shared/types/projects.js";
 import type {
-  ProjectManagementInput, ProjectFromDemandInput, ProjectVersionAction,
+  ProjectManagementInput, ProjectProfileBatchRow, ProjectFromDemandInput, ProjectVersionAction,
   ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
   ProjectApprovalInput, ProjectApprovalScopeInput,
   ProjectApprovedMaterialInput, ProjectApprovedLocationInput,
@@ -37,6 +38,34 @@ export function parseProjectManagement(input: Record<string, unknown>): ProjectM
   optionalNumber(input.preliminary_estimate_fen,"项目预估金额");
   return input as ProjectManagementInput;
 }
+const profileFields = new Set(["name", "framework_id", "agreement_id", "owner_id", "manager_id", "category_id",
+  "managing_unit_id", "planned_start_on", "planned_end_on", "preliminary_estimate_basis", "preliminary_estimate_fen",
+  "reason", "expected_version", "expected_funding_version"]);
+export function parseProjectProfileBatch(input: Record<string, unknown>): ProjectProfileBatchRow[] {
+  requireValue(Array.isArray(input.rows) && input.rows.length >= 1 && input.rows.length <= MAX_PROJECT_PROFILE_BATCH,
+    "请提供1至" + MAX_PROJECT_PROFILE_BATCH + "条项目档案");
+  const ids = new Set<string>(), refs = new Set<string>();
+  return input.rows.map((row: unknown) => {
+    requireValue(isObject(row) && Object.keys(row).every(key => ["id", "ref", "values"].includes(key)) &&
+      isObject(row.values) && Object.keys(row.values).every(key => profileFields.has(key)),
+    "批量档案包含未授权的字段");
+    const ref = stringValue(row.ref, "档案行标识");
+    requireValue(ref.length <= 128 && !refs.has(ref), "档案行标识重复或无效");
+    refs.add(ref);
+    const values = parseProjectManagement(row.values);
+    if (row.id === undefined) {
+      requireValue(values.expected_version === undefined && values.expected_funding_version === undefined, "新增档案不可指定已有版本");
+      return { ref, values };
+    }
+    const id = stringValue(row.id, "子项目");
+    requireValue(id.length <= 128 && !ids.has(id) && Number.isSafeInteger(values.expected_version) &&
+      Number(values.expected_version) > 0 && Number.isSafeInteger(values.expected_funding_version) &&
+      Number(values.expected_funding_version) >= 0, "档案修订须使用不同项目及有效档案、资金版本");
+    ids.add(id);
+    return { ref, id, values };
+  });
+}
+
 export function parseProjectFromDemand(input:Record<string,unknown>):ProjectFromDemandInput {
   const profile=parseProjectManagement(input);
   return {

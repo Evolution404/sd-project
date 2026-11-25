@@ -57,6 +57,7 @@ interface WorksheetOptions {
   onChange: (entries: WorksheetValues) => void;
   onRowsChange?: (rows: readonly WorksheetRow[]) => void;
   removalLabel?: string;
+  visibleRow?: (row: WorksheetRow) => boolean;
   onSelection: (text: string) => void;
   onNotice: (text: string) => void;
   onValidation: (issues: WorksheetIssue[]) => void;
@@ -160,7 +161,7 @@ function compareDecimal(left: string, right: string) {
 // Keep the SDK's stack, grouping, undo/redo commands and keyboard shortcuts.
 // On these private workbooks, translate positional edit mutations at the point
 // the native command records them. View and permission changes do not add steps.
-export function createBusinessWorksheet({ host, rows: initialRows, columns, name, dark, primary, onChange, onRowsChange, removalLabel, onSelection, onNotice, onValidation, onHistory, onVisibleCount, validate, filled, describe }: WorksheetOptions) {
+export function createBusinessWorksheet({ host, rows: initialRows, columns, name, dark, primary, onChange, onRowsChange, removalLabel, visibleRow, onSelection, onNotice, onValidation, onHistory, onVisibleCount, validate, filled, describe }: WorksheetOptions) {
   let rows = initialRows.slice();
   let businessRows = rows;
   let rowNumbers = new Map(rows.map((row, index) => [row.id, index + 1]));
@@ -410,7 +411,9 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
 
   function updateVisibleRows() {
     const next = new Set<number>();
-    if (filledOnly) rows.forEach(({ id }, index) => { if (!filled(entries[id] ?? {})) next.add(index + 1); });
+    if (visibleRow || filledOnly) rows.forEach((row, index) => {
+      if ((visibleRow && !visibleRow(row)) || (filledOnly && !filled(entries[row.id] ?? {}))) next.add(index + 1);
+    });
     const scope = (indexes: number[]) => indexes.map(row =>
       ({ startRow: row, endRow: row, startColumn: 0, endColumn: columns.length - 1 }));
     const show = [...hiddenRows].filter(row => !next.has(row));
@@ -879,6 +882,10 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       return true;
     },
     filterFilled(value: boolean) { filledOnly = value; updateVisibleRows(); },
+    setRowVisibility(predicate?: WorksheetOptions["visibleRow"]) {
+      visibleRow = predicate;
+      updateVisibleRows();
+    },
     clearFilters(){filledOnly=false;filter()?.removeFilterCriteria();updateVisibleRows();},
     fillColumn(field: string, value: (row: WorksheetRow) => string, label: string) {
       const range = selection();

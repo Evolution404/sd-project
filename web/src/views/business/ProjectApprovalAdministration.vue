@@ -59,13 +59,6 @@
           <el-table-column prop="operation" label="操作类型" min-width="150" />
           <el-table-column prop="expectedOn" label="预计解决时间" min-width="120" />
           <el-table-column prop="change" label="范围变化" min-width="150" />
-          <el-table-column label="批准物资" width="150" fixed="right">
-            <template #default="{row}">
-              <el-button data-guide-action="projects.material-add" link type="primary" :disabled="!row.selected||submitting" @click="openMaterials(row as ScopeRow)">
-                添加批准物资（{{row.materialDrafts.length}}）
-              </el-button>
-            </template>
-          </el-table-column>
         </el-table>
       </template>
 
@@ -87,10 +80,8 @@
           <el-descriptions-item label="编制依据">{{ draftBasis || "—" }}</el-descriptions-item>
           <el-descriptions-item v-if="baseline" label="变更原因">{{ draft.change_reason || "—" }}</el-descriptions-item>
         </el-descriptions>
-        <div v-if="canWrite && draft.scopes.length" class="mb-3 flex flex-wrap gap-2">
-          <el-button v-for="scope in draft.scopes" :key="scope.id" data-guide-action="projects.quote" @click="quoteScope = scope">
-            对需求 {{ scope.demand_no }} 按承接范围核价
-          </el-button>
+        <div v-if="canWrite && draft.scopes.length" class="business-control-row mb-3">
+          <el-button data-guide-action="projects.quote" @click="quoteOpen = true">集中核价</el-button>
         </div>
         <el-form v-if="approveAction?.enabled" label-position="top" novalidate :disabled="submitting">
           <el-form-item label="审核意见">
@@ -113,17 +104,18 @@
           <el-table-column prop="unit" label="计量单位" width="105" />
         </el-table>
       </template>
-      <template v-if="selectedRows.length && (canCompile || draft)">
+      <template v-if="canCompile || (draft && selectedRows.length)">
         <h3 class="my-3 font-semibold">本次批准物资</h3>
         <el-alert class="mb-3" type="info" :closable="false" title="批准物资独立于需求预计物资，不自动按工作量换算；历史版本不被覆盖；如物资定义已变化，请移除旧项后重新选择并核对差异。"/>
-        <BusinessWorksheet v-if="canCompile && materialRows.length" ref="materialSheet"
-          name="批准物资数量" :session-key="materialSession" :rows="materialSheetRows" :columns="materialColumns"
-          :validate="validateMaterialSheet" :disabled="submitting" @change="updateMaterialSheet" />
-        <div v-if="canCompile" class="flex flex-wrap gap-2 mt-2">
-          <el-button v-for="row in materialRows" :key="row.id" link type="danger" data-guide-action="projects.material-remove"
-            :disabled="submitting" @click="removeMaterial(row.scope,row.material.id)">移除 {{row.material.name}}（{{row.demandNo}}）</el-button>
+        <div v-if="canCompile" class="business-control-row mb-3">
+          <ElButton data-guide-action="projects.material-add" type="primary" :disabled="!selectedRows.length || submitting || materialLoading"
+            @click="openMaterials">添加批准物资</ElButton>
         </div>
-        <el-table v-else :data="materialRows" row-key="id" border max-height="380" empty-text="本次未批准物资">
+        <BusinessWorksheet v-if="canCompile" ref="materialSheet" name="批准物资数量"
+          :session-key="materialSession" :rows="materialSheetRows" :columns="materialColumns" :visible-row="materialVisibility"
+          :validate="validateMaterialSheet" :disabled="loading || submitting" removable remove-guide="projects.material-remove"
+          remove-label="移除选中物资" @rows-change="changeMaterialRows" @change="updateMaterialSheet" />
+        <el-table v-else :data="materialRows.filter(row => row.scope.selected)" row-key="id" border max-height="380" empty-text="本次未批准物资">
           <el-table-column prop="demandNo" label="需求编号" min-width="140"/>
           <el-table-column prop="material.name" label="物资名称" min-width="180"/>
           <el-table-column prop="material.unit" label="计量单位" width="110"/>
@@ -139,28 +131,12 @@
         <p v-if="materialError" class="mt-2 text-[var(--el-color-danger)]">{{materialError}}</p>
       </template>
     </el-card>
-    <el-dialog v-model="materialPickerOpen" title="选择批准物资" append-to-body align-center width="min(95vw,900px)" destroy-on-close>
-      <el-space wrap class="mb-3">
-        <el-input v-model="materialKeyword" clearable placeholder="物资名称 / 规格 / 型号" @keyup.enter="loadMaterials(true)"/>
-        <el-button :loading="materialLoading" @click="loadMaterials(true)">查询</el-button>
-      </el-space>
-      <el-table ref="materialPicker" :data="materialOptions" v-loading="materialLoading" row-key="id" border max-height="360"
-        @selection-change="(rows:Material[])=>materialSelected=rows">
-        <el-table-column type="selection" width="48" reserve-selection :selectable="(row:Material)=>!materialScope?.materialDrafts.some(item=>item.id===row.id)"/>
-        <el-table-column prop="code" label="编号" min-width="125"/>
-        <el-table-column prop="name" label="名称" min-width="150"/>
-        <el-table-column prop="model" label="型号" min-width="120"/>
-        <el-table-column prop="specification" label="规格" min-width="120"/>
-        <el-table-column prop="unit_id_label" label="计量单位" width="100"/>
-        <el-table-column prop="version_no" label="版本" width="80"/>
-      </el-table>
-      <el-pagination class="mt-3" v-model:current-page="materialPage" :page-size="20" :total="materialTotal"
-        layout="total, prev, pager, next" @current-change="loadMaterials(false)"/>
-      <template #footer>
-        <el-button @click="materialPickerOpen=false">取消</el-button>
-        <el-button type="primary" :disabled="!materialSelected.length||materialLoading" @click="addMaterials">添加所选物资（{{materialSelected.length}}）</el-button>
-      </template>
-    </el-dialog>
+    <NativeRecordPicker v-if="materialScopePicker" title="选择批准物资归属需求" placeholder="搜索需求编号或问题"
+      confirm-label="选择归属需求" :columns="materialScopeColumns" :loader="loadMaterialScopes"
+      @close="materialScopePicker = false" @confirm="selectMaterialScopes" />
+    <NativeRecordPicker v-if="materialPickerOpen" title="选择批准物资" placeholder="搜索物资名称、规格或型号"
+      confirm-label="添加所选物资" :columns="materialPickerColumns" :loader="loadMaterials"
+      :selectable="canAddMaterial" :saving="materialLoading" @close="materialPickerOpen = false" @confirm="addMaterials" />
     <el-dialog v-model="confirmOpen" title="核对正式变更差异" width="min(90vw, 620px)"
       :close-on-click-modal="false" append-to-body>
       <p>批准预算 {{ projectMoney(baseline?.approved_budget_fen) }} → {{ projectMoney(prepared?.approved_budget_fen) }}</p>
@@ -180,7 +156,7 @@
         <el-button type="primary" :loading="submitting" @click="persist">确认并保存变更草稿</el-button>
       </template>
     </el-dialog>
-    <ProjectQuoteDialog v-if="quoteScope" :scope="quoteScope" @close="quoteScope = undefined"
+    <ProjectQuoteDialog v-if="quoteOpen && draft?.scopes.length" :scopes="draft.scopes" @close="quoteOpen = false"
       @confirmed="refreshQuote" />
   </div>
 </template>
@@ -190,9 +166,9 @@ import { locationDisplayFields } from "../../../../server/shared/location-displa
 
 import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
-import type {WorksheetColumn,WorksheetValues,WorksheetIssue} from "@/components/BusinessWorksheet/univer-engine";
+import type {WorksheetColumn,WorksheetValues,WorksheetIssue,WorksheetRow} from "@/components/BusinessWorksheet/univer-engine";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { ElMessage, ElMessageBox, type TableInstance } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 import { useUserStore } from "@/stores/user";
 import ProjectQuoteDialog from "@/components/business/ProjectQuoteDialog.vue";
@@ -248,14 +224,13 @@ const reason = ref("");
 const reviewReason = ref("");
 const confirmOpen = ref(false);
 const prepared = ref<ProjectApprovalInput>();
-const quoteScope = ref<ApprovedProjectScope>();
+const quoteOpen = ref(false);
 const candidatePickerOpen=ref(false);
 const adding = ref(false);
-const materialPickerOpen=ref(false),materialLoading=ref(false);
-const materialScope=ref<ScopeRow>(),materialPicker=ref<TableInstance>();
-const materialKeyword=ref(""),materialPage=ref(1),materialTotal=ref(0);
-const materialOptions=ref<Material[]>([]),materialSelected=ref<Material[]>([]);
-let materialSearchSequence=0,appliedMaterialKeyword="";
+const materialPickerOpen = ref(false), materialLoading = ref(false), materialScopePicker = ref(false);
+const materialScopeIds = ref<string[]>([]);
+const materialSession = ref("0");
+const materialBindings = new WeakMap<WorksheetRow, { scope: ScopeRow; material: MaterialDraft }>();
 let loadSequence = 0;
 let initial = "";
 
@@ -271,7 +246,7 @@ const title = computed(() => reviewing.value
   : baseline.value ? "编制正式变更" : "编制首次立项");
 const draftBasis = computed(() => draft.value && (JSON.parse(draft.value.snapshot_json) as { basis?: string }).basis);
 const selectedRows = computed(() => scopeRows.value.filter(row => row.selected));
-const materialRows=computed(()=>selectedRows.value.flatMap(scope=>scope.materialDrafts.map(material=>({
+const materialRows=computed(()=>scopeRows.value.flatMap(scope=>scope.materialDrafts.map(material=>({
   id:scope.id+":"+material.id,scope,material,demandNo:scope.demandNo
 }))));
 const materialSheet=ref<InstanceType<typeof BusinessWorksheet>>();
@@ -280,9 +255,30 @@ const materialColumns:WorksheetColumn[]=[
   {key:"unit",title:"计量单位",width:110},{key:"quantity",title:"批准数量",width:145,editable:true,numeric:true},
   {key:"version",title:"采用版本",width:125},
 ];
-const materialSession=computed(()=>JSON.stringify(materialRows.value.map(row=>[row.id,row.material.versionId])));
-const materialSheetRows=computed(()=>materialRows.value.map(row=>({id:row.id,label:row.material.name,
-  values:{demand:row.demandNo,name:row.material.name,unit:row.material.unit,quantity:row.material.quantity,version:row.material.versionLabel||"草稿指定版本"}})));
+function approvedMaterialRow(scope: ScopeRow, material: MaterialDraft): WorksheetRow {
+  const row: WorksheetRow = {
+    id: scope.id + ":" + material.id, label: material.name,
+    values: { demand: scope.demandNo, name: material.name, unit: material.unit, quantity: material.quantity,
+      version: material.versionLabel || "草稿指定版本" },
+  };
+  materialBindings.set(row, { scope, material });
+  return row;
+}
+const materialSheetRows = computed(() => materialRows.value.map(({ scope, material }) => approvedMaterialRow(scope, material)));
+const materialVisibility = computed(() => {
+  const included = new Set(selectedRows.value.map(scope => scope.id));
+  return (row: WorksheetRow) => included.has(materialBindings.get(row)!.scope.id);
+});
+function changeMaterialRows(rows: readonly WorksheetRow[]) {
+  const byScope = new Map<string, MaterialDraft[]>();
+  for (const row of rows) {
+    const { scope, material } = materialBindings.get(row)!;
+    const items = byScope.get(scope.id) ?? [];
+    items.push(material);
+    byScope.set(scope.id, items);
+  }
+  for (const scope of scopeRows.value) scope.materialDrafts = byScope.get(scope.id) ?? [];
+}
 function approvedMaterialError(material:MaterialDraft,raw:string) {
   const n=exactScaledDecimalText(raw,4);
   if(!material.versionId||material.precision===undefined)return "物资版本或当前计量单位精度未核实";
@@ -292,6 +288,7 @@ function approvedMaterialError(material:MaterialDraft,raw:string) {
 }
 function validateMaterialSheet(values:WorksheetValues):WorksheetIssue[]{
   return materialRows.value.flatMap((row,i)=>{
+    if (!row.scope.selected) return [];
     const message=approvedMaterialError(row.material,values[row.id]?.quantity??"");
     return message ? [{row:i+1,column:3,cell:"D"+(i+2),rowId:row.id,field:"quantity",
       location:row.material.name,message}] : [];
@@ -302,7 +299,8 @@ function updateMaterialSheet(values:WorksheetValues){
 }
 const materialError=computed(()=>{
   if(!canCompile.value)return "";
-  for(const {material,demandNo} of materialRows.value){
+  for(const {material,demandNo,scope} of materialRows.value){
+    if (!scope.selected) continue;
     const message=approvedMaterialError(material,material.quantity);
     if(message)return "需求 "+demandNo+" 的物资 "+material.name+"："+message;
   }
@@ -432,6 +430,9 @@ async function load() {
   error.value = "";
   project.value = undefined;
   scopeRows.value = [];
+  materialScopePicker.value = false;
+  materialPickerOpen.value = false;
+  quoteOpen.value = false;
   reviewReason.value = "";
   initial = "";
   try {
@@ -492,6 +493,7 @@ async function load() {
         item.precision=units.get(current.unit_id)?.quantity_precision;
       }
     }
+    materialSession.value = String(sequence);
     initial = draftState();
   } catch (cause) {
     if (sequence === loadSequence) error.value = (cause as Error).message;
@@ -527,42 +529,64 @@ async function addCandidate(selected:DemandRow[]){
   finally{if(sequence===loadSequence)adding.value=false;}
 }
 
-function openMaterials(row:ScopeRow){
-  if(!canCompile.value||!row.selected)return;
-  materialScope.value=row;materialKeyword.value="";materialSelected.value=[];materialPickerOpen.value=true;
-  void loadMaterials(true);
+const materialScopeColumns: { key: keyof ScopeRow; label: string; width?: number }[] = [
+  { key: "demandNo", label: "需求编号", width: 160 }, { key: "problem", label: "问题描述", width: 250 },
+  { key: "operation", label: "操作类型" },
+];
+const materialPickerColumns: { key: keyof Material; label: string; width?: number }[] = [
+  { key: "code", label: "编号", width: 125 }, { key: "name", label: "物资名称", width: 170 },
+  { key: "model", label: "型号" }, { key: "specification", label: "规格" },
+  { key: "unit_id_label", label: "计量单位" }, { key: "version_no", label: "版本" },
+];
+function loadMaterialScopes(keyword: string, page: number) {
+  const matching = selectedRows.value.filter(row => [row.demandNo, row.problem, row.operation]
+    .some(value => value.toLocaleLowerCase().includes(keyword.toLocaleLowerCase())));
+  return Promise.resolve({ items: matching.slice((page - 1) * 20, page * 20), total: matching.length });
 }
-async function loadMaterials(reset=false){
-  if(reset){materialPage.value=1;appliedMaterialKeyword=materialKeyword.value;materialPicker.value?.clearSelection();materialSelected.value=[]}
-  const seq=++materialSearchSequence;materialLoading.value=true;
-  try{
-    const result=await queryMaterials({page:materialPage.value,pageSize:20,keyword:appliedMaterialKeyword,status:"active"});
-    if(seq!==materialSearchSequence)return;
-    materialOptions.value=result.items;materialTotal.value=result.total;
-  }catch(cause){if(seq===materialSearchSequence)ElMessage.error((cause as Error).message)}
-  finally{if(seq===materialSearchSequence)materialLoading.value=false}
+function selectMaterialScopes(selection: ScopeRow[]) {
+  materialScopeIds.value = selection.map(scope => scope.id);
+  materialScopePicker.value = false;
+  materialPickerOpen.value = true;
 }
-async function addMaterials(){
-  const row=materialScope.value;if(!row||!canCompile.value||materialLoading.value)return;
-  await materialSheet.value?.finishEditing();
-  materialLoading.value=true;
-  try{
-    const ids=new Set(row.materialDrafts.map(item=>item.id));
-    const selected=materialSelected.value.filter(material=>!ids.has(material.id)&&!material.deleted&&material.status==="active");
-    const units=new Map(await Promise.all([...new Set(selected.map(item=>item.unit_id))].map(async id=>[id,await readDictionary("units",id)] as const)));
-    const additions=selected.map(material=>{
-      const precision=units.get(material.unit_id)?.quantity_precision;
-      if(precision===undefined||!quantityFitsUnitPrecision(0,precision))throw Error("物资计量单位缺少有效数量精度");
-      return {id:material.id,name:material.name,unit:material.unit_id_label,precision,
-        quantity:"1",versionId:material.material_version_id,versionLabel:"V"+material.version_no};
+function openMaterials() {
+  if (!canCompile.value || !selectedRows.value.length) return;
+  if (selectedRows.value.length === 1) selectMaterialScopes(selectedRows.value);
+  else materialScopePicker.value = true;
+}
+function loadMaterials(keyword: string, page: number) {
+  return queryMaterials({ page, pageSize: 20, keyword, status: "active" });
+}
+const materialTargetScopes = computed(() => selectedRows.value.filter(row => materialScopeIds.value.includes(row.id)));
+function canAddMaterial(material: Material) {
+  return !material.deleted && material.status === "active" &&
+    materialTargetScopes.value.some(scope => !scope.materialDrafts.some(item => item.id === material.id));
+}
+async function addMaterials(selection: Material[]) {
+  if (!canCompile.value || materialLoading.value || !materialTargetScopes.value.length) return;
+  materialLoading.value = true;
+  const sequence = loadSequence;
+  try {
+    const selected = selection.filter(canAddMaterial);
+    const units = new Map(await Promise.all([...new Set(selected.map(item => item.unit_id))]
+      .map(async id => [id, await readDictionary("units", id)] as const)));
+    if (sequence !== loadSequence || !canCompile.value) return;
+    const additions = materialTargetScopes.value.flatMap(scope => {
+      const existing = new Set(scope.materialDrafts.map(item => item.id));
+      return selected.filter(material => !existing.has(material.id)).map(material => {
+        const precision = units.get(material.unit_id)?.quantity_precision;
+        if (precision === undefined || !quantityFitsUnitPrecision(0, precision)) throw Error("物资计量单位缺少有效数量精度");
+        return approvedMaterialRow(scope, {
+          id: material.id, name: material.name, unit: material.unit_id_label, precision,
+          quantity: "1", versionId: material.material_version_id, versionLabel: "V" + material.version_no,
+        });
+      });
     });
-    row.materialDrafts.push(...additions);materialPickerOpen.value=false;
-  }catch(cause){ElMessage.error(cause instanceof Error?cause.message:String(cause))}
-  finally{materialLoading.value=false}
-}
-async function removeMaterial(row:ScopeRow,id:string){
-  await materialSheet.value?.finishEditing();
-  if(canCompile.value&&!submitting.value)row.materialDrafts=row.materialDrafts.filter(item=>item.id!==id);
+    if (await materialSheet.value?.addRows(additions)) materialPickerOpen.value = false;
+  } catch (cause) {
+    ElMessage.error((cause as Error).message);
+  } finally {
+    materialLoading.value = false;
+  }
 }
 async function prepareSave() {
   if (!project.value || submitting.value || !selectedRows.value.length || invalidScope.value) return;

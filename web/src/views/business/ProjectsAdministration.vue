@@ -4,7 +4,10 @@
     <el-button link type="primary" @click="returnToDemand">返回来源需求</el-button>
     <el-button v-if="sourceDemand" link type="primary" @click="crud?.openCreate()">编制承接项目</el-button>
   </el-alert>
+  <ProjectProfileBulkEditor v-if="bulkProfiles" :mode="bulkProfiles.mode" :records="bulkProfiles.records"
+    @cancel="bulkProfiles = null" @saved="closeBulkProfiles" />
   <CrudPage
+    v-show="!bulkProfiles"
     ref="crud"
     :search-config="searchConfig"
     :table-config="tableConfig"
@@ -169,7 +172,7 @@ import HandlingBatchDialog from "@/components/business/HandlingBatchDialog.vue";
 import { downloadWorkbook } from "@/api/business/exchange";
 import type { HandlingTarget } from "@/api/business/handling-batch";
 import { historyScopeField, nativeListQuery, nativeColumnFilter, projectStatusChoices } from "@/utils/business/native-list-query";
-import {computed,nextTick,reactive,ref,onMounted,watch} from "vue";
+import {computed,nextTick,reactive,ref,onMounted,watch, defineAsyncComponent, shallowRef } from "vue";
 import {useRoute,useRouter} from "vue-router";
 import { ElMessage,ElMessageBox, type TableInstance } from "element-plus";
 import CrudPage from "@/components/Crud/CrudPage.vue";
@@ -187,7 +190,7 @@ import { organizationTree } from "@/api/business/organizations";
 import {
   listProjects,projectDetail,saveProject,createProjectFromDemand,stockProject,linkProjectDemands,
   projectMoney,projectActions,projectApprovalHistory,
-  type ProjectApproval,type ProjectAction,type ProjectDetail,type ProjectForm,
+  type ProjectApproval,type ProjectAction,type ProjectDetail,type ProjectForm,type ProjectRow,
 } from "@/api/business/projects";
 import {formatBeijingDateTime} from "@/utils/business/datetime";
 import {formatScaledDecimal} from "@/utils/business/fixed-scale";
@@ -209,6 +212,12 @@ const canWrite=computed(()=>userStore.userInfo.perms.includes("write"));
 const canStock=computed(()=>userStore.userInfo.perms.includes("project.stock"));
 const canClose=computed(()=>userStore.userInfo.perms.includes("project.close"));
 const crud=ref<InstanceType<typeof CrudPage>>();
+const ProjectProfileBulkEditor = defineAsyncComponent(() => import("./ProjectProfileBulkEditor.vue"));
+const bulkProfiles = shallowRef<{ mode: "create" | "update"; records: ProjectRow[] } | null>(null);
+function closeBulkProfiles() {
+  bulkProfiles.value = null;
+  void crud.value?.refresh(true);
+}
 const batchTargets=ref<HandlingTarget[]|null>(null);
 const frameworkChoices=ref<OptionItem[]>([]);
 const categoryChoices=ref<OptionItem[]>([]), organizationChoices=ref<OptionItem[]>([]);
@@ -384,6 +393,12 @@ const tableConfig:CrudTableConfig={
     return {list:result.items,total:result.total};
   },
   toolbarActions:[{key:"create",label:"新增子项目",permission:"write"},
+    {key:"batch-create-profiles",label:"批量新增子项目",permission:"write",disabled:()=>Boolean(sourceDemandId.value),
+      onClick:()=>{bulkProfiles.value={mode:"create",records:[]};}},
+    {key:"batch-update-profiles",label:"批量修订项目档案",permission:"write",
+      disabled:({selectedRows})=>Boolean(sourceDemandId.value)||!selectedRows.length||selectedRows.length>100||
+        selectedRows.some(row=>row.deleted||row.status==="closed"),
+      onClick:({selectedRows})=>{bulkProfiles.value={mode:"update",records:selectedRows as ProjectRow[]};}},
     {key:"export-selection",label:"导出所选项目",permission:"read",disabled:({selectedKeys})=>!selectedKeys.length,
       onClick:async({selectedKeys})=>{try{await downloadWorkbook("/projects/export",undefined,selectedKeys.map(String))}catch(e){ElMessage.error((e as Error).message)}}},
     {key:"batch-stock",label:"批量入库",permission:"project.stock",disabled:({selectedRows})=>!selectedRows.length||selectedRows.length>100,

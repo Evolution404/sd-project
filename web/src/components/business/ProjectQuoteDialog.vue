@@ -2,6 +2,11 @@
   <el-dialog :model-value="true" title="批准范围参考报价" width="min(95vw, 900px)" append-to-body
     :close-on-click-modal="false" :close-on-press-escape="!busy" :show-close="!busy" @close="emit('close')">
     <el-form label-position="top" novalidate :disabled="busy">
+      <el-form-item label="批准需求">
+        <el-select v-model="scopeId" filterable>
+          <el-option v-for="scope in scopes" :key="scope.id" :value="scope.id" :label="scope.demand_no" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="价格适用日期">
         <el-date-picker v-model="date" type="date" value-format="YYYY-MM-DD" :clearable="false" />
       </el-form-item>
@@ -59,14 +64,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { quoteProjectScope, type QuoteInput, type QuoteResult } from "@/api/business/pricing";
 import { yuanToFen } from "@/api/business/funding";
 import { projectMoney, type ApprovedProjectScope } from "@/api/business/projects";
 import { formatScaledDecimal } from "@/utils/business/fixed-scale";
 
-const props = defineProps<{ scope: ApprovedProjectScope }>();
+const props = defineProps<{ scopes: readonly ApprovedProjectScope[] }>();
+const scopeId = ref(props.scopes[0]?.id);
+const selected = computed(() => props.scopes.find(scope => scope.id === scopeId.value));
 const emit = defineEmits<{ close: []; confirmed: [] }>();
 const date = ref(new Intl.DateTimeFormat("sv-SE", {
   timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit",
@@ -86,7 +93,7 @@ const trialInputs = ref("");
 const signature = computed(() => JSON.stringify([date.value, selections.value, selectionReasons.value, amounts.value, basisEvidence.value]));
 const stale = computed(() => Boolean(result.value && trialInputs.value !== signature.value));
 
-function requestInput(): QuoteInput {
+function requestInput(scope: ApprovedProjectScope): QuoteInput {
   const bases: QuoteInput["bases"] = {};
   for (const [position, values] of Object.entries(amounts.value)) {
     const evidence = basisEvidence.value[Number(position)]?.trim();
@@ -97,19 +104,20 @@ function requestInput(): QuoteInput {
     }
   }
   return {
-    expected_version: props.scope.demand_version, approval_scope_version_id: props.scope.id, pricing_date: date.value,
+    expected_version: scope.demand_version, approval_scope_version_id: scope.id, pricing_date: date.value,
     selections: selections.value, selection_basis: selectionReasons.value, bases,
   };
 }
 
 async function calculate(confirm: boolean) {
-  if (busy.value || (confirm && (!result.value?.complete || stale.value || result.value.id))) return;
+  const scope = selected.value;
+  if (!scope || busy.value || (confirm && (!result.value?.complete || stale.value || result.value.id))) return;
   busy.value = true;
   try {
     const before = signature.value;
     const previous = result.value;
-    const quote = await quoteProjectScope(props.scope.demand_id, {
-      ...requestInput(), confirm, ...(confirm ? { preview_hash: previous?.preview_hash } : {}),
+    const quote = await quoteProjectScope(scope.demand_id, {
+      ...requestInput(scope), confirm, ...(confirm ? { preview_hash: previous?.preview_hash } : {}),
     });
     for (const missing of quote.missing) {
       if (missing.needs_basis) amounts.value[missing.location_item_no] ??= {};
@@ -127,5 +135,29 @@ async function calculate(confirm: boolean) {
   }
 }
 
+const quotes = new Map<string, {
+  date: string;
+  selections: typeof selections.value;
+  selectionReasons: typeof selectionReasons.value;
+  amounts: typeof amounts.value;
+  basisEvidence: typeof basisEvidence.value;
+  result: typeof result.value;
+  trialInputs: string;
+}>();
+watch(scopeId, (current, previous) => {
+  if (previous) quotes.set(previous, {
+    date: date.value, selections: selections.value, selectionReasons: selectionReasons.value,
+    amounts: amounts.value, basisEvidence: basisEvidence.value, result: result.value, trialInputs: trialInputs.value,
+  });
+  const saved = current ? quotes.get(current) : undefined;
+  if (saved) date.value = saved.date;
+  selections.value = saved?.selections ?? {};
+  selectionReasons.value = saved?.selectionReasons ?? {};
+  amounts.value = saved?.amounts ?? {};
+  basisEvidence.value = saved?.basisEvidence ?? {};
+  result.value = saved?.result;
+  trialInputs.value = saved?.trialInputs ?? "";
+  if (!saved) void calculate(false);
+});
 onMounted(() => { void calculate(false); });
 </script>

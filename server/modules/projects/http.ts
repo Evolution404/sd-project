@@ -3,7 +3,7 @@ import { parseHandlingTargets } from "../../platform/http/handling-batch.js";
 import { isObject } from "../../shared/types/contracts.js";
 import { projectActionHints } from "./actions.js";
 import { parseProjectFromDemand, parseProjectVersion, parseProjectLink, parseProjectLinkBatch, parseProjectRelease,
-  parseProjectApproval, parseProjectManagement } from "./requests.js";
+  parseProjectApproval, parseProjectManagement, parseProjectProfileBatch } from "./requests.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
@@ -17,6 +17,14 @@ export async function handleProjects(context: RouteContext): Promise<{
     let result: unknown;
     switch (resource) {
         case "projects":
+            if (key === "profile-batch") {
+                requireValue(!read && method === "POST" && (sub === "preview" || sub === "commit") && !subKey, "仅支持批量档案预检和提交", 405);
+                const rows = parseProjectProfileBatch(input);
+                if (sub === "preview") return { result: system.projects.previewProfileBatch(actor, rows) };
+                const fingerprint = input.fingerprint;
+                requireValue(typeof fingerprint === "string" && /^[0-9a-f]{64}$/.test(fingerprint), "批量档案须先通过预检");
+                return { result: mutate("write", () => system.projects.commitProfileBatch(actor, rows, fingerprint)) };
+            }
             if (key === "stock-batch") {
                 requireValue(!read && method === "POST" && (!sub || sub === "preview"), "仅支持批量入库或预检", 405);
                 const targets = parseHandlingTargets(input.items);
