@@ -109,8 +109,8 @@ export function listSettlements(query:{page?:number;size?:number;keyword?:string
     ? "/api/projects/"+encodeURIComponent(query.projectId)+"/settlements?"+params.toString()
     : "/api/settlements?"+params.toString());
 }
-export const settlementDetail=(id:string):Promise<SettlementDetails>=>
-  get("/api/settlements/"+encodeURIComponent(id));
+export const settlementDetail = (id: string, projectId?: string): Promise<SettlementDetails> =>
+  get((projectId ? projectPath(projectId) : "/api") + "/settlements/" + encodeURIComponent(id));
 export const settlementHistory=(id:string):Promise<unknown[]>=>
   get("/api/settlements/"+encodeURIComponent(id)+"/history");
 export async function saveSettlementDraft(input:{

@@ -85,22 +85,32 @@
   </el-dialog>
 
 
-  <el-drawer v-model="detailsOpen" :title="reconciling ? '结算逐笔对账' : '结算正式事实及草稿'" size="min(95vw, 950px)" append-to-body destroy-on-close>
+  <el-drawer v-model="detailsOpen" :title="detailTitles[detailSection]" size="min(95vw, 950px)" append-to-body destroy-on-close>
     <el-skeleton v-if="detailsLoading" animated :rows="7" />
-    <el-alert v-else-if="detailError" type="error" :title="detailError" :closable="false" />
-    <section v-else-if="detail && reconciling" class="flex h-full min-h-0 flex-col gap-3" aria-label="结算逐笔对账">
+    <el-alert v-else-if="detailError" type="error" :title="detailError" :closable="false">
+      <el-button link type="primary" @click="showDetails(detailId)">重新读取结算</el-button>
+    </el-alert>
+    <section v-else-if="detail && detailSection === 'reconciliations'" class="flex h-full min-h-0 flex-col gap-3" aria-label="结算逐笔对账">
       <el-descriptions :column="2" border class="shrink-0">
         <el-descriptions-item label="结算编号">{{ detail.number }}</el-descriptions-item>
         <el-descriptions-item label="结算方式">按子费用</el-descriptions-item>
       </el-descriptions>
-      <div class="flex shrink-0 justify-end"><el-button @click="reconciling = false">返回结算详情</el-button></div>
+      <div class="flex shrink-0 justify-end"><el-button @click="detailSection = 'facts'">返回结算详情</el-button></div>
       <ProjectFinanceWorkspace :key="detail.id" :project-id="detail.project_id" :settlement-id="detail.id"
         :closed="Boolean(detail.write_blocked_reason)" />
+    </section>
+    <section v-else-if="detail && detailSection === 'history'" aria-label="结算正式历史">
+      <div class="mb-3 flex justify-end"><el-button @click="detailSection = 'facts'">返回结算详情</el-button></div>
+      <BusinessHistoryViewer :target="{ kind: 'settlements', id: detail.id, project: detail.project_id }" />
     </section>
     <template v-else-if="detail">
       <SettlementFacts :detail="detail" />
       <div class="mt-4 flex flex-wrap justify-end gap-2">
-        <el-button v-if="!detail.deleted && detail.effective_mode === 'itemized'" data-guide-action="finance.reconciliation-section" @click="reconciling = true">逐笔对账</el-button>
+        <el-button v-if="origin.source === 'portfolio-settlement'" @click="backToPortfolio">返回跨项目结算</el-button>
+        <el-button v-if="!projectId" @click="openSettlementInProject(detail)">查看所属项目</el-button>
+        <el-button @click="showDetails(detail.id)">重新读取结算</el-button>
+        <el-button v-if="detail.version" @click="detailSection = 'history'">查看正式历史</el-button>
+        <el-button v-if="!detail.deleted && detail.effective_mode === 'itemized'" data-guide-action="finance.reconciliation-section" @click="detailSection = 'reconciliations'">逐笔对账</el-button>
       </div>
       <div v-if="!detail.deleted && !detail.write_blocked_reason" class="mt-4 flex flex-wrap justify-end gap-2">
         <el-button v-if="canWrite && detail.draft" data-guide-action="finance.edit-draft" @click="openWork('SettlementEdit', detail.id)">编辑草稿</el-button>
@@ -127,6 +137,7 @@ import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components
 import { LIST_QUERY_KEY } from "@/components/Crud/utils/list-state";
 import ProjectFinanceWorkspace from "@/components/business/ProjectFinanceWorkspace.vue";
 import PortfolioFinance from "@/components/business/PortfolioFinance.vue";
+import BusinessHistoryViewer from "@/components/business/BusinessHistoryViewer.vue";
 import SettlementFacts from "@/components/business/SettlementFacts.vue";
 import BusinessExchangeDialog from "@/components/business/BusinessExchangeDialog.vue";
 import { listProjects, projectDetail, projectMoney, type ProjectRow, type ProjectDetail } from "@/api/business/projects";
@@ -156,7 +167,10 @@ const projectPage = ref(1), projectTotal = ref(0);
 let appliedProjectKeyword = "", projectSequence = 0;
 const approvedProjects = ref<ProjectRow[]>([]);
 const detailsOpen = ref(false), detailsLoading = ref(false), detailError = ref("");
-const reconciling = ref(false);
+const detailId = ref("");
+const detailTitles = { facts: "结算正式事实及草稿", history: "结算正式历史", reconciliations: "结算逐笔对账" };
+const detailSection = ref<keyof typeof detailTitles>("facts");
+let portfolioRecord = "";
 const detail = ref<SettlementDetails>();
 let detailSequence = 0;
 let scrollTop = 0;
@@ -184,6 +198,17 @@ function backToFinanceProjects() {
   void router.push({ name: "Finance", query: { [LIST_QUERY_KEY]: origin.sourceList } });
 }
 
+function openSettlementInProject(row: SettlementDetails) {
+  portfolioRecord = row.id;
+  void router.push({ name: "Finance", query: {
+    project: row.project_id, record: row.id, source: "portfolio-settlement", sourceList: route.query[LIST_QUERY_KEY],
+  } });
+}
+
+function backToPortfolio() {
+  void router.push({ name: "Finance", query: { view: "settlements", [LIST_QUERY_KEY]: origin.sourceList } });
+}
+
 function statusType(status: string) {
   return status === "approve" ? "success" : status === "draft" ? "info" : status === "return" ? "warning" : "primary";
 }
@@ -205,13 +230,14 @@ function selectProject(id: string) {
 
 async function showDetails(id: string) {
   const sequence = ++detailSequence;
-  reconciling.value = false;
+  detailId.value = id;
+  detailSection.value = "facts";
   detailsOpen.value = true;
   detailsLoading.value = true;
   detail.value = undefined;
   detailError.value = "";
   try {
-    const row = await settlementDetail(id);
+    const row = await settlementDetail(id, projectId);
     if (sequence === detailSequence) detail.value = row;
   } catch (cause) {
     if (sequence === detailSequence) detailError.value = (cause as Error).message;
@@ -226,6 +252,11 @@ onActivated(async () => {
   await crud.value?.refresh();
   await nextTick();
   document.querySelector(".layout-content")?.scrollTo(0, scrollTop);
+  if (portfolioRecord) {
+    const record = portfolioRecord;
+    portfolioRecord = "";
+    await showDetails(record);
+  }
 });
 async function loadProjects(reset = false){
   if (reset) { projectPage.value=1; appliedProjectKeyword=projectKeyword.value; }
@@ -279,6 +310,7 @@ let settlementListSequence=0;
 const searchConfig:CrudSearchConfig={
   fields:[{type:"input",prop:"keywords",label:"结算单",attrs:{
     placeholder:"结算编号 / 项目名称 / 项目编号",clearable:true}},
+    {type:"input",prop:"amount_fen",label:"本次金额（元）",attrs:{placeholder:"输入本次金额",clearable:true,inputmode:"decimal"}},
     historyScopeField("finance.show-deleted"),
   ],
 };
@@ -287,10 +319,13 @@ const tableConfig:CrudTableConfig={
   table:{border:true},rowKey:"id",
   fetchData:async query=>{
     const sequence=++settlementListSequence;
-    const q=query as {pageNum?:number;pageSize?:number;keywords?:string};
+    const q=query as {pageNum?:number;pageSize?:number;keywords?:string;amount_fen?:string};
+    const options = nativeListQuery(query, ["status"]);
+    const amount = q.amount_fen?.trim();
+    if (amount) options.filters = { ...options.filters, amount_fen: amount };
     const result=await listSettlements({page:q.pageNum||1,
-      size:q.pageSize||20,keyword:q.keywords||"",projectId:projectId,...nativeListQuery(query, ["status"])});
-    if(sequence===settlementListSequence) settlementQuery.value = applyNativeListQuery(new URLSearchParams({ q: q.keywords || "" }), nativeListQuery(query, ["status"])).toString();
+      size:q.pageSize||20,keyword:q.keywords||"",projectId:projectId,...options});
+    if(sequence===settlementListSequence) settlementQuery.value = applyNativeListQuery(new URLSearchParams({ q: q.keywords || "" }), options).toString();
     return {list:result.items,total:result.total};
   },
   toolbarActions:[
@@ -320,6 +355,7 @@ onMounted(async () => {
   if (!projectId) return;
   try {
     projectContext.value = await projectDetail(projectId, origin.archive === "true");
+    if (typeof origin.record === "string") await showDetails(origin.record);
   } catch (cause) {
     contextError.value = (cause as Error).message;
   }
