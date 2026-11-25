@@ -13,7 +13,7 @@ type DashboardRow = Dashboard["portfolio"][number] | Dashboard["alerts"][number]
   Dashboard["frameworks"][number] | Dashboard["months"][number] | Dashboard["quarters"][number];
 
 const dashboard = ref<Dashboard>({
-  demands: 0, pending_demands: 0, projects: 0, active_projects: 0,
+  demands: 0, pending_demands: 0, pending_demand_items: [], projects: 0, active_projects: 0,
   as_of: "", portfolio: [], alerts: [], frameworks: [], months: [], quarters: [],
 });
 const metrics = [
