@@ -76,8 +76,11 @@ try {
   await pickDemandPositions(page, [["T16", /T16/]]);
   canvas = await worksheetCanvas(sheet);
   await typeWorksheetCell(page, canvas, 1, 2, widths, "0.25");
+  // Move off the quantity cell before selecting it again to avoid native double-click editing.
+  await selectWorksheetCell(canvas, 1, 0, widths);
   await selectWorksheetCell(canvas, 1, 2, widths);
   assert.equal((await copySettlementSelection(page)).trim(), "0.25");
+  await selectWorksheetCell(canvas, 1, 0, widths);
   await typeWorksheetCell(page, canvas, 1, 2, widths, "0.2501");
   await button("保存专业需求").click();
   await invalid.waitFor();
