@@ -66,38 +66,20 @@
           </el-col>
         </el-row>
       </el-form>
-      <template v-if="editorForm.mode === 'itemized' && editorForm.changeType !== 'void'">
-        <div class="my-3 flex flex-wrap items-center justify-between">
-          <h3 class="font-semibold">本次结算子费用</h3>
-          <el-button :disabled="saving || switching" data-guide-action="finance.cost-item-add" @click="addItem">新增子费用</el-button>
-        </div>
-        <el-table :data="editorItems" row-key="key" border empty-text="请选择末级费用科目并录入金额">
-          <el-table-column label="费用科目" min-width="190">
-            <template #default="{ row }">
-              <CostCategoryField v-model="row.cost_node_id" :nodes="costNodes"
-                :frozen-name="costNames.get(row.cost_node_id) ? undefined : row.costNodeName"
-                :disabled="saving || switching" />
-            </template>
-          </el-table-column>
-          <el-table-column label="关联批准需求" min-width="185">
-            <template #default="{ row }">
-              <el-select v-model="row.project_scope_id" clearable filterable :disabled="saving || switching" placeholder="共同费用可留空">
-                <el-option v-for="scope in adoptedApproval?.scopes" :key="scope.project_scope_id"
-                  :value="scope.project_scope_id" :label="scope.demand_no" />
-              </el-select>
-            </template>
-          </el-table-column>
-          <el-table-column label="操作" width="82">
-            <template #default="{ row }">
-              <el-button link type="danger" :disabled="saving || switching"
-                data-guide-action="finance.cost-item-remove" @click="editorItems = editorItems.filter(item => item.key !== row.key)">移除</el-button>
-            </template>
-          </el-table-column>
-        </el-table>
-        <BusinessWorksheet v-if="editorItems.length" ref="itemSheet" class="mt-3"
-          name="子费用金额及依据" :session-key="itemSession" :rows="itemRows" :columns="itemColumns"
-          :validate="validateItems" :disabled="saving||switching" @change="updateItems" />
-      </template>
+      <div v-if="editorForm.changeType !== 'void'" v-show="editorForm.mode === 'itemized'">
+        <h3 class="my-3 font-semibold">本次结算子费用</h3>
+        <BusinessWorksheet ref="itemSheet" name="结算子费用" :session-key="itemSession"
+          :rows="itemRows" :columns="itemColumns" :validate="validateItems" :disabled="saving || switching"
+          removable remove-label="移除选中子费用" remove-guide="finance.cost-item-remove"
+          @change="updateItems" @rows-change="changeItemRows" @readiness-change="itemReady = $event">
+          <template #toolbar>
+            <el-button :disabled="!itemReady || saving || switching" data-guide-action="finance.cost-item-add" @click="addItem">新增子费用</el-button>
+            <el-button :disabled="!itemReady || !editorItems.length || saving || switching" @click="openCategoryPicker">选择费用科目</el-button>
+          </template>
+        </BusinessWorksheet>
+        <CostCategoryPicker v-if="categoryTargets.length" :nodes="costNodes"
+          @confirm="setCategory" @close="categoryTargets = []" />
+      </div>
       <SettlementWorkSheet v-if="editorForm.changeType !== 'void'"
         ref="worksheet"
         :inert="saving || switching"
@@ -115,12 +97,12 @@
 
 <script setup lang="ts">
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
-import type {WorksheetColumn,WorksheetValues,WorksheetIssue} from "@/components/BusinessWorksheet/univer-engine";
+import type {WorksheetColumn,WorksheetRow,WorksheetValues,WorksheetIssue} from "@/components/BusinessWorksheet/univer-engine";
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 import { ElMessage, ElMessageBox } from "element-plus";
 import SettlementWorkSheet from "@/components/business/SettlementWorkSheet.vue";
-import CostCategoryField from "@/components/business/CostCategoryField.vue";
+import CostCategoryPicker from "@/components/business/CostCategoryPicker.vue";
 import { fenToYuan, yuanToFen } from "@/api/business/funding";
 import { projectApprovalHistory, projectDetail, type ProjectApproval, type ProjectDetail } from "@/api/business/projects";
 import { listCostNodes, saveSettlementDraft, settlementDetail, type CostNode, type SettlementDetails, type SettlementItemInput,
@@ -159,36 +141,92 @@ const costNodes = ref<CostNode[]>([]);
 const costNames = computed(() => new Map(costNodes.value.map(node => [node.id, node.name])));
 const eligibleCostNodes = computed(() => new Set(costNodes.value.filter(node => node.selectable).map(node => node.id)));
 const itemSheet=ref<InstanceType<typeof BusinessWorksheet>>();
-const itemColumns:WorksheetColumn[]=[
-  {key:"label",title:"费用科目",width:240},{key:"scope",title:"关联需求",width:170},
-  {key:"amount",title:"金额（元）",width:125,editable:true,numeric:true},{key:"evidence",title:"结算依据",width:260,editable:true},
-];
-const itemSession=computed(()=>JSON.stringify(editorItems.value.map(row=>[row.key,row.cost_node_id,row.project_scope_id])));
-const itemRows=computed(()=>editorItems.value.map(row=>({
-  id:String(row.key),label:costNames.value.get(row.cost_node_id) || row.costNodeName || "未选费用科目",
-  values:{label:costNames.value.get(row.cost_node_id) || row.costNodeName || "未选费用科目",
-    scope:adoptedApproval.value?.scopes.find(scope=>scope.project_scope_id===row.project_scope_id)?.demand_no||"共同费用",
-    amount:row.amountYuan,evidence:row.evidence??""},
-})));
+const itemReady=ref(false);
+const categoryTargets=ref<string[]>([]);
+const scopesByNumber=computed(()=>new Map(adoptedApproval.value?.scopes.map(scope=>[scope.demand_no,scope.project_scope_id])));
+const numbersByScope=computed(()=>new Map(adoptedApproval.value?.scopes.map(scope=>[scope.project_scope_id,scope.demand_no])));
+const itemColumns=computed<WorksheetColumn[]>(()=>[
+  {key:"category",title:"费用科目",width:240},
+  {key:"scope",title:"关联批准需求",width:170,editable:true,options:[...scopesByNumber.value.keys()]},
+  {key:"amount",title:"金额（元）",width:125,editable:true,numeric:true,required:true},
+  {key:"evidence",title:"结算依据",width:260,editable:true},
+]);
+const itemSession=computed(()=>String(editorSequence)+":"+editorForm.approvalId);
+const itemBindings=new WeakMap<WorksheetRow,EditorItem>();
+
+function itemRow(item:EditorItem):WorksheetRow {
+  const category=costNames.value.get(item.cost_node_id) || item.costNodeName || "";
+  const row:WorksheetRow={
+    id:String(item.key),label:category || "子费用",
+    values:{
+      category,scope:numbersByScope.value.get(item.project_scope_id || "")??"",
+      amount:item.amountYuan,evidence:item.evidence??"",
+    },
+  };
+  itemBindings.set(row,item);
+  return row;
+}
+const itemRows=computed(()=>editorItems.value.map(itemRow));
+function changeItemRows(rows:readonly WorksheetRow[]){
+  editorItems.value=rows.map(row=>itemBindings.get(row)!);
+}
 function validateItems(values:WorksheetValues):WorksheetIssue[]{
   const issues:WorksheetIssue[]=[];
-  itemRows.value.forEach((row,i)=>{
-    try{yuanToFen(values[row.id]?.amount??"");}
-    catch(cause){const message=cause instanceof Error?cause.message:String(cause);issues.push({row:i+1,column:2,cell:"C"+(i+2),rowId:row.id,field:"amount",location:row.label,message});}
-  });
+  const combinations=new Set<string>();
+  for(const [index,row] of editorItems.value.entries()){
+    const id=String(row.key), input=values[id];
+    if(!input)continue;
+    const issue=(column:number,message:string)=>issues.push({
+      row:index+1,column,cell:"",rowId:id,field:itemColumns.value[column].key,
+      location:costNames.value.get(row.cost_node_id) || row.costNodeName || "子费用",message,
+    });
+    const scope=input.scope??"";
+    if(!eligibleCostNodes.value.has(row.cost_node_id))issue(0,"请选择本项目有效的末级费用科目");
+    if(scope && !scopesByNumber.value.has(scope))issue(1,"请选择采用批准版本内的需求，共同费用可留空");
+    else if(!scope && row.quantity_scaled)issue(1,"无需求归属的共同费用计价数量须为0");
+    if(row.cost_node_id){
+      const combination=JSON.stringify([row.cost_node_id,scope]);
+      if(combinations.has(combination))issue(1,"同一科目及需求的费用行重复");
+      combinations.add(combination);
+    }
+    try{
+      if(!yuanToFen(input.amount??"") && !row.quantity_scaled)issue(2,"费用明细金额和数量不能同时为0");
+    }catch(cause){issue(2,(cause as Error).message);}
+  }
   return issues;
 }
 function updateItems(values:WorksheetValues){
-  for(const row of editorItems.value){const item=values[String(row.key)];if(item){row.amountYuan=item.amount??"";row.evidence=item.evidence??"";}}
+  for(const row of editorItems.value){
+    const item=values[String(row.key)];
+    if(!item)continue;
+    const scope=scopesByNumber.value.get(item.scope??"");
+    if(scope || row.project_scope_id)row.project_scope_id=scope;
+    row.amountYuan=item.amount??"";
+    row.evidence=item.evidence??"";
+  }
 }
-function addItem(){
-  editorItems.value.push({key:++itemKey,cost_node_id:"",amountYuan:"",evidence:""});
+async function addItem(){
+  await itemSheet.value?.addRows([itemRow({key:++itemKey,cost_node_id:"",amountYuan:"",evidence:""})]);
+}
+async function openCategoryPicker(){
+  const selected=itemSheet.value?.selectedRowIds()??[];
+  if(!selected.length){ElMessage.warning("请先在工作表内选择需要设定费用科目的行");return;}
+  await itemSheet.value?.finishEditing();
+  categoryTargets.value=selected;
+}
+async function setCategory(id:string){
+  const selected=new Set(categoryTargets.value);
+  categoryTargets.value=[];
+  if(!eligibleCostNodes.value.has(id))return;
+  const rows=editorItems.value.filter(row=>selected.has(String(row.key)) && row.cost_node_id!==id)
+    .map(row=>itemRow({...row,cost_node_id:id,costNodeName:undefined}));
+  if(rows.length)await itemSheet.value?.replaceRowReferences(rows);
 }
 function editorState(){
   return JSON.stringify([editorForm, editorItems.value]);
 }
 function editorDirty(){
-  return Boolean(originalEditor) && (editorState() !== originalEditor || worksheet.value?.changed());
+  return Boolean(originalEditor) && (editorState() !== originalEditor || itemSheet.value?.changed() || worksheet.value?.changed());
 }
 async function allowExit(){
   if(saving.value||switching.value)return false;
@@ -236,6 +274,7 @@ async function load() {
       projectDetail(id), projectApprovalHistory(id), voiding ? [] : listCostNodes(id),
     ]);
     if (sequence !== editorSequence) return;
+    categoryTargets.value = [];
     if (!row.approval || row.status !== "approved" || row.deleted)
       throw Error("本项目当前不可编制结算");
     costNodes.value = categories;
@@ -306,14 +345,14 @@ async function saveDraft(submitNow = false){
   try{
     const positions = editorForm.changeType === "void" ? { resolutions: [] }
       : await worksheet.value?.prepareSave();
-    const itemValues=editorForm.mode==="itemized"&&editorForm.changeType!=="void"&&editorItems.value.length ? await itemSheet.value?.prepareSave() : {};
+    const itemized=editorForm.mode==="itemized"&&editorForm.changeType!=="void";
+    if(itemized && !editorItems.value.length) throw Error("按子费用结算至少填写一条费用明细");
+    const itemValues=itemized ? await itemSheet.value?.prepareSave() : {};
     if (!positions || !itemValues) return;
-    const items=editorForm.mode==="itemized"&&editorForm.changeType!=="void"
+    const items=itemized
       ?editorItems.value.map(({key:_key,amountYuan,costNodeName:_name,...item})=>({
         ...item,amount_fen:yuanToFen(amountYuan),
       })):[];
-    if(items.some(item=>!eligibleCostNodes.value.has(item.cost_node_id)))
-      throw Error("请选择本项目有效的末级费用科目");
     if (submitNow) await ElMessageBox.confirm("提交后结算进入待审核状态，审核完成前不可编辑。确定提交？","提交结算审核",{
       type:"warning",confirmButtonText:"确认提交",cancelButtonText:"继续编辑",
     });

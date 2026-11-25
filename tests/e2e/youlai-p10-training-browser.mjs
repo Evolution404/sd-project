@@ -136,7 +136,7 @@ try{
      await editor.locator(".el-form-item").filter({hasText:"结算方式"}).locator(".el-select").click();await option("按子费用").click();
      await button("新增子费用",editor).click();
      await chooseTrainingCost(editor);
-     const itemCanvas=await worksheetCanvas(editor.getByRole("region",{name:"子费用金额及依据",exact:true}));
+     const itemCanvas=await worksheetCanvas(editor.getByRole("region",{name:"结算子费用",exact:true}));
      await typeWorksheetCell(page,itemCanvas,1,2,[240,170,125,260],"3800");
      await typeWorksheetCell(page,itemCanvas,1,3,[240,170,125,260],"第二期现场费用");
      const grid = await settlementCanvas(editor);

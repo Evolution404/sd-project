@@ -30,6 +30,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1920, height: 1080 }, colorScheme: "dark" });
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   page = await context.newPage();
+  await page.addInitScript(() => localStorage.setItem("vea:ui:theme","auto"));
   const failures = [];
   page.on("pageerror", error => failures.push(error.message));
   await page.goto(origin + "/#/login");
@@ -55,6 +56,7 @@ try {
   await page.getByText("已预检 2 条档案，问题 0 项", { exact: true }).waitFor();
   const query = { page: 1, page_size: 20, q: "工作表创建", filters: {} };
   assert.equal(s.projects.search(query).total, 0);
+  await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
   assert.deepEqual((await alignmentAudit(page)).violations, []);
   await page.screenshot({ path: join(out, "profiles-dark.png"), animations: "disabled" });
   await button("整批保存档案").click();
@@ -84,6 +86,7 @@ try {
   for (const demand of demands) staged = s.projects.link(user, staged.id, { demand_id: demand.id, expected_version: staged.version });
   staged = s.projects.stock(user, staged.id, { expected_version: staged.version });
   await page.emulateMedia({ colorScheme: "light" });
+  await page.waitForFunction(() => !document.documentElement.classList.contains("dark"));
   await page.goto(origin + "/#/business/projects/" + staged.id + "/approval/compile");
   await page.getByRole("textbox", { name: "拟批准预算（元）" }).fill("130.00");
   await button("添加批准物资").click();

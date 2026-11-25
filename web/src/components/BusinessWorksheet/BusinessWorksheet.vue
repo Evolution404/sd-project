@@ -14,7 +14,7 @@ const settings = useSettingsStore();
 const host = ref<HTMLElement>(), panel = ref<HTMLElement>();
 const activeCanvas = ref(false);
 const ready = ref(false), failure = ref(""), notice = ref(""), selection = ref("");
-const canUndo = ref(false), canRedo = ref(false);
+const canUndo = ref(false), canRedo = ref(false), structureChanged = ref(false);
 const visibleCount=ref(0);
 const issues = shallowRef<WorksheetIssue[]>([]);
 const current = shallowRef<WorksheetValues>({});
@@ -24,7 +24,7 @@ let generation = 0;
 let pendingLoad: Promise<void>;
 const dark = computed(() => settings.resolvedTheme === ThemeMode.DARK);
 const primary = () => getComputedStyle(document.documentElement).getPropertyValue("--el-color-primary").trim() || "#165dff";
-const changed = computed(() => Object.keys(current.value).length !== Object.keys(baseline).length ||
+const changed = computed(() => structureChanged.value || Object.keys(current.value).length !== Object.keys(baseline).length ||
   Object.entries(current.value).some(([id, fields]) => !baseline[id] ||
     props.columns.some(column => column.editable && (fields[column.key] ?? "") !== (baseline[id][column.key] ?? ""))));
 watch([dark, () => settings.themeColors.primary], () => engine?.theme(dark.value, primary()), { flush: "post" });
@@ -36,6 +36,7 @@ async function load(empty = false) {
   const started = performance.now();
   ready.value = false; engine?.dispose(); engine = undefined;
   issues.value = []; failure.value = ""; notice.value = ""; selection.value = ""; canUndo.value = false; canRedo.value = false;
+  structureChanged.value = false;
   const rows = props.rows.slice();
   const columns = props.columns.map(column => ({ ...column }));
   baseline = Object.fromEntries(rows.map(row => [row.id, { ...row.values }])); current.value = baseline;
@@ -52,7 +53,11 @@ async function load(empty = false) {
       host: host.value, rows, columns, name: props.name, dark: dark.value, primary: primary(),
       filled: values => columns.some(column => column.editable && Boolean(values[column.key])),
       validate: values => props.validate(values),
-      onRowsChange: props.removable ? draft => { if (token === generation) emit("rows-change", draft); } : undefined,
+      onRowsChange: props.removable ? draft => {
+        if (token !== generation) return;
+        structureChanged.value = draft.length !== rows.length || draft.some((row, index) => row !== rows[index]);
+        emit("rows-change", draft);
+      } : undefined,
       removalLabel: props.removeLabel ?? "移除选中位置", visibleRow: props.visibleRow,
       onChange: values => { if (token === generation) { current.value = values; emit("change", values); } },
       onSelection: value => { if (token === generation) selection.value = value; },
@@ -109,7 +114,9 @@ async function addRows(rows: readonly WorksheetRow[]) {
   if (token !== generation || !ready.value || props.disabled || !engine) return false;
   return engine.addRows(rows);
 }
-defineExpose({ prepareSave, addRows, focusField: (id: string, field: string) => engine?.focusField(id, field), selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
+defineExpose({ prepareSave, addRows,
+  replaceRowReferences: (rows: readonly WorksheetRow[]) => !props.disabled && engine?.replaceRowReferences(rows),
+  focusField: (id: string, field: string) => engine?.focusField(id, field), selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
   changed: () => changed.value || Boolean(engine?.isEditing()), undo: () => engine?.undo(), redo: () => engine?.redo() });
 </script>
 <template>

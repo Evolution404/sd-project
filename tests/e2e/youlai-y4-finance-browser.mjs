@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import {worksheetCanvas,typeWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
+import {selectWorksheetCell,worksheetCanvas,typeWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
+import { alignmentAudit } from "./youlai-alignment-helpers.mjs";
 import { approvedFixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { chromium } from "playwright";
@@ -21,6 +22,7 @@ try{
   browser=await chromium.launch({headless:true,channel:"chrome"});
   page=await browser.newPage({viewport:{ width: 1920, height: 1080 }});
   page.setDefaultTimeout(12000);
+  await page.addInitScript(() => localStorage.setItem("vea:ui:theme","auto"));
   const runtimeErrors=[];
   page.on("pageerror",error=>runtimeErrors.push(error.message));
   await page.goto("http://127.0.0.1:"+port+"/#/login");
@@ -286,17 +288,51 @@ try{
   await phased.locator(".el-form-item").filter({hasText:"结算方式"}).locator(".el-select").click();
   await page.getByRole("option",{name:"按子费用",exact:true}).click();
   await phased.getByPlaceholder("请填写本次结算依据").fill("第二期核对结算");
-  await phased.getByRole("button",{name:"新增子费用"}).click();
-  await selectSiteCost(phased);
-  const itemCanvas=await worksheetCanvas(phased.getByRole("region",{name:"子费用金额及依据",exact:true}));
-  await typeWorksheetCell(page,itemCanvas,1,2,[240,170,125,260],"120.00");
-  await typeWorksheetCell(page,itemCanvas,1,3,[240,170,125,260],"本期现场费用依据");
-  await phased.getByRole("button",{name:"保存草稿"}).click();
+  const fees=phased.getByRole("region",{name:"结算子费用",exact:true});
+  const addFee=fees.getByRole("button",{name:"新增子费用",exact:true});
+  await addFee.click();
+  const itemCanvas=await worksheetCanvas(fees);
+  const feeWidths=[240,170,125,260];
+  await addFee.click();
+  await selectWorksheetCell(itemCanvas,1,0,feeWidths);
+  await page.keyboard.press("Shift+ArrowDown");
+  await selectSiteCost(fees);
+  await fees.getByRole("button",{name:"撤销",exact:true}).click();
+  await selectWorksheetCell(itemCanvas,1,0,feeWidths);
+  assert.equal((await copySettlementSelection(page)).trim(),"");
+  await fees.getByRole("button",{name:"重做",exact:true}).click();
+  await selectWorksheetCell(itemCanvas,1,0,feeWidths);
+  assert.equal((await copySettlementSelection(page)).trim(),costNode.name);
+  const activeApproval=f.s.projects.get(f.project.id).approval;
+  const approvedDemand=f.s.projects.approvalHistory(f.project.id).find(row=>row.id===activeApproval.id).scopes[0];
+  await selectWorksheetCell(itemCanvas,1,1,feeWidths);
+  await pasteSettlementCells(page,approvedDemand.demand_no+"\t70.001\t本期现场费用依据\n\t50.00\t共同费用凭据");
+  const saveFees=phased.getByRole("button",{name:"保存草稿",exact:true});
+  await saveFees.click();
+  await fees.getByRole("alert").getByText(/额度须是非负金额，最多保留两位小数/).waitFor();
+  assert.equal(f.s.finance.allSettlements().some(row=>row.draft?.document.basis==="第二期核对结算"),false);
+  await typeWorksheetCell(page,itemCanvas,1,2,feeWidths,"70.00");
+  await itemCanvas.click({button:"right",position:{x:60,y:114}});
+  await page.getByText("删除选中行",{exact:true}).click();
+  await fees.getByText("共 1 行",{exact:true}).waitFor();
+  await fees.getByRole("button",{name:"撤销",exact:true}).click();
+  await fees.getByText("共 2 行",{exact:true}).waitFor();
+  for (const mode of ["light","dark"]) {
+    await page.emulateMedia({colorScheme:mode});
+    await page.waitForFunction(theme=>document.documentElement.classList.contains("dark")===(theme==="dark"),mode);
+    assert.deepEqual((await alignmentAudit(page,".business-worksheet")).violations,[]);
+    await fees.screenshot({path:join(out,"settlement-itemized-"+mode+".png"),animations:"disabled"});
+  }
+  await page.emulateMedia({colorScheme:"light"});
+  await saveFees.click();
   await phased.waitFor({state:"hidden"});
   const second=f.s.finance.allSettlements().find(row=>row.draft?.document.basis==="第二期核对结算");
   assert.equal(second?.draft.document.mode,"itemized");
   assert.equal(second?.draft.document.amount_fen,12000);
-  assert.equal(second?.draft.document.items[0].cost_node_id, costNode.id);
+  assert.deepEqual(second?.draft.document.items.map(row=>[row.cost_node_id,row.project_scope_id??null,row.amount_fen,row.evidence]),[
+    [costNode.id,approvedDemand.project_scope_id,7000,"本期现场费用依据"],
+    [costNode.id,null,5000,"共同费用凭据"],
+  ]);
   assert.equal(f.s.finance.summary(f.project.id).settlement_fen,85000);
   await page.getByRole("row").filter({hasText:second.number}).getByRole("button",{name:"查看详情"}).click();
   await enterReview();
@@ -317,10 +353,10 @@ try{
   const reconPicker=page.getByRole("dialog",{name:"选择生效结算明细",exact:true});
   await reconPicker.getByPlaceholder("搜索结算单编号或费用科目").fill(second.number);
   await reconPicker.getByRole("button",{name:"查询",exact:true}).click();
-  await reconPicker.getByRole("row").filter({hasText:second.number}).filter({hasText:"现场核对费用"}).getByRole("button",{name:"选择",exact:true}).click();
+  await reconPicker.getByRole("row").filter({hasText:second.number}).filter({hasText:approvedDemand.demand_no}).getByRole("button",{name:"选择",exact:true}).click();
   await reconPicker.getByRole("button",{name:"确认选择（1）",exact:true}).click();
   await recon.getByRole("textbox",{name:"核对实际费用（元）"}).fill("120.00");
-  await recon.getByRole("textbox",{name:"核对结算金额（元）"}).fill("120.00");
+  await recon.getByRole("textbox",{name:"核对结算金额（元）"}).fill("70.00");
   await recon.getByRole("textbox",{name:"核对依据"}).fill("决算凭证逐笔一致");
   await recon.getByText("标记最终核对",{exact:true}).click();
   assert.equal(await recon.getByRole("checkbox",{name:"标记最终核对"}).isChecked(),true);

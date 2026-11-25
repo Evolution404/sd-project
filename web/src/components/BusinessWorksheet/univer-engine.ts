@@ -781,6 +781,27 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       { remove: additions.map(row => row.id) });
   }
 
+  async function replaceRowReferences(replacements: readonly WorksheetRow[]) {
+    if (!onRowsChange || disposed) return false;
+    await finishEditing();
+    if (disposed) return false;
+    readEntries();
+    const byId = new Map(replacements.map(row => [row.id, row]));
+    const undo: IndexedRow[] = [], redo: IndexedRow[] = [];
+    businessRows.forEach((row, index) => {
+      const replacement = byId.get(row.id);
+      if (!replacement || isHidden(rowNumbers.get(row.id)!) || row.locked) return;
+      const current = entries[row.id];
+      const values = { ...replacement.values };
+      for (const column of columns) if (column.editable) values[column.key] = current[column.key] ?? "";
+      undo.push({ index, row, values: current });
+      redo.push({ index, row: replacement, values });
+    });
+    if (!redo.length) return false;
+    const remove = redo.map(({ row }) => row.id);
+    return recordRows({ remove, add: redo }, { remove, add: undo });
+  }
+
   async function finishEditing() {
     if (book.isCellEditing()) await book.endEditingAsync(true);
   }
@@ -858,7 +879,7 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       publishEntries();
     }),
     finishEditing,
-    selectedRowIds, removeSelectedRows, addRows,
+    selectedRowIds, removeSelectedRows, addRows, replaceRowReferences,
     isEditing: () => book.isCellEditing(),
     async prepareSave() {
       await finishEditing();
