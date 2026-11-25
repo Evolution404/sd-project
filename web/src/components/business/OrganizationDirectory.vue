@@ -6,6 +6,8 @@
           <el-input v-model="keyword" clearable placeholder="按组织名称查找" />
           <el-checkbox data-guide-action="dictionaries.show-deleted" v-model="showDeleted">显示已删除</el-checkbox>
           <el-button v-if="canManage" type="primary" data-guide-action="dictionaries.organization-root" @click="form?.openForm('create')">新增组织</el-button>
+          <el-button v-if="canManage" @click="openBatch(false)">批量新增顶级组织</el-button>
+          <el-button v-if="canManage" @click="openBatch(true)">批量修订顶级组织</el-button>
         </div>
         <el-alert v-if="loadError" type="error" :title="loadError" :closable="false">
           <el-button type="primary" link @click="loadTree()">重新加载</el-button>
@@ -30,6 +32,8 @@
             <h2 class="text-lg font-semibold">{{ selected.name }}</h2>
             <div v-if="canManage && !selected.deleted" class="flex flex-wrap gap-2">
               <el-button v-if="selected.selectable" data-guide-action="dictionaries.organization-child" @click="addChild">新增下级</el-button>
+              <el-button v-if="selected.selectable" @click="openBatch(false, selected.id)">批量新增下级</el-button>
+              <el-button @click="openBatch(true, selected.parent_id || undefined)">批量修订同级</el-button>
               <el-button data-guide-action="dictionaries.organization-edit" @click="edit">修订资料</el-button>
               <el-button @click="openMove">调整上级</el-button>
               <el-button type="danger" plain :disabled="deleting" data-guide-action="dictionaries.organization-delete" @click="remove">删除组织</el-button>
@@ -76,6 +80,10 @@
     </el-col>
   </el-row>
 
+  <VersionedBatchWorksheet v-if="batchOpen" ref="batchEditor" :config="batchConfig" :revise="batchRevise"
+    @close="batchOpen = false" @saved="batchOpen = false; loadTree(selectedId)">
+    <el-text>上级组织 {{ rows.find(row => row.id === batchParent)?.name || "无（顶级组织）" }}</el-text>
+  </VersionedBatchWorksheet>
   <CrudForm v-if="canManage" ref="form" :form-config="formConfig" @saved="loadTree(selectedId)" />
   <el-dialog v-model="moveOpen" title="调整组织上级" width="min(94vw, 680px)" append-to-body
     :show-close="!moving" :close-on-press-escape="!moving" :close-on-click-modal="false">
@@ -103,9 +111,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, ref, watch } from "vue";
 import { ElMessage, ElMessageBox, type TreeInstance } from "element-plus";
 import { useRouter } from "vue-router";
+import { usePageOverlays } from "@/composables/usePageOverlays";
+import type { VersionedBatchEntryConfig } from "./versioned-batch-entry";
 import CrudForm from "@/components/Crud/CrudForm.vue";
 import type { CrudFormConfig } from "@/components/Crud/types";
 import { useUserStore } from "@/stores/user";
@@ -114,6 +124,36 @@ import { deleteOrganization, moveOrganization, organizationTree, previewOrganiza
   type OrganizationDetail, type OrganizationForm, type OrganizationMovePreview, type OrganizationNode } from "@/api/business/organizations";
 
 type TreeNode = OrganizationNode & { children: TreeNode[] };
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("./VersionedBatchWorksheet.vue"));
+const batchOpen = ref(false), batchRevise = ref(false), batchParent = ref<string>();
+const batchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+function openBatch(revise: boolean, parent?: string) {
+  batchRevise.value = revise;
+  batchParent.value = parent;
+  batchOpen.value = true;
+}
+usePageOverlays([batchOpen], { mayLeave: () => batchOpen.value ? batchEditor.value?.mayLeave() ?? true : true });
+const batchConfig = computed<VersionedBatchEntryConfig>(() => ({
+  title: batchRevise.value ? "批量修订同级组织" : "批量新增组织",
+  endpoint: "/api/catalog/organizations/entry-batch",
+  columns: [
+    { key: "name", title: "组织名称", width: 270, editable: true, required: true },
+    { key: "reason", title: "变更说明", width: 310, editable: true },
+  ],
+  initial: () => ({}),
+  async choices(keyword, page) {
+    const choices = rows.value.filter(row => !row.deleted && (row.parent_id || undefined) === batchParent.value &&
+      row.name.includes(keyword));
+    return { total: choices.length, items: choices.slice((page - 1) * 20, page * 20).map(row => ({
+      id: row.id, name: row.name, version: row.version_no,
+      fields: { name: row.name, reason: "" },
+    })) };
+  },
+  values(fields, record) {
+    return { name: fields.name.trim(), reason: fields.reason || "",
+      ...(record ? {} : { parent_unit_id: batchParent.value || null }) };
+  },
+}));
 const router = useRouter();
 const user = useUserStore();
 const canManage = computed(() => user.userInfo.perms.includes("admin"));

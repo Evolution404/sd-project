@@ -23,6 +23,16 @@
     </template>
   </CrudPage>
 
+  <VersionedBatchWorksheet v-if="batchOpen" ref="batchEditor" :config="batchConfig" :revise="batchRevise"
+    @close="batchOpen = false" @saved="batchOpen = false; crud?.refresh()">
+    <el-form v-if="kind === 'agreements' && !batchRevise" novalidate inline>
+      <el-form-item label="所属年度框架">
+        <el-select v-model="batchFramework" filterable placeholder="选择年度框架" style="width:240px">
+          <el-option v-for="option in frameworkOptions" :key="option.value" :label="option.label" :value="option.value" />
+        </el-select>
+      </el-form-item>
+    </el-form>
+  </VersionedBatchWorksheet>
   <el-drawer v-model="historyVisible" :title="title+'正式版本历史'"
     size="670px" append-to-body>
     <el-skeleton v-if="historyLoading" animated :rows="6"/>
@@ -93,9 +103,10 @@
 
 <script setup lang="ts">
 import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
-import {computed,ref,reactive,onMounted,onActivated} from "vue";
+import {computed,defineAsyncComponent,ref,reactive,onMounted,onActivated} from "vue";
 import {useRoute,useRouter} from "vue-router";
 import { usePageOverlays } from "@/composables/usePageOverlays";
+import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import DemandSetupNavigation from "@/components/business/DemandSetupNavigation.vue";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
@@ -103,7 +114,7 @@ import type {CrudFormConfig,CrudRecord,CrudSearchConfig,CrudTableConfig} from "@
 import type {OptionItem} from "@/api/common";
 import {
   listFunding,getFunding,getFundingDetails,getFundingHistory,saveFunding,removeFunding,
-  fenToYuan,type FundingKind,type FundingForm,type FundingRow,type FundingDetails,
+  fenToYuan,yuanToFen,type FundingKind,type FundingForm,type FundingRow,type FundingDetails,
 } from "@/api/business/funding";
 
 defineOptions({name:"FundingAdministration"});
@@ -114,6 +125,62 @@ const initialRecord=typeof route.query.funding==="string"?route.query.funding:un
 const title=kind==="frameworks"?"年度框架":"执行协议";
 const frameworkOptions=ref<OptionItem[]>([]);
 const frameworkNames=reactive<Record<string,string>>({});
+const crud = ref<InstanceType<typeof CrudPage>>();
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("@/components/business/VersionedBatchWorksheet.vue"));
+const batchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+const batchOpen = ref(false), batchRevise = ref(false), batchFramework = ref("");
+function openBatch(revise: boolean) {
+  batchRevise.value = revise;
+  batchFramework.value = "";
+  batchOpen.value = true;
+}
+const batchConfig = computed<VersionedBatchEntryConfig>(() => ({
+  title: (batchRevise.value ? "批量修订" : "批量新增") + title,
+  endpoint: "/api/funding/" + kind + "/entry-batch",
+  createReady: kind === "frameworks" || Boolean(batchFramework.value),
+  columns: [
+    { key: "name", title: title + "名称", width: 215, editable: true, required: true },
+    { key: "limit_fen", title: "额度（元）", width: 145, editable: true, required: true, numeric: true },
+    ...(kind === "frameworks" ? [{
+      key: "fiscal_year", title: "年度", width: 115, editable: !batchRevise.value, required: true, numeric: true,
+    }] : [
+      { key: "contract_number", title: "合同编号", width: 145, editable: true },
+      { key: "counterparty_name", title: "合同对方", width: 195, editable: true },
+      { key: "signed_on", title: "签订日期", width: 135, editable: true },
+      { key: "effective_from", title: "生效日期", width: 135, editable: true },
+      { key: "effective_to", title: "截止日期", width: 135, editable: true },
+    ]),
+    { key: "reason", title: "变更说明", width: 250, editable: true },
+  ],
+  initial: () => ({}),
+  async choices(keyword, page) {
+    const result = await listFunding(kind, { keyword, page, size: 20 });
+    return { total: result.total, items: result.items.map(row => ({
+      id: row.id, code: row.code, name: row.name, version: row.version_no,
+      context: row.framework_id ? frameworkNames[row.framework_id] : undefined,
+      fields: { name: row.name, limit_fen: fenToYuan(row.limit_fen), fiscal_year: String(row.fiscal_year ?? ""),
+        contract_number: row.contract_number || "", counterparty_name: row.counterparty_name || "",
+        signed_on: row.signed_on || "", effective_from: row.effective_from || "", effective_to: row.effective_to || "", reason: "" },
+    })) };
+  },
+  values(fields, record) {
+    let limit_fen: number;
+    try { limit_fen = yuanToFen(fields.limit_fen); }
+    catch (cause) { throw Object.assign(cause as Error, { field: "limit_fen" }); }
+    const values: Record<string, unknown> = { name: fields.name.trim(), limit_fen, reason: fields.reason || "" };
+    if (kind === "frameworks" && !record) {
+      if (!/^\d{4}$/.test(fields.fiscal_year) || Number(fields.fiscal_year) < 2000 || Number(fields.fiscal_year) > 2100)
+        throw Object.assign(Error("年度须为 2000 至 2100"), { field: "fiscal_year" });
+      values.fiscal_year = Number(fields.fiscal_year);
+    }
+    if (kind === "agreements") {
+      if (!record) values.framework_id = batchFramework.value;
+      for (const key of ["contract_number", "counterparty_name"]) values[key] = fields[key] || "";
+      for (const key of ["signed_on", "effective_from", "effective_to"]) values[key] = fields[key] || null;
+    }
+    return values;
+  },
+}));
 const historyVisible=ref(false),historyLoading=ref(false);
 const history=ref<Array<{id:string;version_no:number;name:string;status:string;
   limit_fen:number;recorded_at:string;reason?:string}>>([]);
@@ -121,7 +188,7 @@ const detailsVisible=ref(false),detailsLoading=ref(false);
 const details=ref<FundingDetails|null>(null);
 let returnRecord:string|undefined;
 let detailSequence=0,historySequence=0;
-usePageOverlays([historyVisible,detailsVisible],{invalidate:()=>{
+usePageOverlays([batchOpen,historyVisible,detailsVisible],{mayLeave:()=>batchOpen.value?batchEditor.value?.mayLeave()??true:true,invalidate:()=>{
   detailSequence++;historySequence++;
   detailsLoading.value=false;historyLoading.value=false;
   details.value=null;history.value=[];
@@ -188,7 +255,11 @@ const tableConfig:CrudTableConfig={
       keyword:params.keywords||"",status:params.status,...nativeListQuery(query, ["status"])});
     return {list:response.items,total:response.total};
   },
-  toolbarActions:[{key:"create",label:"新增"+title,permission:"write"}],
+  toolbarActions:[
+    {key:"create",label:"新增"+title,permission:"write"},
+    {key:"batch-create",label:"批量新增",permission:"write",onClick:()=>openBatch(false)},
+    {key:"batch-revise",label:"批量修订",permission:"write",onClick:()=>openBatch(true)},
+  ],
   tableTools:["refresh","columns","search"],
   columns:[
     {prop:"code",sortable:"custom",label:"编号",minWidth:135,fixed:"left"},

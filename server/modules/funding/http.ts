@@ -10,6 +10,11 @@ export async function handleFunding(context: RouteContext): Promise<{ result: un
   requireValue(key === "frameworks" || key === "agreements", "资金业务类型不存在", 404);
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
   const kind: FundingKind = key;
+  if (sub === "entry-batch") {
+    requireValue(method === "POST" && (subKey === "preview" || subKey === "commit"), "资金批量请求无效", 405);
+    return { result: subKey === "preview" ? system.funding.entryBatch(actor, kind, input, false)
+      : mutate("write", () => system.funding.entryBatch(actor, kind, input, true)) };
+  }
   if (read) {
     authorize(actor, "read");
     if (subKey === "deletion-impact") return { result: system.funding.deletionImpact(actor, kind, sub) };

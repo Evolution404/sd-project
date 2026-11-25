@@ -1,3 +1,4 @@
+import { versionedEntryBatch } from "../../platform/versioned-entry-batch.js";
 import { locateCatalogBatchRow, previewCatalogBatch, verifyCatalogBatch } from "../../platform/catalog-batch-preview.js";
 import { authorize, id, now } from "../../platform/auth/service.js";
 import type { AuditService } from "../../platform/audit/service.js";
@@ -446,6 +447,13 @@ export function createEquipment(
     get,
     save,
     bulk,
+    voltageEntryBatch(actor: Actor, input: Record<string, unknown>, commit: boolean) {
+      return versionedEntryBatch(actor, "voltages", input, {
+        permission: "admin", transaction: database.transaction,
+        createFields: ["name", "reason"], updateFields: ["name", "reason", "expected_version"],
+        save: row => save(actor, "voltages", row.values, row.id).id,
+      }, commit);
+    },
     previewBulk(actor: Actor, kind: EquipmentCatalogKind, input: Record<string, unknown>) {
       return previewCatalogBatch(actor, kind, input.rows, database.transaction, () => bulk(actor, kind, { rows: input.rows }));
     },

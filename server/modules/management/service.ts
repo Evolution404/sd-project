@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+import { versionedEntryBatch } from "../../platform/versioned-entry-batch.js";
 import { authorize, id, now } from "../../platform/auth/service.js";
 import { requireValue, text } from "../../shared/errors/business-error.js";
 import { optNum } from "../../shared/input-shape.js";
@@ -130,8 +132,51 @@ export function createManagement({ repository, identity, auth, audit, database }
       });
       audit.record(actor, "ips", configId,
         key ? "revise" : "create", original ?? null, values);
-      return { ok: true };
+      return { ok: true, id: configId };
     });
+  }
+  function entryBatch(actor: Actor, kind: "users" | "ips", input: Input, commit: boolean) {
+    if (kind === "users") return versionedEntryBatch(actor, kind, input, {
+      permission: "user.manage", transaction: database.transaction,
+      createFields: ["username", "display_name", "employee_no"],
+      updateFields: ["display_name", "employee_no", "expected_version"],
+      save: row => {
+        const args = {
+          display_name: text(row.values.display_name, "姓名"),
+          employee_no: typeof row.values.employee_no === "string" ? row.values.employee_no.trim() || null : null,
+        };
+        if (row.id) {
+          const current = userDetail(actor, row.id);
+          return saveUser(actor, { ...args, username: current.username, expected_version: row.values.expected_version }, row.id).id;
+        }
+        const username = text(row.values.username, "账号").trim();
+        requireValue(!identity.users().some(user => user.username === username), "账号已存在", 409, { username: "账号重复" });
+        // Bulk registration only stages disabled profiles. The existing explicit
+        // password reset and activation flow is required before first login.
+        return saveUser(actor, { ...args, username, status: "disabled",
+          password: randomBytes(24).toString("base64url") }, undefined, undefined, true).id;
+      },
+    }, commit);
+    authorize(actor, "admin");
+    const policy = repository.accessPolicy();
+    return versionedEntryBatch(actor, kind + ":" + policy.version, input, {
+      permission: "admin", transaction: database.transaction,
+      createFields: ["ip", "note"],
+      updateFields: ["note", "expected_snapshot"],
+      revisionGuard: values => typeof values.expected_snapshot === "string" && values.expected_snapshot.length > 0,
+      save: row => {
+        const note = row.values.note;
+        requireValue(typeof note === "string" && note.length <= 1000, "用途说明须为 1000 字以内的文本", 422, { note: "用途说明无效" });
+        const current = row.id ? repository.allowedIp(row.id) : undefined;
+        if (row.id) requireValue(current && JSON.stringify([current.ip, current.note, current.created_at]) === row.values.expected_snapshot,
+          "IP 授权已变化，请重新从授权列表选择", 409);
+        const ip = current?.ip || auth.validateIp(text(row.values.ip, "IP 地址").trim());
+        if (!row.id) requireValue(!repository.allowedIps().some(grant => grant.ip === ip), "IP 地址已授权", 409, { ip: "地址重复" });
+        const result = saveIp(actor, { ip, note }, row.id);
+        requireValue(result.id, "IP 授权保存失败");
+        return result.id;
+      },
+    }, commit);
   }
   function audits(actor: Actor, includeDeleted: boolean, key: string): { original: NonNullable<ReturnType<ManagementRepository["auditRecord"]>>; decisions: ReturnType<AuditService["history"]> };
   function audits(actor: Actor, includeDeleted?: boolean, key?: undefined): ReturnType<ManagementRepository["auditEvents"]>;
@@ -290,6 +335,6 @@ export function createManagement({ repository, identity, auth, audit, database }
     authorize(actor, "role.manage");
     return repository.permissionCatalog();
   }
-  return { actors, users, userDetail, saveUser, roles, role, saveRole, deleteRole, setRolePermissions, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, searchSecurityEvents, annotateAudit, permissions, menuRoutes };
+  return { entryBatch, actors, users, userDetail, saveUser, roles, role, saveRole, deleteRole, setRolePermissions, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, searchSecurityEvents, annotateAudit, permissions, menuRoutes };
 }
 export type ManagementService = ReturnType<typeof createManagement>;

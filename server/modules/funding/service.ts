@@ -1,3 +1,4 @@
+import { versionedEntryBatch } from "../../platform/versioned-entry-batch.js";
 import { portfolioSettlementProgress, settlementProgress } from "../../shared/settlement-progress.js";
 import type { FundingRepository, FundingKind, FundingRecord } from "../../database/repositories/funding.js";
 import type { Database } from "../../database/connection.js";
@@ -147,6 +148,16 @@ export function createFunding(
     };
   }
   return {
+    entryBatch(actor: Actor, kind: FundingKind, input: Record<string, unknown>, commit: boolean) {
+      const common = ["name", "limit_fen", "reason"];
+      const agreement = ["contract_number", "counterparty_name", "signed_on", "effective_from", "effective_to"];
+      return versionedEntryBatch(actor, kind, input, {
+        permission: "write", transaction: database.transaction,
+        createFields: kind === "frameworks" ? [...common, "fiscal_year"] : [...common, ...agreement, "framework_id"],
+        updateFields: [...common, ...(kind === "agreements" ? agreement : []), "expected_version"],
+        save: row => save(actor, kind, row.values, row.id).id,
+      }, commit);
+    },
     get,
     save,
     remove,

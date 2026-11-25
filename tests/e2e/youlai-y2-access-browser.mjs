@@ -38,7 +38,7 @@ try {
   assert.equal(await nativeSwitch.getAttribute("aria-checked"), "true");
   const grantedIp = "192.0.2.50";
   assert.equal(s.auth.permittedIp(grantedIp), false);
-  await page.getByRole("button", { name: "新增 IP 授权" }).click();
+  await page.getByRole("button", { name: "新增 IP 授权", exact: true }).click();
   const add = page.getByRole("dialog", { name: "新增 IP 授权" });
   await add.getByRole("textbox", { name: "IP 地址" }).fill(grantedIp);
   await add.getByRole("textbox", { name: "用途说明" }).fill("调度值班工作站");

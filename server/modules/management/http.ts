@@ -17,6 +17,14 @@ export async function handleManagement(context: RouteContext): Promise<{
             break;
         case "users":
             authorize(actor, "user.manage");
+            if (key === "entry-batch") {
+                const action = context.sub;
+                requireValue(method === "POST" && (action === "preview" || action === "commit") && !context.subKey,
+                    "系统批量请求无效", 405);
+                result = action === "preview" ? system.management.entryBatch(actor, "users", input, false)
+                    : mutate("user.manage", () => system.management.entryBatch(actor, "users", input, true));
+                break;
+            }
             result = read
                 ? key ? system.management.userDetail(actor, key, deleted)
                   : page(system.management.users(actor, deleted), url.searchParams, ["status"])
@@ -48,6 +56,14 @@ export async function handleManagement(context: RouteContext): Promise<{
             break;
         case "ips":
             authorize(actor, "admin");
+            if (key === "entry-batch") {
+                const action = context.sub;
+                requireValue(method === "POST" && (action === "preview" || action === "commit") && !context.subKey,
+                    "系统批量请求无效", 405);
+                result = action === "preview" ? system.management.entryBatch(actor, "ips", input, false)
+                    : mutate("admin", () => system.management.entryBatch(actor, "ips", input, true));
+                break;
+            }
             result = read
                 ? page(system.management.ips(actor), url.searchParams)
                 : mutate("admin", () => system.management.saveIp(actor, input, key, method));

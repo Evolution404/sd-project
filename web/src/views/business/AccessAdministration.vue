@@ -12,6 +12,8 @@
         <span v-if="policy">{{ policy.ip_restriction_enabled ? "访问限制已开启" : "访问限制已关闭" }}</span>
         <el-button v-else :loading="loadingPolicy" @click="loadPolicy()">读取访问限制</el-button>
         <el-button type="primary" data-guide-action="system.ip-add" @click="openGrant()">新增 IP 授权</el-button>
+        <el-button :disabled="!policy" @click="openBatch(false)">批量新增 IP 授权</el-button>
+        <el-button :disabled="!policy" @click="openBatch(true)">批量修订用途</el-button>
       </div>
       <CrudPage embedded ref="grantPage" :search-config="grantSearch" :table-config="grantTable">
         <template #table-cell-created_at="{ row }">{{ formatBeijingDateTime(row.created_at) }}</template>
@@ -24,6 +26,10 @@
       </CrudPage>
     </template>
   </div>
+  <VersionedBatchWorksheet v-if="batchOpen" ref="batchEditor" :config="batchConfig" :revise="batchRevise"
+    @close="batchOpen = false" @saved="batchOpen = false; grantPage?.refresh()">
+    <el-alert class="mb-3" type="info" :closable="false" :title="grantImpact" />
+  </VersionedBatchWorksheet>
   <el-dialog v-model="grantOpen" :title="grantId ? '修改 IP 授权' : '新增 IP 授权'"
     width="min(94vw, 470px)" append-to-body :close-on-click-modal="false" :close-on-press-escape="!savingGrant">
     <el-alert v-if="grantError" class="mb-3" type="error" :title="grantError" :closable="false" />
@@ -51,9 +57,11 @@
 
 <script setup lang="ts">
 import { nativeListQuery, applyNativeListQuery } from "@/utils/business/native-list-query";
-import { computed, onMounted, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { LIST_QUERY_KEY } from "@/components/Crud/utils/list-state";
+import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
+import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
@@ -75,6 +83,33 @@ const policy = ref<AccessPolicy>();
 const error = ref(""), diagnostic = ref("");
 const loadingPolicy = ref(false), savingPolicy = ref(false);
 const grantPage = ref<InstanceType<typeof CrudPage>>();
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("@/components/business/VersionedBatchWorksheet.vue"));
+const batchOpen = ref(false), batchRevise = ref(false);
+const batchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+const grantImpact = computed(() => batchRevise.value ? "本次只更新用途说明，地址保持原值。"
+  : policy.value?.ip_restriction_enabled ? "访问限制已开启。本批完整 IPv4 或 IPv6 地址保存后立即获准访问登录入口。"
+    : "访问限制当前关闭。本批完整 IPv4 或 IPv6 地址将在开启限制时用于访问校验。");
+function openBatch(revise: boolean) { batchRevise.value = revise; batchOpen.value = true; }
+usePageOverlays([batchOpen], { mayLeave: () => batchOpen.value ? batchEditor.value?.mayLeave() ?? true : true });
+const batchConfig = computed<VersionedBatchEntryConfig>(() => ({
+  title: batchRevise.value ? "批量修订 IP 授权用途" : "批量新增 IP 授权",
+  endpoint: "/api/ips/entry-batch",
+  initial: () => ({}),
+  columns: [
+    { key: "ip", title: "IP 地址", width: 245, editable: !batchRevise.value, required: true },
+    { key: "note", title: "用途说明", width: 420, editable: true },
+  ],
+  async choices(keyword, page) {
+    const result = await listIpGrants(new URLSearchParams({ page: String(page), page_size: "20", q: keyword }));
+    return { total: result.total, items: result.items.map(row => ({
+      id: row.id, name: row.ip, context: row.note, snapshot: JSON.stringify([row.ip, row.note, row.created_at]),
+      fields: { ip: row.ip, note: row.note },
+    })) };
+  },
+  values(fields, record) {
+    return { note: fields.note || "", ...(record ? { expected_snapshot: record.snapshot } : { ip: fields.ip.trim() }) };
+  },
+}));
 const grantOpen = ref(false), savingGrant = ref(false), grantError = ref("");
 const grantId = ref<string>(), grantIp = ref(""), grantNote = ref("");
 const logOpen = ref(false), selectedLog = ref<AccessRecord>();

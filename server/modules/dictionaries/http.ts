@@ -22,6 +22,11 @@ export async function handleDictionaries(
   } = context;
   requireValue(isFoundationKind(key), "基础数据类型不存在", 404);
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
+  if (sub === "entry-batch") {
+    requireValue(method === "POST" && (subKey === "preview" || subKey === "commit"), "基础数据批量请求无效", 405);
+    return { result: subKey === "preview" ? system.dictionaries.entryBatch(actor, key, input, false)
+      : mutate("admin", () => system.dictionaries.entryBatch(actor, key, input, true)) };
+  }
   if (read) authorize(actor, "read");
   if (
     read &&

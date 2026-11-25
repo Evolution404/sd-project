@@ -33,6 +33,8 @@
       @cancel="endBulk(false)" @saved="endBulk(true)"/>
     <CatalogCreateWorksheet v-if="createBatchOpen && createBatchKind" ref="createBatchEditor"
       :kind="createBatchKind" :options="options" @close="createBatchOpen = false" @saved="createdBatch" />
+    <VersionedBatchWorksheet v-if="voltageBatchOpen" ref="voltageBatchEditor" :config="voltageBatchConfig" :revise="voltageRevise"
+      @close="voltageBatchOpen = false" @saved="voltageBatchOpen = false; refreshAssets()" />
     <BusinessExchangeDialog v-if="exchangeOpen" kind="assets" :asset-kind="exchangeKind"
       :applied-query="equipmentQuery" @close="exchangeOpen = false" @changed="refreshAssets" />
     <el-drawer v-model="detailVisible" :title="title+'设备关系与正式历史'"
@@ -102,6 +104,7 @@ import {equipmentLineKind,equipmentStatus,EQUIPMENT_LINE_KINDS} from "../../../.
 import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
 import {computed,defineAsyncComponent,nextTick,onMounted,ref} from "vue";
 import {usePageOverlays} from "@/composables/usePageOverlays";
+import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
 import EquipmentBulkEditor from "./EquipmentBulkEditor.vue";
 import EquipmentReferenceField from "@/components/business/EquipmentReferenceField.vue";
 import {isEquipmentBulkKind,MAX_EQUIPMENT_WORKSHEET_ROWS,type EquipmentBulkKind} from "../../../../server/shared/equipment-bulk";
@@ -170,6 +173,28 @@ async function createdBatch() {
   await refreshAssets();
 }
 usePageOverlays([createBatchOpen], { mayLeave: () => createBatchOpen.value ? createBatchEditor.value?.mayLeave() ?? true : true });
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("@/components/business/VersionedBatchWorksheet.vue"));
+const voltageBatchOpen = ref(false), voltageRevise = ref(false);
+const voltageBatchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+function openVoltageBatch(revise: boolean) { voltageRevise.value = revise; voltageBatchOpen.value = true; }
+usePageOverlays([voltageBatchOpen], { mayLeave: () => voltageBatchOpen.value ? voltageBatchEditor.value?.mayLeave() ?? true : true });
+const voltageBatchConfig = computed<VersionedBatchEntryConfig>(() => ({
+  title: voltageRevise.value ? "批量修订电压等级" : "批量新增电压等级",
+  endpoint: "/api/catalog/voltages/entry-batch",
+  initial: () => ({}),
+  columns: [
+    { key: "name", title: "电压等级名称", width: 250, editable: true, required: true },
+    { key: "reason", title: "变更说明", width: 300, editable: true },
+  ],
+  async choices(keyword, page) {
+    const result = await listEquipment("voltages", { keyword, page, size: 20 });
+    return { total: result.total, items: result.items.map(row => ({
+      id: row.id, name: row.name || row.label, version: row.version, code: row.code,
+      fields: { name: row.name || row.label, reason: "" },
+    })) };
+  },
+  values(fields) { return { name: fields.name.trim(), reason: fields.reason || "" }; },
+}));
 const bulkMode=ref(false),bulkKind=ref<EquipmentBulkKind>(),bulkRecords=ref<EquipmentRow[]>([]);
 const loadedPage=ref<EquipmentRow[]>([]);
 const editableEquipment=(row:CrudRecord)=>!row.deleted&&row.status!=="retired";
@@ -211,6 +236,8 @@ const tableConfig=computed<CrudTableConfig>(()=>({
   },
   toolbarActions:[
     {key:"create",label:"新增"+title.value,permission:"admin"},
+    {key:"voltage-create",label:"批量新增电压等级",permission:"admin",visible:()=>kind.value==="voltages",onClick:()=>openVoltageBatch(false)},
+    {key:"voltage-revise",label:"批量修订电压等级",permission:"admin",visible:()=>kind.value==="voltages",onClick:()=>openVoltageBatch(true)},
     {key:"bulk-create",label:"批量新增",permission:"admin",visible:()=>isEquipmentBulkKind(kind.value),onClick:startCreateBatch},
     {key:"bulk",label:"进入批量编辑",permission:"admin",visible:()=>isEquipmentBulkKind(kind.value),
       disabled:({selectedRows})=>!selectedRows.some(editableEquipment)&&!loadedPage.value.some(editableEquipment),onClick:startBulk},

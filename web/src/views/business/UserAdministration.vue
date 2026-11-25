@@ -21,12 +21,19 @@
       </el-tag>
     </template>
   </CrudPage>
+  <VersionedBatchWorksheet v-if="batchOpen" ref="batchEditor" :config="batchConfig" :revise="batchRevise"
+    @close="batchOpen = false" @saved="batchOpen = false; crudRef?.refresh()">
+    <el-alert v-if="!batchRevise" class="mb-3" type="info" :closable="false"
+      title="本批账号创建后为禁用状态。请通过用户编辑设置临时密码，再单独启用。" />
+  </VersionedBatchWorksheet>
 </template>
 
 <script setup lang="ts">
 import { formatBeijingDateTime } from "@/utils/business/datetime";
 import { nativeListQuery, nativeColumnFilter } from "@/utils/business/native-list-query";
-import { onMounted, ref, reactive } from "vue";
+import { computed, defineAsyncComponent, onMounted, ref, reactive } from "vue";
+import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
+import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import type {
   CrudSearchConfig, CrudTableConfig, CrudFormConfig, CrudRecord
@@ -39,6 +46,36 @@ import {
 } from "@/api/business/users";
 
 defineOptions({name:"UserAdministration"});
+const crudRef = ref<InstanceType<typeof CrudPage>>();
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("@/components/business/VersionedBatchWorksheet.vue"));
+const batchOpen = ref(false), batchRevise = ref(false);
+const batchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+function openBatch(revise: boolean) { batchRevise.value = revise; batchOpen.value = true; }
+usePageOverlays([batchOpen], { mayLeave: () => batchOpen.value ? batchEditor.value?.mayLeave() ?? true : true });
+const batchConfig = computed<VersionedBatchEntryConfig>(() => ({
+  title: batchRevise.value ? "批量修订用户资料" : "批量登记用户",
+  endpoint: "/api/users/entry-batch",
+  initial: () => ({}),
+  columns: [
+    { key: "username", title: "登录账号", width: 195, editable: !batchRevise.value, required: true },
+    { key: "display_name", title: "姓名", width: 200, editable: true, required: true },
+    { key: "employee_no", title: "工号", width: 165, editable: true },
+  ],
+  async choices(keyword, page) {
+    const result = await listUsers(page, 20, keyword);
+    return { total: result.total, items: result.items.map(row => ({
+      id: row.id, name: row.display_name, code: row.username, version: row.version,
+      context: row.primary_org_id ? organizationNames[row.primary_org_id] : undefined,
+      fields: { username: row.username, display_name: row.display_name, employee_no: row.employee_no || "" },
+    })) };
+  },
+  values(fields, record) {
+    return {
+      ...(record ? {} : { username: fields.username.trim() }),
+      display_name: fields.display_name.trim(), employee_no: fields.employee_no?.trim() || "",
+    };
+  },
+}));
 const roles=ref<OptionItem[]>([]);
 const organizations=ref<OptionItem[]>([]);
 const roleNames=reactive<Record<string,string>>({});
@@ -59,7 +96,11 @@ const tableConfig:CrudTableConfig={
     const data=await listUsers(params.pageNum||1,params.pageSize||20,params.keywords||"",{status:params.status,...nativeListQuery(query, ["status"])});
     return {list:data.items,total:data.total};
   },
-  toolbarActions:[{key:"create",label:"新增用户",permission:"user.manage"}],
+  toolbarActions:[
+    {key:"create",label:"新增用户",permission:"user.manage"},
+    {key:"batch-create",label:"批量登记用户",permission:"user.manage",onClick:()=>openBatch(false)},
+    {key:"batch-revise",label:"批量修订用户资料",permission:"user.manage",onClick:()=>openBatch(true)},
+  ],
   tableTools:["refresh","columns","search"],
   columns:[
     {prop:"username",sortable:"custom",label:"登录账号",minWidth:160},

@@ -26,6 +26,8 @@
       </template>
       <template #table-cell-changed_at="{row}">{{ formatBeijingDateTime(row.changed_at) }}</template>
     </CrudPage>
+    <VersionedBatchWorksheet v-if="batchOpen" ref="batchEditor" :config="batchConfig" :revise="batchRevise"
+      @close="batchOpen = false" @saved="batchOpen = false; crud?.refresh()" />
     <el-drawer v-model="historyVisible" :title="title+'正式版本历史'"
       size="650px" append-to-body>
       <el-skeleton v-if="historyLoading" animated :rows="6"/>
@@ -52,7 +54,9 @@
 
 <script setup lang="ts">
 import { nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
-import {computed,ref} from "vue";
+import {computed,defineAsyncComponent,ref} from "vue";
+import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
+import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import DemandSetupNavigation from "@/components/business/DemandSetupNavigation.vue";
 import OrganizationDirectory from "@/components/business/OrganizationDirectory.vue";
@@ -76,6 +80,45 @@ const tabs=[
 const kind=ref<DictionaryKind | "organizations">("units");
 const dictionaryKind=computed<DictionaryKind>(()=>kind.value==="organizations"?"units":kind.value);
 const title=computed(()=>tabs.find(tab=>tab.key===kind.value)?.label||"基础数据");
+const crud = ref<InstanceType<typeof CrudPage>>();
+const VersionedBatchWorksheet = defineAsyncComponent(() => import("@/components/business/VersionedBatchWorksheet.vue"));
+const batchOpen = ref(false), batchRevise = ref(false), batchKind = ref<DictionaryKind>("units");
+const batchEditor = ref<InstanceType<typeof VersionedBatchWorksheet>>();
+const batchTitle = ref("");
+function openBatch(revise: boolean) {
+  batchKind.value = dictionaryKind.value;
+  batchTitle.value = title.value;
+  batchRevise.value = revise;
+  batchOpen.value = true;
+}
+usePageOverlays([batchOpen], { mayLeave: () => batchOpen.value ? batchEditor.value?.mayLeave() ?? true : true });
+const batchConfig = computed<VersionedBatchEntryConfig>(() => ({
+  title: (batchRevise.value ? "批量修订" : "批量新增") + batchTitle.value,
+  endpoint: "/api/catalog/" + batchKind.value + "/entry-batch",
+  columns: [
+    { key: "name", title: batchTitle.value + "名称", width: 245, required: true, editable: true },
+    ...(batchKind.value === "units" ? [{
+      key: "quantity_precision", title: "允许小数位数", width: 160, required: true, editable: true, numeric: true,
+    }] : []),
+    { key: "reason", title: "变更原因", width: 285, editable: true },
+  ],
+  initial: (): Record<string,string> => batchKind.value === "units" ? { quantity_precision: "0" } : {},
+  async choices(keyword,page) {
+    const result = await listDictionaries(batchKind.value, { keyword, page, size: 20 });
+    return { total: result.total, items: result.items.map(row => ({
+      id: row.id, code: row.code, name: row.name, version: row.version,
+      fields: { name: row.name, quantity_precision: String(row.quantity_precision ?? 0), reason: "" },
+    })) };
+  },
+  values(fields) {
+    const values: Record<string, unknown> = { name: fields.name.trim(), reason: fields.reason || "" };
+    if (batchKind.value === "units") {
+      if (!/^[0-4]$/.test(fields.quantity_precision)) throw Object.assign(Error("允许小数位数必须为 0 至 4"), { field: "quantity_precision" });
+      values.quantity_precision = Number(fields.quantity_precision);
+    }
+    return values;
+  },
+}));
 const historyVisible=ref(false),historyLoading=ref(false);
 const detail=ref<DictionaryDetail|null>(null);
 async function showHistory(id:string) {
@@ -102,7 +145,11 @@ const tableConfig=computed<CrudTableConfig>(()=>({
     });
     return {list:data.items,total:data.total};
   },
-  toolbarActions:[{key:"create",label:"新增"+title.value,permission:"admin"}],
+  toolbarActions:[
+    {key:"create",label:"新增"+title.value,permission:"admin"},
+    {key:"batch-create",label:"批量新增",permission:"admin",onClick:()=>openBatch(false)},
+    {key:"batch-revise",label:"批量修订",permission:"admin",onClick:()=>openBatch(true)},
+  ],
   tableTools:["refresh","columns","search"],
   columns:[
     {prop:"code",sortable:"custom",label:"编号",minWidth:140,fixed:"left"},
