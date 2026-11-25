@@ -10,26 +10,30 @@ test("release input fingerprint includes build configuration and detects source 
   const root = mkdtempSync(join(tmpdir(), "sd-release-inputs-"));
   t.after(() => rmSync(root, {recursive:true, force:true}));
   mkdirSync(join(root, "server"));
+  mkdirSync(join(root, "web"));
   writeFileSync(join(root, "server", "main.ts"), "export const ready = true;");
-  for (const name of ["vite.config.ts", "tsconfig.json", "tsconfig.server.json"]) writeFileSync(join(root,name), "{}");
+  const configurations = ["web/vite.config.ts", "web/tsconfig.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "tsconfig.server.json"];
+  for (const name of configurations) writeFileSync(join(root,name), "{}");
   let snapshot = sourceSnapshot(root);
-  for (const name of ["vite.config.ts", "tsconfig.json", "tsconfig.server.json", "server/main.ts"]) {
+  for (const name of [...configurations, "server/main.ts"]) {
     assert.match(snapshot.files[name], /^[a-f0-9]{64}$/);
     writeFileSync(join(root,name), "changed " + name);
     const changed = sourceSnapshot(root);
     assert.notEqual(changed.sha256, snapshot.sha256);
     snapshot = changed;
   }
+  mkdirSync(join(root, "web/dist"));
+  writeFileSync(join(root, "web/dist/index.html"), "build output");
   assert.deepEqual(sourceSnapshot(root), snapshot);
 });
-test("release rejects Node24 and requires Node26", () => {
+test("release rejects the former Node26 runtime and requires Node24", () => {
   const module = new URL("../../scripts/release/source-snapshot.mjs", import.meta.url).href;
   const result = spawnSync(process.execPath, ["--input-type=module", "-e",
-    `Object.defineProperty(process,'version',{value:'v24.22.2'}); const {requireNode26}=await import(${JSON.stringify(module)}); requireNode26();`], {encoding:"utf8"});
+    `Object.defineProperty(process,'version',{value:'v26.12.0'}); const {requireNode24}=await import(${JSON.stringify(module)}); requireNode24();`], {encoding:"utf8"});
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /Node26/);
+  assert.match(result.stderr, /Node24/);
 });
-test("release accepts the actual Node26 host", async () => {
-  const { requireNode26 } = await import("../../scripts/release/source-snapshot.mjs");
-  assert.doesNotThrow(requireNode26);
+test("release accepts the actual Node24 host", async () => {
+  const { requireNode24 } = await import("../../scripts/release/source-snapshot.mjs");
+  assert.doesNotThrow(requireNode24);
 });

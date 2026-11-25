@@ -23,7 +23,7 @@ function visit(directory) {
     }
   }
 }
-for (const directory of ["server", "web/src", "scripts"]) visit(directory);
+for (const directory of ["server", "web/src", "tests/fixtures/legacy-frontend/web/src", "scripts"]) visit(directory);
 for (const [kind, definition] of Object.entries(catalogDefinitions))
   for (const field of definition.rootFields)
     if (field.key.endsWith("code") && (!field.systemManaged || field.required))

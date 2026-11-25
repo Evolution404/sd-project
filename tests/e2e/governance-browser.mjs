@@ -14,7 +14,7 @@ const s = createSystem(dir), server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1300, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const base = "http://127.0.0.1:" + server.address().port;
 const output = join(process.cwd(), "test-results/schema113/governance");
 mkdirSync(output, { recursive: true });
@@ -45,7 +45,7 @@ try {
   await detail.getByRole("button", { name: "编制变更", exact: true }).click();
   const editor = page.getByRole("region", { name: "编制项目变更" });
   await editor.getByText("已继承上一版正式批准", { exact: false }).waitFor();
-  await editor.getByText("防鸟装置 · FN-01", { exact: false }).first().waitFor();
+  await editor.locator(".approval-material-row").getByText("防鸟装置", { exact: true }).waitFor();
   const quantities = await editor.locator("input").evaluateAll(nodes => nodes.map(node => node.value));
   assert.ok(quantities.some(value => Number(value) === 5), "existing approved material quantity should be restored");
   await editor.getByRole("button", { name: "取消", exact: true }).click();

@@ -19,14 +19,19 @@ interface SpanHistory {
 const candidateListSource: ListSource = {
   sql: "SELECT v.*, d.created_at, " +
     "json_extract(v.full_definition_json,'$.operation_snapshot') AS operation_snapshot, " +
-    "json_extract(v.full_definition_json,'$.line_name_snapshot') AS line_name_snapshot " +
+    "json_extract(v.full_definition_json,'$.line_name_snapshot') AS line_name_snapshot, " +
+    "(SELECT json_group_array(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name')) " +
+    "FROM json_each(v.full_definition_json,'$.work_locations') loc " +
+    "WHERE json_extract(loc.value,'$.location_snapshot_json.line_name') IS NOT NULL) AS line_names_json, " +
+    "(SELECT COUNT(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name')) FROM json_each(v.full_definition_json,'$.work_locations') loc) AS line_count, " +
+    "json_array_length(v.full_definition_json,'$.work_locations') AS location_count " +
     "FROM v_demand_current v JOIN demands d ON d.id=v.id " +
     "WHERE v.status IN ('active','pending') " +
     "AND NOT EXISTS (SELECT 1 FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) " +
     "AND EXISTS (SELECT 1 FROM v_demand_current_location_progress balance WHERE balance.demand_id=v.id AND balance.remaining_quantity_scaled>0)",
   columns: ["id","demand_no","operation_snapshot","problem_description","line_name_snapshot",
-    "status","current_version","quantity_scaled","expected_on","created_at","deleted"],
-  search: ["demand_no","operation_snapshot","problem_description","line_name_snapshot"],
+    "status","current_version","quantity_scaled","expected_on","created_at","deleted","line_count","location_count"],
+  search: ["demand_no","operation_snapshot","problem_description","line_name_snapshot","line_names_json"],
   defaultSort: "created_at"
 };
 
@@ -97,11 +102,12 @@ export function demandRepository(store: ReturnType<typeof createStore>) {
     },
     search: listed,
     eligibleCandidates(query: ListQuery, includePending: boolean): Page<DemandListRecord> {
-      return searchPage<DemandListRecord>(store, "demands", candidateListSource, {
+      const page = searchPage<DemandListRecord & { line_names_json: string }>(store, "demands", candidateListSource, {
         ...query,
         deleted: false,
         filters: includePending ? {...query.filters} : {...query.filters, status: "active"}
       });
+      return { ...page, items: page.items.map(({ line_names_json: _lineNames, ...row }) => row) };
     },
     workObjectVersion(id: string, version: number): {object_position: "body"|"corridor"; attribution_unit: "physical_tower"|"logical_tower"; name:string; version_no:number} | undefined {
       return store.get("SELECT object_position,attribution_unit,name,version_no FROM work_object_versions WHERE work_object_id=? AND version_no=?",id,version) as

@@ -8,7 +8,7 @@ function walk(folder){
     else if(file.endsWith(".vue")) files.push(file);
   }
 }
-walk("web/src");
+walk("tests/fixtures/legacy-frontend/web/src");
 const violations=[];
 let count=0;
 for(const file of files){
@@ -38,7 +38,7 @@ for(const file of files){
       violations.push(file+":"+line+" remote filtering requires @filter-change");
   }
 }
-const picker=readFileSync("web/src/modules/demands/components/DemandLocationPicker.vue","utf8");
+const picker=readFileSync("tests/fixtures/legacy-frontend/web/src/modules/demands/components/DemandLocationPicker.vue","utf8");
 if(/key:\s*["']label["'],\s*label:\s*["']作业设备["']/.test(picker))
   violations.push("DemandLocationPicker uses composite operation identity column");
 if(/["']杆号或档距["']/.test(picker))

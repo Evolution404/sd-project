@@ -255,7 +255,7 @@ const timelineSql = `
     JOIN demands d ON d.id=sc.demand_id WHERE sc.project_id=(SELECT project FROM input)
     UNION ALL
     SELECT '项目批准/'||ap.version_no,'approval',ap.id,IIF(ap.version_no=1,'首次批准项目','批准项目变更'),
-      '办理',ap.approved_at,ap.approved_by,'第 '||ap.version_no||' 版 · '||
+      '办理',ap.approved_at,ap.approved_by,'第 '||ap.version_no||' 版包含 '||
       (SELECT COUNT(*) FROM project_approval_scope_versions sc WHERE sc.approval_version_id=ap.id)||' 条批准需求',
       IIF(ap.version_no=(SELECT version FROM latest_approved),'当前生效',NULL),'success',ap.version_no,'项目批准',5,ap.rowid
     FROM project_approval_versions ap WHERE ap.project_id=(SELECT project FROM input) AND ap.status='approved'
@@ -284,7 +284,7 @@ const timelineSql = `
     SELECT 'settlement/'||e.id,'settlement',e.id,
       CASE e.action WHEN 'approve' THEN '批准结算' WHEN 'return' THEN '退回结算申请' WHEN 'reject' THEN '驳回结算申请'
         ELSE IIF(e.event_seq=1,'提交结算审核','原版本重新送审') END,
-      '金额',e.recorded_at,e.actor_id,'结算单 '||s.number||' · 第 '||v.version_no||' 版',NULL,NULL,NULL,NULL,10,e.rowid
+      '金额',e.recorded_at,e.actor_id,'结算单 '||s.number||' 的第 '||v.version_no||' 版',NULL,NULL,NULL,NULL,10,e.rowid
     FROM settlements s JOIN settlement_versions v ON v.settlement_id=s.id
     JOIN settlement_review_events e ON e.settlement_version_id=v.id WHERE s.project_id=(SELECT project FROM input)
     UNION ALL

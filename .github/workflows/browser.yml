@@ -1,0 +1,42 @@
+name: Browser
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: Browser (${{ matrix.suite }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [production, legacy, worksheet-scale, worksheet-layout, worksheet-disposal]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: python3 scripts/check-public-source.py
+      - uses: ./.github/actions/setup
+      - run: pnpm exec playwright install --with-deps chromium chrome
+      - name: Run ${{ matrix.suite }} suite
+        env:
+          SD_BROWSER_SUITE: ${{ matrix.suite }}
+        run: |
+          case "$SD_BROWSER_SUITE" in
+            production) pnpm run test:browser ;;
+            legacy) pnpm run test:browser:legacy ;;
+            worksheet-*)
+              pnpm run build
+              node "tests/e2e/youlai-$SD_BROWSER_SUITE-probe.mjs"
+              ;;
+          esac

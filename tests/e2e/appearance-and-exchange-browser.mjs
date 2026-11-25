@@ -17,7 +17,7 @@ const browser = await chromium.launch(
     : { headless: true, channel: "chrome" },
 );
 const context = await browser.newContext({
-  viewport: { width: 1450, height: 1000 }, colorScheme: "light",
+  viewport: { width: 1920, height: 1080 }, colorScheme: "light",
 });
 const page = await context.newPage(), errors = [];
 page.on("pageerror", error => errors.push(error.message));
@@ -46,7 +46,16 @@ try {
   await chooseAppearance("深色");
   await darkIs(true);
   assert.equal(await page.evaluate(() => localStorage.getItem("sd-appearance")), "dark");
-  assert.equal(await page.locator(".navigation").evaluate(node => getComputedStyle(node).backgroundColor), "rgb(23, 31, 43)");
+  const sidebarColors = await page.locator(".navigation").evaluate(node => {
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = "var(--menu-background)";
+    node.appendChild(probe);
+    const expected = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    return {actual: getComputedStyle(node).backgroundColor, expected};
+  });
+  assert.equal(sidebarColors.actual, sidebarColors.expected,
+    "dark sidebar must match the active upstream-adapted menu theme token");
   await page.screenshot({ path: join(output, "appearance-dark-dashboard.png"), fullPage: true });
 
   await page.reload();

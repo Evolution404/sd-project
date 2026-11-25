@@ -21,6 +21,12 @@ export async function handleWorkStandards(
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
   const service = system.standards,
     operation = key === "operations";
+  if (sub === "entry-batch") {
+    requireValue(method === "POST" && (subKey === "preview" || subKey === "commit"), "作业标准批量请求无效", 405);
+    const kind = operation ? "operations" : "objects";
+    return { result: subKey === "preview" ? service.entryBatch(actor, kind, input, false)
+      : mutate("admin", () => service.entryBatch(actor, kind, input, true)) };
+  }
   if (operation && subKey === "attributes") {
     requireValue(read, "附加属性定义只允许查询", 405);
     const parameter = url.searchParams.get("version");
@@ -30,6 +36,13 @@ export async function handleWorkStandards(
         parameter === null ? undefined : Number(parameter),
       ),
     };
+  }
+  if (operation && subKey === "definition") {
+    requireValue(read, "操作定义只允许查询", 405);
+    const version = url.searchParams.get("version");
+    return { result: version === null
+      ? service.getOperation(sub)
+      : service.operationVersion(sub, Number(version)) };
   }
   if (
     read &&

@@ -20,9 +20,12 @@ const mime: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
 };
 export function httpServer(
   system: HttpServices,
@@ -34,6 +37,20 @@ export function httpServer(
     funding, history, management, materials, organizations, priceRules, pricing, projectClosure, projects, sources, standards };
   const logs = createAccessLogs(system.dataDirectory, accessLog);
   const attempts = new Map<string, { count: number; until: number }>();
+  let nextAttemptSweep = 0;
+  function trackLogin(key: string) {
+    const time = Date.now();
+    if (time >= nextAttemptSweep) {
+      for (const [entry, attempt] of attempts) if (attempt.until <= time) attempts.delete(entry);
+      nextAttemptSweep = time + 60000;
+    }
+    const previous = attempts.get(key);
+    const active = previous && previous.until > time ? previous : { count: 0, until: time + 60000 };
+    requireValue(active.count < 10 && (previous || attempts.size < 20000),
+      "登录尝试过多，请一分钟后重试", 429);
+    active.count++;
+    attempts.set(key, active);
+  }
   const token = (req: IncomingMessage) =>
     req.headers.cookie
       ?.split(";")
@@ -123,38 +140,41 @@ export function httpServer(
         res.writeHead(200, {
           "Content-Type": mime[extname(file)] || "application/octet-stream",
           "Cache-Control":
-            extname(file) === ".html" ? "no-store" : "private, max-age=3600",
+            [".html", ".json"].includes(extname(file)) ? "no-store" : "private, max-age=3600",
         });
         res.end(method === "HEAD" ? undefined : data);
         return;
       }
       if (parts[1] === "login" && method === "POST") {
         logOutcome = "登录失败";
-        const address = req.socket.remoteAddress || "",
-          last = attempts.get(address) || { count: 0, until: 0 };
-        if (last.until < Date.now()) {
-          last.count = 0;
-          last.until = Date.now() + 60000;
-        }
-        requireValue(last.count < 10, "登录尝试过多，请一分钟后重试", 429);
-        last.count++;
-        attempts.set(address, last);
+        const address = "ip:" + (req.socket.remoteAddress || "");
+        trackLogin(address);
         const input = await body(req);
         requireValue(isObject(input), "请求正文必须为JSON对象", 400);
         username = safeAccount(input.username);
-        const result = system.auth.login(input.username, input.password);
+        const account = "account:" + username.toLowerCase();
+        if (username) trackLogin(account);
+        const result = system.auth.login(input.username, input.password, clientIp);
         username = safeAccount(result.user.username);
         logOutcome = "登录成功";
         attempts.delete(address);
+        if (username) attempts.delete(account);
         json(res, 200, result.user, {
           "Set-Cookie": `sd113=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800`,
         });
         return;
       }
-      const actor = system.auth.actor(token(req));
+      let actor = system.auth.actor(token(req));
       username = safeAccount(actor.username);
       authenticatedActorId=actor.id;
       authenticatedViewer=actor.role==="viewer";
+      if (actor.password_change_required) {
+        const credentialProcedure =
+          (parts.length === 2 && parts[1] === "session" && method === "GET") ||
+          (parts.length === 2 && parts[1] === "logout" && method === "POST") ||
+          (parts.length === 3 && parts[1] === "me" && parts[2] === "password" && method === "POST");
+        requireValue(credentialProcedure, "请先更改临时密码", 403);
+      }
       if (parts[1] === "training" && parts[2] === "journey" && parts.length === 3 && method === "GET") {
         json(res, 200, { scenario: system.training.journey(actor) });
         return;
@@ -165,6 +185,24 @@ export function httpServer(
       }
       if (parts[1] === "session" && method === "GET") {
         json(res, 200, actor);
+        return;
+      }
+      if (parts[1] === "me") {
+        const cookie = token(req);
+        const expired = { "Set-Cookie": "sd113=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0" };
+        if (parts.length === 2 && method === "GET") json(res, 200, auth.profile(actor));
+        else if (parts[2] === "sessions" && parts.length === 3 && method === "GET")
+          json(res, 200, auth.sessions(actor,cookie));
+        else if (parts[2] === "sessions" && parts.length === 4 && method === "DELETE") {
+          const result = auth.revokeSession(actor,cookie,parts[3],clientIp);
+          json(res, 200, result, result.current ? expired : {});
+        } else if (parts[2] === "password" && parts.length === 3 && method === "POST") {
+          const input = await body(req);
+          requireValue(isObject(input), "请求正文必须为JSON对象", 400);
+          const result = auth.changeOwnPassword(system.auth.actor(cookie),input.current_password,input.new_password,clientIp);
+          logOutcome = "修改密码";
+          json(res, 200, result, expired);
+        } else requireValue(false,"个人账号接口不存在",404);
         return;
       }
       if (parts[1] === "logout" && method === "POST") {
@@ -199,6 +237,7 @@ export function httpServer(
         return;
       }
       const input = ["GET", "HEAD"].includes(method) ? {} : await body(req);
+      if (!["GET", "HEAD"].includes(method)) actor = system.auth.actor(token(req));
       const [, resource = "", key = "", sub = "", subKey = "", action = ""] = parts;
       const read = method === "GET",
         deleted = url.searchParams.get("deleted") === "true";

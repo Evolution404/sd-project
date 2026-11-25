@@ -1,5 +1,5 @@
 import { noSettlementBudgetText } from "../../shared/settlement-progress.js";
-import { approvalPositionLabel } from "../../shared/approval-position-label.js";
+import { approvalPositionLabel,approvalPositionFields } from "../../shared/approval-position-label.js";
 import { attributeCells } from "./attribute-cells.js";
 import {
   parseWorkbook,
@@ -27,6 +27,8 @@ import {isObject} from "../../shared/types/contracts.js";
 import type {DetailKind} from "./details.js";
 import {financeSettlementDraft} from "../finance/draft-input.js";
 import {createExchangeExporter} from "./export.js";
+import { parseOnlineDemands } from "./online-demands.js";
+import { parseOnlineAssets } from "./online-assets.js";
 export function createExchange(system:ExchangePorts) {
   const { exchangePersistence, catalog, demands, finance } = system;
   const assets = createAssetExchange(system);
@@ -94,22 +96,26 @@ export function createExchange(system:ExchangePorts) {
       requireValue(approval, "解决量必须采用本次结算的正式批准版本", 422);
       const scope = approval.scopes.find(x => x.project_scope_id === value.project_scope_id);
       requireValue(scope, "解决量须选择当前结算已批准的专业需求", 422);
+      const matchesFields=(position:typeof scope.locations[number])=>{
+        const fields=approvalPositionFields(position);
+        return (!value.location_label||approvalPositionLabel(position)===value.location_label)&&
+          ["line_name","start_tower_no","end_tower_no"].every(key=>!value[key]||value[key]===fields[key as keyof typeof fields]);
+      };
       if (value.location_item_no == null && typeof value.location_label==="string") {
-        const matches = scope.locations.filter(position =>
-          approvalPositionLabel(position) === value.location_label);
+        const matches = scope.locations.filter(matchesFields);
         requireValue(matches.length===1, "作业位置名称不存在或存在重名，请从正式批准位置选择");
         value.location_item_no = matches[0].location_item_no;
       } else {
         const position = scope.locations.find(position =>
           position.location_item_no === value.location_item_no);
         requireValue(position, "解决量位置不属于本次正式批准范围", 422);
-        requireValue(!value.location_label || value.location_label === approvalPositionLabel(position),
+        requireValue(matchesFields(position),
           "解决量作业位置名称与隐藏的批准位置身份不一致", 422);
       }
     }
     return value;
   }
-  function prepare(kind:"demands"|"settlements",parsed:ParsedWorkbook,mode:ExchangeMode, projectId:string|null|undefined):ExchangePrepareResult {
+  function prepare(actor: Actor, kind:"demands"|"settlements",parsed:ParsedWorkbook,mode:ExchangeMode, projectId:string|null|undefined, online = false):ExchangePrepareResult {
     requireValue(["create", "update", "mixed"].includes(mode), "导入模式无效");
     references = createReferences(system);
     matchingMs = 0;
@@ -146,6 +152,7 @@ export function createExchange(system:ExchangePorts) {
         const existingDemand = kind==="demands" && root.id ? demands.get(root.id) : null;
         const existingSettlement = kind==="settlements" && root.id ? finance.settlement(root.id) : null;
         const existing = existingDemand || existingSettlement;
+        if (existingSettlement) system.projects.authorizeOwnedProject(actor, "write", existingSettlement.project_id);
         const matchingStarted = performance.now();
         if (
           kind === "demands" &&
@@ -168,6 +175,8 @@ export function createExchange(system:ExchangePorts) {
             root.project_name,
             root.project_id,
           ).id;
+        if (kind === "settlements" && root.project_id)
+          system.projects.authorizeOwnedProject(actor, "write", root.project_id);
         if (kind === "settlements" && !existing && root.project_id) {
           const project = system.projects.get(root.project_id);
           root.approval_version_id ??= project.approval?.id;
@@ -344,7 +353,13 @@ export function createExchange(system:ExchangePorts) {
             payload.sources = [...sources.filter(item=>!isObject(item)||item.id!==primary.id),primary];
           }
           const validationStarted = performance.now();
-          try { normalized = demands.normalize(payload, existingDemand); }
+          try {
+            normalized = demands.normalize(payload, existingDemand);
+            if (online && existingDemand) {
+              requireValue(existingDemand.status !== "cancelled", "已取消需求不得批量修订", 409);
+              demands.validateRevisionContext(existingDemand, normalized);
+            }
+          }
           catch (failure) {
             if (failure instanceof BusinessError) {
               const path=Object.keys(failure.fields)[0];
@@ -355,6 +370,17 @@ export function createExchange(system:ExchangePorts) {
                   const item=workLocations[Number(position[1])];
                   source=rowsFor("work_locations",number).find(row=>identity("work_locations",row)===identity("work_locations",item))||root;
                   field=position[2];
+                }
+                const detail = /^(materials|sources)\.(\d+)\.(.+)$/.exec(path);
+                if (detail) {
+                  const [, list, index, fieldKey] = detail;
+                  if (list === "materials" && Array.isArray(payload.materials)) {
+                    const item: unknown = payload.materials[Number(index)];
+                    source = rowsFor("materials", number).find(row => isObject(item) && row.material_id === item.material_id) || root;
+                  } else if (list === "sources") {
+                    source = rowsFor("sources", number)[Number(index)] || root;
+                  }
+                  field = fieldKey;
                 }
                 const key=field.startsWith("attributes.") ? field.slice(11) : null;
                 const column=key ? "attribute_"+Buffer.from(key).toString("hex") : field;
@@ -383,7 +409,7 @@ export function createExchange(system:ExchangePorts) {
           if (payload.mode === "按项目总额") payload.mode = "project_total";
           if (payload.mode === "按子费用") payload.mode = "itemized";
           if (payload.mode === "itemized" && root.amount_fen === undefined) delete payload.amount_fen;
-          Object.assign(payload, finance.validateDraft(settlementProject, financeSettlementDraft(payload)));
+          Object.assign(payload, finance.validateDraft(settlementProject, financeSettlementDraft(payload), existingSettlement?.id));
         }
         const settlementFacts = (input: Record<string, unknown>) => {
           const { expected_version, expected_edit_version, number: _number, project_id,
@@ -443,6 +469,8 @@ export function createExchange(system:ExchangePorts) {
           row: root._row,
         });
       } catch (error) {
+        // Permission failures are not correctable spreadsheet errors: reject the entire batch.
+        if (error instanceof BusinessError && error.status === 403) throw error;
         if (issues.length === originalIssueCount) issues.push(
           issue(
             root._sheet,
@@ -545,6 +573,8 @@ export function createExchange(system:ExchangePorts) {
   }
   async function preview(actor:Actor,kind:WorkbookKind,buffer:Buffer,options:ExchangePreviewOptions = {}): Promise<ExchangePreview> {
     authorize(actor, kind === "assets" ? "admin" : "write");
+    if (kind === "settlements" && options.projectId)
+      system.projects.authorizeOwnedProject(actor, "write", options.projectId);
     const sha256 = digest(buffer);
     const previous = previousWorkbook(actor, kind, sha256, options.projectId);
     if (previous && !options.newSettlement) return previousPreview(previous);
@@ -581,6 +611,7 @@ export function createExchange(system:ExchangePorts) {
       }
     }
     const prepared = prepare(
+      actor,
       kind,
       parsed,
       options.mode || "mixed",
@@ -620,6 +651,70 @@ export function createExchange(system:ExchangePorts) {
       summary: counts(prepared),
     };
   }
+  function previewDemandWorksheet(actor: Actor, input: unknown): ExchangePreview {
+    authorize(actor, "write");
+    const started = performance.now();
+    const { parsed, mode } = parseOnlineDemands(input);
+    const sha256 = digest("demand-worksheet:" + JSON.stringify({ mode, parsed }));
+    const previous = previousWorkbook(actor, "demands", sha256);
+    if (previous) return previousPreview(previous);
+    const parsedAt = performance.now();
+    const prepared = prepare(actor, "demands", parsed, mode, undefined, true);
+    const token = id();
+    const timestamp = now();
+    exchangePersistence.createBatch({
+      id: token,
+      draft_json: JSON.stringify({ kind: "demands", source: "worksheet", mode, projectId: null, sha256, parsed, ...prepared }),
+      created_by: actor.id, created_at: timestamp, updated_at: timestamp,
+    });
+    return {
+      token, ...prepared, summary: counts(prepared),
+      timings_ms: { ...prepared.timings_ms, parse: parsedAt - started, total: performance.now() - started },
+    };
+  }
+
+  function previewAssetWorksheet(actor: Actor, input: unknown) {
+    authorize(actor, "admin");
+    const started = performance.now();
+    const parsed = parseOnlineAssets(input, system.equipment);
+    const mode = "create";
+    const sha256 = digest("asset-worksheet:" + JSON.stringify(parsed));
+    const previous = previousWorkbook(actor, "assets", sha256);
+    if (previous) return previousPreview(previous);
+    const parsedAt = performance.now();
+    const prepared = assets.prepare(parsed, mode);
+    const discard = new Error("discard asset worksheet preview");
+    if (!prepared.issues.length) {
+      try {
+        exchangePersistence.withDocumentSavepoint(() => {
+          for (const doc of prepared.documents) {
+            try {
+              exchangePersistence.withDocumentSavepoint(() => assets.execute(actor, doc));
+            } catch (cause) {
+              if (!(cause instanceof BusinessError)) throw cause;
+              prepared.issues.push(issue(doc.sheet, doc.row, Object.keys(cause.fields)[0] || "document", doc.number, cause.message));
+            }
+          }
+          throw discard;
+        });
+      } catch (cause) {
+        if (cause !== discard) throw cause;
+      }
+    }
+    prepared.invalid_document_count = new Set(prepared.issues.map(item => item.sheet + "/" + item.row)).size;
+    const token = id();
+    const timestamp = now();
+    exchangePersistence.createBatch({
+      id: token,
+      draft_json: JSON.stringify({ kind: "assets", source: "worksheet", mode, sha256, parsed, worksheetInput: input, ...prepared }),
+      created_by: actor.id, created_at: timestamp, updated_at: timestamp,
+    });
+    return {
+      token, ...prepared, summary: counts(prepared),
+      timings_ms: { parse: parsedAt - started, total: performance.now() - started },
+    };
+  }
+
   function previousPreview(prior: { token: string; result: ExchangeCommitResult }): ExchangePreview {
     return {
       token: prior.token, documents: [], issues: prior.result.issues, previous: prior.result,
@@ -627,7 +722,7 @@ export function createExchange(system:ExchangePorts) {
       timings_ms: { parse: 0, total: 0 },
     };
   }
-  function counts(prepared:ExchangePrepareResult) {
+  function counts(prepared:Pick<ExchangePrepareResult, "document_count" | "invalid_document_count" | "documents" | "issues">) {
     return {
       documents: prepared.document_count,
       invalid_documents: prepared.invalid_document_count,
@@ -663,13 +758,23 @@ export function createExchange(system:ExchangePorts) {
         requireValue(batch.status === "draft", "批次已提交", 409);
         const commitStarted = performance.now();
         const body = JSON.parse(batch.draft_json);
+        const online = body.source === "worksheet";
+        requireValue(!online || input.atomic, "网页工作表必须整批提交", 422);
         if (body.kind === "assets") authorize(actor, "admin");
+        if (body.kind === "settlements" && body.projectId)
+          system.projects.authorizeOwnedProject(actor, "write", body.projectId);
         const previous = previousWorkbook(actor, body.kind, body.sha256, body.projectId);
         requireValue(previous?.token === body.repeatOf, "此文件已被导入，请重新上传并查看上次结果。", 409);
+        if (online && body.kind === "assets") {
+          const live = parseOnlineAssets(body.worksheetInput, system.equipment);
+          requireValue(JSON.stringify(live) === JSON.stringify(body.parsed),
+            "采用的设备引用已变化，请重新预检", 409,
+            { issues: live.issues.map(problem => problem.sheet + " 第" + problem.row + "行：" + problem.reason) });
+        }
         const prepared =
             body.kind === "assets"
               ? assets.prepare(body.parsed, body.mode)
-              : prepare(body.kind, body.parsed, body.mode, body.projectId),
+              : prepare(actor, body.kind, body.parsed, body.mode, body.projectId, online),
           results:ExchangeCommitResult["results"] = [],
           failures:WorkbookIssue[] = [...prepared.issues];
         requireValue(
@@ -686,7 +791,7 @@ export function createExchange(system:ExchangePorts) {
                   return { id: document.id, unchanged: true };
                 if ("kind" in document) return assets.execute(actor, document);
                 if (body.kind === "demands")
-                  return demands.save(actor, document.payload, document.id || undefined, {batchId:token});
+                  return demands.save(actor, document.payload, document.id || undefined, { batchId: token, ...(online ? { source: "worksheet" as const } : {}) });
                 const projectId=document.payload.project_id;
                 requireValue(typeof projectId==="string" && projectId.length>0,"结算导入缺少项目身份");
                 return finance.saveDraft(actor,projectId,financeSettlementDraft(document.payload),document.id||undefined);
@@ -701,7 +806,13 @@ export function createExchange(system:ExchangePorts) {
                 number: resultNumber, id: result.id, action: document.action,
               });
             } catch (error) {
-              if (input.atomic) throw error;
+              if (online && error instanceof BusinessError && error.status !== 403) {
+                const field = Object.keys(error.fields)[0] || "document";
+                throw new BusinessError(error.message, error.status, {
+                  issues: [document.sheet + " 第" + document.row + "行 " + field + "：" + error.message],
+                });
+              }
+              if (input.atomic || (error instanceof BusinessError && error.status === 403)) throw error;
               failures.push(
                 issue(
                   document.sheet,
@@ -726,6 +837,7 @@ export function createExchange(system:ExchangePorts) {
           },
           submitted_at: now(),
           kind: body.kind,
+          ...(online ? { source: "worksheet" as const } : {}),
         };
         exchangePersistence.submitBatch(token, batch.version, {
           draft_json: JSON.stringify({ ...body, result }),
@@ -737,7 +849,7 @@ export function createExchange(system:ExchangePorts) {
         return result;
       },
     );
-    if (committed.kind === "demands" && committed.results.some(result =>
+    if (committed.kind === "demands" && committed.source !== "worksheet" && committed.results.some(result =>
       result.action === "create" || result.action === "update"))
       system.training.record(actor.id, "excel_commit", token);
     return committed;
@@ -767,6 +879,8 @@ export function createExchange(system:ExchangePorts) {
   }
   return {
     preview,
+    previewDemandWorksheet,
+    previewAssetWorksheet,
     commit,
     exportData,
     projectReport(actor: Actor, ids: string[], listQuery?: ListQuery) {
@@ -784,7 +898,7 @@ export function createExchange(system:ExchangePorts) {
     },
     template(actor:Actor,kind:WorkbookKind,projectId?:string|null,assetKind?:AssetExchangeKind) {
       authorize(actor, "read");
-      if (kind === "assets") return makeWorkbook("assets", {}, { assetKind, template: true });
+      if (kind === "assets") return makeWorkbook("assets", {}, { assetKind, template: true, choices:assets.choices() });
       const project = projectId ? system.projects.get(projectId) : null;
       return makeWorkbook(
         kind,

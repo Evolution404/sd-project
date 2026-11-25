@@ -82,6 +82,12 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
     tower_no: "#15",
     physical_tower_id: first.physical_tower_id,
   });
+  const deleted = s.catalog.save(user, "towers", {
+    line_id: second.id, tower_no: "#99", physical_tower_id: first.physical_tower_id,
+  });
+  s.catalog.remove(user, "towers", deleted.id, deleted.version);
+  assert.throws(() => s.catalog.replacementPreview(first.physical_tower_id), /先核实其退役事实/);
+  s.catalog.save(user, "towers", { status: "retired", expected_version: deleted.version, historical_update: true }, deleted.id);
   const demand = s.demands.save(user, {
     operation_id: operation.id,
     problem_description: "旧塔现场记录",
@@ -99,6 +105,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
     confirm: true,
   });
   const preview = s.catalog.replacementPreview(first.physical_tower_id);
+  assert.deepEqual(preview.bindings.map(row => row.id).sort(), [first.id, other.id].sort());
   assert.throws(
     () =>
       s.catalog.replacePhysical(user, first.physical_tower_id, {
@@ -126,6 +133,7 @@ test("whole physical replacement keeps original demand, quote and all circuit hi
     assert.equal(history.length, 2);
     assert.equal(history[0].physical_tower_id, first.physical_tower_id);
   }
+  assert.equal(s.catalog.get("towers", deleted.id, true).physical_tower_id, first.physical_tower_id);
   assert.equal(
     s.demands.get(demand.id).work_locations[0].physical_tower_id,
     first.physical_tower_id,

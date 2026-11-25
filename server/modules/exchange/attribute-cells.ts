@@ -11,6 +11,11 @@ export function attributeCells(schema: OperationAttribute[], scope: AttributeSco
     const field = schema.find(item => item.key === key && item.scope === scope && item.source === "manual");
     requireValue(field, "附加属性未对应采用的正式定义及层级");
     if (raw === null) { values[key] = null; continue; }
+    if (Array.isArray(raw)) {
+      requireValue(field.type === "multiselect" || (field.type === "select" && raw.length === 1), "附加属性选项格式无效");
+      values[key] = field.type === "select" ? raw[0] : raw;
+      continue;
+    }
     let value = raw;
     if (field.type === "integer") {
       requireValue(/^-?\d+$/.test(String(raw)), `${field.label}须为整数`);

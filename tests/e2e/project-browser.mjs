@@ -1,5 +1,6 @@
 import { workPage, confirmProjectApproval, submitSettlement, approveSettlement } from "./work-page-helper.mjs";
 import { selectFormChoice } from "./field-helper.mjs";
+import { fillSettlementPosition } from "./settlement-worksheet-helper.mjs";
 import { selectNavigation } from "./navigation-helper.mjs";
 import { chromium } from "playwright";
 import { existsSync, mkdirSync } from "node:fs";
@@ -30,7 +31,7 @@ const browser = await chromium.launch(
       ? { headless: true }
       : { headless: true, channel: "chrome" },
   ),
-  page = await browser.newPage({ viewport: { width: 1500, height: 1100 } }),
+  page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
 const output = join(process.cwd(), "test-results", "schema113");
@@ -139,24 +140,11 @@ try {
     await select("关联需求（共同费用可不选）", demand.problem_description);
     await page.getByLabel("本次金额（元）", { exact: true }).fill("400");
     await page.getByLabel("依据", { exact: true }).fill("本期结算依据" + index);
-    await workPage(page).getByRole("button", { name: "本次完成工作量（选填）", exact: true }).click();
-    await page
-      .getByRole("button", { name: "添加解决需求", exact: true })
-      .click();
-    await select("项目需求", demand.problem_description);
-    const positionField = workPage(page).locator(".el-form-item")
-      .filter({ has: page.getByText("作业位置", { exact: true }) }).first();
-    await positionField.locator(".el-select__wrapper").click();
-    const positionControl = positionField.locator('input[role="combobox"], [role="combobox"]').first();
-    const positionPopupId = await positionControl.getAttribute("aria-controls");
-    assert.ok(positionPopupId);
-    const positionPopup = page.locator('[id="' + positionPopupId + '"]');
-    await positionPopup.waitFor({ state: "visible" });
-    await positionPopup.getByRole("option").first().click();
-    const resolution = workPage(page).getByLabel("本次新增解决量", { exact: true });
-    await resolution.fill(String(resolved));
-    await resolution.press("Tab");
-    assert.equal(await resolution.inputValue(), String(resolved));
+    await fillSettlementPosition(workPage(page),{
+      demandNo:demand.demand_no,locationLabel:index===1?"T17":"T15",
+      quantity:resolved===0?"0.0":String(resolved),
+      evidence:"项目浏览器逐行保存 "+index,
+    });
     await workPage(page).getByRole("button", { name: "保存草稿", exact: true }).click();
     await page.getByRole("region", { name: "编制结算草稿", exact: true }).waitFor({ state: "hidden" });
     const createdBill = s.finance
@@ -218,8 +206,8 @@ try {
     path: join(output, "project-finance-1500.png"),
     fullPage: true,
   });
-  for (const width of [1280, 760]) {
-    await page.setViewportSize({ width, height: 1100 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     await page.evaluate(async () => {
       scrollTo(0, 0);
       await new Promise((resolve) =>

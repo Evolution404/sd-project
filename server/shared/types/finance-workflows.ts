@@ -141,6 +141,7 @@ export type SettlementListStatus = "draft" | "submit" | "approve" | "return" | "
 
 export interface ReconciliationSettlementChoice {
   id: string;
+  cost_node_id: string;
   settlement_id: string;
   number: string;
   amount_fen: number;
@@ -176,13 +177,23 @@ export interface SettlementDemandLabel {
   problem_description: string;
   unit: string;
 }
+export interface SettlementLocationLabel {
+  location_kind: string;
+  line_name: string;
+  tower_no: string;
+  asset_no: string;
+  physical_code: string;
+  start_tower_no: string;
+  end_tower_no: string;
+}
 export interface SettlementDocumentDetails {
   approval_version_no: number;
   items: (SettlementItemInput & { cost_node_name: string; demand: SettlementDemandLabel | null })[];
-  resolutions: (SettlementResolutionInput & { demand: SettlementDemandLabel })[];
+  resolutions: (SettlementResolutionInput & { demand: SettlementDemandLabel; position: SettlementLocationLabel })[];
 }
 export interface SettlementDetails extends SettlementWorkflow {
   deleted: boolean;
+  write_blocked_reason: string | null;
   document_details: SettlementDocumentDetails | null;
 }
 export interface SettlementSubmitInput {
@@ -237,3 +248,18 @@ export interface SettlementItemFact extends SettlementItemInput {
   quantity_scaled: number;
   evidence: string;
 }
+
+export const MAX_FINANCE_ENTRY_BATCH = 100;
+
+interface FinanceEntryRow<K extends string, T> {
+  kind: K;
+  ref: string;
+  id?: string;
+  values: T;
+}
+export type FinanceEntryBatch =
+  | { kind: "nodes"; rows: FinanceEntryRow<"nodes", CostNodeInput>[] }
+  | { kind: "costs"; rows: FinanceEntryRow<"costs", ActualCostInput>[] }
+  | { kind: "reconciliations"; rows: FinanceEntryRow<"reconciliations", ReconciliationInput>[] };
+
+export interface FinanceEntryBatchIssue { ref: string; field?: string; message: string }

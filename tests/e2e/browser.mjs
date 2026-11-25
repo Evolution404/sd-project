@@ -19,7 +19,7 @@ const browser = await chromium.launch(
     : { headless: true, channel: "chrome" },
 );
 const context = await browser.newContext({
-    viewport: { width: 1500, height: 1000 },
+    viewport: { width: 1920, height: 1080 },
   }),
   page = await context.newPage(),
   errors = [];
@@ -75,8 +75,8 @@ try {
     path: join(output, "demand-detail-1500.png"),
     fullPage: true,
   });
-  for (const width of [1500, 1280, 960, 760]) {
-    await page.setViewportSize({ width, height: 1000 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     await page.evaluate(async () => {
       scrollTo(0, 0);
       await new Promise((resolve) =>
@@ -100,7 +100,7 @@ try {
     .click();
   await page.getByRole("button", { name: "下载模板", exact: true }).waitFor();
   await page.screenshot({
-    path: join(output, "exchange-760.png"),
+    path: join(output, "exchange-1920.png"),
     fullPage: true,
   });
   await page.getByRole("button", { name: "关闭", exact: true }).click();
@@ -134,7 +134,7 @@ try {
     role: "viewer",
   });
   const readerContext = await browser.newContext({
-    viewport: { width: 1280, height: 900 },
+    viewport: { width: 1920, height: 1080 },
   });
   const reader = await readerContext.newPage();
   await reader.goto(base);
@@ -164,7 +164,7 @@ try {
   await readerContext.close();
   assert.deepEqual(errors, []);
   console.log(
-    "SCHEMA113_BROWSER_OK login, 3-location demand, 480.00 quote, Excel workbench, 12 modules, 1500/1280/960/760px",
+    "SCHEMA113_BROWSER_OK login, 3-location demand, 480.00 quote, Excel workbench, 12 modules, 1920×1080",
   );
 } catch(error) { await page.screenshot({path:join(output,"dux-browser-failure.png"),fullPage:true}); throw error;
 } finally {

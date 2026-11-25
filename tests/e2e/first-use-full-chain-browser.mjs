@@ -22,7 +22,7 @@ const server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1280, height: 960 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const out = join(process.cwd(), "test-results/schema113/first-use-A2");
@@ -58,7 +58,7 @@ try {
   await save();
   await page.getByRole("tab", { name: "逻辑杆塔", exact: true }).click();
   await page.getByRole("button", { name: "新增逻辑杆塔", exact: true }).click();
-  await choice("所属线路", "A2空库测试线路 · 220kV");
+  await choice("所属线路", "A2空库测试线路");
   await editor.getByLabel("杆塔号", { exact: true }).fill("T01");
   await save();
   assert.equal(s.catalog.list("towers").length, 1);

@@ -12,7 +12,7 @@ await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const executable=chromium.executablePath();
 const browser=await chromium.launch(existsSync(executable)
   ? {headless:true} : {headless:true,channel:"chrome"});
-const page=await browser.newPage({viewport:{width:960,height:860}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 const errors=[];
 page.on("pageerror",error=>errors.push(error.message));
 const path=join(process.cwd(),"test-results/schema113/access-policy");
@@ -25,7 +25,7 @@ try {
   assert.equal(await login.getByText("输电运检",{exact:false}).count(),0);
   assert.equal(await login.getByText("输电项目",{exact:false}).count(),0);
   assert.equal(await login.getByText("登录内网工作区",{exact:false}).count(),0);
-  await page.screenshot({path:join(path,"login-960.png"),fullPage:true});
+  await page.screenshot({path:join(path,"login-1920.png"),fullPage:true});
   await page.getByLabel("用户名",{exact:true}).fill("admin");
   await page.getByLabel("密码",{exact:true}).fill("Schema113-test-password");
   await page.getByRole("button",{name:"登录",exact:true}).click();
@@ -37,7 +37,7 @@ try {
   await page.getByText("访问限制已关闭",{exact:true}).waitFor();
   assert.equal(await toggle.locator("input").isChecked(),false);
   assert.equal(s.auth.permittedIp("192.0.2.80"),true);
-  await page.screenshot({path:join(path,"restriction-off-960.png"),fullPage:true});
+  await page.screenshot({path:join(path,"restriction-off-1920.png"),fullPage:true});
   await toggle.click();
   const confirm=page.getByRole("dialog",{name:"确认开启访问限制"});
   await confirm.getByRole("button",{name:"确认开启"}).click();

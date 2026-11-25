@@ -69,6 +69,23 @@ export interface ProjectManagementInput {
   preliminary_estimate_basis?: string | null;
   reason?: string;
 }
+export const MAX_PROJECT_PROFILE_BATCH = 100;
+export interface ProjectProfileBatchRow {
+  ref: string;
+  id?: string;
+  values: ProjectManagementInput;
+}
+export interface ProjectProfileBatchIssue {
+  ref: string;
+  field?: string;
+  message: string;
+}
+export interface ProjectProfileBatchPreview {
+  count: number;
+  issues: ProjectProfileBatchIssue[];
+  fingerprint?: string;
+}
+
 export interface ProjectFromDemandInput extends ProjectManagementInput {
   demand_id: string;
   expected_demand_version: number;

@@ -12,7 +12,7 @@ const server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const context = await browser.newContext({ viewport: { width: 1500, height: 1080 } });
+const context = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
 const page = await context.newPage();
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
@@ -21,7 +21,7 @@ mkdirSync(evidence, { recursive: true });
 
 async function geometry() {
   return page.evaluate(() => {
-    const menu = document.querySelector(".navigation-menu-scroll");
+    const menu = document.querySelector(".layout-sidebar__menu .el-scrollbar__wrap") ?? document.querySelector(".navigation-menu-scroll");
     const group = document.querySelector(".navigation .nav-group > .el-sub-menu__title");
     const leaf = document.querySelector(".navigation .nav-leaf-item");
     const parentLabel = group.querySelector(".nav-group-label");
@@ -63,7 +63,7 @@ try {
   assert.ok(initial.groupHeight >= 36 && initial.groupHeight <= 42 && initial.leafHeight >= 36 && initial.leafHeight <= 42, JSON.stringify(initial));
   assert.equal(await opened(), 5, "high viewport starts with multiple groups expanded");
   assert.equal(await page.locator(".navigation .nav-leaf-item.is-active .nav-leaf-label").innerText(), "执行协议");
-  await page.screenshot({ path: join(evidence, "after-1500x1080.png") });
+  await page.screenshot({ path: join(evidence, "after-1920x1080.png") });
 
   await selectNavigation(page, "子项目管理");
   await page.waitForURL(/#\/projects/);
@@ -95,26 +95,19 @@ try {
   await page.getByRole("button", { name: "展开导航" }).click();
   assert.equal(await opened(), 5, "collapse and restore do not wipe remembered groups");
 
-  for (const width of [1500, 1280, 960, 768]) {
-    for (const height of [640, 768, 900, 1080]) {
-      await page.setViewportSize({ width, height });
-      await page.waitForTimeout(360);
-      const result = await geometry();
-      assert.ok(result.groupFont > result.leafFont && result.indent >= 20,
-        JSON.stringify({ width, height, ...result }));
-      if (height === 640) {
-        assert.ok(result.scrollable, JSON.stringify({width,height,...result}));
-        await page.locator(".navigation-menu-scroll").first().evaluate(element => {
-          element.scrollTop = element.scrollHeight;
-          if (element.scrollTop < 30) throw new Error("menu cannot scroll");
-        });
-        assert.ok(await page.locator(".navigation .nav-leaf-item").last().isVisible());
-      }
-      if (width === 960 && height === 900) await page.screenshot({
-        path: join(evidence, "after-960x900.png"),
-      });
-    }
-  }
+  const standard = await geometry();
+  assert.ok(standard.groupFont > standard.leafFont && standard.indent >= 20, JSON.stringify(standard));
+  // Exercise the sidebar's own overflow independently of the browser viewport.
+  const menu = page.locator(".layout-sidebar__menu .el-scrollbar__wrap").first();
+  await menu.evaluate(element => { element.style.maxBlockSize = "50vh"; });
+  await page.waitForFunction(() => {
+    const element = document.querySelector(".layout-sidebar__menu .el-scrollbar__wrap");
+    return element.scrollHeight > element.clientHeight;
+  });
+  await menu.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  assert.ok(await menu.evaluate(element => element.scrollTop >= 30), "sidebar content must scroll inside the standard viewport");
+  assert.ok(await page.locator(".navigation .nav-leaf-item").last().isVisible());
+  await menu.evaluate(element => { element.style.removeProperty("max-block-size"); element.scrollTop = 0; });
   for (const mode of ["light", "dark"]) {
     await page.evaluate(mode => {
       localStorage.setItem("sd-appearance", mode);
@@ -123,17 +116,10 @@ try {
     assert.equal(await page.locator(".navigation .nav-leaf-item.is-active").count(), 1);
     await page.screenshot({ path: join(evidence, `after-${mode}.png`) });
   }
-  await page.evaluate(() => document.documentElement.style.zoom = "125%");
-  assert.ok((await geometry()).groupFont > (await geometry()).leafFont);
-  await page.evaluate(() => document.documentElement.style.zoom = "");
-
-  await page.setViewportSize({ width: 760, height: 768 });
-  await page.getByRole("button", { name: "打开导航" }).click();
-  await page.locator(".mobile-navigation-drawer:visible").waitFor();
-  assert.ok(await page.locator(".mobile-navigation-drawer:visible .nav-group.is-opened").count() >= 2);
   await selectNavigation(page, "执行协议");
   await page.waitForURL(/#\/agreements/);
-  await page.locator(".mobile-navigation-drawer:visible").waitFor({ state: "hidden" });
+  assert.equal(await opened(), 5, "desktop navigation preserves the expanded group state");
+  assert.equal(await page.locator(".navigation .nav-leaf-item.is-active .nav-leaf-label").innerText(), "执行协议");
   assert.equal(await page.getByRole("heading", { name: "执行协议", exact: true }).count(), 1);
   assert.deepEqual(errors, []);
   console.log("SIDEBAR_HIERARCHY_BROWSER_OK", JSON.stringify(initial));

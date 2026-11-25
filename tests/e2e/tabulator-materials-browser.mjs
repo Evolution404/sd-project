@@ -21,7 +21,7 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const base = "http://127.0.0.1:" + server.address().port;
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", err => errors.push(err.message));
 const output = join(process.cwd(), "test-results/schema113/tabulator-materials");

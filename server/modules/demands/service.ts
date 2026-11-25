@@ -13,11 +13,17 @@ import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import { demandDisplayStatus } from "../../shared/demand-display-status.js";
 import { authorize, digest, id, now } from "../../platform/auth/service.js";
 import {
+  BusinessError,
   requireValue,
   text,
   integer,
   expectedVersion,
 } from "../../shared/errors/business-error.js";
+function validCalendarDate(date: unknown) {
+  return typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+    Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date;
+}
+
 function parseDemandInput(value: unknown): DemandWriteInput {
   requireValue(isObject(value), "需求内容必须为对象");
   requireValue(value.work_locations === undefined || Array.isArray(value.work_locations),
@@ -27,6 +33,18 @@ function parseDemandInput(value: unknown): DemandWriteInput {
   requireValue(value.sources === undefined || Array.isArray(value.sources), "来源必须是列表");
   requireValue(!Array.isArray(value.materials) || value.materials.every(isObject), "每项预计物资须为对象");
   requireValue(!Array.isArray(value.sources) || value.sources.every(isObject), "每项来源须为对象");
+  if (Array.isArray(value.sources)) {
+    for (const [index, source] of value.sources.entries()) {
+      if (source.action === "delete") continue;
+      if (!source.id) requireValue(typeof source.description === "string" && source.description.trim(),
+        "请填写来源说明", 422, { [`sources.${index}.description`]: "请填写来源说明" });
+      const date = source.discovered_on;
+      requireValue(date == null || date === "" || validCalendarDate(date),
+      "来源发现日期必须是有效的 YYYY-MM-DD 日期", 422, { [`sources.${index}.discovered_on`]: "发现日期无效" });
+    }
+  }
+  requireValue(value.expected_on == null || validCalendarDate(value.expected_on), "预计解决时间必须是有效日期", 422,
+    { expected_on: "日期无效" });
   requireValue(value.attributes === undefined || isObject(value.attributes),
     "补充现场字段必须是对象");
   requireValue(value.duplicate_matches === undefined || (Array.isArray(value.duplicate_matches) &&
@@ -58,23 +76,23 @@ export function createDemands(
       404,
     );
     const definition = JSON.parse(row.full_definition_json) as NormalizedDemand;
+    const progress = new Map(repo.locationProgress(key).map(position => [position.item_no, position]));
+    const locations = definition.work_locations.map(position => ({
+      ...position,
+      remaining_quantity_scaled: progress.get(position.item_no)?.remaining_quantity_scaled ?? 0,
+      resolved_quantity_scaled: progress.get(position.item_no)?.resolved_quantity_scaled ?? 0,
+    }));
+    const binding = repo.binding(key) || null;
     return {
       ...definition,
       ...row,
       deleted: repo.isDeleted(key),
-      work_locations: (() => {
-        const progress = new Map(repo.locationProgress(key).map(position =>
-          [position.item_no, position]));
-        return definition.work_locations.map(position => ({
-          ...position,
-          remaining_quantity_scaled: progress.get(position.item_no)?.remaining_quantity_scaled ?? 0,
-          resolved_quantity_scaled: progress.get(position.item_no)?.resolved_quantity_scaled ?? 0,
-        }));
-      })(),
+      display_status: demandDisplayStatus(row.status, Boolean(binding),
+        locations.reduce((total, position) => total + position.remaining_quantity_scaled, 0)),
+      work_locations: locations,
       materials: repo.materials(key, row.current_version),
       sources: currentSources(repo, key),
-      binding:
-        repo.binding(key) || null,
+      binding,
     };
   }
   function normalize(raw: unknown, previous: DemandRecord | null = null): NormalizedDemand {
@@ -257,25 +275,17 @@ export function createDemands(
             loc.specification ||
             loc.location_snapshot_json?.specification ||
             "",
-          tower_no:
-            entity.tower_no ||
-            associated
-              .filter(
-                (tower) => !contextLineId || tower.line_id === contextLineId,
-              )
-              .map((tower) => tower.tower_no)
-              .join(" / "),
+          tower_no: kind === "logical_tower" ? entity.tower_no || "" : "",
           asset_no: physical?.asset_no || null,
           physical_code: physical?.tower_code || "",
           tower_material: snapshotAsset.tower_material,
           tower_nature: snapshotAsset.tower_nature,
-          span: kind === "span" ? entity : null,
-          location_label:
-            kind === "span"
-              ? catalog.get("towers", text(entity.start_tower_id, "起始杆塔"), true).tower_no +
-                " ~ " +
-                catalog.get("towers", text(entity.end_tower_id, "终止杆塔"), true).tower_no
-              : entity.tower_no || physical?.label || "真实作业位置",
+          span: kind === "span" ? {
+            ...entity,
+            start_tower_no: catalog.get("towers", text(entity.start_tower_id, "起始杆塔"), true).tower_no,
+            end_tower_no: catalog.get("towers", text(entity.end_tower_id, "终止杆塔"), true).tower_no,
+          } : null,
+          location_label: kind === "span" ? "档距" : kind === "logical_tower" ? entity.tower_no || "未记载" : physical?.asset_no || physical?.tower_code || "未记载",
         },
       };
     });
@@ -387,9 +397,47 @@ export function createDemands(
   }
   function review(key: string, includeDeleted = false) {
     const record = get(key, includeDeleted);
-    return { ...record, duplicate_review_token: digest(JSON.stringify(record)) };
+    const assetLabels = new Map<string, string>();
+    function assetLabel(kind: "voltages" | "tower_materials" | "tower_natures", key: string | null) {
+      if (!key) return "";
+      const cacheKey = kind + ":" + key;
+      const cached = assetLabels.get(cacheKey);
+      if (cached !== undefined) return cached;
+      let name = "";
+      try {
+        const record = kind === "voltages" ? catalog.get(kind, key, true) : catalog.get(kind, key, true);
+        name = record.name || "";
+      } catch (failure) {
+        if (!(failure instanceof BusinessError) || failure.status !== 404) throw failure;
+      }
+      assetLabels.set(cacheKey, name);
+      return name;
+    }
+    return {
+      ...record,
+      work_locations: record.work_locations.map(location => {
+        const { voltage_level_id, tower_material, tower_nature } = location.location_snapshot_json;
+        return {
+          ...location, asset_labels: {
+            voltage_level_id: assetLabel("voltages", voltage_level_id),
+            tower_material: assetLabel("tower_materials", tower_material),
+            tower_nature: assetLabel("tower_natures", tower_nature),
+          },
+        };
+      }),
+      duplicate_review_token: digest(JSON.stringify(record)),
+    };
   }
-  function save(actor: Actor, raw: unknown, key?: string, context: {batchId?: string} = {}): DemandRecord {
+  function validateRevisionContext(previous: DemandRecord, normalized: NormalizedDemand) {
+    const projectStage = repo.boundProjectStage(previous.id);
+    requireValue(projectStage !== "closed",
+      "已结项项目关联的需求不得普通修订，请通过正式纠错流程处理", 409);
+    requireValue(projectStage !== "approved" || Boolean(normalized.expected_on),
+      "已批准项目关联的需求必须填写预计解决时间，禁止清空", 422,
+      { expected_on: "项目已批准，预计解决时间必填" });
+  }
+
+  function save(actor: Actor, raw: unknown, key?: string, context: { batchId?: string; source?: "worksheet" } = {}): DemandRecord {
     const input = parseDemandInput(raw);
     authorize(actor, "write");
     return database.transaction(() => {
@@ -397,14 +445,7 @@ export function createDemands(
       if (previous)
         expectedVersion(previous.current_version, input.expected_version);
       const normalized = normalize(input, previous);
-      if(previous) {
-        const projectStage=repo.boundProjectStage(previous.id);
-        requireValue(projectStage!=="closed",
-          "已结项项目关联的需求不得普通修订，请通过正式纠错流程处理",409);
-        requireValue(projectStage!=="approved" || !!normalized.expected_on,
-          "已批准项目关联的需求必须填写预计解决时间，禁止清空",422,
-          {expected_on:"项目已批准，预计解决时间必填"});
-      }
+      if (previous) validateRevisionContext(previous, normalized);
       const duplicates = repo.duplicates(
         normalized.operation_id,
         normalized.work_locations,
@@ -418,7 +459,7 @@ export function createDemands(
             JSON.stringify((input.duplicate_matches || []).slice().sort()) ===
               JSON.stringify(duplicates.map((row) => row.demand_no).sort()) &&
             isObject(input.duplicate_review_tokens) &&
-            duplicates.every(row => input.duplicate_review_tokens?.[row.id] === review(row.id).duplicate_review_token)),
+            duplicates.every(row => input.duplicate_review_tokens?.[row.id] === digest(JSON.stringify(get(row.id))))),
         "发现同操作同位置的疑似重复需求，须核对最新正式记录后人工判定",
         409,
         {
@@ -517,7 +558,7 @@ export function createDemands(
             const sourceId = id();
             repo.createSource({
               id: sourceId,
-              source_system: context.batchId ? "excel" : "manual",
+              source_system: context.batchId && context.source !== "worksheet" ? "excel" : "manual",
               external_record_id: null,
               description: text(source.description, "来源说明"),
               discovered_on: source.discovered_on || null,
@@ -593,6 +634,7 @@ export function createDemands(
     get,
     review,
     normalize,
+    validateRevisionContext,
     findDuplicates(operationId: string, locations: DemandLocation[], exceptId?:string) {
       return repo.duplicates(operationId, locations, exceptId);
     },

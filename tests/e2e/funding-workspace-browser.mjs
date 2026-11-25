@@ -18,7 +18,7 @@ const server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1500, height: 960 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const out = join(process.cwd(), "test-results/schema113/funding-workspace");
@@ -83,11 +83,11 @@ try {
   await page.route(agreementLookup, route => route.abort());
   await page.goto(base + "/#/projects?project=" + project.id + "&tab=overview");
   await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();
-  const agreementLink = detail.getByRole("button", { name: "通过执行协议 · 查看执行协议", exact: true });
-  await agreementLink.waitFor();
+  await detail.getByRole("button", { name: "通过执行协议 · 查看执行协议", exact: true }).waitFor();
   assert.equal(await detail.getByText("直接归属年度框架（无需执行协议）", { exact: true }).count(), 0);
   await page.unroute(agreementLookup);
-  await agreementLink.click();
+  // The agreement name can resolve as soon as the intercepted request is restored.
+  await detail.getByRole("button", { name: /^通过执行协议 · / }).click();
   await detail.getByRole("heading", { name: "安全测试协议正式变更", exact: true }).waitFor();
   await detail.getByRole("button", { name: "关闭详情" }).click();
   await detail.getByRole("heading", { name: project.name, exact: true }).waitFor();

@@ -1,7 +1,8 @@
 import { isObject } from "../../shared/types/contracts.js";
 import { requireValue } from "../../shared/errors/business-error.js";
+import { MAX_PROJECT_PROFILE_BATCH } from "../../shared/types/projects.js";
 import type {
-  ProjectManagementInput, ProjectFromDemandInput, ProjectVersionAction,
+  ProjectManagementInput, ProjectProfileBatchRow, ProjectFromDemandInput, ProjectVersionAction,
   ProjectLinkInput, ProjectLinkBatchInput, ProjectReleaseInput,
   ProjectApprovalInput, ProjectApprovalScopeInput,
   ProjectApprovedMaterialInput, ProjectApprovedLocationInput,
@@ -37,6 +38,34 @@ export function parseProjectManagement(input: Record<string, unknown>): ProjectM
   optionalNumber(input.preliminary_estimate_fen,"项目预估金额");
   return input as ProjectManagementInput;
 }
+const profileFields = new Set(["name", "framework_id", "agreement_id", "owner_id", "manager_id", "category_id",
+  "managing_unit_id", "planned_start_on", "planned_end_on", "preliminary_estimate_basis", "preliminary_estimate_fen",
+  "reason", "expected_version", "expected_funding_version"]);
+export function parseProjectProfileBatch(input: Record<string, unknown>): ProjectProfileBatchRow[] {
+  requireValue(Array.isArray(input.rows) && input.rows.length >= 1 && input.rows.length <= MAX_PROJECT_PROFILE_BATCH,
+    "请提供1至" + MAX_PROJECT_PROFILE_BATCH + "条项目档案");
+  const ids = new Set<string>(), refs = new Set<string>();
+  return input.rows.map((row: unknown) => {
+    requireValue(isObject(row) && Object.keys(row).every(key => ["id", "ref", "values"].includes(key)) &&
+      isObject(row.values) && Object.keys(row.values).every(key => profileFields.has(key)),
+    "批量档案包含未授权的字段");
+    const ref = stringValue(row.ref, "档案行标识");
+    requireValue(ref.length <= 128 && !refs.has(ref), "档案行标识重复或无效");
+    refs.add(ref);
+    const values = parseProjectManagement(row.values);
+    if (row.id === undefined) {
+      requireValue(values.expected_version === undefined && values.expected_funding_version === undefined, "新增档案不可指定已有版本");
+      return { ref, values };
+    }
+    const id = stringValue(row.id, "子项目");
+    requireValue(id.length <= 128 && !ids.has(id) && Number.isSafeInteger(values.expected_version) &&
+      Number(values.expected_version) > 0 && Number.isSafeInteger(values.expected_funding_version) &&
+      Number(values.expected_funding_version) >= 0, "档案修订须使用不同项目及有效档案、资金版本");
+    ids.add(id);
+    return { ref, id, values };
+  });
+}
+
 export function parseProjectFromDemand(input:Record<string,unknown>):ProjectFromDemandInput {
   const profile=parseProjectManagement(input);
   return {
@@ -97,13 +126,24 @@ function parseScope(input:unknown,index:number):ProjectApprovalScopeInput {
   requireValue(input.materials === undefined || Array.isArray(input.materials),
     "批准物资必须为列表");
   requireValue(Boolean(input.project_scope_id) !== Boolean(input.demand_id), "请选择已有项目范围或新增候选需求");
+  const materials=input.materials?.map((mat,i)=>parseMaterial(mat,i));
+  const ids=new Set(materials?.map(mat=>mat.material_id)??[]);
+  requireValue(ids.size===(materials?.length??0),"批准物资不可重复");
+  let expected_material_versions:Record<string,string>|undefined;
+  if(input.expected_material_versions!==undefined){
+    requireValue(isObject(input.expected_material_versions),"批准物资版本必须为对象");
+    const versions=input.expected_material_versions;
+    requireValue(Object.keys(versions).length===ids.size&&Object.keys(versions).every(id=>ids.has(id)),"批准物资版本必须与所选物资一致");
+    expected_material_versions=Object.fromEntries([...ids].map(id=>[id,stringValue(versions[id],"批准物资版本")]));
+  }
   return {
     project_scope_id:input.project_scope_id === undefined ? undefined : stringValue(input.project_scope_id,"批准范围"),
     demand_id:input.demand_id === undefined ? undefined : stringValue(input.demand_id,"候选需求"),
     demand_version:numberValue(input.demand_version,"需求正式版本"),
     approved_amount_fen:optionalNumber(input.approved_amount_fen,"批准金额"),
     locations:input.locations.map((loc,i)=>parseLocation(loc,i)),
-    materials:input.materials?.map((mat,i)=>parseMaterial(mat,i)),
+    materials,
+    expected_material_versions,
   };
 }
 export function parseProjectApproval(input:Record<string,unknown>):ProjectApprovalInput {

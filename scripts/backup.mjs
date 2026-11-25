@@ -1,6 +1,9 @@
 import { createSystem } from "../dist/server/bootstrap.js";
 import { join } from "node:path";
-const system = createSystem();
+import { packagedMode, selectedDataset, acquireDataset } from "../dist/server/platform/runtime/dataset.js";
+const directory=packagedMode()==="production"?selectedDataset():undefined;
+const unlock=directory?await acquireDataset(directory):undefined;
+const system=(()=>{try{return createSystem(directory)}catch(error){unlock?.();throw error}})();
 try {
   console.log(
     await system.database.backupTo(
@@ -12,5 +15,5 @@ try {
     ),
   );
 } finally {
-  system.close();
+  try { system.close(); } finally { unlock?.(); }
 }

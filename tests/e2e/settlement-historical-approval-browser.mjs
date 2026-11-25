@@ -23,7 +23,7 @@ project = f.s.projects.approve(f.user, project.id, project.approvals.find(ap => 
 const server = httpServer(f.s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage();
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 try {
@@ -36,10 +36,26 @@ try {
   const row = detail.getByRole("row").filter({ hasText: bill.number }).first();
   await row.getByRole("button", { name: "发起新修订", exact: true }).click();
   const editor = page.getByRole("region", { name: "修订结算草稿", exact: true });
+  const worksheet=editor.locator('[data-grid-key="finance:settlement-work"]');
+  await worksheet.locator('.tabulator-row').first().waitFor({timeout:6000});
+  assert.equal(await worksheet.locator('.tabulator-row').count(),3,
+    "historical settlement revision must show all frozen positions");
+  assert.deepEqual(await worksheet.locator('.tabulator-cell[tabulator-field="quantity_text"]').allTextContents(),
+    ["1","0","0"],"old nonzero detail and zero defaults must be restored correctly");
+  assert.deepEqual(await worksheet.locator('.tabulator-cell[tabulator-field="prior_text"]').allTextContents(),
+    ["0","0","0"],"prior effective total excludes the same settlement being revised");
   assert.equal(Number(await editor.getByLabel("本次金额（元）", { exact: true }).first().inputValue()), 100);
   await editor.locator(".el-form-item").filter({ has: page.getByText("修订动作", { exact: true }) })
     .getByText("完整修订", { exact: true }).waitFor();
   const adopted = editor.locator(".el-form-item").filter({ has: page.getByText("采用批准版本", { exact: true }) });
+  await adopted.locator(".el-select").click();
+  await page.getByRole("option", { name: "批准第2", exact: true }).click();
+  const switchDialog=page.locator('.el-message-box:visible');
+  await switchDialog.getByText("切换正式批准版本", { exact: true }).waitFor();
+  await switchDialog.getByRole("button",{name:"保持当前版本",exact:true}).click();
+  await switchDialog.waitFor({state:"hidden"});
+  assert.match(await adopted.locator('.el-select').innerText(),/批准第1/,
+    "cancelling approval switch must preserve the historic adopted version and current draft cells");
   await adopted.locator(".el-select").click();
   await page.getByRole("option", { name: "批准第1", exact: true }).waitFor({ timeout: 3000 });
   await page.getByRole("option", { name: "批准第1", exact: true }).click();

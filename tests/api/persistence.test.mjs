@@ -27,6 +27,8 @@ test("database and evidence restart, independent backup and verified restore", a
   await assert.rejects(() => s.database.backupTo(backup), /已存在/);
   const restored = restoreBackup(backup, join(root, "restored"));
   assert.throws(() => restoreBackup(backup, restored), /独立目录/);
+  const snapshotCopy = restoreBackup(restored, join(root, "restored-copy"));
+  assert.deepEqual(readFileSync(join(snapshotCopy, "schema113.sqlite")), readFileSync(join(backup, "schema113.sqlite")));
   const reopened = createSystem(restored);
   try {
     assert.equal(reopened.demands.get(demand.id).quantity_scaled, 90000);
@@ -80,4 +82,16 @@ test("restore refuses schema drift without mutating the requested destination", 
   assert.throws(() => restoreBackup(backup, target), /Schema113结构与当前权威SQL不一致/);
   assert.equal(existsSync(target), false);
   assert.equal(readFileSync(join(backup, "schema113.sqlite")).length > 0, true);
+});
+
+test("restore refuses a live SQLite directory with a WAL and preserves its pending pages", t => {
+  const { s, dir, user, demandInput } = fixture(t);
+  const demand = s.demands.save(user, demandInput);
+  const root = mkdtempSync(join(tmpdir(), "sd-restore-live-sqlite-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const target = join(root, "restored");
+  assert.ok(existsSync(join(dir, "schema113.sqlite-wal")));
+  assert.throws(() => restoreBackup(dir, target), /SQLite 写入文件/);
+  assert.equal(existsSync(target), false);
+  assert.equal(s.demands.get(demand.id).current_version, 1);
 });

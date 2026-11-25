@@ -126,6 +126,7 @@ export function createReporting(
     return {
       demands: demandCounts.total,
       pending_demands: demandCounts.pending,
+      pending_demand_items: repository.dashboardPendingDemands(),
       projects: portfolio.length,
       active_projects: portfolio.filter(project => project.status === "approved").length,
       portfolio: items, frameworks, months, quarters, alerts, as_of: asOf,

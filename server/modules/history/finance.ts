@@ -50,7 +50,7 @@ export function settlementHistory(workflow: SettlementWorkflow, history: unknown
           : String(label(review.action, reviewLabels));
       entries.push(event(index === 0 ? `结算单/${version.version_no}` : `review/${review.id}`, title,
         approved ? "金额" : "办理", review, {
-          summary: `${labelVersion} · ${label(version.mode, settlementModeLabels)}`,
+          summary: `${labelVersion}，结算方式：${label(version.mode, settlementModeLabels)}`,
           badge: current ? "当前生效"
             : version === latest && review === events.at(-1) ? settlementStatusLabels[workflow.status] : undefined,
           tone: approved ? "success" : review.action === "return" ? "warning" : "info",
@@ -112,7 +112,7 @@ export function actualCostHistory(input: unknown, id: string): HistoryRecord {
 export function reconciliationHistory(input: unknown): HistoryRecord {
   const versions = rows(input);
   const current = versions.at(-1);
-  return { name: string(current?.cost_title) ? `费用核对 · ${current?.cost_title}` : "费用核对",
+  return { name: string(current?.cost_title) ? `费用核对：${current?.cost_title}` : "费用核对",
     entries: readVersions(versions, "核对", row => facts(
       ["费用事项", text(row.cost_title)], ["结算编号", text(row.settlement_number)],
       ["实际费用份额", money(row.reconciled_cost_fen)], ["核对结算金额", money(row.reconciled_settlement_fen)],

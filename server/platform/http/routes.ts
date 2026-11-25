@@ -19,6 +19,7 @@ import { handleManagement } from '../../modules/management/http.js';
 import { handleHistory } from '../../modules/history/http.js';
 import { handleFiles } from '../files/http.js';
 import { requireValue } from '../../shared/errors/business-error.js';
+import { authorize } from "../auth/service.js";
 
 const routes: Record<string, RouteHandler> = {
   'actors': handleCatalog,
@@ -37,6 +38,8 @@ const routes: Record<string, RouteHandler> = {
   'charges': handlePricing,
   'exchange': handleExchange,
   'users': handleManagement,
+  'menus': handleManagement,
+  'roles': handleManagement,
   'ips': handleManagement,
   'access-policy': handleManagement,
   'audit': handleManagement,
@@ -44,9 +47,11 @@ const routes: Record<string, RouteHandler> = {
   'evidence': handleFiles,
   'history': handleHistory,
 };
+const independentlyAuthorizedReads = new Set(["menus", "users", "roles", "permissions", "access-policy", "ips", "audit"]);
 
 export function dispatchRoute(context: RouteContext) {
   requireValue(Object.hasOwn(routes, context.resource), '接口不存在', 404);
+  if (context.read && !independentlyAuthorizedReads.has(context.resource)) authorize(context.actor, "read");
   if (context.resource === "catalog" && ["frameworks", "agreements"].includes(context.key)) return handleFunding(context);
   if (context.resource === "catalog" && ["objects","operations"].includes(context.key)) return handleWorkStandards(context);
   if (context.resource === "catalog" && ["prices"].includes(context.key)) return handlePriceCatalog(context);

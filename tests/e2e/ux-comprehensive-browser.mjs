@@ -43,7 +43,7 @@ const server = httpServer(s);
 await new Promise(done => server.listen(0, "127.0.0.1", done));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 960, height: 860 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", err => errors.push(err.message));
 const out = join(process.cwd(), "test-results/schema113/ux-comprehensive");
@@ -86,13 +86,13 @@ try {
   // A status-only retirement is possible after the feature version advances.
   await priceDetail.getByRole("button", { name: "停用规则", exact: true }).click();
   await page.getByRole("button", { name: "确认停用", exact: true }).click();
-  await page.getByRole("row").filter({ hasText: oldRule.title }).getByText("停用", { exact: true }).waitFor();
+  await page.locator("main .business-table-grid").getByRole("row").filter({ hasText: oldRule.title }).getByText("停用", { exact: true }).waitFor();
   const stopped = s.catalog.get("prices", oldRule.id);
   assert.equal(stopped.status, "inactive");
   assert.equal(stopped.version_no, 2);
   assert.equal(stopped.additional_conditions_json, oldRule.additional_conditions_json);
   assert.equal(s.catalog.history("prices", oldRule.id).length, 2);
-  await page.screenshot({ path: join(out, "inactive-price-960.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "inactive-price-1920.png"), fullPage: true });
   await priceDetail.getByRole("button", { name: "关闭详情" }).click();
   // Saving on another tab must locate a required error in its correct tab.
   await page.getByRole("button", { name: "新增参考价格规则", exact: true }).click();
@@ -129,7 +129,7 @@ try {
     .getByRole("button", { name: "放弃修改" }).click();
   await editor.waitFor({ state: "hidden" });
   assert.equal(inspect(s).list("users").some(row => row.username === "预览用户"), false);
-  await page.screenshot({ path: join(out, "system-960.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "system-1920.png"), fullPage: true });
   // Demand, project and finance editors share the exact same exit decision.
   await page.goto(base + "/#/demands");
   await page.getByRole("button", { name: "新增需求", exact: true }).click();
@@ -165,9 +165,9 @@ try {
   await editor.waitFor({ state: "hidden" });
   assert.equal(s.projects.get(existingProject.id).cost_nodes.some(
     row => row.name === "尚未保存的费用科目"), false);
-  await page.screenshot({ path: join(out, "finance-960.png"), fullPage: true });
+  await page.screenshot({ path: join(out, "finance-1920.png"), fullPage: true });
   // A read-only account must see non-actionable system controls.
-  const reader = await browser.newPage({ viewport: { width: 960, height: 860 } });
+  const reader = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
   try {
     await reader.goto(base);
     await reader.getByLabel("用户名", { exact: true }).fill("ux_readonly");

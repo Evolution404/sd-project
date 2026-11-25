@@ -7,7 +7,7 @@ import { financeListRepository } from "../../dist/server/database/repositories/f
 import { parseListQuery } from "../../dist/server/platform/http/list-query.js";
 
 test("240 costs, 120 settlements and 60 reconciliations use bounded SQL pages", { timeout: 180000 }, t => {
-  const { s, user, project, node, scope } = approvedFixture(t);
+  const { s, user, project, node, scope } = approvedFixture(t, { firstLocationQuantity: 120 * 10000 });
   s.database.transaction(() => {
     for (let index = 0; index < 240; index++) {
       const cost = s.finance.cost(user, project.id, {

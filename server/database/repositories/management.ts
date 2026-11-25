@@ -23,6 +23,18 @@ export interface AccessPolicy {
 interface AccessPolicyRow extends Omit<AccessPolicy, "ip_restriction_enabled"> {
   ip_restriction_enabled: 0 | 1;
 }
+interface SecurityEventListItem {
+  id: string;
+  username: string | null;
+  actor_username: string | null;
+  event: string;
+  event_label: string;
+  ip: string | null;
+  created_at: string;
+}
+const securityEventLabels = {
+  login: "登录成功", password_changed: "个人修改密码", session_revoked: "个人结束会话",
+};
 
 function labelCases(fallback: string, labels: Readonly<Record<string, string>>) {
   return ` ${Object.entries(labels).map(([key, value]) => `WHEN '${key}' THEN '${value}'`).join(" ")} ELSE '${fallback}' END`;
@@ -77,6 +89,16 @@ export function managementRepository(store: Store) {
           FROM audit_events a LEFT JOIN users u ON u.id=a.actor_id`,
         columns: ["id", "created_at", "actor_username", "entity", "entity_id", "action", "entity_label", "action_label"],
         search: ["actor_username", "entity_label", "action_label", "entity", "entity_id", "action", "before_json", "after_json"],
+      }, query);
+    },
+    searchSecurityEvents(query: ListQuery) {
+      return searchPage<SecurityEventListItem>(store, "security_events", {
+        sql: `SELECT e.id,e.event,e.ip,e.created_at,u.username,actor.username AS actor_username,
+          CASE e.event${labelCases("安全事件", securityEventLabels)} AS event_label
+          FROM security_events e LEFT JOIN users u ON u.id=e.user_id
+          LEFT JOIN users actor ON actor.id=e.actor_id`,
+        columns: ["id", "event", "event_label", "username", "actor_username", "ip", "created_at"],
+        search: ["event", "event_label", "username", "actor_username", "ip"],
       }, query);
     },
     auditEvents(includeDeleted: boolean): (AuditRecord & { actor_username: string })[] {

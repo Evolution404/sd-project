@@ -2,10 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { connect } from "node:net";
 import { once } from "node:events";
+import { join } from "node:path";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
+import { registerManagedShutdown, requestManagedShutdown } from "../../dist/server/platform/runtime/managed-shutdown.js";
 
-test("shutdown closes empty preconnections and completes an already started HTTP request", async t => {
+test("managed shutdown closes empty preconnections and completes an already started HTTP request", async t => {
   const f = fixture(t), server = httpServer(f.s);
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const port = server.address().port;
@@ -20,10 +22,16 @@ test("shutdown closes empty preconnections and completes an already started HTTP
     + Buffer.byteLength(body) + "\r\nConnection: close\r\n\r\n" + body.slice(0, 1));
   await requested;
   let closed = false;
-  const stopped = new Promise((resolve, reject) => server.shutdown(error => {
-    if (error) reject(error);
-    else { closed = true; resolve(); }
-  }));
+  const stopped = new Promise((resolve, reject) => {
+    const release = registerManagedShutdown(f.s.dataDirectory, port, () => server.shutdown(error => {
+      release();
+      if (error) reject(error);
+      else { closed = true; resolve(); }
+    }));
+    t.after(release);
+  });
+  await assert.rejects(requestManagedShutdown(join(f.s.dataDirectory, "other-installation"), port), /未识别到/);
+  const accepted = requestManagedShutdown(f.s.dataDirectory, port);
   await emptyClosed;
   assert.equal(closed, false, "the incomplete active request must retain its connection");
   let response = "";
@@ -32,7 +40,7 @@ test("shutdown closes empty preconnections and completes an already started HTTP
   active.write(body.slice(1));
   let timer;
   try {
-    await Promise.race([Promise.all([stopped, completed]), new Promise((_, reject) => {
+    await Promise.race([Promise.all([stopped, completed, accepted]), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error("shutdown did not complete")), 2000);
     })]);
   } finally {

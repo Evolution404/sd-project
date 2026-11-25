@@ -1,0 +1,52 @@
+name: Windows
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Build and verify Windows ZIPs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - run: python3 scripts/check-public-source.py
+      - uses: ./.github/actions/setup
+      - run: make release
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: windows-package-${{ github.sha }}
+          path: |
+            dist/sd-project-win10-x64.zip
+            dist/sd-project-win10-x64-demo.zip
+            dist/RELEASE-MANIFEST.json
+            dist/DEMO-RELEASE-MANIFEST.json
+            dist/FINAL-DELIVERY-REPORT.md
+          if-no-files-found: error
+          retention-days: 7
+  windows:
+    name: Windows runtime and deployment
+    needs: package
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: windows-package-${{ github.sha }}
+          path: dist
+      - shell: powershell
+        run: ./scripts/release/test-windows-package.ps1 -PackageDirectory dist -ExpectedCommit $env:GITHUB_SHA

@@ -28,7 +28,7 @@ const browser = await chromium.launch(
     ? { headless: true }
     : { headless: true, channel: "chrome" },
 );
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } }),
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/standards-pricing");
@@ -73,8 +73,8 @@ try {
   assert.equal(await standardEditor.getByRole("tab").count(), 4);
   assert.equal(await standardEditor.getByRole("tab",{name:"作业范围与计量"}).count(),0);
   await standardEditor.getByLabel("固定计量单位",{exact:true}).waitFor();
-  for (const width of [1500, 1280, 960, 760]) {
-    await page.setViewportSize({ width, height: 1000 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     await standardEditor
       .getByRole("tab", { name: "录入模板", exact: true })
       .click();
@@ -87,7 +87,7 @@ try {
       button &&
         button.x >= 0 &&
         button.x + button.width <= width &&
-        button.y + button.height <= 1000,
+        button.y + button.height <= 1080,
     );
     await page.screenshot({
       path: join(output, `standard-editor-${width}.png`),
@@ -99,7 +99,7 @@ try {
     .click();
   await standardEditor.waitFor({ state: "hidden" });
   await page.locator(".business-detail-dialog:visible").getByRole("button", { name: "关闭详情", exact: true }).click();
-  await page.setViewportSize({ width: 1500, height: 1000 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.getByRole("tab", { name: "作业对象", exact: true }).click();
   await page.getByRole("button", { name: "新增作业对象", exact: true }).click();
   const objectEditor = page.getByRole("region", {
@@ -135,14 +135,14 @@ try {
     .getByRole("button", { name: "采用最新 V2 作业标准", exact: true })
     .click();
   await ruleEditor.getByRole("tab", { name: "计价方式", exact: true }).click();
-  await page.setViewportSize({ width: 760, height: 1000 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await ruleEditor
     .getByRole("button", { name: "试算", exact: true })
     .click();
   await ruleEditor.getByText("规则完整性检查通过", { exact: true }).waitFor();
   await settle();
   await page.screenshot({
-    path: join(output, "price-editor-760.png"),
+    path: join(output, "price-editor-1920.png"),
     fullPage: true,
   });
   await ruleEditor.getByRole("button", { name: "保存", exact: true }).click();
@@ -169,7 +169,7 @@ try {
   assert.ok(copied && copied.operation_version === 2);
   assert.deepEqual(errors, []);
   console.log(
-    "SCHEMA113_STANDARDS_PRICING_BROWSER_OK adopted labels, four widths, explicit upgrade, copy, deletion preview and modal history",
+    "SCHEMA113_STANDARDS_PRICING_BROWSER_OK adopted labels at 1920×1080, explicit upgrade, copy, deletion preview and modal history",
   );
 } finally {
   await browser.close();

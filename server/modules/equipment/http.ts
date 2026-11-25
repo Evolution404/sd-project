@@ -23,6 +23,19 @@ export async function handleEquipment(
   } = context;
   requireValue(isEquipmentKind(key), "设备目录不存在", 404);
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
+  if (key === "voltages" && sub === "entry-batch") {
+    requireValue(method === "POST" && (subKey === "preview" || subKey === "commit"), "电压等级批量请求无效", 405);
+    return { result: subKey === "preview" ? system.equipment.voltageEntryBatch(actor, input, false)
+      : mutate("admin", () => system.equipment.voltageEntryBatch(actor, input, true)) };
+  }
+  if (sub === "bulk" && subKey === "preview") {
+    requireValue(method === "POST", "设备批量预检请求方法无效", 405);
+    return { result: system.equipment.previewBulk(actor, key, input) };
+  }
+  if (sub === "bulk" && !subKey) {
+    requireValue(method === "POST", "设备批量维护请求方法无效", 405);
+    return { result: mutate("admin", () => system.equipment.bulk(actor, key, input)) };
+  }
   if (key === "physical" && subKey === "replacement") {
     requireValue(
       method === "GET" || method === "POST",

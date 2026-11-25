@@ -27,6 +27,13 @@ export function reportingReadRepository(store: Store) {
           SELECT 1 FROM audit_events a WHERE a.entity='demands'
           AND a.entity_id=d.id AND a.action='delete')`) as DashboardDemandCounts;
     },
+    dashboardPendingDemands(): {id:string;demand_no:string;problem_description:string}[] {
+      return store.query(`SELECT d.id,d.demand_no,d.problem_description
+        FROM v_demand_current d WHERE d.status='pending' AND NOT EXISTS(
+          SELECT 1 FROM audit_events a WHERE a.entity='demands'
+          AND a.entity_id=d.id AND a.action='delete')
+        ORDER BY d.demand_no,d.id`) as {id:string;demand_no:string;problem_description:string}[];
+    },
     dashboardFrameworks(): DashboardFramework[] {
       return store.query(`SELECT f.id,f.code,f.name,f.fiscal_year,f.limit_fen
         FROM v_framework_current f WHERE NOT EXISTS(

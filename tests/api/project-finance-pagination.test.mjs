@@ -20,7 +20,7 @@ test("project finance HTTP pages preserve drafts, formal history, deletion and e
     let bill = s.finance.saveDraft(user, project.id, {
       items: [{ cost_node_id: node.id, project_scope_id: scope.id,
         quantity_scaled: 10000, amount_fen: 500 + index, evidence: "分期结算" }],
-      resolutions: [{ project_scope_id: scope.id, location_item_no: 1, resolved_quantity_scaled: 10000,
+      resolutions: [{ project_scope_id: scope.id, location_item_no: index < 3 ? 1 : 3, resolved_quantity_scaled: 10000,
         evidence: "分期完成量" }],
     });
     if (index < 4) {

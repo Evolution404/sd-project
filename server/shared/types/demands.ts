@@ -160,6 +160,7 @@ export interface NormalizedDemand {
   materials: DemandMaterial[];
 }
 export interface DemandRecord extends Omit<NormalizedDemand, "materials">, DemandCurrentRow {
+  display_status: DemandDisplayStatus;
   deleted: boolean;
   materials: DemandMaterialRow[];
   sources: SourceRow[];
@@ -169,7 +170,7 @@ export type DemandDisplayStatus = "待确认" | "已退回" | "待承接" | "已
 export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand, "materials"> {
   /** Derived at query time, never stored separately from lifecycle and project binding. */
   display_status: DemandDisplayStatus;
-  line_summary?: string;
+  line_count?: number;
   project_name?: string | null;
   last_handled_at?: string;
   location_count?: number;
@@ -192,7 +193,7 @@ export interface DemandService {
 export interface DemandCatalog {
   get(kind: "operations", key: string, includeDeleted?: boolean): OperationRecord;
   get(kind: "objects", key: string, includeDeleted?: boolean): WorkObjectRecord;
-  get(kind: "units" | "priorities", key: string, includeDeleted?: boolean): DictionaryItem;
+  get(kind: "units" | "priorities" | "tower_materials" | "tower_natures", key: string, includeDeleted?: boolean): DictionaryItem;
   get(kind: "materials", key: string, includeDeleted?: boolean): MaterialRecord;
   get(kind: EquipmentCatalogKind, key: string, includeDeleted?: boolean): EquipmentRecord;
   audit(actor: Actor, entity: string, id: string, action: string, before: unknown, after: unknown): void;

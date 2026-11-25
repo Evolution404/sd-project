@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { approvedFixture } from "../helpers.mjs";
 
-test("settled amounts, independently reported work, over-completion and reconciliation revisions remain distinct", (t) => {
+test("settled amounts, independently reported work, capacity rejection and reconciliation revisions remain distinct", (t) => {
   const { s, user, project, scope, approval, node, framework } = approvedFixture(t);
   const cost = s.finance.cost(user, project.id, {
     cost_node_id: node.id,
@@ -54,7 +54,8 @@ test("settled amounts, independently reported work, over-completion and reconcil
   assert.equal(feeHistory[0].items[0].id, fee.items[0].id);
   assert.equal(feeHistory[0].resolutions[0].resolved_quantity_scaled, 0);
   assert.deepEqual(feeHistory[0].events.map(event => event.action), ["submit", "approve"]);
-  const work = bill("WORK-ZERO-AMOUNT", 0, 110000);
+  assert.throws(() => bill("OVER-CAPACITY", 0, 110000), /超出批准余量/);
+  const work = bill("WORK-ZERO-AMOUNT", 0, 30000);
   assert.equal(work.items[0].amount_fen, 0);
   const summary = s.finance.summary(project.id);
   assert.equal(summary.actual_cost_fen, 140000);
@@ -75,8 +76,8 @@ test("settled amounts, independently reported work, over-completion and reconcil
   assert.equal(linked.summary.settlement_fen,40000);
   assert.deepEqual(s.funding.details("frameworks",framework.id).summary,direct.summary,
     "assigning an agreement must preserve all framework totals without double counting");
-  assert.equal(summary.demands[0].resolved_quantity_scaled, 110000);
-  assert.equal(summary.demands[0].excess_quantity_scaled, 20000);
+  assert.equal(summary.demands[0].resolved_quantity_scaled, 30000);
+  assert.equal(summary.demands[0].excess_quantity_scaled, 0);
   let record = s.finance.reconciliation(user, {
     expected_version: 0,
     cost_version_id: cost.id,
@@ -205,6 +206,16 @@ test("nested settlement and reconciliation histories enforce owning project for 
   }), /费用与结算不属于同一项目/);
   assert.equal(s.finance.reconciliations(other.id).length,0,
     "cross-project rejection must not leave a reconciliation fact");
+  const voided = s.finance.cost(user, other.id, {
+    ...secondCost, request_key:undefined, expected_version:secondCost.version_no, status:"voided",
+  },secondCost.entry_id);
+  const impact=s.finance.costDeletionPreview(user,other.id,voided.entry_id);
+  assert.equal(impact.expected_version,voided.version_no);
+  assert.throws(
+    () => s.finance.removeCost(user,project.id,voided.entry_id,{expected_version:voided.version_no}),
+    error => error.status===404,
+  );
+  assert.equal(s.finance.costHistory(other.id,voided.entry_id).at(-1).status,"voided");
   assert.equal(inspect(s).integrity().foreignKeys.length, 0);
 });
 

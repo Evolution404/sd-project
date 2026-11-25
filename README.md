@@ -9,29 +9,29 @@
 想要直接体验业务，而不从零配置基础数据，可运行：
 
 ```sh
-npm run demo
+pnpm run demo
 ```
 
 首次运行会构建前端，并在 **`data/demo/`** 中自动创建独立的演示数据库，之后再次启动会保留你在演示环境中的新增、编辑及删除记录。演示服务**只监听本机** `127.0.0.1:8788`，不会修改正常的 `data/schema113.sqlite`，不会导入虚构内容到真实业务库。
 
 - 网址：`http://127.0.0.1:8788`
 - 账号：`demo`
-- 密码：`DemoOnly-2026!`（仅供本机演示，请勿用于正式服务器）
+- 密码：`demo`（仅供本机演示，请勿用于正式服务器）
 
-也可单独执行 `npm run demo:seed`，只创建或检查演示库，不启动服务。演示数据包含线路、物理/逻辑杆塔、档距、物资、作业对象、操作类型、价格特征、参考价格、需求、年度框架、执行协议，以及含已核价、实际费用和分期结算的项目；所有工程名称及价格均为**虚构示例**，不得用于真实报价或施工。
+也可单独执行 `pnpm run demo:seed`，只创建或检查演示库，不启动服务。演示数据包含线路、物理/逻辑杆塔、档距、物资、作业对象、操作类型、价格特征、参考价格、需求、年度框架、执行协议，以及含已核价、实际费用和分期结算的项目；所有工程名称及价格均为**虚构示例**，不得用于真实报价或施工。
 
-演示环境和真实环境独立；真实数据继续使用 `npm start` 或 `make dev`，详情见 `docs/implementation/2026-11-10_独立演示环境与业务样例数据.md`。
+演示环境和真实环境独立；真实数据继续使用 `pnpm start` 或 `make dev`，详情见 `docs/implementation/2026-11-10_独立演示环境与业务样例数据.md`。
 
 ## 启动
 
 ```sh
-npm ci
-npm run build
-npm run init-admin
-npm start
+pnpm install --frozen-lockfile
+pnpm run build
+pnpm run init-admin
+pnpm start
 ```
 
-本机访问 `http://127.0.0.1:8787`。首次初始化创建管理员，密码不得为空，最长256位；建议使用高强度密码。已有管理员不会被初始化脚本覆盖。Mac 开发可执行 `make dev`。开发前后端热更新分别使用 `npm run dev:api` 与 `npx vite --host 127.0.0.1`。
+本机访问 `http://127.0.0.1:8787`。首次初始化创建管理员，密码不得为空，最长256位；建议使用高强度密码。已有管理员不会被初始化脚本覆盖。Mac 开发可执行 `make dev`。开发前后端热更新分别使用 `pnpm run dev:api` 与 `pnpm --dir web run dev --host 127.0.0.1`。
 
 默认仅监听本机。内网部署可设置 `HOST=0.0.0.0`，管理员先在系统管理中添加客户端的完整 IP。连接身份以实际套接字地址为准。业务接口要求登录，正式批准、需求确认、费用核定和结算审核分别检查服务端权限。
 
@@ -50,7 +50,7 @@ data/
 旧 `business.sqlite`、原附件及备份继续保留。新程序创建自己的数据库文件。开发和测试显式设置临时 `DATA_DIR`。初始化校验完整结构指纹，遇到同为113但定义不同的数据库也会拒绝启动，需要选择匹配备份或新的独立目录。
 
 ```sh
-npm run backup
+pnpm run backup
 node scripts/restore.mjs /绝对路径/备份目录 /绝对路径/全新恢复目录
 ```
 
@@ -67,10 +67,11 @@ server/
 │   └── schema/schema113.sql
 └── shared/               # 前后端契约、错误和定点数
 web/src/
-├── app/                  # 应用壳、路由与12入口分组导航
-├── modules/              # 各业务模块页面与专属编辑器
-├── shared/               # 请求、表格、模态、表单、组合函数和展示
-└── styles/               # Element Plus官方样式和设计令牌
+├── layouts/              # 有来 Layout、导航和多标签页
+├── router/               # 服务端授权菜单和办理路由
+├── views/                # 十二模块页面和工作台
+├── components/           # 原版 CRUD 及专业工作表组件
+└── api/                  # Cookie 会话及业务接口
 dist/
 ├── server/               # 编译服务端及权威Schema
 ├── web/                  # 可重建的生产前端
@@ -80,7 +81,8 @@ tests/
 ├── api/
 ├── domain/
 ├── excel/
-└── e2e/
+├── e2e/
+└── fixtures/legacy-frontend/ # 隔离的旧版行为回归资料
 ```
 
 ## 2026-11-09 系统独立与最少录入
@@ -132,45 +134,38 @@ tests/
 
 杆塔号按所选线路判重，跨线路同号可直接新建各自独立实物，真实共塔明确关联已有实物。物理杆塔查看框直接显示其全部关联逻辑杆塔。业务Excel支持整行选择和表头改名，正式字段绑定通过工作簿命名元数据保留，回导仍校验身份、版本及业务约束。模板及导出使用中文文件名和表头，“新增必填／条件必填”显示在字段名上方。新增必填标记针对新事实，维护时未填项保持原值。表头排序持续点击在升序、降序之间循环。
 
-## 验收
+## 开发、验收和发布
 
-```sh
-npm run check
-npm run check:schema
-npm run test:browser
-npm run test:performance
-npm run package:win
-npm run test:package
-```
+根目录只有一套 Node24/pnpm 10.34.5 工具链、锁文件和正式构建目录。运行 `make` 查看命令，不启动服务。
 
-`check` 覆盖严格服务端TypeScript及前端构建、无税务模型检查、严格UI门禁、未使用声明检查、业务测试、数据库边界和依赖架构。Schema验收使用独立内存库。浏览器验收使用独立临时数据库，包含三位置需求、逐范围报价、实际项目批准、费用、三次结算及结项，以及1500、1280、960、760px布局。
+| 命令 | 用途 |
+| --- | --- |
+| `make dev` | 编译并启动开发服务 |
+| `make demo` | 启动独立本机演示服务 |
+| `make build` | 生成 dist/server 和 dist/web |
+| `make check` | 工程与业务自动化检查 |
+| `make release` | 同一构建基线生成并验证正式版和演示版 |
+| `make package-win` | 单独生成并验证正式版 |
+| `make package-win-demo` | 单独生成并验证演示版 |
+| `make release-final` | 干净 HEAD 的全量工程、数据库、性能、正式及隔离历史浏览器门禁后发布双版本 |
 
-## 本次设备字段升级
+发布命令统一进入 `scripts/release/build-and-package.mjs`。先固定源码摘要和 Git 基线，再构建、封包、解压实际 ZIP 进行宿主验收；正式包验证还会复建一次并检查原 ZIP 字节不变。两版全部通过才替换上一版双包和报告；单版通过仅更新对应包及清单，旧双版报告失效。失败不覆盖旧 ZIP。普通打包允许未提交修改并如实记录；最终验收发布要求干净 HEAD。禁止并发发布或发布过程中修改构建输入。发布锁异常残留时先核实进程再处理，不自动强拆。
 
-线路架设方式已从当前表及历史表完整删除。杆塔性质是物理实物的正式属性，支持直线、耐张，修改形成连续版本历史，共塔回路自动引用该实物事实。
+### 交付目录
 
-已有本次原结构的库需要先停止服务，再显式运行以下维护命令。
+- `dist/sd-project-win10-x64.zip`：正式版，不包含台账数据和预置登录账号。
+- `dist/sd-project-win10-x64-demo.zip`：演示版，包含虚构数据及演示专用登录账号，仅限可信内网。
+- `dist/RELEASE-MANIFEST.json`、`dist/DEMO-RELEASE-MANIFEST.json`：各自实际 ZIP SHA-256 和宿主机验证记录。
+- `dist/FINAL-DELIVERY-REPORT.md`：双包基线一致、校验通过后生成的交付报告。
+- `dist/server`、`dist/web`：正式编译产物，非历史归档。
 
-```sh
-npm run upgrade:equipment-fields
-```
+Windows 离线包采用锁定版本的 esbuild 将后端和 ExcelJS 的运行依赖合并为 ESM 模块及共享块，不再分发散装 `node_modules`。保留启动、选择数据目录、停止服务、备份及恢复入口，以及 Schema113 SQL、前端资源和第三方许可。发布门禁要求每个 ZIP 不超过 400 个文件、独立重建后端产物哈希一致、实际解包登录及 Excel 导出/导入预检通过。开发环境仍使用原 TypeScript 编译产物，内网无需 npm/pnpm。
+- `test-results/release/`：逐次发布日志；隔离旧前端测试证据位于 `test-results/legacy/`。
+- `.build/toolchains`、`.build/windows-cache`：本地工具链及官方运行时下载缓存。发布与隔离测试的临时工作区自动清理。
 
-工具在data/backups生成完整备份并校验附件，先恢复到临时副本演练，再以单事务执行原库结构调整，逐表复核其余全部字段事实及完整性。升级回执写入备份目录。只接受本次指定的原结构，重复执行已完成的升级返回当前状态。其他不匹配结构继续拒绝启动。
+Windows 10/11 x64 正式版解压后运行「启动服务.cmd」，选择已有独立数据目录（包含 schema113.sqlite），记住路径；也可通过 DATA_DIR 指定。缺失或不兼容的数据库一律拒绝启动，不自动创建空库。升级只需停止旧程序并让新程序连接同一数据目录，不迁移数据。空数据集创建和备份恢复均是独立维护操作。Windows CMD、PowerShell、防火墙和文件锁行为须 Windows 实机验收，Mac 宿主验收不能替代 Windows 实机验收。
 
-Windows离线目录可在停止服务后执行 `runtime\node.exe scripts\upgrade-equipment-fields.mjs`。目标Windows自身的脚本和文件锁仍需实机验收。
-
-## Windows 离线包
-
-当前唯一支持的构建、测试及打包 Node 主版本为 **26**。发布脚本拒绝其他主版本，默认将宿主同版 Node 26 官方 Windows x64 运行时纳入压缩包并验证 SHA256。以前项目文件记录的 Node 24 是历史验收事实，不是现行依赖。
-
-
-```sh
-npm run package:win
-```
-
-交付时提交全部源码和文档。允许在开发中打包未提交输入，清单记录基线提交、工作区状态和完整构建输入指纹，构建及封包期间输入发生变化即拒绝发布。前端只清理 `dist/web/`，后续构建保留已生成ZIP。输出 `dist/sd-project-win10-x64.zip`，内置 Node.js 26.x x64（默认与打包宿主 Node 26 版本一致）、生产依赖、编译服务端和前端资源。服务端入口为 `dist/server/main.js`，包内不包含服务端TS源目录。包内不含 `data/`。在 Windows 10/11 x64 的可写目录解压后，运行 `初始化管理员.cmd` 和 `启动服务.cmd`。运行数据位于解压根目录的 `data/`。恢复可执行 `runtime\node.exe scripts\restore.mjs 备份目录 全新恢复目录`，验证后以对应DATA_DIR启动。
-
-打包检查包含官方运行时 SHA256、ZIP完整性、PowerShell UTF-8 BOM、CMD ASCII编码和数据排除。`test:package` 解压实际ZIP，复核源码提交和文件哈希，执行一次前端重建验证ZIP字节保持，再用 Node26 验证初始化、登录、临时需求、附件、备份、恢复和重启。服务端源码与编译文件分别记录SHA256。最终大小、SHA256、时间和Git提交号保存在 `dist/RELEASE-MANIFEST.json`。Windows系统自身的CMD、PowerShell、防火墙和文件锁行为需要Windows实机验收。
+详细规范见 [统一发布与清理规范](docs/architecture/统一发布与清理规范.md)。
 
 ## 当前记录
 
@@ -183,13 +178,13 @@ npm run package:win
 
 旧实现的 Git 恢复标签为 `codex/pre-schema113-rewrite-20261108`。本轮提交保存在本地。
 
-最新专项验收见 docs/implementation/2026-11-09_独立业务_自动身份与最少录入_实施验收.md。`npm run check:independent-input` 持续检查正式产品独立性与自动编码约束。
+最新专项验收见 docs/implementation/2026-11-09_独立业务_自动身份与最少录入_实施验收.md。`pnpm run check:independent-input` 持续检查正式产品独立性与自动编码约束。
 
 ## 开发与内网演示打包
 
-项目根目录运行 `make` 仅打印帮助，不编译、不启动服务。明确执行 `make dev` 启动开发版，`make demo` 启动本机演示版，`make check` 检查工程。
+项目根目录运行 `make` 仅打印帮助。`make dev` 启动开发版，`make check` 检查工程。Makefile 优先采用仓库内已安装的 Node24 和 pnpm。已有本机真实台账演示环境可用 `make demo` 启动，首次创建时通过 `SD_ASSET_SOURCE` 显式指定获准使用的本地备份。使用 `SD_DEMO_FIXTURE=1 make demo` 启动独立合成演示。默认演示地址为 http://127.0.0.1:8788，可通过 `DEMO_PORT=8789` 使用独立端口和数据目录。按 Ctrl+C 停止当前终端启动的服务。
 
-执行 `make package-win-demo` 一键编译、打包并校验 `dist/sd-project-win10-x64-demo.zip`。该压缩包包含 Windows 10 x64 Node.js 24 运行时、前后端、生产依赖、虚构业务数据与预先创建的管理员。演示管理员固定账号为 `demo`、固定密码为 `DemoOnly-2026!`，同时写入演示包内的《演示账号与部署说明.txt》。该账号仅在演示数据包中预置，正式版不预置登录账号。Windows 机器完整解压后双击《启动演示服务.cmd》，本机通过 http://127.0.0.1:8787 访问，内网客户端通过 http://服务器IP:8787 访问（按需在 Windows 防火墙放行 TCP 8787）。
+执行 `make package-win-demo` 一键编译、打包并校验 `dist/sd-project-win10-x64-demo.zip`。该压缩包包含 Windows 10 x64 Node.js 24 运行时、前后端、生产依赖、虚构业务数据与预先创建的管理员。演示管理员固定账号为 `demo`、固定密码为 `demo`，同时写入演示包内的《演示账号与部署说明.txt》。该账号仅在演示数据包中预置，正式版不预置登录账号。Windows 机器完整解压后双击《启动演示服务.cmd》，本机通过 http://127.0.0.1:8787 访问，内网客户端通过 http://服务器IP:8787 访问（按需在 Windows 防火墙放行 TCP 8787）。
 
 **演示包默认关闭 IP 访问限制**，便于内网演示；但必须登录，权限与审计仍然生效。禁止把附带管理员口令的演示包公开发布或部署到互联网。演示数据保存在解压目录 `data/`，支持重启持久化。正式发布使用 `make package-win`，产物为 `dist/sd-project-win10-x64.zip`，不附带数据，IP 访问限制默认开启。
 
@@ -197,16 +192,18 @@ npm run package:win
 
 基础数据中正式维护杆塔性质（内置耐张、直线）与杆塔材质（内置角钢塔、钢管杆）。物理杆塔的原塔型已替换为受控杆塔材质。两组字典可新增、改名、停用并查看正式历史，已引用身份不随名称变化。详见 docs/implementation/杆塔性质与材质字典_实施验收_2026-11-12.md。
 
-页面通过「使用指引」提供操作搜索、当前页面导览、全流程实操和 L01 至 L12 课程。解压 Windows 离线包后运行「启动训练环境.cmd」。macOS 开发目录使用 `npm run training:new`。训练独立保存在本机，仅监听回环地址。
-
-登录训练地址后，打开「使用指引 → 全流程实操」，以青禾线防鸟治理为例从专业需求登记一直办理到差额结项。案例预置两基杆塔、作业标准和年度框架。需求、项目、费用与结算由学员手动办理。同一训练实例重启后自动接着上次的正式记录，可以用 `node scripts/training/instance.mjs list` 找到编号，再用 `node scripts/training/instance.mjs start --id=实例编号` 打开。想从空库完成各分段课程，可用 `npm run training:new -- --blank`。
+训练实例使用独立数据目录并仅监听回环地址。Windows 离线包含「启动训练环境.cmd」，macOS 开发命令为 `pnpm run training:new`。带 `--blank` 可创建空库训练实例。
 
 ### P10 操作帮助真实控件定位（第二轮收口）
 
-在顶部“使用指引”中通过“操作搜索”打开某类业务说明，点击“定位当前按钮”，会在当前可见且唯一的控件上显示一段不触发业务写入的只读ElTour。页面未切到对应页签、弹窗未展开或者同时存在多个同类行级按钮时仅给出文字说明，不代替点击。当前82类说明中25类已绑定可定位的语义锚点，覆盖全部12主模块；其余57类将在后续动态菜单、四角色状态和审计中继续核实。项目离线包提供此功能但不替用户完成实际操作。
+旧版「使用指引」及 L01 至 L12 课程留在回归资料中。有来正式页面的 P10 导览迁移属后续阶段。
 
 ## HTTP访问日志
 
-管理员在系统管理的“访问日志”页签按时间、IP、账号、方法、状态码和关键词查询，查看请求详情并下载筛选后的UTF-8 JSONL。所有时间采用北京时间。日志位于运行目录 `data/logs/`，默认保留最近30个自然日，单文件10MiB，按北京时间日期及文件大小轮转，重启继续保留。显式 `DATA_DIR` 下使用其 `logs/` 子目录。
+管理员在「访问控制」的「访问日志」页签按时间、IP、账号、方法、状态码和关键词查询，查看请求详情并下载筛选后的 UTF-8 JSONL。所有时间采用北京时间。日志位于运行目录 `data/logs/`，默认保留最近30个自然日，单文件10MiB，按北京时间日期及文件大小轮转，重启继续保留。显式 `DATA_DIR` 下使用其 `logs/` 子目录。
 
 可通过 `ACCESS_LOG_RETENTION_DAYS` 和 `ACCESS_LOG_MAX_FILE_BYTES` 调整保留天数及单文件字节上限。响应头 `X-Request-ID` 对应每条日志的 `request_id`。日志不记录请求正文、密码、Cookie、认证头或查询字符串，客户端IP取真实连接。日志读写故障输出 `ACCESS_LOG_IO_FAILURE`，管理员界面提供诊断。详细验收记录见 `docs/implementation/访问日志与最终交付_2026-11-13.md`。
+
+## 独立真实台账数据集
+
+正式程序发布和真实台账数据集完全分离。只指定已有数据目录，切换程序无需复制数据；禁止用基础台账覆盖运行中的业务数据，详见 [内网部署与数据升级规范](docs/architecture/内网部署与数据升级规范.md)。

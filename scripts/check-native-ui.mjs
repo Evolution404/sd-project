@@ -2,7 +2,7 @@ import {readFileSync,readdirSync,existsSync} from 'node:fs';
 import {resolve,relative,join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {parse} from '@vue/compiler-sfc';
-import {currentUiContract} from './ui-contract.mjs';
+import {currentUiContract, formalUiRoots} from './ui-contract.mjs';
 
 // Count interactive UI elements via the Vue SFC template AST, not regex over
 // script strings or CSS. Ordinary semantic layout elements remain permitted.
@@ -35,7 +35,9 @@ function getComponents(dir){
 }
 export function currentNativeUi(root){
  const result=Object.create(null);
- for(const file of getComponents(join(root,'web','src'))){
+ const files = [join(root, 'tests/fixtures/legacy-frontend/web/src'), ...formalUiRoots.map(folder => join(root, folder))]
+   .flatMap(getComponents);
+ for(const file of files){
   const counts=findNativeUi(readFileSync(file,'utf8'),file);
   const total=Object.values(counts).reduce((a,b)=>a+b,0);
   if(total>0)result[relative(root,file).replaceAll('\\','/')]={total,tags:counts};

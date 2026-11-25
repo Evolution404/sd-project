@@ -5,7 +5,9 @@ import {
   naturalTowerSortKey, naturalRelatedTowerSortKey,
 } from "../shared/natural-tower-sort.js";
 
-const canonicalSql = readFileSync(new URL("./schema/schema113.sql", import.meta.url), "utf8");
+import { projectRoot } from "../platform/paths.js";
+
+const canonicalSql = readFileSync(resolve(projectRoot, "dist/server/database/schema/schema113.sql"), "utf8");
 let expectedStructure: string | undefined;
 
 function structure(connection: DatabaseSync): string {
@@ -33,17 +35,28 @@ export function assertCurrentSchema(connection: DatabaseSync): void {
     throw Error("Schema113结构与当前权威SQL不一致。请使用新独立目录或匹配的正式备份。");
 }
 
+/** Validate an existing dataset without initializing or changing its schema. */
+export function assertExistingDatabase(directory: string): void {
+  const db = new DatabaseSync(join(directory, "schema113.sqlite"), { readOnly: true });
+  try {
+    if (Number(db.prepare("PRAGMA user_version").get()?.user_version) !== 113)
+      throw Error("数据结构版本不兼容，禁止自动初始化或迁移");
+    assertCurrentSchema(db);
+  } finally { db.close(); }
+}
+
 export interface Database {
   directory: string;
   connection: DatabaseSync;
   transaction<T>(action: () => T): T;
   backupTo(destination: string): Promise<string>;
   verifyIntegrity(): boolean;
+  checkpoint(): void;
   close(): void;
 }
 
 export function openDatabase(
-  dataDir = process.env.DATA_DIR || resolve(import.meta.dirname, "../../../data"),
+  dataDir = process.env.DATA_DIR || resolve(projectRoot, "data"),
 ): Database {
   const directory = resolve(dataDir);
   mkdirSync(directory, { recursive: true });
@@ -112,6 +125,10 @@ export function openDatabase(
     verifyIntegrity() {
       return connection.prepare("PRAGMA foreign_key_check").all().length === 0 &&
         connection.prepare("PRAGMA integrity_check").get()?.integrity_check === "ok";
+    },
+    checkpoint() {
+      const result = connection.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+      if (result?.busy !== 0) throw Error("数据库检查点未完成，请停止其他数据库连接后重试");
     },
     close() { connection.close(); },
   };

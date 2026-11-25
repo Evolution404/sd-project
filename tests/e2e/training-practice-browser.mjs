@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 import { createSystem } from "../../dist/server/bootstrap.js";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { selectFormChoice } from "./field-helper.mjs";
+import { fillSettlementPosition } from "./settlement-worksheet-helper.mjs";
 import { activeEditor, workPage, confirmProjectApproval, approveSettlement, submitSettlement } from "./work-page-helper.mjs";
 
 const password = "Training-browser-case-113!";
@@ -22,7 +23,7 @@ await new Promise(resolve => server.listen(0,"127.0.0.1",resolve));
 const base = "http://127.0.0.1:"+server.address().port;
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? {headless:true} : {headless:true,channel:"chrome"});
-const page = await browser.newPage({viewport:{width:1450,height:1000}});
+const page = await browser.newPage({viewport:{width:1920,height:1080}});
 const out = "test-results/p10/practice-journey";
 mkdirSync(out,{recursive:true});
 const detail = page.locator(".business-detail-dialog:visible");
@@ -105,16 +106,12 @@ async function bill(itemized=false) {
     const { projectId, demandId } = snapshot().facts;
     const project = system.projects.get(projectId);
     const scope = project.approvals.find(version=>version.id===project.approval.id).scopes.find(row=>row.demand_id===demandId);
-    await editor.getByRole("button",{name:"本次完成工作量（选填）",exact:true}).click();
     for (const location of scope.locations) {
       const position = JSON.parse(location.frozen_location);
       const name = position.location_label || position.tower_no || position.asset_no || location.location_object;
       const quantity = String(location.approved_quantity_scaled / 10000);
-      await editor.getByRole("button",{name:"添加解决需求",exact:true}).click();
-      const line = editor.locator(".finance-editor-line").last();
-      await selectFormChoice(page,"项目需求",system.demands.get(demandId).problem_description,line);
-      await selectFormChoice(page,"作业位置",name+" · 批准 "+quantity,line);
-      await line.locator(".el-form-item").filter({has:page.getByText("本次新增解决量",{exact:true})}).locator("input").fill(quantity);
+      await fillSettlementPosition(editor,{demandNo:system.demands.get(demandId).demand_no,
+        locationLabel:name,quantity,evidence:"训练现场完成依据"});
     }
   }
   await save("保存草稿");
@@ -151,6 +148,7 @@ try {
   const quantities=editor.locator(".quantity-cell input:visible");
   for(const input of await quantities.all()) await input.fill("1");
   await save("保存需求版本");
+  await detail.getByRole("button",{name:"确认并待承接",exact:true}).waitFor();
   await showPractice("确认并退回需求");
   await proceed();
   await detail.getByRole("button",{name:"确认并待承接",exact:true}).click();
@@ -241,7 +239,7 @@ try {
   const roleNames=["editor","verifier","viewer"];
   for(const role of roleNames) {
     system.auth.saveUser(user,{username:"practice-"+role,password,role,status:"active"});
-    const restricted=await browser.newPage({viewport:{width:1150,height:900}});
+    const restricted=await browser.newPage({viewport:{width:1920,height:1080}});
     try {
       await restricted.goto(base+"/#/projects?project="+projectId+"&tab=scope");
       await restricted.getByLabel("用户名",{exact:true}).fill("practice-"+role);

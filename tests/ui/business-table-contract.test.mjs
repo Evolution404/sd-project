@@ -12,7 +12,7 @@ function vueFiles(folder) {
 }
 
 test("all business data tables use audited legacy BusinessTable or specialized Tabulator adapters", () => {
-  const root = resolve("web/src");
+  const root = resolve("tests/fixtures/legacy-frontend/web/src");
   const files = vueFiles(root).filter(file => !file.endsWith("/BusinessTable.vue"));
   assert.ok(files.length > 8, "the audit scope must contain the real application");
   for (const file of files) {
@@ -41,13 +41,13 @@ test("all business data tables use audited legacy BusinessTable or specialized T
 
 test("multi-action rows use one primary action and an accessible shared menu", () => {
   for (const name of ["modules/catalog/CatalogPage.vue", "modules/system/SystemPage.vue", "modules/projects/ProjectPage.vue", "modules/finance/FinancePanel.vue", "modules/files/EvidencePanel.vue"]) {
-    const source = readFileSync(resolve("web/src", name), "utf8");
+    const source = readFileSync(resolve("tests/fixtures/legacy-frontend/web/src", name), "utf8");
     assert.match(source, /<RowActions\b/);
     assert.doesNotMatch(source, /:actions-width="(?:295|300|530)"/);
   }
   for (const name of ["equipment/EquipmentPage", "materials/MaterialsPage", "dictionaries/DictionaryPage",
     "work-standards/WorkStandardsPage", "pricing/PricingPage", "funding/FundingPage"]) {
-    const layout = readFileSync(resolve("web/src/modules", name + ".vue"), "utf8");
+    const layout = readFileSync(resolve("tests/fixtures/legacy-frontend/web/src/modules", name + ".vue"), "utf8");
     assert.match(layout, /detail-column=/);
     if (name === "materials/MaterialsPage") {
       assert.match(layout, /<TabulatorGrid\b/, "materials must use the authorized specialized grid");
@@ -56,20 +56,20 @@ test("multi-action rows use one primary action and an accessible shared menu", (
     } else assert.match(layout, /#toolbar=/);
     assert.doesNotMatch(layout, /<RowActions\b|label: ['"]查看['"]/);
   }
-  for (const file of vueFiles(resolve("web/src"))) {
+  for (const file of vueFiles(resolve("tests/fixtures/legacy-frontend/web/src"))) {
     const name = file.replaceAll(String.fromCharCode(92), "/");
     if (name.endsWith("/shared/ui/TabulatorGrid.vue") || name.endsWith("/shared/ui/BusinessDraftGrid.vue")) continue;
     assert.doesNotMatch(readFileSync(file, "utf8"), /new Tabulator\(/,
       "business pages may only use centrally maintained Tabulator adapters");
   }
-  const source = readFileSync(resolve("web/src/shared/ui/RowActions.vue"), "utf8");
+  const source = readFileSync(resolve("tests/fixtures/legacy-frontend/web/src/shared/ui/RowActions.vue"), "utf8");
   assert.match(source, /placement="bottom-end"/);
   assert.match(source, /action.disabled \|\| busy.value/);
   assert.match(source, /aria-label="更多操作"/);
 });
 
 test("column ordering uses SortableJS and a keyboard alternative", () => {
-  const source = readFileSync(resolve("web/src/shared/ui/BusinessTable.vue"), "utf8");
+  const source = readFileSync(resolve("tests/fixtures/legacy-frontend/web/src/shared/ui/BusinessTable.vue"), "utf8");
   assert.match(source, /Sortable.create/);
   assert.match(source, /@keydown="reorderByKeyboard/);
   assert.match(source, /aria-live="polite"/);
@@ -77,17 +77,17 @@ test("column ordering uses SortableJS and a keyboard alternative", () => {
 });
 
 test("sparse tables use flexible minimum widths and detail viewing stays in one modal adapter", () => {
-  const table = readFileSync(resolve("web/src/shared/ui/BusinessTable.vue"), "utf8");
+  const table = readFileSync(resolve("tests/fixtures/legacy-frontend/web/src/shared/ui/BusinessTable.vue"), "utf8");
   assert.match(table, /:min-width="columnMinWidth\(col\)"/);
   assert.match(table, /const stretchColumn = computed/);
   assert.doesNotMatch(table, /type="expand"/);
   const pages = { demands: "DemandPage", projects: "ProjectPage", catalog: "CatalogPage", equipment: "EquipmentPage", materials: "MaterialsPage", dictionaries: "DictionaryPage" };
   for (const [module, name] of Object.entries(pages)) {
-    const source = readFileSync(resolve(`web/src/modules/${module}/${name}.vue`), "utf8");
+    const source = readFileSync(resolve(`tests/fixtures/legacy-frontend/web/src/modules/${module}/${name}.vue`), "utf8");
     assert.match(source, /<BusinessDetailDialog\b/);
     assert.match(source, /useEntityDialog\(/);
     assert.doesNotMatch(source, /useEntityRoute|#expand/);
   }
-  const dialog = readFileSync(resolve("web/src/shared/composables/use-entity-dialog.ts"), "utf8");
+  const dialog = readFileSync(resolve("tests/fixtures/legacy-frontend/web/src/shared/composables/use-entity-dialog.ts"), "utf8");
   assert.doesNotMatch(dialog, /router\.push|router\.replace/);
 });

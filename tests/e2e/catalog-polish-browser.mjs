@@ -21,7 +21,7 @@ const spanOperation = save('operations', {
 const server = httpServer(s);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: 'chrome' });
-const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/catalog-polish');
@@ -56,7 +56,7 @@ try {
   await editor.getByRole('button', { name: '取消', exact: true }).click();
   await page.getByRole('tab', { name: '逻辑杆塔', exact: true }).click();
   await page.getByRole('button', { name: '新增逻辑杆塔', exact: true }).click();
-  await select('所属线路', '01线路 · 500kV');
+  await select('所属线路', '01线路');
   await editor.getByLabel('杆塔号', { exact: true }).fill('#009');
   await select('杆塔性质', '耐张');
   await page.screenshot({ path: join(output, 'tower-nature-dropdown.png'), fullPage: true });

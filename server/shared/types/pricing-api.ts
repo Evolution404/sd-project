@@ -1,1 +1,1 @@
-export type { PricingParameters, PricingTrace } from "../../modules/pricing/model.js";
+export type { FeeComponent, PricingParameters, PricingRule, PricingTrace } from "../../modules/pricing/model.js";

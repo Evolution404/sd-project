@@ -67,10 +67,13 @@ export function fixture(t, { quantity_precision = 0 } = {}) {
     demandInput,
   };
 }
-export function approvedFixture(t) {
+export function approvedFixture(t, { firstLocationQuantity } = {}) {
   const f = fixture(t),
     { s, user, save, demandInput } = f,
-    demand = s.demands.save(user, demandInput);
+    demand = s.demands.save(user, firstLocationQuantity === undefined ? demandInput : {
+      ...demandInput, work_locations: demandInput.work_locations.map((location, index) =>
+        index === 0 ? { ...location, quantity_scaled: firstLocationQuantity } : location),
+    });
   s.demands.transition(user, demand.id, {
     expected_version: 1,
     expected_event_seq: 1,

@@ -164,16 +164,17 @@ export function catalogHistory(kind: CatalogKind, current: unknown, list: unknow
     entries.push(event(`replacement/${row.id}`, "完成整基更换", "关联", row, {
       tone: "success", summary: `${related.length} 条关联回路`,
       facts: facts(["原实物", text(before.label ?? before.asset_no)], ["关联回路数量", related.length]),
-      tables: table("受影响回路", ["线路及杆号", "原回路版本", "更换后回路版本"], related.map(binding => [
-        text(binding.label), text(binding.old_version), text(binding.new_version),
-      ])),
+      tables: table("受影响回路", ["线路名称", "电压等级", "杆塔号", "原回路版本", "更换后回路版本"], related.map(binding => {
+        const original=rows(prior.bindings).find(item=>item.id===binding.logical_tower_id);
+        return [text(binding.line_name ?? original?.line_name),text(binding.voltage_level_name ?? original?.voltage_level_name),text(binding.tower_no ?? original?.tower_no),text(binding.old_version),text(binding.new_version)];
+      })),
       links: [
         ...[["查看原实物历史", decision.old_physical_id], ["查看新实物历史", decision.new_physical_id]]
           .flatMap(([label, id]) => string(id) && id !== selected.id ? [{ label: String(label), target: {
             kind: "physical" as const, id: String(id),
           } }] : []),
         ...related.flatMap(binding => string(binding.logical_tower_id) ? [{
-          label: `查看关联回路 · ${binding.label}`, target: { kind: "towers" as const, id: String(binding.logical_tower_id) },
+          label: "查看关联回路历史", target: { kind: "towers" as const, id: String(binding.logical_tower_id) },
         }] : []),
       ],
     }));

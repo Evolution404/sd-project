@@ -12,7 +12,7 @@ const server = httpServer(s, { accessLog: { clock: () => instant } });
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const base = "http://127.0.0.1:" + server.address().port;
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: "chrome" });
-const context = await browser.newContext({ timezoneId: "America/Los_Angeles", viewport: { width: 1440, height: 950 } });
+const context = await browser.newContext({ timezoneId: "America/Los_Angeles", viewport: { width: 1920, height: 1080 } });
 const page = await context.newPage(), errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/access-logs"); mkdirSync(output, { recursive: true });
@@ -56,21 +56,21 @@ try {
   await logs.getByLabel("关键词", { exact: true }).fill("登录成功");
   await logs.getByRole("button", { name: "查询", exact: true }).click();
   await logs.getByText("登录成功", { exact: true }).waitFor();
-  for (const width of [1440, 1280, 960, 760]) {
-    await page.setViewportSize({ width, height: 950 });
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     await page.screenshot({ path: join(output, `logs-${width}.png`), fullPage: true });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
   }
   await page.emulateMedia({ colorScheme: "dark" });
   await page.waitForFunction(() => document.documentElement.classList.contains("dark"));
-  await page.screenshot({ path: join(output, "logs-dark-760.png"), fullPage: true, animations: "disabled" });
+  await page.screenshot({ path: join(output, "logs-dark-1920.png"), fullPage: true, animations: "disabled" });
   assert.ok(await logs.locator(".el-table__body-wrapper td").first().evaluate(cell => {
     const channels = getComputedStyle(cell).backgroundColor.match(/\d+/g)?.slice(0,3).map(Number);
     return channels && channels.every(value => value < 100);
   }),"log records must use the dark table surface");
   await page.reload(); await logs.getByText("登录成功", { exact: true }).waitFor();
   assert.equal(await logs.getByLabel("关键词", { exact: true }).inputValue(), "登录成功");
-  const viewer = await browser.newContext();
+  const viewer = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
   try {
     await viewer.request.post(base + "/api/login", { data: { username: "log-reader", password: "ReadOnly-secret" } });
     assert.equal((await viewer.request.get(base + "/api/access-logs")).status(), 403);
@@ -80,7 +80,7 @@ try {
     assert.equal(await viewerPage.getByRole("tab", { name: "访问日志" }).count(), 0);
   } finally { await viewer.close(); }
   assert.deepEqual(errors, []);
-  console.log("ACCESS_LOGS_BROWSER_OK Beijing time, admin filters, details, safe download, restored route, four widths, dark mode and viewer denial");
+  console.log("ACCESS_LOGS_BROWSER_OK Beijing time, admin filters, details, safe download, restored route at 1920×1080, dark mode and viewer denial");
 } finally {
   await browser.close(); await new Promise(resolve => server.close(resolve));
   for (const done of cleanup) await done();

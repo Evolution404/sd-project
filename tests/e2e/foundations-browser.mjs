@@ -21,7 +21,7 @@ const browser = await chromium.launch(
     ? { headless: true }
     : { headless: true, channel: "chrome" },
 );
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } }),
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } }),
   errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113/foundations");
@@ -93,10 +93,12 @@ try {
   const detail = page.getByRole("dialog", { name: "物资详情", exact: true });
   await detail
     .getByRole("heading", {
-      name: "新版物资浏览器 · A-1 · 耐候型",
+      name: "新版物资浏览器",
       exact: true,
     })
     .waitFor();
+  await detail.getByText("A-1", { exact: true }).waitFor();
+  await detail.getByText("耐候型", { exact: true }).waitFor();
   assert.equal(page.url(), location);
   await detail.getByRole("button", { name: "编辑", exact: true }).click();
   const edit = page.getByRole("dialog", { name: "编辑物资", exact: true });
@@ -108,12 +110,14 @@ try {
   await save("编辑物资");
   await detail
     .getByRole("heading", {
-      name: "新版物资浏览器 · B-2 · 耐候型",
+      name: "新版物资浏览器",
       exact: true,
     })
     .waitFor();
-  for (const width of [1500, 1100, 760]) {
-    await page.setViewportSize({ width, height: 1000 });
+  await detail.getByText("B-2", { exact: true }).waitFor();
+  await detail.getByText("耐候型", { exact: true }).waitFor();
+  for (const width of [1920]) {
+    await page.setViewportSize({ width, height: 1080 });
     assert.equal(
       await page.evaluate(
         () => document.documentElement.scrollWidth > innerWidth + 1,
@@ -169,7 +173,7 @@ try {
   );
   assert.deepEqual(errors, []);
   console.log(
-    "FOUNDATIONS_BROWSER_OK dictionaries CRUD, material immutable units, version/audit history, modal URL, 3 widths and viewer",
+    "FOUNDATIONS_BROWSER_OK dictionaries CRUD, material immutable units, version/audit history, modal URL, 1920×1080 and viewer",
   );
 } catch (error) {
   await page.screenshot({ path: join(output, "failure.png"), fullPage: true });

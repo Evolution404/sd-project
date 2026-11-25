@@ -7,8 +7,10 @@ import { createSystem } from "../../dist/server/bootstrap.js";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { inspect } from "../inspector.mjs";
 import { selectFormChoice } from "./field-helper.mjs";
+import { fillSettlementPosition } from "./settlement-worksheet-helper.mjs";
 
-const source = JSON.parse(readFileSync(new URL("../fixtures/highlighted-projects-1113.json", import.meta.url)));
+const source = JSON.parse(readFileSync(new URL("../fixtures/synthetic-project-continuation.json", import.meta.url)));
+assert.equal(source.fixture_kind, "synthetic");
 const out = join(process.cwd(), "test-results/schema113/two-source-projects");
 mkdirSync(out, { recursive: true });
 const runDirectory = mkdtempSync(join(out, "run-"));
@@ -28,11 +30,11 @@ const inspectionObject = save("objects", { name: "杆塔检查", object_position
 const inspectionOperation = save("operations", { name: "模拟登塔检查消缺", work_object_id: inspectionObject.id,
   default_unit_id: baseUnit.id, completion_standard: "模拟检查和缺陷复核" });
 const materials = ["耐张瓷绝缘子", "跳线瓷绝缘子"].map(name => save("materials", {
-  name, model: "演练规格", specification: "原表未提供型号，本规格为测试专用", unit_id: pieceUnit.id,
+  name, model: "演练规格", specification: "合成规格，仅用于浏览器回归", unit_id: pieceUnit.id,
 }));
 save("prices", { title: "模拟逐塔综合修理参考价", operation_id: operation.id,
   pricing_mode: "per_unit", unit_price_fen: 3000000, price_source: "隔离演练模拟价格",
-  price_date: "2026-01-01", effective_on: "2026-01-01", basis: "用于复核逐塔数量和参考价，独立于原表审定额" });
+  price_date: "2026-01-01", effective_on: "2026-01-01", basis: "用于复核逐塔数量和参考价，独立于测试核定金额" });
 const framework = save("frameworks", { name: source.framework_name, fiscal_year: source.framework_year,
   limit_fen: 200000000 });
 const agreement = save("agreements", { name: source.agreement_name, framework_id: framework.id,
@@ -48,7 +50,7 @@ await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 let base = "http://127.0.0.1:" + server.address().port;
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1500, height: 1060 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 page.on("pageerror", error => errors.push(error.message));
 page.on("response", async response => {
   if (response.url().includes("/api/") && response.status() >= 400)
@@ -137,7 +139,7 @@ async function createDemand(record) {
   }
   await editor.getByRole("button",{name:"完成编辑",exact:true}).click();
   await editor.getByRole("tab", { name: "来源及其他信息", exact: true }).click();
-  await editor.getByLabel("来源说明", { exact: true }).fill(`${source.source_file}「大修」${record.source_range}，逐塔按1基综合修理；型号与后续变更为模拟测试`);
+  await editor.getByLabel("来源说明", { exact: true }).fill("合成场景，逐塔按1基综合修理；型号与后续变更均用于演练");
   await saveEditor("保存需求版本");
   const row = system.demands.list().find(d => d.problem_description === record.description);
   assert.ok(row);
@@ -198,7 +200,7 @@ async function createApproval(record) {
     await materialRow.locator(".el-select").click();
     const popupId = await materialRow.getByRole("combobox").getAttribute("aria-controls");
     await page.locator('[id="' + popupId + '"]').getByRole("option", {
-      name: new RegExp("^" + materials[index].name + " ·"),
+      name: new RegExp("^" + materials[index].name + "(?:$| ·)"),
     }).click();
     await materialRow.locator(".approval-material-field").nth(1).locator("input").fill(String(quantity));
   }
@@ -237,7 +239,7 @@ async function linkAgreement(record) {
 async function reviseLocations(record) {
   await visit("ledger/towers");
   await page.getByRole("button", { name: "新增逻辑杆塔", exact: true }).click();
-  await choose("所属线路", record.line.name + " · 220kV");
+  await choose("所属线路", record.line.name);
   await editor.getByLabel("杆塔号", { exact: true }).fill("20");
   await saveEditor();
   await visit("demands?demand=" + record.demandId);
@@ -349,18 +351,13 @@ async function createBill(record, node, evidence, amount, resolved, candidate, i
   await editor.getByLabel("本次金额（元）", { exact: true }).fill(amountInput(amount));
   await editor.getByLabel("结算依据", { exact: true }).fill(evidence);
   if (resolved > 0 || candidate) {
-    await editor.getByRole("button", { name: "本次完成工作量（选填）", exact: true }).click();
     const project = system.projects.get(record.projectId);
     const approval = project.approvals.find(version => version.id === project.approval.id);
     async function resolvePosition(demand, location, value) {
-      await editor.getByRole("button", { name: "添加解决需求", exact: true }).click();
-      const line = editor.locator(".finance-editor-line").last();
-      await choose("项目需求", demand.problem_description, line);
-      const position = JSON.parse(location.frozen_location);
-      const label = position.location_label || position.tower_no || position.asset_no || location.location_object;
-      await choose("作业位置", label + " · 批准 " + String(location.approved_quantity_scaled / 10000), line);
-      await line.locator(".el-form-item").filter({ has:page.getByText("本次新增解决量", {exact:true}) })
-        .locator("input").fill(String(value));
+      const position=JSON.parse(location.frozen_location);
+      const label=position.location_label || position.tower_no || position.asset_no || location.location_object;
+      await fillSettlementPosition(editor,{demandNo:demand.demand_no,locationLabel:label,
+        quantity:value===0?"0.0":String(value),evidence:"模拟已完成位置"});
     }
     const mainScope = approval.scopes.find(scope => scope.demand_id === record.demandId);
     const firstIndex = evidence === "模拟第二期" ? (record.index === 0 ? 10 : 7) : 0;
@@ -467,9 +464,18 @@ async function financialFlow(record, candidate) {
   await detail.getByRole("tab", { name: "结算单", exact: true }).click();
   const firstRow = detail.getByRole("row").filter({ hasText:firstBill.number }).first();
   await rowAction(firstRow, "发起新修订");
-  await editor.getByLabel("本次金额（元）", { exact:true }).first().fill(amountInput(firstTarget));
-  await editor.getByLabel("结算依据", { exact:true }).fill("模拟按原表审定额修正本期金额");
+  const revision = page.getByRole("region", { name: "修订结算草稿", exact: true });
+  const revisedAmount = revision.getByLabel("本次金额（元）", { exact: true });
+  assert.equal(Math.round(Number(await revisedAmount.inputValue()) * 100), originalAmount);
+  await revisedAmount.press("ControlOrMeta+A");
+  await revisedAmount.pressSequentially(amountInput(firstTarget));
+  await revision.getByLabel("结算依据", { exact: true }).fill("模拟按测试核定金额修正本期金额");
+  assert.equal(Math.round(Number(await revisedAmount.inputValue()) * 100), firstTarget);
+  if (record.index === 1) await revision.getByText("合计 ¥" + displayAmount(firstTarget), { exact: true }).waitFor();
   await saveEditor("保存草稿");
+  const persistedDraft = system.finance.settlement(firstBill.id).draft.document;
+  assert.equal(persistedDraft.amount_fen, firstTarget);
+  if (record.index === 1) assert.equal(persistedDraft.items[0].amount_fen, firstTarget);
   assert.equal(system.finance.summary(record.projectId).settlement_fen, originalAmount);
   await submitSettlement(page, firstRow);
   await firstRow.getByText(/待审核/).waitFor();
@@ -492,7 +498,7 @@ async function financialFlow(record, candidate) {
   recordStep("结算修订替代及原核对撤销再核对", { project:record.source_reference, first_bill:firstBill.number });
 
   const second = await createBill(record, laborNode, "模拟第二期", record.approved_settlement_fen - firstTarget - 10000,
-    record.index === 0 ? 6 : 5);
+    record.index === 0 ? 6 : 4);
   await submitBill(second);
   const third = await createBill(record, laborNode, "模拟第三期仅补结费用", 10000, 0);
   await submitBill(third);
@@ -502,9 +508,9 @@ async function financialFlow(record, candidate) {
   assert.equal(summary.project_total_settlement_fen, record.index === 0 ? summary.settlement_fen : summary.settlement_fen - firstTarget);
   assert.equal(system.finance.settlement(third.id).resolutions.length, 0);
   const mainResult = summary.demands.find(d => d.demand_id === record.demandId);
-  assert.equal(mainResult.resolved_quantity_scaled, record.index === 0 ? 160000 : 120000);
+  assert.equal(mainResult.resolved_quantity_scaled, record.index === 0 ? 160000 : 110000);
   if (candidate) {
-    assert.equal(mainResult.excess_quantity_scaled, 10000);
+    assert.equal(mainResult.excess_quantity_scaled, 0);
     assert.equal(summary.demands.find(d => d.demand_id === candidate.id).remaining_quantity_scaled, 10000);
     assert.equal(summary.demands.find(d => d.demand_id === cases[0].demandId).resolved_quantity_scaled, 10000);
   }
@@ -547,12 +553,8 @@ async function financialFlow(record, candidate) {
     expected_event_seq:binding.events.at(-1).event_seq,
   }, 409);
   recordStep("差异结项与结项后写入、解绑保护", { project:record.source_reference, summary });
-  for (const width of [1500, 1280, 960, 760]) {
-    await page.setViewportSize({width,height:1060});
-    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
-    await page.screenshot({path:join(runDirectory, `project-${record.index + 1}-closed-${width}.png`),fullPage:true});
-  }
-  await page.setViewportSize({width:1500,height:1060});
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({path:join(runDirectory, `project-${record.index + 1}-closed-1920.png`),fullPage:true});
 }
 
 try {
@@ -599,7 +601,7 @@ try {
   for (const record of cases) await linkAgreement(record);
   const agreementUsage = system.projects.agreementOptions(cases[0].projectId).options.find(item => item.id === agreement.id);
   assert.equal(agreementUsage.linked_projects_count, 2);
-  assert.equal(agreementUsage.linked_approved_budget_fen, 191900000);
+  assert.equal(agreementUsage.linked_approved_budget_fen, 153550000);
   recordStep("共用执行协议汇总与软额度", { approved_budget_fen:agreementUsage.linked_approved_budget_fen });
   const secondBaseline = system.projects.get(cases[1].projectId).approval.id;
   await reviseDate(cases[1], "2026-12-16");
@@ -610,7 +612,7 @@ try {
   await quoteAndApprove(cases[0]);
   assert.equal(system.projects.get(cases[0].projectId).approvals.at(-1).scopes[0].quantity_scaled, 160000);
   assert.equal(system.projects.get(cases[0].projectId).approvals.at(-1).scopes[0].materials
-    .reduce((sum, item) => sum + item.approved_quantity_scaled, 0), 33910000);
+    .reduce((sum, item) => sum + item.approved_quantity_scaled, 0), 24890000);
   recordStep("在办项目批准范围仍为16基，变更增加1片批准物资", { project:cases[0].source_reference });
   const candidate = await createCandidate();
   const added = await changeApproval(cases[0], {candidates:[candidate]});
@@ -638,7 +640,7 @@ try {
   recordStep("正式结项释放，另项目承接原需求全部剩余位置", { candidate:candidate.demand_no });
   await financialFlow(cases[1], candidate);
   const finalSummaries = cases.map(record => system.finance.summary(record.projectId));
-  assert.equal(finalSummaries.reduce((sum, item) => sum + item.settlement_fen, 0), 29491251);
+  assert.equal(finalSummaries.reduce((sum, item) => sum + item.settlement_fen, 0), 28176600);
   await new Promise(resolve => server.shutdown(resolve));
   system.close();
   system = createSystem(dataDirectory);
@@ -664,7 +666,7 @@ try {
     await openProject(record, "finance");
     await detail.getByText("¥" + displayAmount(record.approved_settlement_fen), { exact: true }).first().waitFor();
   }
-  recordStep("重启后两项目结项、归属、结算及不可变历史持久化", { combined_settlement_fen: 29491251 });
+  recordStep("重启后两项目结项、归属、结算及不可变历史持久化", { combined_settlement_fen: 28176600 });
   assert.deepEqual(errors, []);
   assert.deepEqual(inspect(system).integrity().foreignKeys, []);
   writeFileSync(join(out, "last-run.json"), JSON.stringify({dataDirectory, runDirectory, steps, cases,

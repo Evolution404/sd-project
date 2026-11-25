@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { choiceLabels } from "../../web/src/shared/utils/choice-labels.ts";
+import { choiceLabels } from "../../tests/fixtures/legacy-frontend/web/src/shared/utils/choice-labels.ts";
 
 test("identifiers remain option values and equivalent names receive necessary business context", () => {
   const labels = choiceLabels([

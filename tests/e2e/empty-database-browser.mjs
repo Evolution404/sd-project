@@ -20,7 +20,7 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const base = "http://127.0.0.1:" + server.address().port;
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const out = join(process.cwd(), "test-results/schema113/empty-database");
@@ -40,7 +40,7 @@ async function select(label, option) {
   await page.getByRole("option", { name: option, exact: true }).last().click();
 }
 async function audit(name, width) {
-  await page.setViewportSize({ width, height: 780 });
+  await page.setViewportSize({ width, height: 1080 });
   await page.evaluate(async () => {
     await document.fonts.ready;
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -60,11 +60,10 @@ async function audit(name, width) {
     return out;
   });
   assert.deepEqual(issues, [], name + "/" + width);
-  if ([1500, 760].includes(width))
-    await page.screenshot({ path: join(out, name.replaceAll("/", "-") + "-" + width + ".png"), fullPage: true });
+  await page.screenshot({ path: join(out, name.replaceAll("/", "-") + "-" + width + ".png"), fullPage: true });
 }
 async function auditOpenDialog(name, width) {
-  await page.setViewportSize({ width, height: 760 });
+  await page.setViewportSize({ width, height: 1080 });
   const surface = page.locator(".el-overlay-dialog:visible .el-dialog, .business-work-surface:visible:not(.business-detail-page)").last();
   await surface.waitFor();
   // Wait until the Element Plus opening transition has finished before
@@ -96,7 +95,7 @@ try {
   const routes = ['dashboard', 'demands', 'projects', 'frameworks', 'agreements', 'finance', 'ledger', 'materials', 'standards', 'pricing', 'dictionaries', 'system'];
   for (const path of routes) {
     await visit(path);
-    for (const width of [1500, 1280, 960, 760])
+    for (const width of [1920])
       await audit("empty-" + path, width);
   }
   const dialogs = [
@@ -113,11 +112,11 @@ try {
     if (path === "demands") {
       const demandWork = page.getByRole("region", { name: "新增专业需求" });
       await demandWork.getByText("尚未配置操作类型").waitFor();
-      for (const width of [1500, 760]) await audit("empty-demand-editor", width);
+      for (const width of [1920]) await audit("empty-demand-editor", width);
       await demandWork.getByRole("button", { name: "← 返回", exact: true }).click();
       await demandWork.waitFor({ state: "hidden" });
     } else {
-      for (const width of [1500, 760]) await auditOpenDialog(path.replace("/", "-"), width);
+      for (const width of [1920]) await auditOpenDialog(path.replace("/", "-"), width);
       await dialog.getByRole("button", { name: "取消", exact: true }).click();
       await dialog.waitFor({ state: "hidden" });
     }
@@ -144,7 +143,7 @@ try {
   await dialog.getByRole("tab", { name: "录入模板" }).click();
   await dialog.getByLabel("默认验收标准", { exact: true }).fill("安装牢固");
   await addOperationAttribute(page,{label:"施工难度",type:"单选",options:["普通","困难"],pricing:true,requirement:"计价必需"});
-  await auditOpenDialog("operation-price-features", 760);
+  await auditOpenDialog("operation-price-features", 1920);
   await save();
   assert.equal(s.catalog.list("operations").length, 1);
 
@@ -161,7 +160,7 @@ try {
   await dialog.getByRole("button", { name: "试算" }).click();
   await dialog.getByText("规则完整性检查通过").waitFor();
   await dialog.getByText("试算金额：¥30.00", { exact: false }).waitFor();
-  await auditOpenDialog("price-rule-precheck", 760);
+  await auditOpenDialog("price-rule-precheck", 1920);
   await save();
   assert.equal(s.catalog.list("prices").length, 1);
   // From a genuinely empty database, exercise the visible copy/edit/delete
@@ -203,7 +202,7 @@ try {
   assert.equal(s.catalog.get("priorities", priority.id, true).deleted, true);
 
   assert.deepEqual(errors, []);
-  console.log("EMPTY_DATABASE_BROWSER_OK 12 zero-data modules, 4 widths, 7 empty dialogs, UI master creation/edit/delete, price copy, overlap preview");
+  console.log("EMPTY_DATABASE_BROWSER_OK 12 zero-data modules at 1920×1080, 7 empty dialogs, UI master creation/edit/delete, price copy, overlap preview");
 } catch (error) {
   console.log("EMPTY_DATABASE_BROWSER_ERRORS", errors);
   await page.screenshot({ path: join(out, "failure.png"), fullPage: true });

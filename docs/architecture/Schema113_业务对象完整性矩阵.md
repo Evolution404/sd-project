@@ -1,4 +1,4 @@
-# Schema 113｜78 张表业务对象完整性矩阵
+# Schema 113｜84 张表业务对象完整性矩阵
 
 > **历史关联条款废止声明（2026-11-09）** 本文中涉及 PMS、一次性专用导入、外部编码、映射或兼容的设想全部废止，仅作为历史审计记录。现行系统独立管理业务，技术编码由服务端生成，执行 docs/decisions/2026-11-09_系统独立_自动编码_最少录入.md。
 
@@ -82,10 +82,16 @@
 | 账户、证据与运行基础 | `evidence_files` | 8 | 1 | 文件哈希与存储元信息 |
 | 账户、证据与运行基础 | `evidence_links` | 28 | 25 | 证据附件强类型关联需求、结算中实际解决的需求结果、费用及关闭等具体正式事实 |
 | 账户、证据与运行基础 | `ledger_requests` | 5 | 1 | 有真实操作者、参数哈希与不可变响应的接口幂等凭证 |
-| 账户、证据与运行基础 | `permission_definitions` | 2 | 0 | 应用层权限项定义 |
-| 账户、证据与运行基础 | `role_permissions` | 2 | 1 | 应用层角色权限矩阵 |
+| 账户、证据与运行基础 | `permission_definitions` | 4 | 0 | 可维护的菜单与操作权限定义，保留稳定权限码及所属模块 |
+| 账户、证据与运行基础 | `role_data_scopes` | 4 | 2 | 角色对应权限的数据范围和组织列表（启用前按领域明确归属） |
+| 账户、证据与运行基础 | `role_permissions` | 2 | 2 | 角色与权限多对多，系统管理员初始化全权但后续允许撤回 |
+| 账户、证据与运行基础 | `roles` | 9 | 0 | 可维护的角色身份、启停和版本号 |
+| 账户、证据与运行基础 | `security_events` | 7 | 2 | 登录、改密与授权安全事件的身份记录 |
 | 账户、证据与运行基础 | `sessions` | 4 | 1 | 登录会话身份 |
-| 账户、证据与运行基础 | `users` | 6 | 0 | 用户账户身份 |
+| 账户、证据与运行基础 | `user_credentials` | 5 | 1 | 账号凭据及密码哈希，独立于公开身份 |
+| 账户、证据与运行基础 | `user_organizations` | 4 | 2 | 用户与正式组织稳定身份关联，不等同于项目归口 |
+| 账户、证据与运行基础 | `user_roles` | 4 | 3 | 用户与可配置角色的多对多授权关系 |
+| 账户、证据与运行基础 | `users` | 10 | 1 | 用户稳定身份、基础资料与主要组织（原单角色字段仅为迁移期间显示口径） |
 
 ## 实际业务场景覆盖与边界
 
@@ -100,7 +106,7 @@
 | 独立真实费用与批准结算逐笔核对 | cost_entries、cost_versions、settlement_item_versions、cost_reconciliation_versions | 已修复：费用归项目，核对只关联实际已批准的结算明细 |
 | 完整结算版本、退回、批准及结项 | settlement_versions、settlement_review_events、project_closures | 正式版本与结项完整性可验证 |
 | 月季度报表、25% 季度目标与预警 | cost_versions.occurred_on、framework_versions.limit_fen、project_management_versions | 事实完整；计算由应用层实现，不建报表视图 |
-| 应用角色与授权 | users、permission_definitions、role_permissions | 授权由服务层执行，数据库保留身份外键及审计 |
+| 应用角色与授权 | users、user_credentials、roles、user_roles、role_permissions、role_data_scopes、user_organizations、security_events | 后端按角色授权并集执行操作鉴权，管理员默认全权但可撤；组织数据边界仍按业务领域逐项确认 |
 | 真实附件恢复与物资采购库存 | evidence_files、evidence_links；不包含采购库存 | 附件字节恢复与完整仓储流程未纳入本轮实施验收 |
 
 ## 仍需明确的业务流程裁决

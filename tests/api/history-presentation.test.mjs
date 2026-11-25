@@ -28,7 +28,8 @@ test("demand history reads frozen quotes, revisions and project adoption in busi
   const id = page.items.find(item => item.title === "确认参考报价").id;
   const quote = s.history.get(user, target, { page: 1, entry: id }).selected;
   assert.deepEqual(fact(quote.facts, "正式参考报价"), money(48000));
-  assert.equal(quote.tables[0].rows[0][1], "每塔基费及套费 · 第 1 版");
+  assert.equal(quote.tables[0].rows[0][1], "每塔基费及套费");
+  assert.equal(quote.tables[0].rows[0][2], "1");
   assert.equal(quote.links[0].target.entry, "需求/1");
   assert.equal(quote.links[1].target.entry, "参考价格规则/1");
   assert.match(JSON.stringify(quote.tables), /T15/);

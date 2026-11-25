@@ -29,7 +29,7 @@ const browser=await chromium.launch(existsSync(chromium.executablePath())?{headl
 const contexts=[],errors=[],out=join(process.cwd(),'test-results/dux/project-roles');
 mkdirSync(out,{recursive:true});
 async function open(role){
-  const context=await browser.newContext({viewport:{width:1280,height:1000}});contexts.push(context);
+  const context=await browser.newContext({viewport:{width:1920,height:1080}});contexts.push(context);
   const page=await context.newPage();page.on('pageerror',error=>errors.push(role+' '+error.message));
   await page.goto('http://127.0.0.1:'+server.address().port+'/#/projects?project='+project.id+'&tab=approval');
   await page.getByLabel('用户名',{exact:true}).fill(role);await page.getByLabel('密码',{exact:true}).fill(passwords[role]);

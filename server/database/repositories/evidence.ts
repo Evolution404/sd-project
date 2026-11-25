@@ -14,6 +14,7 @@ export interface EvidenceFile {
 export interface EvidenceLink {
   id:string; file_id:string; note:string; linked_by:string; linked_at:string;
 }
+type StoredEvidenceLink = EvidenceLink & { cost_version_id: string | null; settlement_version_id: string | null };
 export interface EvidenceRecord extends EvidenceLink, Omit<EvidenceFile,"id"> {
   deleted:boolean;
 }
@@ -23,6 +24,23 @@ export function evidenceRepository(store: ReturnType<typeof createStore>) {
     transaction: store.transaction,
     ownerExists(kind:EvidenceOwner,key:string):boolean {
       return Boolean(store.get(`SELECT 1 FROM ${targets[kind]} WHERE id=? LIMIT 1`,key));
+    },
+    canChangeCostEvidence(versionId:string):boolean {
+      return Boolean(store.get(`SELECT 1 FROM v_cost_current cost
+        JOIN projects project ON project.id=cost.project_id
+        WHERE cost.id=? AND cost.status='active' AND project.status<>'closed'
+        AND NOT EXISTS(SELECT 1 FROM audit_events event WHERE event.entity='costs'
+          AND event.entity_id=cost.entry_id AND event.action='delete')`, versionId));
+    },
+    canChangeSettlementEvidence(versionId: string): boolean {
+      return Boolean(store.get(`SELECT 1 FROM settlement_versions version
+        JOIN settlements document ON document.id=version.settlement_id
+        JOIN projects project ON project.id=document.project_id
+        WHERE version.id=? AND project.status<>'closed'
+        AND version.version_no=(SELECT MAX(recent.version_no) FROM settlement_versions recent
+          WHERE recent.settlement_id=document.id)
+        AND NOT EXISTS(SELECT 1 FROM audit_events event WHERE event.entity='settlements'
+          AND event.entity_id=document.id AND event.action='delete')`, versionId));
     },
     list(kind:EvidenceOwner,key:string,includeDeleted:boolean):EvidenceRecord[] {
       const rows = store.query(`SELECT link.id,link.file_id,link.linked_by,link.linked_at,
@@ -50,8 +68,9 @@ export function evidenceRepository(store: ReturnType<typeof createStore>) {
        row.id,row.sha256,row.storage_key,row.filename,row.mime,row.bytes,
        row.uploaded_by,row.created_at);
     },
-    link(key:string):EvidenceLink|undefined {
-      return store.get("SELECT id,file_id,note,linked_by,linked_at FROM evidence_links WHERE id=?",key) as EvidenceLink|undefined;
+    link(key:string):StoredEvidenceLink|undefined {
+      return store.get(`SELECT id,file_id,note,linked_by,linked_at,cost_version_id,settlement_version_id
+        FROM evidence_links WHERE id=?`, key) as StoredEvidenceLink|undefined;
     },
     existing(fileId:string,kind:EvidenceOwner,ownerId:string):EvidenceLink|undefined {
       return store.get(`SELECT id,file_id,note,linked_by,linked_at FROM evidence_links

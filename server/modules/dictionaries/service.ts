@@ -1,3 +1,4 @@
+import { versionedEntryBatch } from "../../platform/versioned-entry-batch.js";
 import type { DictionaryRepository } from "../../database/repositories/dictionaries.js";
 import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
@@ -269,6 +270,20 @@ export function createDictionaries(
     });
   }
   return {
+    entryBatch(actor: Actor, kind: FoundationKind, input: Record<string, unknown>, commit: boolean) {
+      const fields = ["name", "reason", ...(kind === "units" ? ["quantity_precision"] : [])];
+      return versionedEntryBatch(actor, kind, input, {
+        permission: "admin", transaction: database.transaction,
+        createFields: kind === "organizations" ? [...fields, "parent_unit_id"] : fields,
+        updateFields: [...fields, "expected_version"],
+        save: row => {
+          if (kind === "units" && !row.id) requireValue(Number.isInteger(row.values.quantity_precision),
+            "新增计量单位须明确指定数量精度", 422, { quantity_precision: "指定 0 至 4 位精度" });
+          return (kind === "organizations" ? saveOrganization(actor, row.values, row.id)
+            : saveDictionary(actor, kind, row.values, row.id)).id;
+        },
+      }, commit);
+    },
     seedTowerDefaults,
     detail(kind: DictionaryKind, key: string) {
       return {

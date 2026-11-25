@@ -146,6 +146,16 @@ test("workbook uses position attributes directly without a parallel pricing shee
   assert.equal(result.results[0].import_ref,"FEATURE");
   assert.match(result.results[0].number,/^XQ-/);
   assert.equal(s.demands.get(result.results[0].id).work_locations[0].attributes.terrain,"mountain");
+  const book=new ExcelJS.Workbook();
+  await book.xlsx.load(await exchange.exportData(user,"demands",{ids:[result.results[0].id]}));
+  const positions=book.getWorksheet("作业位置");
+  const choice=positions.getRow(2).getCell(columnIndex(positions,attributeColumn(field.key)));
+  assert.equal(choice.value,"山地");
+  assert.equal(choice.dataValidation.type,"list");
+  assert.match(choice.dataValidation.formulae[0],/^sd_choices_/);
+  assert.equal(book.getWorksheet("下拉字典").state,"veryHidden");
+  assert.ok(book.definedNames.model.some(n=>n.name===choice.dataValidation.formulae[0]));
+
 });
 test("patched UUID dependency supports ExcelJS extended formatting and workbook roundtrip", async () => {
   const workbook = new ExcelJS.Workbook(),

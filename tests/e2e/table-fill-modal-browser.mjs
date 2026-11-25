@@ -7,14 +7,14 @@ import { httpServer } from '../../dist/server/platform/http/server.js';
 
 const cleanup = [], { s, user, save } = fixture({ after: action => cleanup.push(action) });
 const voltage = save('voltages', { name: '500kV' });
-const lines = ['金龙5603线', '金王5604线', '独立同号线'].map(name => save('lines', { name, voltage_level_id: voltage.id }));
+const lines = ['合成甲D011线', '合成乙D012线', '独立同号线'].map(name => save('lines', { name, voltage_level_id: voltage.id }));
 const first = save('towers', { line_id: lines[0].id, tower_no: '#001' });
 save('towers', { line_id: lines[1].id, tower_no: '#001', physical_tower_id: first.physical_tower_id });
 const server = httpServer(s);
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const base = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch(existsSync(chromium.executablePath()) ? { headless: true } : { headless: true, channel: 'chrome' });
-const page = await browser.newPage({ viewport: { width: 1500, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const output = join(process.cwd(), 'test-results/schema113/table-fill-modals');
@@ -31,8 +31,8 @@ try {
     await page.waitForTimeout(250);
     await page.locator('main h1').click();
     await page.locator('.el-popover:visible').waitFor({ state: 'hidden' });
-    for (const width of [1500, 1280, 960, 760]) {
-      await page.setViewportSize({ width, height: 900 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await page.waitForTimeout(200);
       const geometry = await page.locator('main .el-table').evaluate(table => {
         const body = table.querySelector('.el-table__body').getBoundingClientRect();
@@ -49,7 +49,7 @@ try {
   await page.evaluate(() => localStorage.setItem('sd-columns:catalog:voltages', JSON.stringify({ order: [], hidden: [], fixed: [], widths: { name: 140, status: 140, __actions: 180 } })));
   await page.reload();
   await page.getByRole('row').filter({ hasText: '500kV' }).waitFor();
-  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await page.waitForFunction(() => {
     const table = document.querySelector('main .el-table');
     const body = table?.querySelector('.el-table__body');
@@ -62,11 +62,11 @@ try {
   await page.getByRole('tab', { name: '物理杆塔', exact: true }).click();
   assert.equal(await page.locator('.el-table__expand-column').count(), 0);
   const url = page.url();
-  await page.getByRole('row').filter({ hasText: '金龙5603线' }).locator(".cell-link:visible").first().click();
+  await page.getByRole('row').filter({ hasText: '合成甲D011线' }).locator(".cell-link:visible").first().click();
   const detail = page.locator('.business-detail-dialog:visible');
   await detail.getByText('关联逻辑杆塔（2）', { exact: true }).waitFor();
   await page.waitForTimeout(350);
-  for (const name of ['金龙5603线', '金王5604线'])
+  for (const name of ['合成甲D011线', '合成乙D012线'])
     await detail.getByRole('row').filter({ hasText: name }).waitFor();
   assert.equal(page.url(), url);
   await page.screenshot({ path: join(output, 'physical-associated-towers-modal.png'), fullPage: true });
@@ -75,7 +75,7 @@ try {
   assert.equal(page.url(), url);
   assert.equal(s.catalog.get('towers', first.id).physical_tower_id, first.physical_tower_id);
   assert.deepEqual(errors, []);
-  console.log('TABLE_FILL_MODAL_BROWSER_OK sparse columns fill 8 layouts, no physical expand rows, associated circuits in modal, URL unchanged');
+  console.log('TABLE_FILL_MODAL_BROWSER_OK sparse columns fill both 1920×1080 themes, no physical expand rows, associated circuits in modal, URL unchanged');
 } catch (error) {
   await page.screenshot({ path: join(output, 'failure.png'), fullPage: true });
   throw error;

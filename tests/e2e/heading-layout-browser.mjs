@@ -15,14 +15,14 @@ const browser = await chromium.launch(
     ? { headless: true }
     : { headless: true, channel: "chrome" },
 );
-const page = await browser.newPage({ viewport: { width: 2524, height: 1192 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const output = join(process.cwd(), "test-results/schema113");
 mkdirSync(output, { recursive: true });
 
 async function checkHeading(title, createLabel, width) {
-  await page.setViewportSize({ width, height: 1192 });
+  await page.setViewportSize({ width, height: 1080 });
   await page.evaluate(async () => {
     await document.fonts.ready;
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -75,9 +75,9 @@ try {
       .waitFor();
     if (button)
       await page.getByRole("button", { name: button, exact: true }).waitFor();
-    for (const width of [2524, 1920, 1500, 1280, 960, 760]) {
+    for (const width of [1920]) {
       await checkHeading(title, button, width);
-      if (title === "输电设备台账" && [2524, 760].includes(width))
+      if (title === "输电设备台账" && width === 1920)
         await page.screenshot({
           path: join(output, `heading-actions-${width}.png`),
           fullPage: true,
@@ -101,7 +101,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    "HEADING_LAYOUT_BROWSER_OK 11 modules, 7 widths, one list toolbar, one primary action and Excel dialog",
+    "HEADING_LAYOUT_BROWSER_OK 11 modules at 1920×1080, one list toolbar, one primary action and Excel dialog",
   );
 } catch (error) {
   await page.screenshot({

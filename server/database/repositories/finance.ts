@@ -1,4 +1,5 @@
-import type { SettlementDemandLabel, SettlementVersion } from "../../shared/types/finance-workflows.js";
+import { locationDisplayFields } from "../../shared/location-display.js";
+import type { SettlementDemandLabel, SettlementLocationLabel, SettlementVersion } from "../../shared/types/finance-workflows.js";
 import type { createStore } from "./store.js";
 
 type Store = Pick<ReturnType<typeof createStore>, "query" | "get">;
@@ -55,6 +56,66 @@ export function financeReadRepository(store: Store) {
       JSON.stringify(approvalIds)) as (FinanceDemandTotal & { approval_version_id: string })[];
   }
   return {
+
+    /** Batched frozen approval work locations and live linked positions, keyed by immutable identity. */
+    settlementWorksheet(projectId: string, approvalId: string, excludeSettlementId?: string) {
+      const approval = store.get<{version_no: number}>(`SELECT version_no FROM project_approval_versions
+        WHERE id=? AND project_id=? AND status='approved'`,approvalId,projectId);
+      if (!approval) return null;
+      type Row = {project_scope_id:string;demand_id:string;demand_no:string;
+        problem_description:string;operation_snapshot:string;demand_location_id:string;location_item_no:number|null;
+        approved_quantity_scaled:number;location_kind:string;snapshot_json:string;
+        unit_id:string;unit_version:number;unit:string;precision:number|null;editable:number};
+      const frozen = store.query<Row>(`SELECT sc.project_scope_id,sc.demand_id,d.demand_no,
+        dv.problem_description,json_extract(dv.snapshot_json,'$.operation_snapshot') AS operation_snapshot,
+        work.demand_location_id,loc.location_item_no,
+        loc.approved_quantity_scaled,
+        work.location_kind,work.location_snapshot_json AS snapshot_json,
+        dv.unit_id,dv.unit_version,unit.name AS unit,
+        json_extract(unit.fields_json,'$.quantity_precision') AS precision,1 AS editable
+        FROM project_approval_scope_versions sc
+        JOIN project_approval_work_locations loc ON loc.approval_scope_version_id=sc.id
+        JOIN demands d ON d.id=sc.demand_id
+        JOIN demand_versions dv ON dv.demand_id=sc.demand_id AND dv.version=sc.demand_version
+        JOIN demand_version_work_locations work ON work.demand_id=sc.demand_id
+          AND work.demand_version=sc.demand_version AND work.item_no=loc.location_item_no
+        JOIN dictionary_item_versions unit ON unit.item_id=dv.unit_id AND unit.version=dv.unit_version
+        WHERE sc.approval_version_id=?
+        ORDER BY d.demand_no,loc.location_item_no`,approvalId);
+      const current = store.query<Row>(`SELECT binding.project_scope_id,binding.demand_id,d.demand_no,
+        dv.problem_description,json_extract(dv.full_definition_json,'$.operation_snapshot') AS operation_snapshot,
+        work.demand_location_id,NULL AS location_item_no,
+        work.quantity_scaled AS approved_quantity_scaled,
+        work.location_kind,work.location_snapshot_json AS snapshot_json,
+        dv.unit_id,dv.unit_version,unit.name AS unit,
+        json_extract(unit.fields_json,'$.quantity_precision') AS precision,0 AS editable
+        FROM v_project_demand_binding_current binding
+        JOIN demands d ON d.id=binding.demand_id
+        JOIN v_demand_current dv ON dv.id=binding.demand_id
+        JOIN demand_version_work_locations work ON work.demand_id=dv.id AND work.demand_version=dv.current_version
+        JOIN dictionary_item_versions unit ON unit.item_id=dv.unit_id AND unit.version=dv.unit_version
+        WHERE binding.project_id=? ORDER BY d.demand_no,work.item_no`,projectId);
+      const identity=(row:Row)=>row.project_scope_id+"|"+row.demand_id+"|"+row.demand_location_id;
+      const combined=new Map<string,Row>(frozen.map(row=>[identity(row),row]));
+      for(const row of current) if(!combined.has(identity(row)))combined.set(identity(row),row);
+      const rows=[...combined.values()];
+      const demands=[...new Set(rows.map(row=>row.demand_id))];
+      const progress=demands.length ? store.query<{demand_id:string;demand_location_id:string;resolved_quantity_scaled:number}>(`
+        SELECT demand_id,demand_location_id,SUM(resolved_quantity_scaled) AS resolved_quantity_scaled
+        FROM v_effective_demand_resolutions
+        WHERE project_id=? AND demand_id IN (SELECT value FROM json_each(?))
+          AND (? IS NULL OR settlement_id<>?)
+        GROUP BY demand_id,demand_location_id`,
+        projectId,JSON.stringify(demands),excludeSettlementId||null,excludeSettlementId||null) : [];
+      const byLocation=new Map(progress.map(row=>[row.demand_id+"|"+row.demand_location_id,row.resolved_quantity_scaled]));
+      return {approval_version_no:approval.version_no,rows:rows.map(row=>{
+        const previous=byLocation.get(row.demand_id+"|"+row.demand_location_id)??0;
+        const {snapshot_json,...facts}=row;
+        return {...facts,...locationDisplayFields(row.location_kind,JSON.parse(snapshot_json)),id:identity(row),editable:Boolean(row.editable),
+          prior_resolved_quantity_scaled:previous,
+          remaining_quantity_scaled:row.approved_quantity_scaled-previous};
+      })};
+    },
     projectStage(projectId: string): string | undefined {
       return store.get<{status:string}>("SELECT status FROM projects WHERE id=?", projectId)?.status;
     },
@@ -68,23 +129,32 @@ export function financeReadRepository(store: Store) {
           json_extract(sc.snapshot_json,'$.unit_snapshot') AS unit
         FROM project_approval_scope_versions sc JOIN demands d ON d.id=sc.demand_id
         WHERE sc.approval_version_id=?`, approvalId);
-      return { version_no: approval.version_no, scopes };
+      // Read only the work locations of the adopted, immutable approval/demand versions.
+      const positions = store.query<{project_scope_id:string;location_item_no:number;location_kind:string;snapshot_json:string}>(`
+        SELECT sc.project_scope_id,loc.location_item_no,work.location_kind,work.location_snapshot_json AS snapshot_json
+        FROM project_approval_scope_versions sc
+        JOIN project_approval_work_locations loc ON loc.approval_scope_version_id=sc.id
+        JOIN demand_version_work_locations work ON work.demand_id=sc.demand_id
+          AND work.demand_version=sc.demand_version AND work.item_no=loc.location_item_no
+        WHERE sc.approval_version_id=?`, approvalId);
+      return { version_no: approval.version_no, scopes,
+        positions: positions.map(({snapshot_json,...position}): SettlementLocationLabel & {project_scope_id:string;location_item_no:number} => {
+          const {line_name,tower_no,asset_no,physical_code,start_tower_no,end_tower_no} =
+            locationDisplayFields(position.location_kind,JSON.parse(snapshot_json));
+          return {...position,line_name,tower_no,asset_no,physical_code,start_tower_no,end_tower_no};
+        }) };
     },
     effectiveSettlementReport(ids: string[]) {
       const values = JSON.stringify(ids);
       const versions = store.query<SettlementVersion>(`SELECT * FROM v_settlement_effective_versions
         WHERE settlement_id IN (SELECT value FROM json_each(?))`, values);
       const resolutions = store.query<{settlement_id:string; demand_no:string; unit:string;
-        location_item_no:number; line_name:string|null; location_label:string|null;
-        tower_no:string|null; asset_no:string|null;
+        location_item_no:number; location_kind:string;snapshot_json:string;
         resolved_quantity_scaled:number; evidence:string}>(`
         SELECT result.settlement_id, demand.demand_no,
           json_extract(original.snapshot_json,'$.unit_snapshot') AS unit,
           result.location_item_no,
-          json_extract(work.location_snapshot_json,'$.line_name') AS line_name,
-          json_extract(work.location_snapshot_json,'$.location_label') AS location_label,
-          json_extract(work.location_snapshot_json,'$.tower_no') AS tower_no,
-          json_extract(work.location_snapshot_json,'$.asset_no') AS asset_no,
+          work.location_kind,work.location_snapshot_json AS snapshot_json,
           result.resolved_quantity_scaled,result.evidence
         FROM v_effective_demand_resolutions result
         JOIN project_approval_scope_versions scope ON scope.id=result.approval_scope_version_id
@@ -94,7 +164,7 @@ export function financeReadRepository(store: Store) {
         JOIN demands demand ON demand.id=scope.demand_id
         WHERE result.settlement_id IN (SELECT value FROM json_each(?))
         ORDER BY result.settlement_id,demand.demand_no,result.location_item_no`, values);
-      return { versions: new Map(versions.map(version => [version.settlement_id, version])), resolutions };
+      return { versions: new Map(versions.map(version => [version.settlement_id, version])), resolutions:resolutions.map(({snapshot_json,...row})=>({...row,...locationDisplayFields(row.location_kind,JSON.parse(snapshot_json))})) };
     },
     settlementReconciliationImpact(settlementId: string) {
       return store.get<{count: number; cost_fen: number}>(`

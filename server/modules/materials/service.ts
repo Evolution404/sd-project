@@ -1,12 +1,15 @@
+import { locateCatalogBatchRow, previewCatalogBatch, verifyCatalogBatch } from "../../platform/catalog-batch-preview.js";
 import type { MaterialRepository } from "../../database/repositories/materials.js";
 import type { Database } from "../../database/connection.js";
 import type { AuditService } from "../../platform/audit/service.js";
 import { isObject, type Actor, type GridFilter, type ListQuery } from "../../shared/types/contracts.js";
-import type { MaterialRecord } from "../../shared/types/master-data.js";
+import { MATERIAL_CREATE_WORKSHEET_FIELDS, MAX_MATERIAL_WORKSHEET_ROWS,
+  type MaterialRecord, type MaterialWorksheetIssue, type MaterialWorksheetResult } from "../../shared/types/master-data.js";
 import type { DictionaryService } from "../dictionaries/service.js";
 import { definitionName, definitionStatus } from "../dictionaries/service.js";
-import { authorize, id, now } from "../../platform/auth/service.js";
+import { authorize, digest, id, now } from "../../platform/auth/service.js";
 import {
+  BusinessError,
   requireValue,
   expectedVersion,
   text,
@@ -15,7 +18,7 @@ function decorate(row: MaterialRecord): MaterialRecord {
   return {
     ...row,
     deleted: Boolean(row.deleted),
-    label: [row.name, row.model, row.specification].filter(Boolean).join(" · "),
+    label: row.name,
   };
 }
 export function createMaterials(
@@ -119,7 +122,71 @@ export function createMaterials(
       return result;
     });
   }
+  function createWorksheet(actor: Actor, raw: unknown, fingerprint?: string): MaterialWorksheetResult {
+    authorize(actor, "admin");
+    requireValue(Array.isArray(raw) && raw.length > 0 && raw.length <= MAX_MATERIAL_WORKSHEET_ROWS,
+      "物资工作表须包含 1 至 " + MAX_MATERIAL_WORKSHEET_ROWS + " 行");
+    const allowed = new Set<string>(MATERIAL_CREATE_WORKSHEET_FIELDS);
+    const rows = raw.map((row: unknown, index: number) => {
+      requireValue(isObject(row) && Object.entries(row).every(([field, value]) =>
+        allowed.has(field) && typeof value === "string" && value.length <= 5000), "第 " + (index + 1) + " 行物资字段无效");
+      return row;
+    });
+    const preview = fingerprint === undefined;
+    const hash = digest(JSON.stringify([actor.id, rows]));
+    requireValue(preview || fingerprint === hash, "物资工作表已改变，请重新预检", 409);
+    const ids: string[] = [], issues: MaterialWorksheetIssue[] = [];
+    const rollbackPreview = new Error("rollback material preview");
+    try {
+      database.transaction(() => {
+        for (const [index, row] of rows.entries()) {
+          try { ids.push(save(actor, row).id); }
+          catch (cause) {
+            if (!(cause instanceof BusinessError)) throw cause;
+            const field = Object.keys(cause.fields)[0] || (/单位/.test(cause.message) ? "unit_id" : "name");
+            issues.push({ row: index + 1, field, message: cause.message });
+          }
+        }
+        if (preview) throw rollbackPreview;
+        requireValue(!issues.length, "批量物资未通过校验，全部未写入", 422,
+          Object.fromEntries(issues.map(issue => ["rows." + issue.row + "." + issue.field, issue.message])));
+      });
+    } catch (cause) {
+      if (cause !== rollbackPreview) throw cause;
+    }
+    return { count: rows.length, issues, fingerprint: preview && !issues.length ? hash : undefined, ids: preview ? undefined : ids };
+  }
+  function saveBatch(actor: Actor, raw: unknown, fingerprint?: unknown) {
+    authorize(actor, "admin");
+    verifyCatalogBatch(actor, "materials", raw, fingerprint);
+    requireValue(Array.isArray(raw) && raw.length>=1 && raw.length<=MAX_MATERIAL_WORKSHEET_ROWS,
+      "批量修改不得超过 " + MAX_MATERIAL_WORKSHEET_ROWS + " 条物资", 400);
+    const allowed=new Set(["name","model","specification","note"]);
+    const seen=new Set<string>();
+    const updates=raw.map((item: unknown) => {
+      requireValue(isObject(item) && typeof item.id==="string" && item.id.trim()
+        && Number.isInteger(item.expected_version) && Number(item.expected_version)>0
+        && isObject(item.changes), "批量修改条目缺少身份、正式版本或修改字段", 400);
+      requireValue(!seen.has(String(item.id)), "批量修改不允许重复物资", 400);
+      seen.add(String(item.id));
+      const entries=Object.entries(item.changes);
+      requireValue(entries.length>0 && entries.every(([key,value])=>
+        allowed.has(key) && typeof value==="string"),
+        "批量修改只允许物资名称、型号、规格、备注四个字段", 400);
+      return {id:String(item.id),expected_version:Number(item.expected_version),
+        changes:Object.fromEntries(entries)};
+    });
+    // Each original save() still performs domain validation, versioning and audit.
+    // The outer transaction ensures the entire batch rolls back on any conflict.
+    return database.transaction(() => {
+      const records = updates.map(item => locateCatalogBatchRow(item.id, () => save(actor, {
+        ...item.changes, expected_version: item.expected_version,
+      }, item.id)));
+      return {count:records.length,ids:records.map(row=>row.id)};
+    });
+  }
   return {
+    createWorksheet,
     detail(key: string) {
       return {
         item: get(key, true),
@@ -129,33 +196,9 @@ export function createMaterials(
     },
     get,
     save,
-    saveBatch(actor: Actor, raw: unknown) {
-      authorize(actor, "admin");
-      requireValue(Array.isArray(raw) && raw.length>=1 && raw.length<=100,
-        "批量修改必须包含1～100条物资", 400);
-      const allowed=new Set(["name","model","specification","note"]);
-      const seen=new Set<string>();
-      const updates=raw.map((item: unknown) => {
-        requireValue(isObject(item) && typeof item.id==="string" && item.id.trim()
-          && Number.isInteger(item.expected_version) && Number(item.expected_version)>0
-          && isObject(item.changes), "批量修改条目缺少身份、正式版本或修改字段", 400);
-        requireValue(!seen.has(String(item.id)), "批量修改不允许重复物资", 400);
-        seen.add(String(item.id));
-        const entries=Object.entries(item.changes);
-        requireValue(entries.length>0 && entries.every(([key,value])=>
-          allowed.has(key) && typeof value==="string"),
-          "批量修改只允许物资名称、型号、规格、备注四个字段", 400);
-        return {id:String(item.id),expected_version:Number(item.expected_version),
-          changes:Object.fromEntries(entries)};
-      });
-      // Each original save() still performs domain validation, versioning and audit.
-      // The outer transaction ensures the entire batch rolls back on any conflict.
-      return database.transaction(() => {
-        const records=updates.map(item=>save(actor,{
-          ...item.changes,expected_version:item.expected_version,
-        },item.id));
-        return {count:records.length,ids:records.map(row=>row.id)};
-      });
+    saveBatch,
+    previewBulk(actor: Actor, raw: unknown) {
+      return previewCatalogBatch(actor, "materials", raw, database.transaction, () => saveBatch(actor, raw));
     },
     impact: (key: string) => {
       const row = get(key);

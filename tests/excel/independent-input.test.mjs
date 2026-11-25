@@ -274,8 +274,8 @@ test("identical tower numbers on different lines create independent physical tow
   const { s, user } = fixture(t), exchange = createExchange(s);
   s.catalog.save(user, "voltages", { name: "500kV" });
   const buffer = await makeWorkbook("assets", {
-    documents: [{ name: "金龙5603线", voltage_name: "500kV" }, { name: "金王5604线", voltage_name: "500kV" }],
-    towers: [{ line_name: "金龙5603线", tower_no: "#001" }, { line_name: "金王5604线", tower_no: "#001" }],
+    documents: [{ name: "合成甲D011线", voltage_name: "500kV" }, { name: "合成乙D012线", voltage_name: "500kV" }],
+    towers: [{ line_name: "合成甲D011线", tower_no: "#001" }, { line_name: "合成乙D012线", tower_no: "#001" }],
   });
   const preview = await exchange.preview(user, "assets", buffer);
   assert.deepEqual(preview.issues, []);
@@ -283,6 +283,6 @@ test("identical tower numbers on different lines create independent physical tow
   const towers = s.catalog.list("towers");
   assert.equal(towers.length, 2);
   assert.notEqual(towers[0].physical_tower_id, towers[1].physical_tower_id);
-  const duplicate = await exchange.preview(user, "assets", await makeWorkbook("assets", { towers: [{ line_name: "金龙5603线", tower_no: "#001" }] }));
+  const duplicate = await exchange.preview(user, "assets", await makeWorkbook("assets", { towers: [{ line_name: "合成甲D011线", tower_no: "#001" }] }));
   assert.ok(duplicate.issues.some(issue => issue.reason.includes("本线路已有该杆塔号")));
 });

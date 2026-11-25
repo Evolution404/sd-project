@@ -82,7 +82,7 @@ test("Schema113 full-demand adoption, exclusive binding, three installments and 
     evidence: "发票",
   });
   assert.equal(cost.amount_fen, 140000);
-  for (const [index, quantity] of [20000, 30000, 0].entries()) {
+  for (const [index, quantity] of [20000, 10000, 0].entries()) {
     let bill = s.finance.saveDraft(user, p.id, {
       number: `JS${index + 1}`,
       approval_version_id: approval.id,
@@ -116,7 +116,7 @@ test("Schema113 full-demand adoption, exclusive binding, three installments and 
   }
   const summary = s.finance.summary(p.id);
   assert.equal(summary.settlement_fen, 120000);
-  assert.equal(summary.demands[0].resolved_quantity_scaled, 50000);
+  assert.equal(summary.demands[0].resolved_quantity_scaled, 30000);
   assert.equal(
     s.projectClosure.commit(user, p.id, { preview_hash: s.projectClosure.preview(user, p.id).preview_hash, expected_version: 3 }).status,
     "closed",
@@ -125,7 +125,7 @@ test("Schema113 full-demand adoption, exclusive binding, three installments and 
   assert.equal(s.demands.get(demand.id).binding, null);
   const outstanding = s.demands.get(demand.id).work_locations.reduce(
     (sum, location) => sum + location.remaining_quantity_scaled, 0);
-  assert.ok(outstanding > 0, "某位置超量解决不能抵销其他位置的未完成需求");
+  assert.ok(outstanding > 0, "已解决的位置不能抵销其他位置的未完成需求");
   const successor = s.projects.link(user, other.id, {
     demand_id: demand.id, expected_version: 1,
   });

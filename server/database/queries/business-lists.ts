@@ -1,6 +1,8 @@
+import type { ProjectAccess } from "../../shared/types/project-access.js";
 import { settlementStatusFilter } from "../../shared/types/finance-workflows.js";
 import { settlementStatusSql } from "./settlement-status-sql.js";
 import type { FinanceListItem, FinanceListKind } from "../../shared/types/finance.js";
+import { DEMAND_DISPLAY_STATUS_SQL } from "./demand-status-sql.js";
 import { PROJECT_DISPLAY_STATUS_SQL } from "./project-status-sql.js";
 import type { SQLInputValue } from "node:sqlite";
 import type { FacetPage, GridFilter, ListQuery, Page } from "../../shared/types/contracts.js";
@@ -57,8 +59,7 @@ const demandSource: ListSource = {
   sql: `SELECT v.*, d.created_at,
     json_extract(v.full_definition_json,'$.operation_snapshot') AS operation_snapshot,
     json_extract(v.full_definition_json,'$.unit_snapshot') AS unit_snapshot,
-    (SELECT GROUP_CONCAT(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name'))
-      FROM json_each(v.full_definition_json,'$.work_locations') loc) AS line_summary,
+    (SELECT COUNT(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name')) FROM json_each(v.full_definition_json,'$.work_locations') loc) AS line_count,
     json_array_length(v.full_definition_json,'$.work_locations') AS location_count,
     (SELECT COALESCE(SUM(balance.resolved_quantity_scaled),0) FROM v_demand_current_location_progress balance
       WHERE balance.demand_id=v.id) AS resolved_quantity_scaled,
@@ -71,21 +72,13 @@ const demandSource: ListSource = {
       COALESCE((SELECT event.recorded_at FROM project_demand_link_events event
         JOIN project_demand_scopes scope ON scope.id=event.project_scope_id
         WHERE scope.demand_id=v.id ORDER BY event.recorded_at DESC LIMIT 1),d.created_at)) AS last_handled_at,
-    CASE WHEN v.status='pending' THEN '待确认'
-      WHEN v.status='returned' THEN '已退回'
-      WHEN v.status='cancelled' THEN '已取消'
-      WHEN v.status='active' AND NOT EXISTS(
-        SELECT 1 FROM v_demand_current_location_progress balance
-        WHERE balance.demand_id=v.id AND balance.remaining_quantity_scaled>0) THEN '已解决'
-      WHEN v.status='active' AND EXISTS(SELECT 1 FROM v_project_demand_binding_current binding WHERE binding.demand_id=v.id) THEN '已承接'
-      WHEN v.status='active' THEN '待承接'
-      ELSE '待确认' END AS display_status,
+    ${DEMAND_DISPLAY_STATUS_SQL} AS display_status,
     (SELECT json_object('project_id', b.project_id, 'project_scope_id', b.project_scope_id,
       'demand_id', b.demand_id) FROM v_project_demand_binding_current b WHERE b.demand_id=v.id) AS binding_json
     FROM v_demand_current v JOIN demands d ON d.id=v.id`,
   columns: ["id", "demand_no", "current_version", "quantity_scaled", "operation_id", "operation_version",
     "work_object_id", "unit_id", "unit_version", "target_object", "problem_description", "completion_standard",
-    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "location_count", "resolved_quantity_scaled", "remaining_quantity_scaled", "project_name", "last_handled_at", "display_status", "definition_changed_at", "created_at", "deleted"],
+    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_count", "location_count", "resolved_quantity_scaled", "remaining_quantity_scaled", "project_name", "last_handled_at", "display_status", "definition_changed_at", "created_at", "deleted"],
   search: ["demand_no", "full_definition_json", "status"],
 };
 const projectSource: ListSource = {
@@ -151,18 +144,18 @@ const financeSources: Record<FinanceListKind, ListSource> = {
     sql: `SELECT r.record_id AS id, entry.project_id, p.name AS project_name, root.code AS project_code,
       cost.title AS label, r.reconciled_settlement_fen AS amount_fen, cost.occurred_on,
       CASE WHEN r.status='active' AND applied.id IS NULL THEN 'stale' ELSE r.status END AS status,
-      r.version_no, r.created_at FROM v_cost_reconciliation_current r
+      r.is_final, r.version_no, r.created_at FROM v_cost_reconciliation_current r
       JOIN cost_versions cost ON cost.id=r.cost_version_id JOIN cost_entries entry ON entry.id=cost.entry_id
       LEFT JOIN v_effective_cost_reconciliations applied ON applied.id=r.id
       JOIN projects root ON root.id=entry.project_id
       JOIN v_project_management_current p ON p.project_id=entry.project_id`,
-    columns: ["id", "project_id", "project_name", "project_code", "label", "amount_fen", "occurred_on", "status", "version_no", "created_at", "deleted"],
+    columns: ["id", "project_id", "project_name", "project_code", "label", "amount_fen", "occurred_on", "status", "is_final", "version_no", "created_at", "deleted"],
     search: ["label", "project_name", "project_code", "status"],
   },
 };
 
 const exactFilters = new Set(["id", "status", "display_status", "role", "object_position",
-  "attribution_unit", "pricing_mode", "scope", "work_mode"]);
+  "attribution_unit", "pricing_mode", "scope", "work_mode", "settlement_id", "cost_node_id"]);
 
 function normalizedFacet(column: string) {
   return `NULLIF(CAST(${column} AS TEXT),'')`;
@@ -273,6 +266,12 @@ export function businessLists(store: QueryStore) {
       sql: projectSource.sql + " WHERE p.id IN (SELECT value FROM json_each(?))",
       parameters: [JSON.stringify(ids)],
     }, { page: 1, page_size: ids.length, q: "", sort: "name", direction: "asc", filters: {}, deleted: false }).items,
-    projects: (query: ListQuery) => searchPage<ProjectListRecord>(store, "projects", projectSource, query),
+    projects: (query: ListQuery, access?: ProjectAccess) => searchPage<ProjectListRecord>(
+      store, "projects", access ? {
+        ...projectSource,
+        sql: projectSource.sql + " WHERE (m.owner_id=? OR m.managing_unit_id IN (SELECT value FROM json_each(?)))",
+        parameters: [access.owner_id, JSON.stringify(access.organization_ids)],
+      } : projectSource, query,
+    ),
   };
 }

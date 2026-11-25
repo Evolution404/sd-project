@@ -1,5 +1,5 @@
 /** Explanatory targets only. Never click or submit business controls. */
-const overlaySelector = ".el-dialog, .business-detail-dialog";
+const overlaySelector = ".el-dialog, .el-drawer";
 
 function visible(node: HTMLElement) {
   const rect = node.getBoundingClientRect();
@@ -8,7 +8,7 @@ function visible(node: HTMLElement) {
 
 function activeDialog() {
   return Array.from(document.querySelectorAll<HTMLElement>(overlaySelector))
-    .filter(visible).sort((a,b) => overlayOrder(a) - overlayOrder(b)).at(-1);
+    .filter(node=>visible(node)&&!node.closest(".sd-guide-center")).sort((a,b) => overlayOrder(a) - overlayOrder(b)).at(-1);
 }
 
 function overlayOrder(node: HTMLElement) {
@@ -16,7 +16,7 @@ function overlayOrder(node: HTMLElement) {
 }
 
 function activeWork() {
-  return Array.from(document.querySelectorAll<HTMLElement>("main.workspace .business-work-surface"))
+  return Array.from(document.querySelectorAll<HTMLElement>(".layout-content [data-guide-workspace]"))
     .filter(visible).at(-1);
 }
 
@@ -31,16 +31,17 @@ export function hasActiveGuideWorkspace(): boolean {
 }
 
 export function resolveGuideTarget(selector: string): HTMLElement | null {
-  if (!/^[.#\[\]\w\-="': >]+$/.test(selector) || selector.length > 180) return null;
+  if (!/^[.#\[\]\w\-="': >,]+$/.test(selector) || selector.length > 180) return null;
   try {
-    const root = activeDialog() ?? activeWork() ?? document.querySelector("main.workspace");
+    const root = activeDialog() ?? activeWork() ?? document.querySelector(".layout-content");
+    if(root instanceof HTMLElement&&root.matches(selector)&&visible(root))return root;
     return Array.from(root?.querySelectorAll<HTMLElement>(selector) ?? []).find(visible) ?? null;
   } catch { return null; }
 }
 
 export function resolveGuideAction(actionId: string) {
   if (!/^[a-z][a-z0-9-]{1,40}\.[a-z][a-z0-9-]{1,50}$/.test(actionId)) return null;
-  const workspace = activeDialog() ?? activeWork() ?? document.querySelector("main.workspace");
+  const workspace = activeDialog() ?? activeWork() ?? document.querySelector(".layout-content");
   if (!workspace) return null;
   const anchors = Array.from(document.querySelectorAll<HTMLElement>(
     '[data-guide-action="'+actionId+'"]',

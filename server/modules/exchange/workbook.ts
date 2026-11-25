@@ -1,10 +1,11 @@
 import ExcelJS from "exceljs";
+import { EQUIPMENT_LINE_KINDS,EQUIPMENT_STATUSES } from "../../shared/equipment-bulk.js";
 import { scaledDecimal, decimalText } from "../../shared/decimal.js";
 import { exchangeColumnLabels as labels, issueDetails } from "../../shared/exchange-display.js";
 import { requireValue } from "../../shared/errors/business-error.js";
 import type { WorkbookKind, WorkbookReportKind, WorkbookRow, WorkbookIssue, ParsedWorkbookRow, ParsedWorkbook, WorkbookRows, WorkbookLayouts, WorkbookSheetDefinition, WorkbookOptions, ExchangeReportScope } from "../../shared/types/exchange.js";
 export const MAX_BYTES = 12 * 1024 * 1024,
-  MAX_ROWS = 25000,
+  MAX_DETAIL_ROWS = 25000,
   MAX_DOCUMENTS = 5000;
 export const attributeColumn = (key: string): string => "attribute_" + Buffer.from(key).toString("hex");
 export const attributeKey = (column: string): string => Buffer.from(column.slice(10), "hex").toString();
@@ -24,7 +25,7 @@ const decimalPlaces: Record<string,number> = {
 // Business-readable Excel values; official identity/version columns remain
 // in the workbook (hidden), so maintenance export can roundtrip safely.
 const businessChoices: Record<string,Record<string,string>> = {
-  line_kind: { main: "主线", branch: "支线" },
+  line_kind: EQUIPMENT_LINE_KINDS,
   status: { active: "在用", inactive: "停用", retired: "退役", draft: "草稿" },
   location_kind: {
     physical_tower: "物理杆塔",
@@ -64,10 +65,16 @@ const technicalColumns = new Set([
   "field_key",
   "primary_source_id",
 ]);
+export function parseBusinessCell(key: string, value: unknown): unknown {
+  const places = decimalPlaces[key];
+  return places ? scaledDecimal(value, places, key) : internalChoice(key, value);
+}
+
 function externalChoice(key:string, value:unknown):unknown {
   return typeof value === "string" ? businessChoices[key]?.[value] || value : value;
 }
 function internalChoice(key:string, value:unknown):unknown {
+  if(key==="status"&&value==="在运")return "active";
   if (!businessChoices[key] || typeof value !== "string") return value;
   const match = Object.entries(businessChoices[key]).find(
     ([, text]) => text === value,
@@ -212,6 +219,9 @@ export const layouts: WorkbookLayouts = {
         "project_scope_id",
         "location_item_no",
         "location_label",
+        "line_name",
+        "start_tower_no",
+        "end_tower_no",
         "resolved_quantity_scaled",
         "evidence",
         "demand_description",
@@ -347,7 +357,8 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
   requireValue(layout, "未知交换类型");
   const rows:WorkbookRows = {documents:[]},
     issues:WorkbookIssue[] = [];
-  let count = 0;
+  let documents = 0;
+  let details = 0;
   for (const definition of layout) {
     const sheet = workbook.getWorksheet(definition.name);
     rows[definition.key] = [];
@@ -382,8 +393,11 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
     });
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber === 1) return;
-      count++;
-      requireValue(count <= MAX_ROWS, "工作簿业务行数超过25000");
+      if (definition.key === "documents") {
+        requireValue(++documents <= MAX_DOCUMENTS, "单批最多5000张业务单据");
+      } else {
+        requireValue(++details <= MAX_DETAIL_ROWS, "工作簿明细行数超过25000");
+      }
       const rawValues:Record<string,unknown>={};
       const data:ParsedWorkbookRow = { _sheet: definition.name, _row: rowNumber };
       for (const [column, key] of headers) {
@@ -391,13 +405,7 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
           const value = cellValue(row.getCell(column));
           rawValues[key]=value;
           if (value !== KEEP && value !== KEEP_LABEL && value !== null) {
-            const places = decimalPlaces[key];
-            data[key] =
-              value === CLEAR || value === CLEAR_LABEL
-                ? null
-                : places
-                  ? scaledDecimal(value, places, key)
-                  : internalChoice(key, value);
+            data[key] = value === CLEAR || value === CLEAR_LABEL ? null : parseBusinessCell(key, value);
           }
         } catch (error) {
           issues.push(
@@ -418,10 +426,6 @@ export async function parseWorkbook(buffer:Buffer, kind:WorkbookKind):Promise<Pa
       if (dataKeys.length && !emptyExample) rows[definition.key].push({...data,_raw_values:rawValues});
     });
   }
-  requireValue(
-    rows.documents.length <= MAX_DOCUMENTS,
-    "单批最多5000张业务单据",
-  );
   return { rows, issues };
 }
 function formatScaledCell(value:unknown,places:number):string {
@@ -456,6 +460,23 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
   }
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "输电项目管理";
+  // One hidden, named-range source per distinct business choice list. No 255-character
+  // inline string limit, and no compound identity text.
+  let choiceSheet:ExcelJS.Worksheet|undefined;
+  const choiceRanges=new Map<string,string>();
+  function choiceRange(values:readonly string[]){
+    const unique=[...new Set(values.filter(Boolean))];
+    const identity=JSON.stringify(unique);
+    if(choiceRanges.has(identity))return choiceRanges.get(identity)!;
+    if(!choiceSheet){choiceSheet=workbook.addWorksheet("下拉字典");choiceSheet.state="veryHidden";}
+    const column=choiceRanges.size+1;
+    unique.forEach((value,index)=>{choiceSheet!.getCell(index+1,column).value=value;});
+    const letter=choiceSheet.getColumn(column).letter;
+    const name="sd_choices_"+column;
+    workbook.definedNames.add("'下拉字典'!$"+letter+"$1:$"+letter+"$"+unique.length,name);
+    choiceRanges.set(identity,name);
+    return name;
+  }
   const definitions = [...layouts[kind]];
   const primaryKey = options.assetKind === "lines" ? "documents" : options.assetKind;
   const primaryIndex = kind === "assets" ? definitions.findIndex(sheet => sheet.key === primaryKey) : -1;
@@ -497,15 +518,18 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
       workbook.definedNames.add(`${sheet.name}!${headerCell.address}`, `sd113_${definition.key}_${key}`);
       const hint = columnHint(kind, definition.key, key);
       if (hint) headerCell.note = hint;
-      if (!businessChoices[key]) continue;
-      const options = Object.values(businessChoices[key]).join(",");
+      const attribute=attributes.find(field=>attributeColumn(field.key)===key);
+      const attributeChoices=attribute?.type==="select"?attribute.options.map(item=>item.label):attribute?.type==="boolean"?["是","否"]:undefined;
+      const optionsForColumn=options.choices?.[key]??attributeChoices??(kind==="assets"&&key==="status"?Object.values(EQUIPMENT_STATUSES):Object.values(businessChoices[key]??{}));
+      if(!optionsForColumn.length)continue;
+      const rangeName=choiceRange(optionsForColumn);
       const letter = sheet.getColumn(index + 1).letter;
       const validations = sheet as ExcelJS.Worksheet & {dataValidations:{add(range:string, validation:ExcelJS.DataValidation):void}};
       validations.dataValidations.add(letter + "2:" + letter + "5001", {
         type: "list",
         allowBlank: true,
         showErrorMessage: false,
-        formulae: ['"' + options + '"'],
+        formulae: [rangeName],
       });
     }
     sheet.getRow(1).height = 42;
@@ -527,7 +551,7 @@ export async function makeWorkbook(kind:WorkbookKind, rows:Partial<Record<string
               : Array.isArray(value) && key.startsWith("attribute_") ? value.join("、")
               : typeof value === "object"
                 ? JSON.stringify(value)
-                : externalChoice(key, value);
+                : kind==="assets"&&key==="status"&&typeof value==="string"?EQUIPMENT_STATUSES[value as keyof typeof EQUIPMENT_STATUSES]??value:externalChoice(key, value);
       }
       sheet.addRow(row);
     }
@@ -623,7 +647,7 @@ export async function correctionWorkbook(buffer: Buffer, issues: WorkbookIssue[]
   for (const issue of issues) {
     const details = issueDetails(issue);
     const sheet = workbook.getWorksheet(issue.sheet);
-    const place = issue.sheet + " · 第 " + issue.row + " 行";
+    const place = issue.sheet + " 第 " + issue.row + " 行";
     summary.addRow({ place: sheet && issue.row > 0
       ? { text: place, hyperlink: "#'" + sheet.name.replace(/'/g, "''") + "'!A" + issue.row }
       : place, field: details.label, issue: details.reason, suggestion: details.suggestion });
@@ -722,7 +746,7 @@ export async function makeBusinessReport(kind:WorkbookReportKind, records:Record
     label: "本表按项目列出全部生效结算，每个项目仅一行",
     count: projectTotals.length,
   });
-  if (positions.length) addSheet(kind === "settlements" ? "生效需求解决量" : "需求位置报表", positions);
+  if (positions.length) addSheet(kind === "settlements" ? "生效需求解决量" : kind === "assets" ? "物理杆塔关联回路" : "需求位置报表", positions);
   const marker = workbook.addWorksheet("报表标记");
   marker.state = "veryHidden";
   marker.addRow(["READ_ONLY_REPORT"]);

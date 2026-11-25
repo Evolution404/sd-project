@@ -1,0 +1,140 @@
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { chromium } from "playwright";
+import { fixture } from "../helpers.mjs";
+import { httpServer } from "../../dist/server/platform/http/server.js";
+
+const cleanup = [];
+const { s, user } = fixture({ after: fn => cleanup.push(fn) });
+s.auth.saveUser(user, { username: "log-reader", password: "Viewer-test-password", role: "viewer" });
+const accessClock = new Date("2026-11-12T16:03:47Z");
+const staticDirectory = resolve(process.env.SD_BROWSER_STATIC_DIRECTORY || "dist/web");
+assert.ok(existsSync(join(staticDirectory, "index.html")));
+const backend = httpServer(s, { staticDirectory, accessLog: { clock: () => accessClock } });
+await new Promise(resolve => backend.listen(0, "127.0.0.1", resolve));
+const origin = "http://127.0.0.1:" + backend.address().port;
+const screenshots = resolve("test-results/youlai-y2");
+mkdirSync(screenshots, { recursive: true });
+let browser;
+try {
+  browser = await chromium.launch(existsSync(chromium.executablePath())
+    ? { headless: true } : { headless: true, channel: "chrome" });
+  const page = await browser.newPage({ viewport: { width: 1920, height: 1080 }, acceptDownloads: true, timezoneId: "America/Los_Angeles", colorScheme: "dark" });
+  const errors = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await page.goto(origin + "/#/configuration/access");
+  await page.getByRole("heading", { name: "项目全流程管理", exact: true }).waitFor();
+  for (const obsolete of ["输电运检", "输电项目", "登录内网工作区"]) {
+    assert.equal(await page.locator(".login-card").getByText(obsolete, { exact: false }).count(), 0);
+  }
+  await page.getByPlaceholder("用户名").fill("admin");
+  await page.getByPlaceholder("密码").fill("Schema113-test-password");
+  await page.getByRole("button", { name: "登录", exact: true }).click();
+  await page.waitForURL(/#\/configuration\/access/);
+  const nativeSwitch = page.getByRole("switch", { name: "访问限制" });
+  const toggle = page.locator(".el-switch").filter({ has: nativeSwitch });
+  await page.getByText("访问限制已开启", { exact: true }).waitFor();
+  assert.equal(await nativeSwitch.getAttribute("aria-checked"), "true");
+  const grantedIp = "192.0.2.50";
+  assert.equal(s.auth.permittedIp(grantedIp), false);
+  await page.getByRole("button", { name: "新增 IP 授权", exact: true }).click();
+  const add = page.getByRole("dialog", { name: "新增 IP 授权" });
+  await add.getByRole("textbox", { name: "IP 地址" }).fill(grantedIp);
+  await add.getByRole("textbox", { name: "用途说明" }).fill("调度值班工作站");
+  await add.getByRole("button", { name: "保存授权" }).click();
+  await add.waitFor({ state: "hidden" });
+  const row = page.getByRole("row").filter({ hasText: grantedIp });
+  await row.getByText("调度值班工作站", { exact: true }).waitFor();
+  assert.equal(s.auth.permittedIp(grantedIp), true);
+  await row.getByRole("button", { name: "修改授权" }).click();
+  const edit = page.getByRole("dialog", { name: "修改 IP 授权" });
+  await edit.getByRole("textbox", { name: "用途说明" }).fill("技术值班工作站");
+  await edit.getByRole("button", { name: "保存授权" }).click();
+  await row.getByText("技术值班工作站", { exact: true }).waitFor();
+  await row.getByRole("button", { name: "撤销授权" }).click();
+  await page.getByRole("dialog", { name: "撤销 IP 授权" }).getByRole("button", { name: "撤销授权" }).click();
+  await row.waitFor({ state: "hidden" });
+  assert.equal(s.auth.permittedIp(grantedIp), false);
+  await toggle.click();
+  await page.getByRole("dialog", { name: "确认关闭访问限制" }).getByRole("button", { name: "确认关闭" }).click();
+  await page.getByText("访问限制已关闭", { exact: true }).waitFor();
+  assert.equal(s.auth.permittedIp(grantedIp), true);
+  assert.equal(await nativeSwitch.getAttribute("aria-checked"), "false");
+  await toggle.click();
+  await page.getByRole("dialog", { name: "确认开启访问限制" }).getByRole("button", { name: "确认开启" }).click();
+  await page.getByText("访问限制已开启", { exact: true }).waitFor();
+  assert.equal(s.auth.permittedIp(grantedIp), false);
+  await page.reload();
+  await page.getByText("访问限制已开启", { exact: true }).waitFor();
+  assert.equal(await nativeSwitch.getAttribute("aria-checked"), "true");
+  await page.screenshot({ path: join(screenshots, "access-control-1920.png") });
+
+  await page.getByRole("tab", { name: "访问日志" }).click();
+  const filters = page.locator(".el-form").filter({ has: page.getByRole("textbox", { name: "日志检索" }) });
+  await filters.getByRole("textbox", { name: "日志检索" }).fill("退出登录");
+  await filters.getByRole("button", { name: "搜索", exact: true }).click();
+  await page.getByText("暂无数据", { exact: true }).waitFor();
+  await filters.getByRole("textbox", { name: "日志检索" }).fill("登录成功");
+  await filters.getByRole("textbox", { name: "状态码" }).fill("200");
+  await filters.getByRole("button", { name: "搜索", exact: true }).click();
+  const log = page.getByRole("row").filter({ hasText: "登录成功" });
+  await log.getByRole("button", { name: "查看详情" }).click();
+  const details = page.getByRole("dialog", { name: "访问记录详情" });
+  await details.getByText("/api/login", { exact: true }).waitFor();
+  await details.getByText("2026-11-13 00:03:47", { exact: true }).waitFor();
+  await page.screenshot({ path: join(screenshots, "access-log-detail-1920.png") });
+  await details.locator(".el-drawer__close-btn").click();
+  const downloaded = page.waitForEvent("download");
+  await page.getByRole("button", { name: "导出当前查询" }).click();
+  const file = await downloaded;
+  assert.equal(file.suggestedFilename(), "访问日志.jsonl");
+  const rows = readFileSync(await file.path(), "utf8").trim().split("\n").map(JSON.parse);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].outcome, "登录成功");
+  assert.equal(rows[0].status, 200);
+  assert.ok(!JSON.stringify(rows).includes("Schema113-test-password"));
+  const missingRequest = "/api/acceptance-missing-visit";
+  const missing = await page.request.get(origin + missingRequest);
+  assert.equal(missing.status(), 404);
+  await filters.getByRole("textbox", { name: "日志检索" }).fill(missingRequest);
+  await filters.getByRole("textbox", { name: "状态码" }).fill("404");
+  await filters.getByRole("button", { name: "搜索", exact: true }).click();
+  const missingLog = page.getByRole("row").filter({ hasText: missingRequest });
+  await missingLog.getByRole("button", { name: "查看详情" }).click();
+  await details.getByText("资源不存在", { exact: true }).waitFor();
+  await details.locator(".el-drawer__close-btn").click();
+  await details.waitFor({ state: "hidden" });
+  const logUrl = new URL(page.url());
+  assert.equal(new URLSearchParams(logUrl.hash.split("?")[1]).get("tab"), "logs");
+  await page.reload();
+  await missingLog.waitFor();
+  assert.equal(await filters.getByRole("textbox", { name: "日志检索" }).inputValue(), missingRequest);
+  assert.equal(await filters.getByRole("textbox", { name: "状态码" }).inputValue(), "404");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.locator("html.dark").waitFor({ state: "attached" });
+  assert.ok(await missingLog.getByRole("cell").first().evaluate(cell => {
+    const color = getComputedStyle(cell).backgroundColor.match(/\d+/g)?.slice(0, 3).map(Number);
+    return color && color.every(value => value < 100);
+  }), "access log cells use the dark table surface");
+  await page.screenshot({ path: join(screenshots, "access-log-dark-1920.png"), animations: "disabled" });
+  const viewer = await browser.newContext({ viewport: { width: 1920, height: 1080 } });
+  try {
+    const login = await viewer.request.post(origin + "/api/login", {
+      data: { username: "log-reader", password: "Viewer-test-password" },
+    });
+    assert.equal(login.status(), 200);
+    assert.equal((await viewer.request.get(origin + "/api/access-logs")).status(), 403);
+    assert.equal((await viewer.request.get(origin + "/api/access-logs/export")).status(), 403);
+    const reader = await viewer.newPage();
+    await reader.goto(origin + "/#/configuration/access?tab=logs");
+    await reader.locator(".layout-content").waitFor();
+    assert.equal(await reader.getByRole("tab", { name: "访问日志", exact: true }).count(), 0);
+  } finally { await viewer.close(); }
+  assert.deepEqual(errors, []);
+  console.log("YOULAI_Y2_ACCESS_OK live IP grants and restriction, filtered safe access-log export");
+} finally {
+  await browser?.close();
+  await new Promise(resolve => backend.close(resolve));
+  for (const done of cleanup.reverse()) await done();
+}

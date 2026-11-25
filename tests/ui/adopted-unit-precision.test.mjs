@@ -1,6 +1,6 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
-import { requireAdoptedQuantityPrecision } from "../../web/src/shared/utils/adopted-unit-precision.ts";
+import { requireAdoptedQuantityPrecision } from "../../tests/fixtures/legacy-frontend/web/src/shared/utils/adopted-unit-precision.ts";
 
 test("adopted quantity must use exact frozen formal version, never latest", () => {
   const versions=[

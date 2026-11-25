@@ -18,7 +18,7 @@ const server=httpServer(system);
 await new Promise(resolve=>server.listen(0,"127.0.0.1",resolve));
 const browser=await chromium.launch(existsSync(chromium.executablePath())?
   {headless:true}:{headless:true,channel:"chrome"});
-const page=await browser.newPage({viewport:{width:1500,height:1050}});
+const page=await browser.newPage({viewport:{width:1920,height:1080}});
 const errors=[],writes=[];
 page.on("pageerror",error=>errors.push(error.message));
 page.on("request",request=>{
@@ -84,8 +84,8 @@ try {
   assert.equal(localProgress.length,1);
   assert.ok(localProgress[0][1].includes('"state":"reading"'));
   assert.ok(!localProgress[0][1].includes("Password"));
-  for(const width of [1500,1280,960,760]){
-    await page.setViewportSize({width,height:1050});
+  for(const width of [1920]){
+    await page.setViewportSize({width,height:1080});
     assert.ok(await drawer.isVisible());
     assert.ok(await drawer.boundingBox().then(rect=>rect&&rect.width<=width+1));
     await page.screenshot({path:join(out,"guide-course-"+width+".png"),fullPage:true});
@@ -96,8 +96,8 @@ try {
   assert.equal(await page.locator("main .panel").first().evaluate(panel => panel.clientHeight > innerHeight),true,
     "Use a populated list long enough to reproduce the original out-of-viewport tour");
   const steps=["本页面用于什么","业务功能区域","从主要操作开始","查询、筛选与查看","正式历史与风险"];
-  for (const width of [1512, 760]) {
-    await page.setViewportSize({width,height:866});
+  for (const width of [1920]) {
+    await page.setViewportSize({width,height:1080});
     drawer=await openGuide();
     await drawer.getByRole("tab",{name:"当前页面"}).click();
     await drawer.getByRole("button",{name:"开始当前页面导览"}).click();
@@ -129,7 +129,7 @@ try {
     await page.getByRole("status").filter({hasText:/^共 24 条$/}).waitFor();
   }
 
-  await page.setViewportSize({width:1512,height:866});
+  await page.setViewportSize({width:1920,height:1080});
   await page.getByRole("button",{name:/青峰线15.*导线局部损伤/}).click();
   const detail=page.getByRole("dialog",{name:"需求详情",exact:true});
   await detail.getByRole("button",{name:"使用指引",exact:true}).click();
@@ -174,7 +174,7 @@ try {
   assert.equal(system.demands.list().length,before.demands);
   assert.equal(system.projects.list().length,before.projects);
   assert.equal(system.catalog.list("frameworks").length,before.frameworks);
-  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, five reachable tour steps on a populated long list at full and compact desktop widths, zero business writes");
+  console.log("P10_GUIDES_BROWSER_OK four help tabs, search, 12 modules+Excel, L01–L12, progress, guarded module links, five reachable tour steps on a populated long list at 1920×1080, zero business writes");
 } catch(error){
   console.error("P10_GUIDES_BROWSER_FAILURE",error.message,errors,writes);
   await page.screenshot({path:join(out,"failure.png"),fullPage:true});

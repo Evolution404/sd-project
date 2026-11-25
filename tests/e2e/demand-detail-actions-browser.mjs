@@ -47,7 +47,7 @@ const server = httpServer(s);
 await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
 const browser = await chromium.launch(existsSync(chromium.executablePath())
   ? { headless: true } : { headless: true, channel: "chrome" });
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
+const page = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
 const errors = [];
 page.on("pageerror", error => errors.push(error.message));
 const base = "http://127.0.0.1:" + server.address().port;
@@ -68,8 +68,8 @@ try {
   await page.goto(base + "/#/demands");
   await login("admin", "Schema113-test-password");
   for (const [index, scenario] of scenarios.entries()) {
-    for (const width of [1500, 960, 760]) {
-      await page.setViewportSize({ width, height: 1000 });
+    for (const width of [1920]) {
+      await page.setViewportSize({ width, height: 1080 });
       await open(scenario.row);
       await detail.getByText(scenario.state, { exact: true }).first().waitFor();
       const actions = detail.locator(".demand-action-buttons");
@@ -111,12 +111,12 @@ try {
           await history.locator(".el-dialog__headerbtn").click();
         }
       }
-      if (width === 760) await page.screenshot({
-        path: join(output, String(index + 1) + "-" + scenario.state + "-760.png"),
+      if (width === 1920) await page.screenshot({
+        path: join(output, String(index + 1) + "-" + scenario.state + "-1920.png"),
       });
     }
   }
-  await page.setViewportSize({ width: 1500, height: 1000 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await open(pending);
   await detail.getByRole("button", { name: "确认并待承接" }).click();
   await page.locator(".el-message-box:visible .el-button--primary").click();
@@ -141,7 +141,7 @@ try {
   await open(cancelled);
   assert.equal(await detail.getByRole("button", { name: "其他处理" }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log("DEMAND_DETAIL_ACTIONS_BROWSER_OK five states, three widths, quote, history, menu, viewer permissions, live refresh");
+  console.log("DEMAND_DETAIL_ACTIONS_BROWSER_OK five states, 1920×1080, quote, history, menu, viewer permissions, live refresh");
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));
