@@ -253,7 +253,7 @@ try{
 
   await page.getByRole("tab",{name:"实际费用",exact:true}).click();
   async function registerCost(title, yuan) {
-    await page.getByRole("button",{name:"登记实际费用"}).click();
+    await page.getByRole("button",{name:"登记实际费用",exact:true}).click();
     const costForm=page.getByRole("dialog",{name:"登记实际费用"});
     await costForm.getByRole("textbox",{name:"费用事项"}).fill(title);
     await selectSiteCost(costForm);

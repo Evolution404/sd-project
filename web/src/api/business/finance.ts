@@ -2,7 +2,7 @@ import { applyNativeListQuery, type NativeListOptions } from "@/utils/business/n
 import { yuanToFen } from "./funding";
 import { randomRequestId } from "@/utils/business/request-id";
 import type { FinanceListItem } from "../../../../server/shared/types/finance";
-import type { SettlementDemandLabel, SettlementLocationLabel } from "../../../../server/shared/types/finance-workflows";
+import type { FinanceEntryBatch, FinanceEntryBatchIssue, SettlementDemandLabel, SettlementLocationLabel } from "../../../../server/shared/types/finance-workflows";
 
 export type SettlementMode = "project_total" | "itemized";
 export interface SettlementItemInput {
@@ -239,4 +239,29 @@ export function removeCostReconciliation(row: CostReconciliation) {
 }
 export function reconciliationHistory(projectId:string,id:string):Promise<CostReconciliation[]>{
   return get(projectPath(projectId)+"/reconciliations/"+encodeURIComponent(id));
+}
+
+export interface FinanceEntryBatchResult {
+  count: number;
+  issues: FinanceEntryBatchIssue[];
+  fingerprint?: string;
+  results?: { ref: string; id: string }[];
+}
+export async function submitFinanceEntryBatch(projectId: string, batch: FinanceEntryBatch,
+  commit?: { fingerprint: string; requestKey: string }): Promise<FinanceEntryBatchResult> {
+  const path = projectPath(projectId) + "/finance-entry-batch/" + (commit ? "commit" : "preview");
+  const response = await fetch(path, { method: "POST", credentials: "same-origin", headers: {
+    "Content-Type": "application/json", ...(commit ? { "Idempotency-Key": commit.requestKey } : {}),
+  }, body: JSON.stringify({ ...batch, fingerprint: commit?.fingerprint }) });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const issues: FinanceEntryBatchIssue[] = [];
+    for (const [key, message] of Object.entries(data.fields ?? {})) {
+      const field = /^rows\.(\d+)(?:\.(.+))?$/.exec(key);
+      if (field) issues.push({ ref: field[1], field: field[2], message: String(message) });
+    }
+    if (issues.length) return { count: batch.rows.length, issues };
+    throw Error(data.message || "批量费用请求失败");
+  }
+  return data as FinanceEntryBatchResult;
 }

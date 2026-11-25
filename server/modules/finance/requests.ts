@@ -1,9 +1,11 @@
 import { str, optStr, optNullableStr, num, optNum } from "../../shared/input-shape.js";
-import { requireValue } from "../../shared/errors/business-error.js";
+import { BusinessError, requireValue } from "../../shared/errors/business-error.js";
+import { isObject } from "../../shared/types/contracts.js";
+import { MAX_FINANCE_ENTRY_BATCH } from "../../shared/types/finance-workflows.js";
 import type { FinanceListKind } from "../../shared/types/finance.js";
 import type {
   CostNodeInput, ActualCostInput, SettlementSubmitInput,
-  SettlementReviewInput, SettlementReviewAction, SettlementResubmitInput, ReconciliationInput,
+  SettlementReviewInput, SettlementReviewAction, SettlementResubmitInput, ReconciliationInput, FinanceEntryBatch,
 } from "../../shared/types/finance-workflows.js";
 
 function optBool(value: unknown, label: string): boolean | undefined {
@@ -89,4 +91,34 @@ export function financeDeleteNode(input:Record<string,unknown>) {
   return {expected_version:num(input.expected_version,"费用科目版本"),
     expected_references:optNum(input.expected_references,"历史引用数"),
     expected_children:optNum(input.expected_children,"子科目数")};
+}
+
+export function parseFinanceEntryBatch(input: Record<string, unknown>): FinanceEntryBatch {
+  const kind = input.kind;
+  requireValue(kind === "nodes" || kind === "costs" || kind === "reconciliations", "未知的批量费用业务");
+  const rows = input.rows;
+  requireValue(Array.isArray(rows) && rows.length > 0 && rows.length <= MAX_FINANCE_ENTRY_BATCH,
+    "批量费用行数须为 1 至 " + MAX_FINANCE_ENTRY_BATCH);
+  const refs = new Set<string>(), targets = new Set<string>();
+  const metadata = rows.map((raw: unknown, index: number) => {
+    requireValue(isObject(raw) && isObject(raw.values), "第 " + (index + 1) + " 行须包含费用资料");
+    const ref = str(raw.ref, "行号");
+    requireValue(/^[1-9][0-9]{0,5}$/.test(ref) && !refs.has(ref), "批次行号无效或重复");
+    refs.add(ref);
+    const id = optStr(raw.id, "正式身份");
+    requireValue(!id || !targets.has(id), "同一正式记录在批次内重复", 422, { ["rows." + ref]: "正式身份重复" });
+    if (id) targets.add(id);
+    return { ref, id, values: raw.values };
+  });
+  function parse<T>(parser: (value: Record<string, unknown>) => T, row: typeof metadata[number]) {
+    try {
+      return { ...row, values: parser(row.values) };
+    } catch (cause) {
+      if (!(cause instanceof BusinessError)) throw cause;
+      throw new BusinessError(cause.message, cause.status, { ["rows." + row.ref]: cause.message });
+    }
+  }
+  if (kind === "nodes") return { kind, rows: metadata.map(row => ({ kind, ...parse(financeCostNode, row) })) };
+  if (kind === "costs") return { kind, rows: metadata.map(row => ({ kind, ...parse(financeActualCost, row) })) };
+  return { kind, rows: metadata.map(row => ({ kind, ...parse(financeReconciliation, row) })) };
 }

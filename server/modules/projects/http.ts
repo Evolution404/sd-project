@@ -8,7 +8,7 @@ import { requireValue } from "../../shared/errors/business-error.js";
 import type { RouteContext } from "../../platform/http/context.js";
 import { parseListQuery } from "../../platform/http/list-query.js";
 import { financeDeleteNode, financeDeleteCost, financeCostNode,
-  financeActualCost } from "../finance/requests.js";
+  financeActualCost, parseFinanceEntryBatch } from "../finance/requests.js";
 export async function handleProjects(context: RouteContext): Promise<{
     result: unknown;
 } | undefined> {
@@ -42,6 +42,16 @@ export async function handleProjects(context: RouteContext): Promise<{
                 requireValue(!read && method === "POST", "仅支持建立并承接子项目", 405);
                 result = mutate("write", () => system.projects.createFromDemand(actor, parseProjectFromDemand(input)));
                 break;
+            }
+            if (sub === "finance-entry-batch") {
+                requireValue(method === "POST" && (subKey === "preview" || subKey === "commit") && !action,
+                    "仅支持批量费用预检和提交", 405);
+                const batch = parseFinanceEntryBatch(input);
+                if (subKey === "preview") return { result: system.finance.entryBatch(actor, key, batch) };
+                const fingerprint = input.fingerprint;
+                requireValue(typeof fingerprint === "string" && /^[0-9a-f]{64}$/.test(fingerprint), "批量费用须先通过预检");
+                const permission = batch.kind === "nodes" ? "write" : "cost.confirm";
+                return { result: mutate(permission, () => system.finance.entryBatch(actor, key, batch, fingerprint)) };
             }
             if (sub === "cost-tree") {
                 requireValue(read, "费用科目树只允许查询", 405);

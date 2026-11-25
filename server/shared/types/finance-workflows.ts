@@ -248,3 +248,18 @@ export interface SettlementItemFact extends SettlementItemInput {
   quantity_scaled: number;
   evidence: string;
 }
+
+export const MAX_FINANCE_ENTRY_BATCH = 100;
+
+interface FinanceEntryRow<K extends string, T> {
+  kind: K;
+  ref: string;
+  id?: string;
+  values: T;
+}
+export type FinanceEntryBatch =
+  | { kind: "nodes"; rows: FinanceEntryRow<"nodes", CostNodeInput>[] }
+  | { kind: "costs"; rows: FinanceEntryRow<"costs", ActualCostInput>[] }
+  | { kind: "reconciliations"; rows: FinanceEntryRow<"reconciliations", ReconciliationInput>[] };
+
+export interface FinanceEntryBatchIssue { ref: string; field?: string; message: string }

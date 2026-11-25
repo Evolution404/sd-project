@@ -9,6 +9,8 @@
   <el-card v-if="tab === 'nodes'" class="page-content" shadow="never">
     <div class="page-heading-actions mb-3 flex flex-wrap gap-2">
       <el-button data-guide-action="finance.category-root" v-if="canWrite && !closed" type="primary" @click="openNode()">新增一级科目</el-button>
+      <el-button v-if="canWrite && !closed" @click="openBatch('nodes')">批量新增费用科目</el-button>
+      <el-button v-if="canWrite && !closed" @click="openBatch('nodes', true)">批量修订同级费用科目</el-button>
       <el-checkbox data-guide-action="finance.category-show-deleted" v-model="includeDeletedNodes" label="包含已删除" />
       <el-button :loading="loadingNodes" @click="loadNodes">刷新</el-button>
     </div>
@@ -23,6 +25,7 @@
           <el-button data-guide-action="finance.category-history" link type="primary" @click="viewNodeHistory(row.id)">查看历史</el-button>
           <template v-if="canWrite && !closed && !row.deleted">
             <el-button data-guide-action="finance.category-child" v-if="row.can_add_child" link type="primary" @click="openNode(undefined, row.id)">新增下级</el-button>
+            <el-button v-if="row.can_add_child" link type="primary" @click="openBatch('nodes', false, nodes.find(node => node.id === row.id))">批量新增下级</el-button>
             <el-button data-guide-action="finance.category-edit" link type="primary" @click="editNode(row.id)">修订</el-button>
           </template>
           <el-button data-guide-action="finance.category-delete" v-if="canAdmin && !closed && !row.deleted" link type="danger" @click="removeNode(row.id)">删除</el-button>
@@ -50,6 +53,9 @@
 
   </div>
 
+  <FinanceEntryBatchEditor v-if="batchOpen" ref="batchEditor" :project-id="projectId" :settlement-id="settlementId"
+    :nodes="nodes" :kind="batchKind" :revising="batchRevising" :parent="batchParent"
+    @close="batchOpen = false" @saved="refreshAfterBatch" />
   <el-dialog v-model="nodeOpen" :title="nodeTarget ? '修订费用科目' : '新增费用科目'"
     width="min(90vw, 560px)" append-to-body :close-on-click-modal="false">
     <el-form label-position="top" novalidate :disabled="busy">
@@ -148,7 +154,7 @@
 
 <script setup lang="ts">
 import { historyScopeField, nativeListQuery, nativeColumnFilter } from "@/utils/business/native-list-query";
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, defineAsyncComponent, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
@@ -158,6 +164,7 @@ import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
 import { useUserStore } from "@/stores/user";
 import { fenToYuan, yuanToFen } from "@/api/business/funding";
+import type { FinanceEntryBatch } from "../../../../server/shared/types/finance-workflows";
 import { projectMoney } from "@/api/business/projects";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
 import {
@@ -177,6 +184,23 @@ const nodes = ref<CostNode[]>([]);
 const loadingNodes = ref(false);
 const includeDeletedNodes = ref(false);
 const includeDeletedCosts = ref(false);
+const FinanceEntryBatchEditor = defineAsyncComponent(() => import("./FinanceEntryBatchEditor.vue"));
+const batchEditor = ref<InstanceType<typeof FinanceEntryBatchEditor>>();
+const batchOpen = ref(false), batchRevising = ref(false);
+const batchKind = ref<FinanceEntryBatch["kind"]>("nodes");
+const batchParent = ref<CostNode>();
+function openBatch(kind: FinanceEntryBatch["kind"], revise = false, parent?: CostNode) {
+  batchKind.value = kind;
+  batchRevising.value = revise;
+  batchParent.value = parent;
+  batchOpen.value = true;
+}
+function refreshAfterBatch() {
+  batchOpen.value = false;
+  if (batchKind.value === "nodes") void loadNodes();
+  if (batchKind.value === "costs") void costCrud.value?.refresh();
+  if (batchKind.value === "reconciliations") void reconciliationCrud.value?.refresh();
+}
 const nodeOpen = ref(false);
 const costOpen = ref(false);
 const reconciliationOpen = ref(false);
@@ -231,9 +255,10 @@ function openEvidence(owner: string, readonly: boolean) {
   evidenceOpen.value = true;
 }
 let historyRequest = 0;
-usePageOverlays([nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,costPickerOpen,historyOpen,evidenceOpen],{
+usePageOverlays([batchOpen,nodeOpen,costOpen,reconciliationOpen,reconciliationPickerOpen,costPickerOpen,historyOpen,evidenceOpen],{
   async mayLeave(){
     if(busy.value)return false;
+    if(batchOpen.value)return batchEditor.value?.mayLeave() ?? true;
     if(!nodeOpen.value&&!costOpen.value&&!reconciliationOpen.value)return true;
     try{
       await ElMessageBox.confirm("当前财务表单尚未提交，确定离开并放弃？","放弃表单修改",{
@@ -455,7 +480,12 @@ const costTable: CrudTableConfig<CrudRecord, ActualCost> = {
   stateKey:"finance:costs:"+props.projectId,
   rowKey: "entry_id", table: { border: true }, tableTools: ["refresh", "columns", "search"],
   toolbarActions: [{ key: "register", label: "登记实际费用", permission: "cost.confirm",
-    visible: () => !props.closed, onClick: () => openCost() }],
+    visible: () => !props.closed, onClick: () => openCost() },
+    { key: "batch-create", label: "批量登记实际费用", permission: "cost.confirm",
+      visible: () => !props.closed, onClick: () => openBatch("costs") },
+    { key: "batch-revise", label: "批量修订实际费用", permission: "cost.confirm",
+      visible: () => !props.closed, onClick: () => openBatch("costs", true) },
+  ],
   async fetchData(query) {
     const result = await listActualCosts(props.projectId, Number(query.pageNum) || 1, Number(query.pageSize) || 20,
       String(query.keywords ?? ""), includeDeletedCosts.value, nativeListQuery(query, ["status"]));
@@ -492,7 +522,12 @@ const reconciliationTable: CrudTableConfig<CrudRecord, CostReconciliation> = {
   stateKey: "finance:reconciliations:" + (props.settlementId || props.projectId),
   rowKey: "record_id", table: { border: true }, tableTools: ["refresh", "columns", "search"],
   toolbarActions: [{ key: "reconcile", label: "新增正式核对", permission: "cost.confirm",
-    visible: () => Boolean(props.settlementId) && !props.closed, onClick: () => openReconciliation() }],
+    visible: () => Boolean(props.settlementId) && !props.closed, onClick: () => openReconciliation() },
+    { key: "batch-create", label: "批量新增费用核对", permission: "cost.confirm",
+      visible: () => !props.closed, onClick: () => openBatch("reconciliations") },
+    { key: "batch-revise", label: "批量修订费用核对", permission: "cost.confirm",
+      visible: () => !props.closed, onClick: () => openBatch("reconciliations", true) },
+  ],
   async fetchData(query) {
     const options = nativeListQuery(query);
     if (props.settlementId) options.filters = { ...options.filters, settlement_id: props.settlementId };

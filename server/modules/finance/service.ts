@@ -3,11 +3,13 @@ import { closedWriteReason } from "../../shared/project-lifecycle.js";
 import { authorize, id, now, today } from "../../platform/auth/service.js";
 import { authorizeProject } from "../../platform/auth/project-access.js";
 import {
+  BusinessError,
   requireValue,
   expectedVersion,
   text,
   integer,
 } from "../../shared/errors/business-error.js";
+import { financeEntryBatch } from "./entry-batch.js";
 import { financialSummary } from "./summary.js";
 import { assertQuantityPrecision } from "../../shared/quantity-precision.js";
 import type { Actor, ListQuery } from "../../shared/types/contracts.js";
@@ -24,7 +26,7 @@ import type {
   SettlementDraftInput, NormalizedSettlementDraft,
   SettlementVersion, SettlementWorkflow, SettlementDetails,
   SettlementSubmitInput, SettlementReviewInput, SettlementResubmitInput,
-  ReconciliationInput
+  ReconciliationInput, FinanceEntryBatch,
 } from "../../shared/types/finance-workflows.js";
 
 export function createFinance(
@@ -104,7 +106,7 @@ export function createFinance(
         node_id: nodeId,
         version_no: (previous?.version_no || 0) + 1,
         name: text(input.name, "费用科目名称"),
-        status: input.status || "active",
+        status: input.status || previous?.status || "active",
         actor_id: actor.id,
         recorded_at: now(),
         reason: input.reason || "",
@@ -123,6 +125,7 @@ export function createFinance(
       const blocked = closedWriteReason(project);
       requireValue(!blocked, blocked, 409);
       const existingEntry = key ? repo.costEntry(key) : undefined;
+      requireValue(!key || previous, "费用不存在", 404);
       if (previous) {
         requireValue(typeof key === "string" && !repo.actualCostDeleted(key), "费用已删除", 409);
         expectedVersion(previous.version_no, input.expected_version);
@@ -140,6 +143,10 @@ export function createFinance(
       );
       if ((input.status || "active") === "active")
         activeLeaf(project, nodeRow.id);
+      const occurredOn = new Date(input.occurred_on);
+      requireValue(/^\d{4}-\d{2}-\d{2}$/.test(input.occurred_on) && Number.isFinite(occurredOn.valueOf()) &&
+        occurredOn.toISOString().slice(0, 10) === input.occurred_on, "请填写有效的发生日期", 422,
+        { occurred_on: "使用 YYYY-MM-DD 格式的有效日期" });
       const amount = integer(input.amount_fen, "实际金额", 1);
       if (previous && key && (input.status || "active") === "active") {
         const impact = repo.activeCostReconciliation(key);
@@ -569,8 +576,118 @@ export function createFinance(
       project.approval_version_id ? references.get(project.approval_version_id) || null : null,
     )]));
   }
+  function reconciliation(actor: Actor, input: ReconciliationInput) {
+    authorize(actor, "cost.confirm");
+    return repo.transaction(() => {
+      requireValue(
+        !input.record_id ||
+          !repo.reconciliationDeleted(input.record_id),
+        "核对记录已删除",
+        409,
+      );
+      const previous = input.record_id
+        ? repo.latestReconciliationVersion(input.record_id)
+        : null;
+      expectedVersion(previous?.version_no || 0, input.expected_version);
+      const source = input.status === "voided" ? previous : input;
+      requireValue(source, "核对记录不存在");
+      requireValue(typeof source.cost_version_id === "string", "请选择实际费用正式版本");
+      requireValue(typeof source.settlement_item_version_id === "string", "请选择结算明细正式版本");
+      const item = repo.settlementItemVersion(source.settlement_item_version_id);
+      requireValue(item, "结算费用明细不存在");
+      const ownership = repo.reconciliationOwnership(source.cost_version_id, item.id);
+      requireValue(ownership && ownership.cost_project_id === ownership.settlement_project_id,
+        "费用与结算不属于同一项目，禁止交叉核对", 422);
+      projects.authorizeOwnedProject(actor, "cost.confirm", ownership.cost_project_id);
+      if (previous && input.status !== "voided") {
+        const existingCost = repo.costVersion(previous.cost_version_id);
+        const existingEntry = existingCost && repo.costEntry(existingCost.entry_id);
+        requireValue(existingEntry, "核对费用所属项目不存在", 404);
+        projects.authorizeOwnedProject(actor, "cost.confirm", existingEntry.project_id);
+      }
+      const blocked = closedWriteReason({status:repo.projectStage(ownership.cost_project_id) || ""});
+      requireValue(!blocked, blocked, 409);
+      const row = {
+        id: id(),
+        record_id: previous?.record_id || id(),
+        version_no: (previous?.version_no || 0) + 1,
+        status: input.status || "active",
+        cost_version_id: source.cost_version_id,
+        settlement_item_id: item.settlement_item_id,
+        settlement_item_version_id: item.id,
+        reconciled_cost_fen: integer(source.reconciled_cost_fen, "核对实际费用"),
+        reconciled_settlement_fen: integer(source.reconciled_settlement_fen, "核对结算金额"),
+        is_final: input.status === "voided" ? 0 : input.is_final ? 1 : 0,
+        evidence: input.evidence || "",
+        actor_id: actor.id,
+        created_at: now(),
+        request_key: input.request_key || id(),
+      };
+      repo.appendReconciliation(row);
+      return row;
+    });
+  }
+  function entryBatch(actor: Actor, projectId: string, batch: FinanceEntryBatch, fingerprint?: string) {
+    const permission = batch.kind === "nodes" ? "write" : "cost.confirm";
+    projects.authorizeOwnedProject(actor, permission, projectId);
+    if (batch.kind === "nodes") {
+      const parents = new Set(batch.rows.map(row => row.id ? repo.currentCostNode(row.id)?.parent_id ?? null : row.values.parent_id ?? null));
+      requireValue(parents.size <= 1, "同批录入的费用科目须有同一上级科目");
+    }
+    return financeEntryBatch(actor, projectId, batch, repo.transaction, row => {
+      if (row.kind === "nodes") {
+        requireValue(row.values.status === undefined, "科目停用或启用须单独办理");
+        const saved = node(actor, projectId, row.values, row.id);
+        requireValue(saved, "费用科目保存失败");
+        return saved.id;
+      }
+      if (row.kind === "costs") {
+        requireValue(row.values.status === undefined && row.values.request_key === undefined, "费用状态与幂等身份不能在工作表修改");
+        const previous = row.id ? repo.latestCostVersion(row.id) : undefined;
+        requireValue(!row.id || previous?.status === "active", "仅有效费用允许批量修订", 409);
+        if (row.id && row.values.cost_node_id) {
+          requireValue(repo.costEntry(row.id)?.cost_node_id === row.values.cost_node_id, "费用科目身份不可修改", 422,
+            { cost_node_id: "沿用原费用科目" });
+        }
+        return cost(actor, projectId, row.values, row.id).entry_id;
+      }
+      const values = row.values;
+      requireValue(!values.status && !values.request_key && !values.record_id, "核对状态与正式身份不能在工作表修改");
+      const previous = row.id ? repo.latestReconciliationVersion(row.id) : undefined;
+      requireValue(!row.id || previous?.status === "active", "仅有效核对允许批量修订", 409);
+      requireValue(typeof values.cost_version_id === "string" && typeof values.settlement_item_version_id === "string",
+        "请选择实际费用和生效结算明细");
+      const owner = repo.reconciliationOwnership(values.cost_version_id, values.settlement_item_version_id);
+      requireValue(owner?.cost_project_id === projectId && owner.settlement_project_id === projectId,
+        "核对引用须属于当前项目", 422, { cost_version_id: "当前项目的有效实际费用" });
+      const selectedCost = repo.costVersion(values.cost_version_id);
+      requireValue(selectedCost && repo.latestCostVersion(selectedCost.entry_id)?.id === selectedCost.id,
+        "实际费用正式版本已变化，请重新选择", 409, { cost_version_id: "实际费用版本已变化" });
+      if (previous) {
+        requireValue(previous.cost_version_id === values.cost_version_id &&
+          previous.settlement_item_version_id === values.settlement_item_version_id,
+          "核对普通修订须沿用原费用和结算明细版本", 409);
+      }
+      try {
+        return reconciliation(actor, { ...values, record_id: row.id,
+          expected_version: row.id ? values.expected_version : 0 }).record_id;
+      } catch (cause) {
+        if (!(cause instanceof Error) || cause instanceof BusinessError) throw cause;
+        const fields: Record<string, string> = {
+          "费用核对必须匹配已确认费用及同结算单已批准的历史明细": "settlement_item_version_id",
+          "同一真实费用的有效核对累计金额不能超过该费用自身": "reconciled_cost_fen",
+          "同一历史结算明细的有效核对累计金额不能超过该明细金额": "reconciled_settlement_fen",
+        };
+        const field = fields[cause.message];
+        if (field) throw new BusinessError(cause.message, 422, { [field]: cause.message });
+        throw cause;
+      }
+    }, fingerprint);
+  }
+
   return {
     effectiveSettlementReport: repo.effectiveSettlementReport,
+    entryBatch,
     settlementWorksheet(actor: Actor, projectId: string, approvalId: string, settlementId?: string) {
       authorize(actor, "read");
       requireValue(hierarchies.projectExists(projectId, true), "项目不存在", 404);
@@ -695,57 +812,7 @@ export function createFinance(
         return settlement(key);
       });
     },
-    reconciliation(actor: Actor, input: ReconciliationInput) {
-      authorize(actor, "cost.confirm");
-      return repo.transaction(() => {
-        requireValue(
-          !input.record_id ||
-            !repo.reconciliationDeleted(input.record_id),
-          "核对记录已删除",
-          409,
-        );
-        const previous = input.record_id
-          ? repo.latestReconciliationVersion(input.record_id)
-          : null;
-        expectedVersion(previous?.version_no || 0, input.expected_version);
-        const source = input.status === "voided" ? previous : input;
-        requireValue(source, "核对记录不存在");
-        requireValue(typeof source.cost_version_id === "string", "请选择实际费用正式版本");
-        requireValue(typeof source.settlement_item_version_id === "string", "请选择结算明细正式版本");
-        const item = repo.settlementItemVersion(source.settlement_item_version_id);
-        requireValue(item, "结算费用明细不存在");
-        const ownership = repo.reconciliationOwnership(source.cost_version_id, item.id);
-        requireValue(ownership && ownership.cost_project_id === ownership.settlement_project_id,
-          "费用与结算不属于同一项目，禁止交叉核对", 422);
-        projects.authorizeOwnedProject(actor, "cost.confirm", ownership.cost_project_id);
-        if (previous && input.status !== "voided") {
-          const existingCost = repo.costVersion(previous.cost_version_id);
-          const existingEntry = existingCost && repo.costEntry(existingCost.entry_id);
-          requireValue(existingEntry, "核对费用所属项目不存在", 404);
-          projects.authorizeOwnedProject(actor, "cost.confirm", existingEntry.project_id);
-        }
-        const blocked = closedWriteReason({status:repo.projectStage(ownership.cost_project_id) || ""});
-        requireValue(!blocked, blocked, 409);
-        const row = {
-          id: id(),
-          record_id: previous?.record_id || id(),
-          version_no: (previous?.version_no || 0) + 1,
-          status: input.status || "active",
-          cost_version_id: source.cost_version_id,
-          settlement_item_id: item.settlement_item_id,
-          settlement_item_version_id: item.id,
-          reconciled_cost_fen: integer(source.reconciled_cost_fen, "核对实际费用"),
-          reconciled_settlement_fen: integer(source.reconciled_settlement_fen, "核对结算金额"),
-          is_final: input.status === "voided" ? 0 : input.is_final ? 1 : 0,
-          evidence: input.evidence || "",
-          actor_id: actor.id,
-          created_at: now(),
-          request_key: input.request_key || id(),
-        };
-        repo.appendReconciliation(row);
-        return row;
-      });
-    },
+    reconciliation,
     reconciliations(projectId?: string, includeDeleted = false) {
       return repo.projectReconciliations(projectId, includeDeleted);
     },
@@ -764,7 +831,7 @@ export function createFinance(
         requireValue(!blocked, blocked, 409);
         expectedVersion(current.version_no, input.expected_version);
         if (current.status === "active")
-          this.reconciliation(actor, {
+          reconciliation(actor, {
             record_id: key,
             expected_version: current.version_no,
             status: "voided",
