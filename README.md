@@ -158,6 +158,8 @@ tests/
 - `dist/RELEASE-MANIFEST.json`、`dist/DEMO-RELEASE-MANIFEST.json`：各自实际 ZIP SHA-256 和宿主机验证记录。
 - `dist/FINAL-DELIVERY-REPORT.md`：双包基线一致、校验通过后生成的交付报告。
 - `dist/server`、`dist/web`：正式编译产物，非历史归档。
+
+Windows 离线包采用锁定版本的 esbuild 将后端和 ExcelJS 的运行依赖合并为 ESM 模块及共享块，不再分发散装 `node_modules`。保留原启动、初始化、备份、恢复和升级入口，以及 Schema113 SQL、前端资源和第三方许可。发布门禁要求每个 ZIP 不超过 400 个文件、独立重建后端产物哈希一致、实际解包登录及 Excel 导出/导入预检通过。开发环境仍使用原 TypeScript 编译产物，内网无需 npm/pnpm。
 - `test-results/release/`：逐次发布日志；隔离旧前端测试证据位于 `test-results/legacy/`。
 - `.build/toolchains`、`.build/windows-cache`：本地工具链及官方运行时下载缓存。发布与隔离测试的临时工作区自动清理。
 

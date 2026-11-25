@@ -5,7 +5,9 @@ import {
   naturalTowerSortKey, naturalRelatedTowerSortKey,
 } from "../shared/natural-tower-sort.js";
 
-const canonicalSql = readFileSync(new URL("./schema/schema113.sql", import.meta.url), "utf8");
+import { projectRoot } from "../platform/paths.js";
+
+const canonicalSql = readFileSync(resolve(projectRoot, "dist/server/database/schema/schema113.sql"), "utf8");
 let expectedStructure: string | undefined;
 
 function structure(connection: DatabaseSync): string {
@@ -44,7 +46,7 @@ export interface Database {
 }
 
 export function openDatabase(
-  dataDir = process.env.DATA_DIR || resolve(import.meta.dirname, "../../../data"),
+  dataDir = process.env.DATA_DIR || resolve(projectRoot, "data"),
 ): Database {
   const directory = resolve(dataDir);
   mkdirSync(directory, { recursive: true });

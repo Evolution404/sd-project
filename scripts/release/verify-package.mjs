@@ -13,6 +13,7 @@ import { createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
+import { verifyCompactServer, verifyWorkbookRoundtrip } from "./verify-compact-server.mjs";
 requireNode24();
 const root = resolve(import.meta.dirname, "../.."),
   releaseOutput = process.env.SD_RELEASE_OUTPUT_DIR || join(root,"dist"),
@@ -121,10 +122,7 @@ assert.ok(manifest.deployment_artifact_sha256["一键升级.cmd"]);
 assert.ok(manifest.deployment_artifact_sha256["恢复业务数据.cmd"]);
 for (const [path, digest] of Object.entries(manifest.server_source_sha256))
   assert.equal(hash(join(root, path)), digest, "服务端源码与发布提交不一致 " + path);
-for (const [path, digest] of Object.entries(manifest.server_artifact_sha256)) {
-  assert.equal(hash(join(stage, "dist/server", path)), digest, "服务端产物不一致 " + path);
-  assert.equal(hash(join(root, "dist/server", path)), digest, "本地重建产物不一致 " + path);
-}
+await verifyCompactServer(root,stage,manifest,receipt);
 assert.ok(manifest.frontend_artifact_sha256["index.html"]);
 for (const [path, digest] of Object.entries(manifest.frontend_artifact_sha256)) {
   assert.equal(hash(join(stage, "dist/web", path)), digest, "前端产物不一致 " + path);
@@ -269,6 +267,7 @@ try {
     completion_standard: "安装牢固",
   });
   const tower = await write("/catalog/physical", { asset_no: "离线验收实物" });
+  await verifyWorkbookRoundtrip(base,{Cookie:cookie});
   const demand = await write("/demands", {
     operation_id: operation.id,
     problem_description: "生产包临时隔离验收事实",
@@ -366,6 +365,8 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     backup_restore_restart: true,
     offline_upgrade_restart: true,
     initial_reference_data: true,
+    compact_server_reproducible: true,
+    excel_roundtrip: true,
     access_logs_rotation_restart: true,
   };
   writeFileSync(

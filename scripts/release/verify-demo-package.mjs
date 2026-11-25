@@ -7,6 +7,7 @@ import { spawnSync, spawn } from "node:child_process";
 import { createServer } from "node:net";
 import assert from "node:assert/strict";
 import { verifyPackageAccessLogs } from "./verify-access-logs.mjs";
+import { verifyCompactServer, verifyWorkbookRoundtrip } from "./verify-compact-server.mjs";
 import { DEMO_ACCOUNT, DEMO_PASSWORD } from "../demo/seed-demo.mjs";
 
 requireNode24();
@@ -71,8 +72,7 @@ z.extractall(out)
   assert.equal(digest(join(stage,"演示账号与部署说明.txt")),manifest.sample_credentials_sha256);
   assert.equal(digest(join(stage,"dist/web/index.html")),manifest.frontend_index_sha256);
   assert.equal(digest(join(stage,"dist/server/database/schema/schema113.sql")),manifest.schema_sha256);
-  for(const [name,sha] of Object.entries(manifest.server_artifact_sha256))
-    assert.equal(digest(join(stage,"dist/server",name)),sha,"server artifact "+name);
+  await verifyCompactServer(root,stage,manifest,receipt);
   assert.ok(manifest.frontend_artifact_sha256["index.html"]);
   for (const [name, sha] of Object.entries(manifest.frontend_artifact_sha256))
     assert.equal(digest(join(stage, "dist/web", name)), sha, "frontend artifact " + name);
@@ -138,6 +138,7 @@ z.extractall(out)
   assert.equal(account.role,"admin");
   const cookie=login.headers.get("set-cookie").split(";")[0];
   const headers={Cookie:cookie};
+  await verifyWorkbookRoundtrip(base,headers);
   const projects=await fetch(base+"/api/projects",{headers});
   assert.equal(projects.status,200);
   assert.ok((await projects.json()).items.length>=2);
@@ -174,6 +175,7 @@ z.extractall(out)
     verified_at: new Date().toISOString(), os: process.platform, node: process.version,
     actual_zip_extracted: true, fixed_demo_credentials: true,
     restart_persistence: true, access_logs_rotation_restart: true,
+    compact_server_reproducible: true, excel_roundtrip: true,
   };
   writeFileSync(join(releaseOutput,"DEMO-RELEASE-MANIFEST.json"), JSON.stringify(receipt,null,2) + "\n");
   console.log("DEMO_PACKAGE_VERIFIED fixed demo credentials, zip SHA, Windows x64 Node24, no dev deps, authenticated login, wrong-password rejection, demo facts, IP policy, restart persistence");

@@ -1,7 +1,7 @@
 import { sourceSnapshot as captureSourceSnapshot, requireNode24 } from "./source-snapshot.mjs";
+import { buildCompactServer } from "./compact-server.mjs";
 import {
   mkdirSync,
-  mkdtempSync,
   rmSync,
   existsSync,
   copyFileSync,
@@ -109,7 +109,11 @@ writeFileSync(runtime, shell.stdout);
 if (statSync(runtime).size < 20000000)
   throw Error("Windows runtime binary unusually small");
 cpSync(frontend, join(stage, "dist", "web"), { recursive: true });
-cpSync(join(root, "dist/server"), join(stage, "dist/server"), { recursive: true });
+const serverBundle = await buildCompactServer(root, join(stage, "dist/server"));
+console.log("COMPACT_SERVER_BUILT", JSON.stringify(serverBundle));
+const nodeLicense = spawnSync("unzip", ["-p", nodeZip, `node-${version}-win-x64/LICENSE`], { encoding: null, maxBuffer: 8 * 1024 * 1024 });
+if (nodeLicense.status !== 0 || !nodeLicense.stdout?.length) throw Error("缺少 Node.js 运行时许可");
+writeFileSync(join(stage, "runtime/LICENSE.txt"), nodeLicense.stdout);
 mkdirSync(join(stage, "scripts"), { recursive: true });
 for (const [src, dest] of [
   ["scripts/init-admin.mjs", "scripts/init-admin.mjs"],
@@ -181,30 +185,6 @@ for (const f of [
 }
 for (const f of ["pnpm-lock.yaml", "pnpm-workspace.yaml"])
   copyFileSync(join(root, f), join(stage, f));
-console.log("Installing locked production dependencies in isolated staging");
-const dependencyRoot = mkdtempSync(join(root, ".build", "windows-prod-deps-"));
-try {
-  const source = join(dependencyRoot, "source");
-  const portable = join(dependencyRoot, "portable");
-  mkdirSync(join(source, "web"), { recursive: true });
-  for (const path of ["pnpm-lock.yaml", "pnpm-workspace.yaml", "web/package.json"])
-    copyFileSync(join(root, path), join(source, path));
-  const dependencies = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  writeFileSync(join(source, "package.json"), JSON.stringify({ ...dependencies, files: ["package.json"] }));
-  const pnpm = spawnSync(process.execPath, [
-    pnpmCli, "--filter", "sd-project", "--config.node-linker=hoisted",
-    "deploy", "--prod", "--no-optional", "--ignore-scripts", portable,
-  ], { cwd: source, stdio: "inherit" });
-  if (pnpm.status !== 0) throw Error("隔离生产依赖安装失败");
-  const portableModules = join(portable, "node_modules");
-  const metadata = new Set([".bin", ".pnpm", ".modules.yaml", ".pnpm-workspace-state-v1.json"]);
-  cpSync(portableModules, join(stage, "node_modules"), {
-    recursive: true,
-    filter: path => !metadata.has(path.slice(portableModules.length + 1)),
-  });
-} finally {
-  rmSync(dependencyRoot, { recursive: true, force: true });
-}
 if (demoMode) {
   // The LAN demonstration package always has the same documented credentials.
   // It never creates or modifies an account in the production package.
@@ -288,6 +268,8 @@ const manifest = {
   build_input_files_sha256: capturedInputs.files,
   entrypoint: "dist/server/main.js",
   server_source_sha256: sourceHashes,
+  server_bundle: serverBundle,
+  runtime_license_sha256: digestFile(join(stage,"runtime/LICENSE.txt")),
   server_artifact_sha256: artifactHashes(join(stage, "dist/server")),
   frontend_artifact_sha256: artifactHashes(join(stage, "dist/web")),
   git_commit: gitCommit,
@@ -329,9 +311,13 @@ z=zipfile.ZipFile(sys.argv[1]);bad=z.testzip();assert bad is None,bad
 files=set(z.namelist())
 need={'runtime/node.exe','启动服务.cmd','dist/server/main.js','dist/server/database/connection.js','dist/server/database/schema/schema113.sql','dist/server/modules/exchange/service.js','dist/web/index.html','BUILD-MANIFEST.json'}
 assert need.issubset(files),str(need-files)
+assert not any(x.startswith('node_modules/') for x in files)
+assert {'runtime/LICENSE.txt','dist/server/THIRD-PARTY-NOTICES.txt'}.issubset(files)
+assert len(files)<=400,('compact package exceeded 400-file budget',len(files))
 assert all(x<128 for x in z.read('启动服务.cmd'))
 assert b'DATA_DIR=%~dp0data' in z.read('启动服务.cmd')
 manifest=json.loads(z.read('BUILD-MANIFEST.json'))
+assert manifest['server_bundle']['format']=='esbuild-esm-split-v1'
 if manifest['package_mode']=='demo':
  assert {'data/schema113.sqlite','data/DEMO-DATA.json','启动演示服务.cmd','演示账号与部署说明.txt'}.issubset(files)
  assert '初始化管理员.cmd' not in files
@@ -373,6 +359,8 @@ const release = {
   sha256: digestFile(zipPath),
   runtime: version,
   schema_version: 113,
+  server_bundle: serverBundle,
+  file_count: Number(check.stdout.trim().match(/ZIP_OK files: (\d+)/)?.[1]),
   windows_machine_verified: false,
 };
 writeFileSync(
