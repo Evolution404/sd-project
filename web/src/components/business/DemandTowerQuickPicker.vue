@@ -10,7 +10,7 @@
       </el-form-item>
       <el-form-item :label="kind==='span'?'档距端点清单':'杆号清单或连续区间'" required>
         <el-input v-model="input" type="textarea" :rows="4"
-          :placeholder="kind==='span'?'12~13、13~14':'12、13、18-25'" @input="reset"/>
+          :placeholder="kind==='span'?'12~13、13~14':'12、13、18-25、1786+1、1786-1'" @input="reset"/>
       </el-form-item>
       <div class="business-control-row mb-3">
         <el-button type="primary" :disabled="!lineId||!input.trim()" :loading="busy" @click="match">匹配并选择</el-button>
@@ -55,8 +55,8 @@ async function match(){
   if(!line||!raw.trim())return;
   busy.value=true;
   try{
-    const tokens=kind==="span"?raw.split(/[\s,，、;；]+/).filter(Boolean):parseTowerList(raw);
-    if(tokens.length>5000)throw Error("单次清单最多5000项");
+    const rawTokens=raw.split(/[\s,，、;；]+/).filter(Boolean);
+    if(rawTokens.length>5000)throw Error("单次清单最多5000项");
     const catalog:EquipmentKind=kind==="physical_tower"?"physical":kind==="logical_tower"?"towers":"spans";
     const candidates:EquipmentRow[]=[];
     for(let page=1;;page++){
@@ -77,6 +77,7 @@ async function match(){
         const records=index.get(key)??new Map<string,EquipmentRow>();records.set(row.id,row);index.set(key,records);
       }
     }
+    const tokens=kind==="span"?rawTokens:parseTowerList(raw,index.keys());
     const seen=new Set<string>(),chosen=new Map<string,EquipmentRow>(),report:{number:string;result:string}[]=[];
     for(const number of tokens){
       const matches=[...(index.get(number)?.values()??[])];

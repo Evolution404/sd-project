@@ -21,6 +21,30 @@ const corridorOp=save("operations",{name:"批选通道测试操作",work_object_
 const spans=logical.slice(0,2).map((tower,index)=>save("spans",{line_id:lineA.id,start_tower_id:tower.id,end_tower_id:logical[index+1].id,status:"active"}));
 save("towers",{line_id:lineB.id,tower_no:"15",physical_mode:"shared",physical_tower_id:physical[1].id});
 save("towers",{line_id:lineB.id,tower_no:"17"});
+// Inserted towers are independent identities and may have either sign.
+for(const no of ["1786","1786+1","1786-1","1787","1787-1"]){
+  const tower=save("physical",{asset_no:"QA-insertion-"+no});
+  save("towers",{line_id:lineA.id,tower_no:no,physical_mode:"shared",physical_tower_id:tower.id});
+}
+save("towers",{line_id:lineB.id,tower_no:"1786+2"});
+async function checkInserted(picker){
+  const input=picker.getByRole("textbox",{name:"杆号清单或连续区间"});
+  for(const [query,count,expected,excluded] of [
+    ["1786-1786",1,["1786"],["1786+1","1786-1","1787"]],
+    ["1786-1787",4,["1786","1786+1","1786-1","1787"],["1787-1","1786+2"]],
+    ["1786+1、1786-1",2,["1786+1","1786-1"],["1786","1787"]],
+  ]){
+    await input.fill(query);
+    await picker.getByRole("button",{name:"匹配并选择",exact:true}).click();
+    await picker.getByRole("button",{name:`添加所选位置（${count}）`,exact:true}).waitFor({timeout:8000});
+    for(const no of expected) {
+      const row=picker.getByRole("cell",{name:no,exact:true}).locator("..");
+      await row.getByRole("cell",{name:"匹配成功",exact:true}).waitFor();
+    }
+    for(const no of excluded)assert.equal(await picker.getByRole("cell",{name:no,exact:true}).count(),0,no);
+  }
+}
+
 const backend=httpServer(s,{staticDirectory:resolve(process.env.SD_BROWSER_STATIC_DIRECTORY||"dist/web")});
 await new Promise(ok=>backend.listen(0,"127.0.0.1",ok));
 const base="http://127.0.0.1:"+backend.address().port;
@@ -75,6 +99,7 @@ try{
     const dialog=page.getByRole("dialog",{name:"按杆号快速选择"});
     await dialog.getByRole("combobox",{name:"所属线路"}).fill(lineA.name);
     await page.getByRole("option",{name:lineA.name,exact:true}).click();
+    await checkInserted(dialog);
     await dialog.getByRole("textbox",{name:"杆号清单或连续区间"}).fill("15-17、15、999");
     await dialog.getByRole("button",{name:"匹配并选择",exact:true}).click();
     await dialog.getByText("成功匹配 3 处；现有 0 处，最多5000处",{exact:true}).waitFor();
@@ -119,6 +144,15 @@ try{
       await picker.waitFor({state:"hidden"});
     }
     await quickMatch("15-17","杆号清单或连续区间",3);
+    await page.getByRole("button",{name:"按杆号快速选择",exact:true}).click();
+    const insertionPicker=page.getByRole("dialog",{name:"按杆号快速选择"});
+    await insertionPicker.getByRole("combobox",{name:"所属线路"}).fill(lineA.name);
+    await page.getByRole("option",{name:lineA.name,exact:true}).click();
+    await checkInserted(insertionPicker);
+    await insertionPicker.getByRole("button",{name:"取消",exact:true}).click();
+    await insertionPicker.waitFor({state:"hidden"});
+    console.log("INSERTED_TOWER_RANGE_OK",colorScheme,"physical and logical, closed endpoint, both signs, exact identity and line scope");
+
     await page.locator('[data-demand-section="positions"] .business-control-row .el-select').click();
     await page.getByRole("option",{name:"档距",exact:true}).click();
     await quickMatch("15~16、16~17","档距端点清单",2);
