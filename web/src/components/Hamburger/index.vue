@@ -1,7 +1,7 @@
 <template>
-  <div class="hamburger-wrapper" @click="toggleClick">
+  <button type="button" class="hamburger-wrapper" :aria-expanded="isActive" :aria-label="isActive ? '收起导航' : '展开导航'" @click="toggleClick">
     <div :class="['i-svg:collapse', { hamburger: true, 'is-active': isActive }, hamburgerClass]" />
-  </div>
+  </button>
 </template>
 
 <script setup lang="ts">
@@ -54,6 +54,8 @@ function toggleClick() {
   width: 48px;
   height: 100%;
   padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--el-text-color-regular);
   cursor: pointer;
 

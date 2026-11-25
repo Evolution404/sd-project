@@ -11,11 +11,10 @@ const selected = process.argv.slice(2).filter(argument => argument.startsWith("-
 const governanceSuites = new Set([
   "governance-write-retry-browser.mjs", "finance-cross-page-choices-browser.mjs", "project-browser.mjs",
 ]);
-const legacyUpstreamTest = "youlai-desktop-browser.mjs";
 const files = readdirSync(directory).filter(file => {
   if (!/^(?:browser|.+-browser)\.mjs$/.test(file)) return false;
   if (governance && !governanceSuites.has(file)) return false;
-  const formal = file.startsWith("youlai-") && file !== legacyUpstreamTest;
+  const formal = file.startsWith("youlai-");
   return legacy ? !formal : formal;
 }).sort();
 if (!files.length) throw Error("没有找到浏览器验收用例");
