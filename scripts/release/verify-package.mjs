@@ -349,11 +349,11 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   const duplicate=spawnSync(processExec,[join(upgraded,"dist/server/main.js")],{
     env:{...env,DATA_DIR:data,PORT:String(port+1),SD_MANAGED_SHUTDOWN:"1"},encoding:"utf8",timeout:10000});
   assert.notEqual(duplicate.status,0);
-  assert.match(duplicate.stderr,/占用|受管服务记录/);
+  assert.match(duplicate.stderr,/正在运行的实例|仍在使用/);
   const busyBackup=spawnSync(processExec,[join(upgraded,"scripts/backup.mjs")],{
     env:{...env,DATA_DIR:data},encoding:"utf8",timeout:10000});
   assert.notEqual(busyBackup.status,0);
-  assert.match(busyBackup.stderr,/占用|受管服务记录/);
+  assert.match(busyBackup.stderr,/正在运行的实例|仍在使用/);
   const oldExited=new Promise(resolve=>server.once("exit",resolve));
   const shutdown=spawnSync(processExec,[join(upgraded,"scripts/dataset.mjs"),"stop"],{
     env:{...env,DATA_DIR:data},cwd:upgraded,encoding:"utf8",timeout:45000});
@@ -375,6 +375,26 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   assert.equal(await upgradedFile.text(),"release-evidence");
   assert.deepEqual((await catalog("voltages")).map(v=>v.name).sort(),volts.map(v=>v.name).sort());
   console.log("EXTERNAL_DATASET_SWITCH_OK same directory, accounts, sessions, demand, attachment and reference data; duplicate server rejected");
+  const crashed=new Promise(resolve=>server.once("exit",(_code,signal)=>resolve(signal)));
+  server.kill("SIGKILL");
+  assert.equal(await crashed,"SIGKILL");
+  assert.ok(existsSync(join(data,".sd-dataset.lock")));
+  assert.ok(existsSync(join(data,".sd-running-"+port)));
+  server=launch(data,upgraded);
+  await ready();
+  const afterCrash=await fetch(base+"/api/demands/"+demand.id,{headers:logHeaders});
+  assert.equal(afterCrash.status,200);
+  assert.equal((await afterCrash.json()).quantity_scaled,10000);
+  await stop();
+  assert.equal(existsSync(join(data,".sd-dataset.lock")),false);
+  // Reproduce the old nonce-only marker left by a forcibly closed older release.
+  writeFileSync(join(data,".sd-running-"+port),"a".repeat(48));
+  server=launch(data,upgraded);
+  await ready();
+  assert.equal((await fetch(base+"/api/demands/"+demand.id,{headers:logHeaders})).status,200);
+  await stop();
+  assert.equal(existsSync(join(data,".sd-running-"+port)),false);
+  console.log("FORCED_CLOSE_RECOVERY_OK OS lock released, old markers recovered, original business facts retained");
   receipt.host_verification = {
     verified_at: new Date().toISOString(),
     os: process.platform,
@@ -386,6 +406,8 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     external_dataset_switch: true,
     explicit_dataset_required: true,
     duplicate_dataset_rejected: true,
+    forced_close_recovery: true,
+    legacy_marker_recovery: true,
     initial_reference_data: true,
     compact_server_reproducible: true,
     excel_roundtrip: true,

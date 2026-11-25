@@ -2,6 +2,10 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSy
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { projectRoot } from "../paths.js";
 import { assertExistingDatabase } from "../../database/connection.js";
+import { acquireRuntimeMutex } from "../../database/runtime-mutex.js";
+import { execFileSync } from "node:child_process";
+import { createConnection } from "node:net";
+import { setTimeout as wait } from "node:timers/promises";
 
 export function packagedMode(): string | undefined {
   const manifest = join(projectRoot, "BUILD-MANIFEST.json");
@@ -60,30 +64,125 @@ export function selectedDataset(input = process.env.DATA_DIR, allowTraining = fa
   return directory;
 }
 
-/** Exclusive per dataset, independent of program version and port. Fail closed
- * on an unclean exit; never guess a stale lock is safe to remove. */
-export function acquireDataset(directory: string, port?: number): () => void {
-  const lock = join(directory,".sd-dataset.lock");
-  if (readdirSync(directory).some(name=>/^\.sd-running-\d+$/.test(name)))
-    throw Error("数据目录存在受管服务记录，请先停止旧服务");
-  try { mkdirSync(lock, {mode:0o700}); }
+export function processAlive(pid: unknown): boolean {
+  if (!Number.isSafeInteger(pid) || Number(pid) <= 0) return false;
+  try { process.kill(Number(pid), 0); return true; }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "EEXIST")
-      throw Error("数据目录已被占用或上次未正常退出，请先确认所有服务停止，再检查 .sd-dataset.lock");
+    if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+    return true; // Access denied is not evidence that a process is dead.
+  }
+}
+
+async function portAvailable(port: number): Promise<boolean> {
+  // Probe loopback only; VPN virtual interfaces can accept arbitrary ports.
+  const probe=(host:string)=>new Promise<boolean>(resolve=>{
+    const socket=createConnection({host,port});
+    const done=(free:boolean)=>{socket.destroy();resolve(free)};
+    socket.once("connect",()=>done(false));
+    socket.once("error",(error:NodeJS.ErrnoException)=>done(["ECONNREFUSED","EAFNOSUPPORT","EADDRNOTAVAIL","ENETUNREACH","EHOSTUNREACH","EPROTONOSUPPORT"].includes(error.code||"")));
+    socket.setTimeout(500,()=>done(false));
+  });
+  if(!(await Promise.all(["127.0.0.1","::1"].map(probe))).every(Boolean))return false;
+  // Inspect the OS listener table, not arbitrary interfaces (VPNs and TCP
+  // TIME_WAIT can make connect/bind probes report false positives).
+  if(process.platform==="win32"){
+    const rows=execFileSync("netstat.exe",["-ano"],{encoding:"utf8",timeout:10000,windowsHide:true});
+    return !rows.split(/\r?\n/).some(line=>{
+      const fields=line.trim().split(/\s+/);
+      return fields[0]==="TCP" && fields[1]?.endsWith(":"+port) &&
+        /:0$/.test(fields[2]||""); // wildcard remote endpoint: listening socket
+    });
+  }
+  if(process.platform==="darwin"){
+    const rows=execFileSync("/usr/sbin/netstat",["-an","-p","tcp"],{encoding:"utf8",timeout:10000});
+    return !rows.split(/\r?\n/).some(line=>{
+      const fields=line.trim().split(/\s+/);
+      return /^tcp[46]?$/.test(fields[0]||"") && fields[3]?.endsWith("."+port) && fields.includes("LISTEN");
+    });
+  }
+  if(process.platform==="linux"){
+    const wanted=port.toString(16).toUpperCase().padStart(4,"0");
+    return !["/proc/net/tcp","/proc/net/tcp6"].some(path=>existsSync(path) &&
+      readFileSync(path,"utf8").split("\n").some(line=>{
+        const fields=line.trim().split(/\s+/);
+        return fields[1]?.endsWith(":"+wanted) && fields[3]==="0A";
+      }));
+  }
+  throw Error("无法检查当前系统的旧服务监听状态");
+}
+
+function legacyOwner(lock: string): {pid?:number; port?:number; os_lock?:number} | undefined {
+  const owner = join(lock,"owner.json");
+  if (!existsSync(owner)) return undefined;
+  if (!lstatSync(owner).isFile()) throw Error("旧服务状态文件无效");
+  try { return JSON.parse(readFileSync(owner,"utf8")); }
+  catch { throw Error("旧服务状态文件损坏，无法确认旧版实例状态"); }
+}
+
+/** The OS lock is authoritative for all new versions. The old directory and
+ * port markers are only compatibility records; recover them after verifying
+ * that an older instance is no longer running. */
+export async function acquireDataset(directory: string, port?: number): Promise<() => void> {
+  const unlock = acquireRuntimeMutex(directory);
+  const lock = join(directory,".sd-dataset.lock");
+  let ownsCompatibilityLock = false;
+  try {
+    assertExistingDatabase(directory);
+    if (existsSync(lock)) {
+      if (!lstatSync(lock).isDirectory()) throw Error("旧服务状态目录无效");
+      let old = legacyOwner(lock);
+      // An older launcher creates the directory immediately before its owner
+      // file. Give an in-progress launch a short chance to finish publishing.
+      if (!old) {
+        await wait(1000);
+        old = legacyOwner(lock);
+      }
+      if (old?.os_lock !== 1 && old && processAlive(old.pid))
+        throw Error("该数据目录仍由旧版服务或维护任务使用，请先停止该实例");
+      // If this record belongs to a new version, obtaining the OS mutex proves
+      // it has exited; a reused PID must not prevent restart.
+      const names = readdirSync(lock);
+      if (names.some(name => name !== "owner.json"))
+        throw Error("旧服务状态目录包含未知文件，未自动清理");
+      if (existsSync(join(lock,"owner.json"))) unlinkSync(join(lock,"owner.json"));
+      rmdirSync(lock);
+    }
+    // Keep the compatibility record so the immediately previous release also
+    // refuses a second connection. The OS lock serializes all new launchers.
+    mkdirSync(lock,{mode:0o700});
+    ownsCompatibilityLock = true;
+    writeFileSync(join(lock,"owner.json"),JSON.stringify({pid:process.pid,port:port??null,started_at:new Date().toISOString(),program:projectRoot,os_lock:1})+"\n",{flag:"wx",mode:0o600});
+    for (const name of readdirSync(directory)) {
+      const match = /^\.sd-running-(\d+)$/.exec(name);
+      if (!match) continue;
+      const oldPort = Number(match[1]);
+      if (!Number.isSafeInteger(oldPort) || oldPort<1 || oldPort>65535) continue;
+      if (!await portAvailable(oldPort))
+        throw Error("旧服务记录对应的端口 "+oldPort+" 仍在使用，请先停止实际运行的服务");
+      // The old port has no listener. This is a stale control record, not data.
+      const marker=join(directory,name);
+      if (existsSync(marker) && lstatSync(marker).isFile()) unlinkSync(marker);
+      for(const pending of readdirSync(directory))
+        if(new RegExp("^\\.sd-stop-"+oldPort+"-[a-f0-9]{48}$").test(pending) && lstatSync(join(directory,pending)).isFile())
+          unlinkSync(join(directory,pending));
+    }
+    let released=false;
+    return () => {
+      if(released)return;
+      released=true;
+      try {
+        unlinkSync(join(lock,"owner.json"));
+        rmdirSync(lock);
+      } finally { unlock(); }
+    };
+  } catch(error) {
+    try {
+      if(ownsCompatibilityLock){
+        const owner=join(lock,"owner.json");
+        if(existsSync(owner))unlinkSync(owner);
+        rmdirSync(lock);
+      }
+    } finally { unlock(); }
     throw error;
   }
-  const owner=join(lock,"owner.json");
-  let released=false;
-  const release=()=>{
-    if(released)return;
-    released=true;
-    if(existsSync(owner))unlinkSync(owner);
-    rmdirSync(lock);
-  };
-  try {
-    writeFileSync(owner, JSON.stringify({pid:process.pid,port:port??null,started_at:new Date().toISOString(),program:projectRoot})+"\n",{flag:"wx",mode:0o600});
-    // Existing schema is checked read-only before createSystem can initialize.
-    assertExistingDatabase(directory);
-    return release;
-  } catch(error) { release(); throw error; }
 }

@@ -122,7 +122,7 @@ try {
     $unmanaged.Start()
     try {
         $env:DATA_DIR = $data
-        Invoke-PackageCommand $nextRoot '停止服务.cmd' $false
+        Invoke-PackageCommand $nextRoot '停止服务.cmd' $true
         Assert-True ($unmanaged.Server.IsBound) 'Stop affected an unmanaged listener.'
     } finally { $unmanaged.Stop() }
     Remove-Item Env:\DATA_DIR
@@ -183,10 +183,34 @@ try {
     Assert-True ($script:server.WaitForExit(10000)) 'Replacement program did not stop.'
     $script:server = $null
 
+    # Abruptly terminate the actual Windows CMD / Node process tree.
+    $crashBase = Start-Package $nextRoot '启动服务.cmd' $port
+    $owner = Read-Manifest (Join-Path $data '.sd-dataset.lock/owner.json')
+    Stop-Package
+    $nodeProcess = Get-Process -Id $owner.pid -ErrorAction SilentlyContinue
+    if ($nodeProcess) { $nodeProcess.WaitForExit(10000) | Out-Null }
+    Assert-True (!(Get-Process -Id $owner.pid -ErrorAction SilentlyContinue)) 'Node process did not exit after forced close.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $data '.sd-dataset.lock')) 'Force-close test did not leave the old control record.'
+    $restartBase = Start-Package $nextRoot '启动服务.cmd' $port
+    $restartSession = Get-Session $restartBase $account $password
+    $facts = Invoke-RestMethod -Uri "$restartBase/api/catalog/physical" -WebSession $restartSession
+    Assert-True ($facts.items.id -contains $tower.id) 'Force-close restart lost a tower.'
+    Invoke-PackageCommand $nextRoot '停止服务.cmd' $true
+    Assert-True ($script:server.WaitForExit(10000)) 'Restarted service did not stop.'
+    $script:server = $null
+    [System.IO.File]::WriteAllText((Join-Path $data ('.sd-running-' + $port)),('a' * 48))
+    $legacyBase = Start-Package $nextRoot '启动服务.cmd' $port
+    $legacySession = Get-Session $legacyBase $account $password
+    Invoke-RestMethod -Uri "$legacyBase/api/dashboard" -WebSession $legacySession | Out-Null
+    Invoke-PackageCommand $nextRoot '停止服务.cmd' $true
+    Assert-True ($script:server.WaitForExit(10000)) 'Legacy marker recovery service did not stop.'
+    $script:server = $null
+    Assert-True (!(Test-Path -LiteralPath (Join-Path $data ('.sd-running-' + $port)))) 'Old marker remained after recovery.'
+
     $demoBase = Start-Package $demoRoot '启动演示服务.cmd' (Get-FreePort)
     $demoSession = Get-Session $demoBase 'demo' 'demo'
     Invoke-RestMethod -Uri "$demoBase/api/dashboard" -WebSession $demoSession | Out-Null
-    Write-Output 'WINDOWS_PACKAGE_VERIFIED bundled Node, CMD and PowerShell, explicit datasets, duplicate lock, permissions, backup, restore, replacement without data migration, and synthetic demo'
+    Write-Output 'WINDOWS_PACKAGE_VERIFIED bundled Node, CMD and PowerShell, explicit datasets, duplicate lock, permissions, backup, restore, replacement without data migration, forced-close recovery, legacy marker recovery, and synthetic demo'
 } finally {
     Stop-Package
     foreach ($name in @('SD_ADMIN_USER', 'SD_ADMIN_PASSWORD', 'DATA_DIR', 'HOST', 'PORT', 'SD_TEST_LAUNCHER', 'SD_NEW_DATA_DIR', 'SD_RESTORE_TARGET_DIR', 'SD_RESTORE_BACKUP_DIR')) {

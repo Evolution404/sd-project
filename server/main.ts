@@ -10,7 +10,7 @@ const formal = packagedMode() === "production";
 const managed = formal || process.env.SD_MANAGED_SHUTDOWN === "1";
 if (managed && process.env.DATA_DIR) assertInstallationAvailable(resolve(process.env.DATA_DIR));
 const dataDirectory = formal ? selectedDataset(process.env.DATA_DIR, true) : undefined;
-const releaseDataset = dataDirectory ? acquireDataset(dataDirectory, port) : undefined;
+const releaseDataset = dataDirectory ? await acquireDataset(dataDirectory, port) : undefined;
 const system = (() => {
   try { return createSystem(dataDirectory); }
   catch (error) { releaseDataset?.(); throw error; }

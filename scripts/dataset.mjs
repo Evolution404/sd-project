@@ -1,4 +1,4 @@
-import { selectedDataset } from "../dist/server/platform/runtime/dataset.js";
+import { selectedDataset, acquireDataset, processAlive } from "../dist/server/platform/runtime/dataset.js";
 import { assertExistingDatabase } from "../dist/server/database/connection.js";
 import { requestManagedShutdown } from "../dist/server/platform/runtime/managed-shutdown.js";
 import { existsSync,readFileSync } from "node:fs";
@@ -11,8 +11,17 @@ if(action==="validate"){
   console.log("DATASET_OK",directory);
 }else if(action==="stop"){
   const lock=join(directory,".sd-dataset.lock");
-  if(!existsSync(lock))throw Error("所选数据目录没有新版本受管服务，请核实旧版服务并手动关闭");
-  const owner=JSON.parse(readFileSync(join(lock,"owner.json"),"utf8"));
+  const ownerPath=join(lock,"owner.json");
+  try {
+    const release=await acquireDataset(directory);
+    release();
+    console.log("DATASET_STOPPED",directory,"服务已停止");
+    process.exit(0);
+  } catch(error) {
+    if(!/正在运行的实例|仍由旧版服务/.test(error.message))throw error;
+  }
+  const owner=existsSync(ownerPath)?JSON.parse(readFileSync(ownerPath,"utf8")):undefined;
+  if(!owner || !processAlive(owner.pid))throw Error("数据集正由其他实例启动或维护，请稍后重试");
   if(!Number.isInteger(owner.port)||owner.port<1||owner.port>65535)throw Error("该目录正由非服务维护任务使用");
   await requestManagedShutdown(directory,owner.port);
   const deadline=Date.now()+5000;
