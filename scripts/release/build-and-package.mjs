@@ -34,10 +34,10 @@ try {
   const env={...process.env,SD_BUILD_INPUT_SHA256:snapshot,SD_BUILD_GIT_COMMIT:head,SD_PNPM_CLI:pnpm,SD_RELEASE_OUTPUT_DIR:receiptDir};
   delete env.SD_FINAL_GATE_LOG;
   function line(value){console.log(value);log.write(value+"\n")}
-  function run(label,argv,extraEnv={}){
+  function run(label,argv,extraEnv={},executable=process.execPath){
     line("RELEASE_STEP_START "+label);
     return new Promise((done,reject)=>{
-      const child=spawn(process.execPath,argv,{cwd:root,env:{...env,...extraEnv},stdio:["ignore","pipe","pipe"]});
+      const child=spawn(executable,argv,{cwd:root,env:{...env,...extraEnv},stdio:["ignore","pipe","pipe"]});
       child.stdout.on("data",chunk=>{process.stdout.write(chunk);log.write(chunk)});
       child.stderr.on("data",chunk=>{process.stderr.write(chunk);log.write(chunk)});
       child.on("error",reject);
@@ -47,11 +47,15 @@ try {
   const script=(name,extraEnv)=>run(name,[pnpm,"run",name],extraEnv);
   const stable=()=>{if(git("rev-parse","HEAD")!==head||sourceSnapshot(root).sha256!==snapshot||full&&git("status","--porcelain"))throw Error("发布输入已变化，保留上一版产物");};
   if(full){
+    await run("check:public-source", [join(root,"scripts/check-public-source.py")], {},
+      process.platform==="win32" ? "python" : "python3");
     await script("check");
+    await script("check:ui:strict");
     await script("check:schema");
     await run("test:performance",["--test",...await import("node:fs/promises").then(fs=>fs.readdir(join(root,"tests/performance"))).then(files=>files.filter(f=>f.endsWith(".bench.mjs")).map(f=>join(root,"tests/performance",f)))]);
     await run("test:browser",[join(root,"tests/run-browser-suites.mjs")]);
     await script("test:browser:legacy");
+    await script("test:browser:governance");
     await run("test:worksheet:scale",[join(root,"tests/e2e/youlai-worksheet-scale-probe.mjs")]);
     await run("test:worksheet:layout",[join(root,"tests/e2e/youlai-worksheet-layout-probe.mjs")]);
     await run("test:worksheet:disposal",[join(root,"tests/e2e/youlai-worksheet-disposal-probe.mjs")]);

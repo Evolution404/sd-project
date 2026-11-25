@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { requireNode24, sourceSnapshot } from "./release/source-snapshot.mjs";
 import { checkFrontendBudget } from "./release/check-frontend-budget.mjs";
@@ -23,4 +24,14 @@ const result = spawnSync(process.execPath, [pnpm, "--dir", "web", "run", "build"
   },
 });
 process.exitCode = result.status ?? 1;
-if (process.exitCode === 0) checkFrontendBudget(resolve(root, "dist/web"));
+if (process.exitCode === 0) {
+  const output = resolve(root, "dist/web");
+  const manifestPath = resolve(output, ".vite/manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  // This metadata is serialized by Vite plugins. Use a stable key order
+  // without reordering CSS, assets or executable dependency lists.
+  const ordered = value => Array.isArray(value) ? value.map(ordered) :
+    value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])])) : value;
+  writeFileSync(manifestPath, JSON.stringify(ordered(manifest), null, 2) + "\n");
+  checkFrontendBudget(output);
+}
