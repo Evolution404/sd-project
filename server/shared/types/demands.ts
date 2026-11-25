@@ -170,7 +170,6 @@ export type DemandDisplayStatus = "待确认" | "已退回" | "待承接" | "已
 export interface DemandListItem extends DemandCurrentRow, Omit<NormalizedDemand, "materials"> {
   /** Derived at query time, never stored separately from lifecycle and project binding. */
   display_status: DemandDisplayStatus;
-  line_summary?: string;
   line_count?: number;
   project_name?: string | null;
   last_handled_at?: string;

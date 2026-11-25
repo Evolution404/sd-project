@@ -44,6 +44,9 @@ try{
  await picker.locator(".el-pagination .btn-next").click();
  const second=await (await next).json();assert.equal(second.total,265);
  const secondRow=second.items[0];
+ assert.equal(typeof secondRow.line_count,"number");
+ assert.equal(Object.hasOwn(secondRow,"line_summary"),false);
+ assert.equal(Object.hasOwn(secondRow,"line_names_json"),false);
  await picker.getByRole("row").filter({hasText:secondRow.demand_no}).locator("label.el-checkbox").click();
  await picker.getByRole("button",{name:"关联已选完整需求（2）",exact:true}).waitFor();
  await page.screenshot({path:join(shots,"demand-page2-selection.png"),animations:"disabled"});

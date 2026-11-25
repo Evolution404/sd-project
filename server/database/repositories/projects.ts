@@ -31,7 +31,6 @@ export interface ProjectScopeProjection extends Omit<ScopeDemandContent, "work_l
   demand_status: string;
   demand_display_status: DemandDisplayStatus;
   binding: CurrentProjectBinding | null;
-  line_summary: string;
   line_count: number;
   location_count: number;
 }
@@ -42,7 +41,7 @@ export interface ProjectScopeMaterialLink {
   material_id: string;
   created_at: string;
 }
-interface ScopeRow extends Omit<ProjectScopeProjection, keyof ScopeDemandContent | "binding" | "line_summary" | "line_count" | "location_count"> {
+interface ScopeRow extends Omit<ProjectScopeProjection, keyof ScopeDemandContent | "binding" | "line_count" | "location_count"> {
   full_definition_json: string;
   binding_json: string | null;
 }
@@ -258,7 +257,7 @@ export function projectReadRepository(store: Store) {
         const lines = new Set(work_locations.map(location => location.location_snapshot_json.line_name).filter(Boolean));
         return {
           ...scope, ...content,
-          line_summary: [...lines].join("、"), line_count: lines.size, location_count: work_locations.length,
+          line_count: lines.size, location_count: work_locations.length,
           binding: binding_json ? JSON.parse(binding_json) as CurrentProjectBinding : null,
         };
       });

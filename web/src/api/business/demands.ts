@@ -27,7 +27,7 @@ export interface DemandRow {
   operation_snapshot:string; unit_snapshot:string; work_object_snapshot:string;
   target_object:string; problem_description:string; completion_standard:string;
   quantity_scaled:number; remaining_quantity_scaled?:number;
-  location_count?:number; line_summary?:string; line_count?:number; project_name?:string|null;
+  location_count?:number; line_count?:number; project_name?:string|null;
   expected_on?:string|null; priority_snapshot?:string|null;
   deleted:boolean;
   binding:{project_id:string; project_scope_id:string;demand_id:string}|null;

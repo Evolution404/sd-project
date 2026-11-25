@@ -59,8 +59,6 @@ const demandSource: ListSource = {
   sql: `SELECT v.*, d.created_at,
     json_extract(v.full_definition_json,'$.operation_snapshot') AS operation_snapshot,
     json_extract(v.full_definition_json,'$.unit_snapshot') AS unit_snapshot,
-    (SELECT GROUP_CONCAT(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name'))
-      FROM json_each(v.full_definition_json,'$.work_locations') loc) AS line_summary,
     (SELECT COUNT(DISTINCT json_extract(loc.value,'$.location_snapshot_json.line_name')) FROM json_each(v.full_definition_json,'$.work_locations') loc) AS line_count,
     json_array_length(v.full_definition_json,'$.work_locations') AS location_count,
     (SELECT COALESCE(SUM(balance.resolved_quantity_scaled),0) FROM v_demand_current_location_progress balance
@@ -80,7 +78,7 @@ const demandSource: ListSource = {
     FROM v_demand_current v JOIN demands d ON d.id=v.id`,
   columns: ["id", "demand_no", "current_version", "quantity_scaled", "operation_id", "operation_version",
     "work_object_id", "unit_id", "unit_version", "target_object", "problem_description", "completion_standard",
-    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_summary", "line_count", "location_count", "resolved_quantity_scaled", "remaining_quantity_scaled", "project_name", "last_handled_at", "display_status", "definition_changed_at", "created_at", "deleted"],
+    "object_position", "attribution_unit", "priority_id", "expected_on", "status", "operation_snapshot", "unit_snapshot", "line_count", "location_count", "resolved_quantity_scaled", "remaining_quantity_scaled", "project_name", "last_handled_at", "display_status", "definition_changed_at", "created_at", "deleted"],
   search: ["demand_no", "full_definition_json", "status"],
 };
 const projectSource: ListSource = {

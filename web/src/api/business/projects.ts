@@ -103,7 +103,7 @@ export interface ProjectScope {
   id:string; project_id:string; demand_id:string; demand_version:number;
   demand_no:string; demand_status:string; demand_display_status:DemandRow["display_status"]; problem_description:string;
   operation_snapshot:string; proposed_quantity_scaled:number; unit_snapshot:string;
-  location_count:number; line_summary:string; line_count:number; binding?:{project_scope_id:string}|null;
+  location_count:number; line_count:number; binding?:{project_scope_id:string}|null;
 }
 export interface ProjectApproval {
   id:string; version_no:number; status:"draft"|"approved"|"withdrawn";

@@ -367,7 +367,7 @@ const approvalEditorColumns: TableColumn[] = [
 ];
 const demandContentColumns: TableColumn[] = [
   { key: "operation_snapshot", label: "操作类型", minWidth: 170 },
-  { key: "line_summary", label: "涉及线路", minWidth: 170 },
+  { key: "line_count", label: "涉及线路数", minWidth: 120 },
   { key: "quantity_scaled", label: "需求数量", minWidth: 110 },
   { key: "unit_snapshot", label: "计量单位", minWidth: 105 },
   { key: "location_count", label: "位置数", minWidth: 90 },
@@ -396,7 +396,7 @@ function approvalDemandSummary(demand: Pick<DemandRecord,
     operation_snapshot: demand.operation_snapshot,
     unit_snapshot: demand.unit_snapshot,
     expected_on: demand.expected_on,
-    line_summary: [...new Set(locations.map(row => row.line_name).filter(Boolean))].join("、"),
+    line_count: new Set(locations.map(row => row.line_name).filter(Boolean)).size,
     locations_display: locations.map(row => row.label).filter(Boolean).join("、"),
     location_count: locations.length,
   };

@@ -288,7 +288,7 @@ function resetListPage() {
 }
 const demandColumns: TableColumn[] = [
   { key: "problem_description", label: "问题描述", minWidth: 230, hideable: false },
-  { key: "line_summary", label: "涉及线路", minWidth: 180 },
+  { key: "line_count", label: "涉及线路数", minWidth: 120 },
   { key: "display_status", filterable: false, label: "需求状态", minWidth: 130, hideable: false },
   { key: "expected_on", label: "预计解决时间", minWidth: 155 },
   { key: "quantity_scaled", label: "工作量" },
