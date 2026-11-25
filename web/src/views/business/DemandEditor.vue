@@ -122,9 +122,9 @@
                   :rows="positionRows" :columns="positionColumns" :validate="validatePositions"
                   :disabled="saving" @change="updatePosition" />
               </div>
-              <el-collapse v-model="expandedPositions" class="mt-3">
+              <el-collapse v-if="positions.length" v-model="expandedPositions" class="mt-3" aria-label="作业方式及位置属性">
                 <el-collapse-item
-                  v-for="position in positions"
+                  v-for="position in visiblePositionDetails"
                   :key="position.id"
                   :name="position.id"
                   :title="position.label"
@@ -148,6 +148,9 @@
                   </template>
                 </el-collapse-item>
               </el-collapse>
+              <el-pagination v-if="positions.length > positionDetailPageSize" class="mt-3"
+                v-model:current-page="positionDetailPage" :page-size="positionDetailPageSize"
+                :total="positions.length" layout="total, prev, pager, next" />
             </template>
           </el-tab-pane>
 
@@ -329,6 +332,8 @@ const operations = ref<WorkStandardRow[]>([]),
 const kind = ref<DemandLocationInput["location_kind"]>("physical_tower");
 const positionPickerOpen = ref(false), materialPickerOpen = ref(false);
 const expandedPositions = ref<(string | number)[]>([]);
+const positionDetailPage = ref(1);
+const positionDetailPageSize = 20;
 const positions = ref<Position[]>([]),
   materials = ref<ExpectedMaterial[]>([]);
 const duplicates = ref<DemandEditorRecord[]>([]),
@@ -404,6 +409,13 @@ const complexPositionFields = computed(() => positionFields.value.filter(field =
   !scalarPositionFields.value.some(item => item.key === field.key)));
 const positionSession = computed(() => JSON.stringify([operation.value?.id, operation.value?.version, positions.value.map(row=>row.id)]));
 const materialSession = computed(() => JSON.stringify(materials.value.map(row=>row.id)));
+const visiblePositionDetails = computed(() => {
+  const start = (positionDetailPage.value - 1) * positionDetailPageSize;
+  return positions.value.slice(start, start + positionDetailPageSize);
+});
+watch(() => positions.value.length, count => {
+  positionDetailPage.value = Math.min(positionDetailPage.value, Math.max(1, Math.ceil(count / positionDetailPageSize)));
+});
 const positionRows = computed(() => positions.value.map(row => ({
   id: row.id, label: row.label, values: {
     label: row.label, line: row.line, quantity: row.quantity, specification: row.specification,
@@ -557,6 +569,7 @@ async function chooseOperation(id: string) {
     if (replacingOperation || !form.completion.trim()) form.completion = data.completion_standard || "";
     form.attributes = defaults(demandFields.value);
     expandedPositions.value = [];
+    positionDetailPage.value = 1;
     positions.value = [];
     kind.value = positionKinds.value[0];
     resetPositionSearch();
@@ -847,6 +860,7 @@ async function load() {
       discovery: null,
     });
     expandedPositions.value = [];
+    positionDetailPage.value = 1;
     positions.value = (old?.work_locations || []).map((row) => ({
       id: row.location_kind + ":" + (row.physical_tower_id || row.logical_tower_id || row.span_id),
       label: locationDisplayFields(row.location_kind,row.location_snapshot_json).location_label,
