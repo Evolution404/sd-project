@@ -3,7 +3,7 @@ import {
   VerticalAlign, WrapStrategy, createUniver, defaultTheme, mergeLocales, IUndoRedoService,
   type ICellData, type IRange, type IStyleData, type IWorkbookData,
 } from "@univerjs/presets";
-import { AutoFillUIController, IAutoFillService, AUTO_FILL_APPLY_TYPE, IRenderManagerService, getViewportByCell, ILayoutService, ISheetClipboardService, SheetPasteShortKeyCommand, type ISheetPasteByShortKeyParams, SetRangeValuesMutation, type ISetRangeValuesMutationParams, SetRowHiddenMutation, SetRowVisibleMutation, UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
+import { AutoFillUIController, IMenuManagerService, ContextMenuPosition, ContextMenuGroup, IAutoFillService, AUTO_FILL_APPLY_TYPE, IRenderManagerService, getViewportByCell, ILayoutService, ISheetClipboardService, SheetPasteShortKeyCommand, type ISheetPasteByShortKeyParams, SetRangeValuesMutation, type ISetRangeValuesMutationParams, SetRowHiddenMutation, SetRowVisibleMutation, UniverSheetsCorePreset } from "@univerjs/preset-sheets-core";
 import sheetsZhCN from "@univerjs/preset-sheets-core/locales/zh-CN";
 import { UniverSheetsDataValidationPreset } from "@univerjs/preset-sheets-data-validation";
 import { UniverSheetsFilterPreset, type IFilterColumn } from "@univerjs/preset-sheets-filter";
@@ -53,6 +53,7 @@ interface WorksheetOptions {
   dark: boolean;
   primary: string;
   onChange: (entries: WorksheetValues) => void;
+  onRemoveRows?: (ids: string[]) => void;
   onSelection: (text: string) => void;
   onNotice: (text: string) => void;
   onValidation: (issues: WorksheetIssue[]) => void;
@@ -190,6 +191,8 @@ export function createBusinessWorksheet(options:WorksheetOptions) {
   return {
     get ready(){return active.ready;},
     finishEditing:()=>active.finishEditing(),
+    selectedRowIds:()=>sorting?[]:active.selectedRowIds(),
+    removeSelectedRows:()=>sorting?Promise.resolve():active.removeSelectedRows(),
     isEditing:()=>sorting||active.isEditing(),
     prepareSave:()=>sorting?Promise.resolve(null):active.prepareSave(),
     focusCell:(row:number,col:number,keyboard=false)=>active.focusCell(row,col,keyboard),
@@ -202,7 +205,7 @@ export function createBusinessWorksheet(options:WorksheetOptions) {
     dispose(){disposed=true;active.dispose();},
   };
 }
-function createInstance({ host, rows, columns, name, dark, primary, onChange, onSelection, onNotice, onValidation, onHistory, onVisibleCount, validate, filled, describe }: WorksheetOptions, initialCriteria:FilterCriteria, onSortRequest:(rules:SortRule[],filters:FilterCriteria)=>void) {
+function createInstance({ host, rows, columns, name, dark, primary, onChange, onSelection, onNotice, onValidation, onHistory, onVisibleCount, onRemoveRows, validate, filled, describe }: WorksheetOptions, initialCriteria:FilterCriteria, onSortRequest:(rules:SortRule[],filters:FilterCriteria)=>void) {
   const workbookId = "business-workbook-"+(++workbookSequence);
   const sheetId = workbookId+"-sheet";
   const { univer, univerAPI } = createUniver({
@@ -210,7 +213,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
     locales: { [LocaleType.ZH_CN]: mergeLocales(sheetsZhCN,validationZhCN,filterZhCN,sortZhCN) },
     presets: [UniverSheetsCorePreset({
       container: host, header: false, toolbar: false, formulaBar: false, footer: false,
-      contextMenu: false, disableTextFormatAlert: true, disableTextFormatMark: true,
+      contextMenu: Boolean(onRemoveRows), disableTextFormatAlert: true, disableTextFormatMark: true,
       sheets: {
         enableFillHandle: true, selectionAnimation: false, protectedRangeShadow: "none",
         clipboardConfig: { hidePasteOptions: true },
@@ -278,6 +281,28 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
   const historySubscription = history.undoRedoStatus$.subscribe(() => onHistory?.(history.getUndoRedoStatus(book.getId())));
   subscriptions.push({dispose: () => historySubscription.unsubscribe()});
   const selection = () => sheet.getSelection()?.getActiveRange()?.getRange();
+  function selectedRowIds(): string[] {
+    const ranges=sheet.getSelection()?.getActiveRangeList().map(range=>range.getRange())??[];
+    const ids=new Set<string>();
+    for(const range of ranges){
+      // A column or whole-sheet selection includes the business header;
+      // never treat that gesture as an implicit request to remove all rows.
+      if(range.startRow===0)continue;
+      for(let r=Math.max(1,range.startRow);r<=Math.min(rows.length,range.endRow);r++)
+        if(!isHidden(r)&&!rows[r-1].locked)ids.add(rows[r-1].id);
+    }
+    return [...ids];
+  }
+  async function removeSelectedRows(){
+    if(!onRemoveRows||disposed)return;
+    const ids=selectedRowIds();
+    if(!ids.length){onNotice("请选择需要移除的作业位置");return;}
+    await finishEditing();
+    if(disposed)return;
+    readEntries();
+    onRemoveRows(ids);
+  }
+
   let entries: WorksheetValues = Object.fromEntries(rows.map(row => [row.id, row.values]));
   let disposed = false;
   let filledOnly = false;
@@ -481,6 +506,13 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
           event.cancel=true;return;
         }
       }
+      // The native row-delete menu dispatches this command. Cancel the
+      // sheet mutation; business identity removal is the only permitted effect.
+      if(event.id==="sheet.command.remove-row-confirm"||event.id==="sheet.command.remove-row"){
+        event.cancel=true;
+        if(onRemoveRows)queueMicrotask(()=>void removeSelectedRows());
+        return;
+      }
       if(event.id===SortRangeCommand.id){
         event.cancel=true;
         const params=event.params as ISortRangeCommandParams;
@@ -610,6 +642,30 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
           if(!allowed&&start>=0){sheet.getRange(start+1,columnIndex,i-start,1).setDataValidation(rule);start=-1;}
         }
       }
+      if(onRemoveRows){
+        // Retain the SDK's own context menu and delete-row item. Other context
+        // commands can change the protected workbook schema, so hide them.
+        const manager=univer.__getInjector().get(IMenuManagerService);
+        const removeRowId="sheet.command.remove-row-confirm";
+        const nativeRowItem=()=> {
+          const item=manager.getFlatMenuByPositionKey(ContextMenuPosition.ROW_HEADER).find(node=>node.item?.id===removeRowId)?.item;
+          if(!item)throw Error("Univer 原生删除行菜单未注册");
+          return item;
+        };
+        // Reuse the row-header command, icon, locale and native menu renderer;
+        // replace the cell menu's layout group rather than add a nested submenu.
+        manager.mergeMenu({
+          [ContextMenuPosition.MAIN_AREA]:{
+            [ContextMenuGroup.LAYOUT]:{replace:true,order:1,[removeRowId]:{order:0,menuItemFactory:nativeRowItem}},
+          },
+        });
+        const allowed=new Set([removeRowId]);
+        const config:Record<string,{hidden:boolean;disabled?:boolean}>={};
+        for(const position of [ContextMenuPosition.MAIN_AREA,ContextMenuPosition.ROW_HEADER,ContextMenuPosition.COL_HEADER])
+          for(const node of manager.getFlatMenuByPositionKey(position))
+            if(node.item)config[node.item.id]=allowed.has(node.item.id)?{hidden:false,disabled:false}:{hidden:true};
+        manager.updateMenuConfig(config);
+      }
       const nativeFilter=sheet.getRange(0,0,rows.length+1,columns.length).createFilter();
       if(!nativeFilter)throw Error("工作表原生筛选初始化失败");
       for(const item of initialCriteria)nativeFilter.setColumnFilterCriteria(item.column,item.criteria);
@@ -620,6 +676,7 @@ function createInstance({ host, rows, columns, name, dark, primary, onChange, on
       publishEntries();
     }),
     finishEditing,
+    selectedRowIds, removeSelectedRows,
     isEditing: () => book.isCellEditing(),
     async prepareSave() {
       await finishEditing();

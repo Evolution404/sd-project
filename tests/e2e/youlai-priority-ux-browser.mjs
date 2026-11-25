@@ -5,7 +5,8 @@ import {chromium} from "playwright";
 import {fixture} from "../helpers.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
 import {alignmentAudit} from "./youlai-alignment-helpers.mjs";
-import {worksheetCanvas} from "./youlai-business-worksheet-helpers.mjs";
+import {worksheetCanvas,selectWorksheetCell,typeWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
+import {copySettlementSelection} from "./youlai-settlement-grid-helpers.mjs";
 
 const cleanup=[];
 const f=fixture({after:fn=>cleanup.push(fn)});
@@ -111,8 +112,32 @@ try{
     await page.screenshot({path:join(out,"quick-picker-"+colorScheme+".png"),animations:"disabled"});
     await dialog.getByRole("button",{name:"添加所选位置（3）",exact:true}).click();
     await dialog.waitFor({state:"hidden"});
-    await worksheetCanvas(pos);
-    assert.deepEqual((await pos.locator(".el-collapse-item__header").allTextContents()).map(x=>x.trim()).sort(),["QA-15","QA-16","QA-17"]);
+    let positionCanvas=await worksheetCanvas(pos);
+    await context.grantPermissions(["clipboard-read","clipboard-write"],{origin:base});
+    const widths=[180,145,125,170,125,150];
+    const chosen=[];
+    for(let row=1;row<=3;row++){await selectWorksheetCell(positionCanvas,row,0,widths);chosen.push((await copySettlementSelection(page)).trim());}
+    assert.deepEqual(chosen.slice().sort(),["QA-15","QA-16","QA-17"]);
+    assert.equal(await pos.locator(".el-collapse-item__header").count(),0);
+    await typeWorksheetCell(page,positionCanvas,1,2,widths,"7");
+    await positionCanvas.click({button:"right",position:{x:36+180+145+30,y:63+1.5*34}});
+    assert.equal(await page.getByText("删除",{exact:true}).count(),0,"no intermediate delete submenu");
+    await page.getByText("删除选中行",{exact:true}).last().click({timeout:5000});
+    await nav.getByRole("tab",{name:"作业位置（2）",exact:true}).waitFor();
+    positionCanvas=await worksheetCanvas(pos);
+    await selectWorksheetCell(positionCanvas,1,0,widths);
+    assert.equal((await copySettlementSelection(page)).trim(),chosen[0]);
+    await selectWorksheetCell(positionCanvas,1,2,widths);
+    assert.equal((await copySettlementSelection(page)).trim(),"7");
+    await selectWorksheetCell(positionCanvas,2,0,widths);
+    assert.equal((await copySettlementSelection(page)).trim(),chosen[2]);
+    await pos.getByRole("button",{name:"移除选中位置",exact:true}).click();
+    await nav.getByRole("tab",{name:"作业位置（1）",exact:true}).waitFor();
+    positionCanvas=await worksheetCanvas(pos);
+    await selectWorksheetCell(positionCanvas,1,0,widths);
+    assert.equal((await copySettlementSelection(page)).trim(),chosen[0]);
+    console.log("NATIVE_REMOVE_ROW_OK",colorScheme);
+
     await nav.getByRole("tab",{name:"需求来源",exact:true}).click();
     await page.waitForFunction(()=>document.querySelector('.demand-section-nav .is-active')?.textContent.includes("需求来源"));
     await scroll.evaluate(el=>el.scrollTop=0);

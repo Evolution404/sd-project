@@ -13,4 +13,4 @@ const evidenceActions=["add","filter","download","revise","delete"] as const;
 export function evidenceGuide(kind:string,action:typeof evidenceActions[number]){
   return (kind==="demand_id"||kind==="source_id"?"demands":"finance")+".evidence-"+action;
 }
-export const nativeDynamicGuideIds=["demands.location-select-confirm","demands.material-add-confirm","materials.undo","materials.redo",...historyScopeGuideIds,...Object.values(saves),...["demand_id","cost_version_id"].flatMap(kind=>evidenceActions.map(action=>evidenceGuide(kind,action)))];
+export const nativeDynamicGuideIds=["demands.location-remove-bulk","demands.location-select-confirm","demands.material-add-confirm","materials.undo","materials.redo",...historyScopeGuideIds,...Object.values(saves),...["demand_id","cost_version_id"].flatMap(kind=>evidenceActions.map(action=>evidenceGuide(kind,action)))];

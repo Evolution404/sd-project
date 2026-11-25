@@ -7,9 +7,9 @@ import type { createBusinessWorksheet, WorksheetColumn, WorksheetRow, WorksheetV
 const props = defineProps<{
   name: string; rows: readonly WorksheetRow[]; columns: readonly WorksheetColumn[];
   validate: (values: WorksheetValues) => WorksheetIssue[]; disabled?: boolean;
-  sessionKey: string; undoGuide?: string; redoGuide?: string;
+  sessionKey: string; undoGuide?: string; redoGuide?: string; removable?: boolean; removeGuide?: string;
 }>();
-const emit = defineEmits<{ change: [values: WorksheetValues]; "readiness-change": [ready: boolean] }>();
+const emit = defineEmits<{ change: [values: WorksheetValues]; "readiness-change": [ready: boolean]; "remove-rows": [ids: string[]] }>();
 const settings = useSettingsStore();
 const host = ref<HTMLElement>(), panel = ref<HTMLElement>();
 const ready = ref(false), failure = ref(""), notice = ref(""), selection = ref("");
@@ -47,6 +47,7 @@ async function load() {
       host: host.value, rows, columns, name: props.name, dark: dark.value, primary: primary(),
       filled: values => columns.some(column => column.editable && Boolean(values[column.key])),
       validate: values => props.validate(values),
+      onRemoveRows: props.removable ? ids=>{if(token===generation&&!props.disabled)emit("remove-rows",ids);} : undefined,
       onChange: values => { if (token === generation) { current.value = values; emit("change", values); } },
       onSelection: value => { if (token === generation) selection.value = value; },
       onNotice: value => { if (token === generation) notice.value = value; },
@@ -90,7 +91,7 @@ async function prepareSave() {
   if (!values && issues.value.length) { await nextTick(); panel.value?.scrollIntoView({ block: "nearest" }); }
   return values ?? null;
 }
-defineExpose({ prepareSave, finishEditing: () => engine?.finishEditing(),
+defineExpose({ prepareSave, selectedRowIds:()=>engine?.selectedRowIds()??[], finishEditing: () => engine?.finishEditing(),
   changed: () => changed.value || Boolean(engine?.isEditing()), undo: () => engine?.undo(), redo: () => engine?.redo() });
 </script>
 <template>
@@ -105,6 +106,8 @@ defineExpose({ prepareSave, finishEditing: () => engine?.finishEditing(),
         <ElButton :data-guide-action="undoGuide" :disabled="!ready || disabled || !canUndo" @click="engine?.undo()">撤销</ElButton>
         <ElButton :data-guide-action="redoGuide" :disabled="!ready || disabled || !canRedo" @click="engine?.redo()">重做</ElButton>
         <ElButton :disabled="!ready || disabled" @click="engine?.clearFilters()">清除筛选</ElButton>
+        <ElButton v-if="removable" :data-guide-action="removeGuide" type="danger" plain :disabled="!ready || disabled" @click="engine?.removeSelectedRows()">移除选中位置</ElButton>
+        <slot name="toolbar" />
         <span>可填写</span><span>灰底只读</span><span>红底错误</span>
       </div>
       <div v-if="issues.length" ref="panel" class="worksheet-validation" role="alert">

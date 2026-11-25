@@ -131,30 +131,20 @@
                 <BusinessWorksheet ref="positionSheet" data-grid-key="demands:positions"
                   name="作业位置数量" :session-key="positionSession"
                   :rows="positionRows" :columns="positionColumns" :validate="validatePositions"
-                  :disabled="saving" @change="updatePosition" />
-              </div>
-              <el-collapse v-if="positions.length" v-model="expandedPositions" class="mt-3" aria-label="位置属性及移除">
-                <el-collapse-item
-                  v-for="position in visiblePositionDetails"
-                  :key="position.id"
-                  :name="position.id"
-                  :title="position.label"
-                >
-                  <template v-if="expandedPositions.includes(position.id)">
-                    <DemandAttributeFields v-model="position.attributes" :fields="complexPositionFields" />
-                    <el-button
-                      link
-                      type="danger"
-                      data-guide-action="demands.location-remove" @click="positions = positions.filter((row) => row.id !== position.id)"
-                    >
-                      移除该位置
-                    </el-button>
+                  :disabled="saving" removable :remove-guide="'demands.location-remove-bulk'"
+                  @remove-rows="removePositions" @change="updatePosition">
+                  <template #toolbar>
+                    <el-button v-if="complexPositionFields.length" :disabled="saving" @click="openPositionDetails">位置属性</el-button>
                   </template>
-                </el-collapse-item>
-              </el-collapse>
-              <el-pagination v-if="positions.length > positionDetailPageSize" class="mt-3"
-                v-model:current-page="positionDetailPage" :page-size="positionDetailPageSize"
-                :total="positions.length" layout="total, prev, pager, next" />
+                </BusinessWorksheet>
+              </div>
+              <el-dialog v-if="detailPosition" :model-value="true" :title="'位置属性：'+detailPosition.label"
+                append-to-body width="600px" @close="detailPositionId=''">
+                <el-form label-position="top" novalidate>
+                  <DemandAttributeFields v-model="detailPosition.attributes" :fields="complexPositionFields" />
+                </el-form>
+                <template #footer><el-button type="primary" @click="detailPositionId=''">完成</el-button></template>
+              </el-dialog>
             </template>
           </section>
 
@@ -370,9 +360,8 @@ const operations = ref<WorkStandardRow[]>([]),
   priorities = ref<DictionaryRow[]>([]);
 const kind = ref<DemandLocationInput["location_kind"]>("physical_tower");
 const positionPickerOpen = ref(false), quickPickerOpen = ref(false), materialPickerOpen = ref(false);
-const expandedPositions = ref<(string | number)[]>([]);
-const positionDetailPage = ref(1);
-const positionDetailPageSize = 20;
+const detailPositionId = ref("");
+const detailPosition = computed(()=>positions.value.find(row=>row.id===detailPositionId.value));
 const positions = ref<Position[]>([]),
   materials = ref<ExpectedMaterial[]>([]);
 const duplicates = ref<DemandEditorRecord[]>([]),
@@ -448,13 +437,17 @@ const complexPositionFields = computed(() => positionFields.value.filter(field =
   !scalarPositionFields.value.some(item => item.key === field.key)));
 const positionSession = computed(() => JSON.stringify([operation.value?.id, operation.value?.version, positions.value.map(row=>row.id)]));
 const materialSession = computed(() => JSON.stringify(materials.value.map(row=>row.id)));
-const visiblePositionDetails = computed(() => {
-  const start = (positionDetailPage.value - 1) * positionDetailPageSize;
-  return positions.value.slice(start, start + positionDetailPageSize);
-});
-watch(() => positions.value.length, count => {
-  positionDetailPage.value = Math.min(positionDetailPage.value, Math.max(1, Math.ceil(count / positionDetailPageSize)));
-});
+function openPositionDetails(){
+  const ids=positionSheet.value?.selectedRowIds()??[];
+  if(ids.length!==1){ElMessage.warning("请选择单个作业位置");return;}
+  detailPositionId.value=ids[0];
+}
+function removePositions(ids:string[]){
+  if(saving.value)return;
+  const removed=new Set(ids);
+  positions.value=positions.value.filter(row=>!removed.has(row.id));
+  if(removed.has(detailPositionId.value))detailPositionId.value="";
+}
 const positionRows = computed(() => positions.value.map(row => ({
   id: row.id, label: row.label, values: {
     label: row.label, line: row.line, quantity: row.quantity, specification: row.specification, workMode: row.workMode,
@@ -608,8 +601,7 @@ async function chooseOperation(id: string) {
     if (replacingOperation || !form.target.trim()) form.target = data.default_target_object;
     if (replacingOperation || !form.completion.trim()) form.completion = data.completion_standard || "";
     form.attributes = defaults(demandFields.value);
-    expandedPositions.value = [];
-    positionDetailPage.value = 1;
+    detailPositionId.value = "";
     positions.value = [];
     kind.value = positionKinds.value[0];
     resetPositionSearch();
@@ -910,8 +902,7 @@ async function load() {
       source: "",
       discovery: null,
     });
-    expandedPositions.value = [];
-    positionDetailPage.value = 1;
+    detailPositionId.value = "";
     positions.value = (old?.work_locations || []).map((row) => ({
       id: row.location_kind + ":" + (row.physical_tower_id || row.logical_tower_id || row.span_id),
       label: locationDisplayFields(row.location_kind,row.location_snapshot_json).location_label,

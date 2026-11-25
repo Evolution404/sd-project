@@ -73,11 +73,24 @@ try{
     await pasteSettlementCells(page,"停电");
     await page.screenshot({path:join(out,theme+".png"),animations:"disabled"});
     if(theme==="dark"){
+      const selectionBox=await canvas.boundingBox();
+      await page.mouse.move(selectionBox.x+18,selectionBox.y+63+5.5*34);
+      await page.mouse.down();
+      await page.mouse.move(selectionBox.x+18,selectionBox.y+63+6.5*34,{steps:8});
+      await page.mouse.up();
+      await canvas.click({button:"right",position:{x:18,y:63+5.5*34}});
+      await page.getByText("删除选中行",{exact:true}).last().click({timeout:5000});
+      await page.getByRole("tab",{name:"作业位置（18）",exact:true}).waitFor({timeout:8000});
+      await worksheetCanvas(work);
       await page.getByRole("button",{name:"保存专业需求",exact:true}).click();
       await page.waitForURL(/#\/business\/demands(?:\?|$)/);
       const saved=s.demands.get(demand.id);
       const byTower=new Map(saved.work_locations.map(row=>[row.physical_tower_id,row.work_mode]));
       assert.deepEqual(towers.slice(0,5).map(t=>byTower.get(t.id)),["outage","non_outage","outage","outage","unspecified"]);
+      assert.equal(saved.work_locations.length,18);
+      assert.ok(!byTower.has(towers[5].id)&&!byTower.has(towers[6].id));
+      assert.ok(towers.every(tower=>s.equipment.get("physical",tower.id)));
+      console.log("NATIVE_MULTI_ROW_REMOVE_PERSIST_OK",theme,saved.work_locations.length);
     }
     assert.deepEqual(errors,[]);
     console.log("DEMAND_WORKMODE_WHEEL_OK",theme,JSON.stringify({outerScrollDelta:after-before}));

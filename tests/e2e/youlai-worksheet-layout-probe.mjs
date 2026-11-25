@@ -55,21 +55,9 @@ try{
       const result={...measurement,clickMs:Math.round(performance.now()-click),targetMs};
       results.push(result);
       console.log("WORKSHEET_EXACT_DIMENSION_RESULT",JSON.stringify(result));
-      if (rows === 100) {
-        const details = page.locator('.el-collapse[aria-label="位置属性及移除"]');
-        const pagination = page.locator(".el-pagination .el-pager");
-        const position = details.locator(".el-collapse-item").filter({ hasText: "EXACT-100-99" });
-        assert.equal(await details.locator(".el-collapse-item").count(), 20);
-        await pagination.getByText("5", { exact: true }).click();
-        await position.getByRole("button").first().click();
-        await position.getByRole("button",{name:"移除该位置"}).waitFor();
-        await pagination.getByText("1", { exact: true }).click();
-        assert.equal(await position.count(), 0);
-        await pagination.getByText("5", { exact: true }).click();
-        await position.getByRole("button",{name:"移除该位置"}).waitFor();
-        assert.equal(measurement.rows, 100);
-        console.log("WORKSHEET_DETAIL_PAGING_OK all 100 records and native position metadata across pages");
-      }
+      assert.equal(await page.locator('.el-collapse[aria-label="位置属性及移除"]').count(),0,"legacy tower list removed");
+      await sheet.getByRole("button",{name:"移除选中位置",exact:true}).waitFor();
+
     }finally{await ctx.close()}
   }
   assert.ok(results.every(item=>item.totalMs<=item.targetMs && item.clickMs<=item.targetMs),JSON.stringify(results));
