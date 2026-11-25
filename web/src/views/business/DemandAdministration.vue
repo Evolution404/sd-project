@@ -24,6 +24,7 @@
     :title="detail ? `专业需求 ${detail.demand_no}` : '专业需求详情'"
     size="min(100%, 1000px)"
     append-to-body
+    @closed="clearDetailRoute"
   >
     <el-skeleton v-if="detailLoading" animated :rows="8" />
     <el-alert v-if="detailError" :closable="false" type="error" :title="detailError" />
@@ -289,9 +290,15 @@ async function confirmRow(row:DemandRow){
   finally{saving.value=false}
 }
 function confirmDetail(){if(detail.value)void confirmRow(detail.value)}
+function clearDetailRoute(){
+  if(detailVisible.value||route.name!=="Demands"||typeof route.query.demand!=="string")return;
+  const {demand: _closedDemand,...query}=route.query;
+  void router.replace({name:"Demands",query});
+}
 function editDemand(id?:string){
   detailVisible.value=false;
-  return router.push({name:"DemandEditor",params:id?{demandId:id}:{},query:route.query});
+  const {demand: _sourceDemand,...query}=route.query;
+  return router.push({name:"DemandEditor",params:id?{demandId:id}:{},query:{...query,...(id?{demand:id}:{})}});
 }
 function openProject(id:string){
   detailVisible.value=false;

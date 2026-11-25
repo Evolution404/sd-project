@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import ExcelJS from "exceljs";
-import { approvedFixture } from "../helpers.mjs";
+import { fixture, approvedFixture } from "../helpers.mjs";
 
 test("dashboard batch aggregates preserve exact project finance and formal settlement history", t => {
   const { s, user, project, scope, approval, node, framework } = approvedFixture(t);
@@ -106,4 +106,18 @@ test("archived projects leave all dashboard totals and remain exportable on requ
   const archive = records.find(row => row[headers.indexOf("项目名称")] === project.name);
   assert.equal(archive[headers.indexOf("归档状态")], "已归档删除");
   assert.equal(archive[headers.indexOf("核定实际费用（元）")], 123.45);
+});
+
+test("dashboard pending attention records and counts share the same active lifecycle scope",t=>{
+  const {s,user,demandInput}=fixture(t);
+  assert.equal(s.dashboard(user).pending_demands,0);
+  assert.deepEqual(s.dashboard(user).pending_demand_items,[]);
+  const demand=s.demands.save(user,demandInput);
+  const pending=s.dashboard(user);
+  assert.equal(pending.pending_demands,1);
+  assert.equal(pending.alerts.length,0);
+  assert.deepEqual(pending.pending_demand_items.map(item=>item.id),[demand.id]);
+  s.demands.transition(user,demand.id,{expected_version:1,expected_event_seq:1,status:"active"});
+  assert.equal(s.dashboard(user).pending_demands,0);
+  assert.deepEqual(s.dashboard(user).pending_demand_items,[]);
 });

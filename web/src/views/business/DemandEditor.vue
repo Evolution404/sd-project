@@ -1,6 +1,6 @@
 <template>
   <div data-guide-workspace class="page-container" v-loading="loading">
-    <el-card class="page-content" shadow="never">
+    <el-card class="page-content demand-editor-card" shadow="never">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">
@@ -35,9 +35,15 @@
         <span v-else>请联系管理员配置后继续录入。</span>
       </el-alert>
 
-      <el-form label-position="top" novalidate :disabled="saving || loading || loadFailed">
-        <el-tabs v-model="section">
-          <el-tab-pane label="基本信息" name="basic">
+      <div ref="demandScroll" class="demand-scroll" @scroll.passive="syncSection">
+        <el-tabs :model-value="section" class="demand-section-nav" @tab-change="navigateSection">
+          <el-tab-pane label="基本信息" name="basic" />
+          <el-tab-pane :label="`作业位置（${positions.length}）`" name="positions" />
+          <el-tab-pane :label="`预计物资（${materials.length}）`" name="materials" />
+          <el-tab-pane label="需求来源" name="sources" />
+        </el-tabs>
+        <el-form label-position="top" novalidate :disabled="saving || loading || loadFailed">
+          <section data-demand-section="basic" class="demand-form-section"><h3>基本信息</h3>
             <el-form-item label="操作类型" required>
               <el-select
                 :model-value="operation?.id"
@@ -96,13 +102,13 @@
               <el-input v-model="form.reason" type="textarea" />
             </el-form-item>
             <DemandAttributeFields v-model="form.attributes" :fields="demandFields" />
-          </el-tab-pane>
+          </section>
 
-          <el-tab-pane :label="`作业位置（${positions.length}）`" name="positions">
+          <section data-demand-section="positions" class="demand-form-section"><h3>作业位置</h3>
             <el-empty v-if="!operation" description="请选择操作类型" />
             <template v-else>
-              <div class="mb-3 flex flex-wrap items-end gap-3">
-                <el-form-item label="位置类型" class="mb-0">
+              <div class="business-control-row mb-3">
+                <el-form-item label="位置类型" label-position="left" class="mb-0">
                   <el-select v-model="kind" style="width: 150px" @change="resetPositionSearch">
                     <el-option
                       v-for="option in positionKinds"
@@ -113,6 +119,9 @@
                   </el-select>
                 </el-form-item>
                 <el-button data-guide-action="demands.location-add" type="primary" @click="positionPickerOpen=true">选择作业设备</el-button>
+                <el-button data-guide-action="demands.location-quick" @click="quickPickerOpen=true">按杆号快速选择</el-button>
+                <DemandTowerQuickPicker v-if="quickPickerOpen" :kind="kind" :existing-count="positions.length"
+                  :selectable="canSelectPosition" @close="quickPickerOpen=false" @confirm="addQuickPositions"/>
                 <NativeRecordPicker v-if="positionPickerOpen" title="选择作业设备" placeholder="搜索杆塔、线路或档距"
                   confirm-label="添加所选位置" confirm-guide="demands.location-select-confirm"
                   :columns="positionPickerColumns" :loader="loadPositionPage" :selectable="canSelectPosition"
@@ -154,10 +163,10 @@
                 v-model:current-page="positionDetailPage" :page-size="positionDetailPageSize"
                 :total="positions.length" layout="total, prev, pager, next" />
             </template>
-          </el-tab-pane>
+          </section>
 
-          <el-tab-pane :label="`预计物资（${materials.length}）`" name="materials">
-            <div class="mb-3 flex flex-wrap items-end gap-3">
+          <section data-demand-section="materials" class="demand-form-section"><h3>预计物资</h3>
+            <div class="business-control-row mb-3">
               <el-button data-guide-action="demands.material" type="primary" @click="materialPickerOpen=true">选择预计物资</el-button>
               <NativeRecordPicker v-if="materialPickerOpen" title="选择预计物资" placeholder="搜索名称、规格或型号"
                 confirm-label="添加预计物资" confirm-guide="demands.material-add-confirm"
@@ -173,9 +182,9 @@
                 data-guide-action="demands.material-remove"
                 @click="materials = materials.filter(row => row.id !== item.id)">移除 {{ item.label }}</el-button>
             </div>
-          </el-tab-pane>
+          </section>
 
-          <el-tab-pane label="需求来源" name="sources">
+          <section data-demand-section="sources" class="demand-form-section"><h3>需求来源</h3>
             <el-table
               v-if="record?.sources.length"
               :data="record.sources"
@@ -192,9 +201,9 @@
             <el-form-item v-if="form.source" label="发现日期">
               <el-date-picker v-model="form.discovery" type="date" value-format="YYYY-MM-DD" />
             </el-form-item>
-          </el-tab-pane>
-        </el-tabs>
-      </el-form>
+          </section>
+        </el-form>
+      </div>
     </el-card>
 
     <el-dialog
@@ -245,6 +254,7 @@ import { equipmentStatus } from "../../../../server/shared/equipment-bulk";
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
+import DemandTowerQuickPicker from "@/components/business/DemandTowerQuickPicker.vue";
 import NativeRecordPicker from "@/components/business/NativeRecordPicker.vue";
 import BusinessWorksheet from "@/components/BusinessWorksheet/BusinessWorksheet.vue";
 import type { WorksheetColumn, WorksheetValues, WorksheetIssue } from "@/components/BusinessWorksheet/univer-engine";
@@ -320,10 +330,36 @@ const route = useRoute(),
 const user = useUserStore();
 const canConfigure = computed(() => user.userInfo.perms.includes("admin"));
 const loadFailed = ref(false);
-const section = ref("basic"),
+const demandScroll = ref<HTMLElement>();
+const sections = ["basic", "positions", "materials", "sources"] as const;
+const section = ref<string>("basic"),
   loading = ref(false),
   saving = ref(false),
   error = ref("");
+function navigateSection(name: string | number) {
+  const key=String(name);
+  if(!sections.some(item=>item===key))return;
+  section.value=key;
+  const scroll=demandScroll.value;
+  const target=scroll?.querySelector<HTMLElement>(`[data-demand-section="${key}"]`);
+  const nav=scroll?.querySelector<HTMLElement>(".demand-section-nav");
+  if(!scroll||!target||!nav)return;
+  scroll.scrollTop+=target.getBoundingClientRect().top-scroll.getBoundingClientRect().top-nav.offsetHeight;
+}
+function syncSection() {
+  const scroll=demandScroll.value;
+  if(!scroll)return;
+  const nav=scroll.querySelector<HTMLElement>(".demand-section-nav");
+  if(!nav)return;
+  const boundary=scroll.getBoundingClientRect().top+nav.offsetHeight+2;
+  let active:string=sections[0];
+  for(const key of sections){
+    const target=scroll.querySelector<HTMLElement>(`[data-demand-section="${key}"]`);
+    if(target&&target.getBoundingClientRect().top<=boundary)active=key;
+  }
+  if(scroll.scrollTop>0&&scroll.scrollHeight-scroll.clientHeight-scroll.scrollTop<=2)active="sources";
+  section.value=active;
+}
 const setupMissing = ref(false),
   loadingOperations = ref(false),
   loadingMaterial = ref(false);
@@ -333,7 +369,7 @@ const record = ref<DemandEditorRecord>(),
 const operations = ref<WorkStandardRow[]>([]),
   priorities = ref<DictionaryRow[]>([]);
 const kind = ref<DemandLocationInput["location_kind"]>("physical_tower");
-const positionPickerOpen = ref(false), materialPickerOpen = ref(false);
+const positionPickerOpen = ref(false), quickPickerOpen = ref(false), materialPickerOpen = ref(false);
 const expandedPositions = ref<(string | number)[]>([]);
 const positionDetailPage = ref(1);
 const positionDetailPageSize = 20;
@@ -597,15 +633,21 @@ const materialPickerColumns: {key:keyof Material;label:string;width?:number}[] =
   {key:"code",label:"编号"},{key:"name",label:"物资名称",width:180},{key:"model",label:"型号"},
   {key:"specification",label:"规格"},{key:"unit_id_label",label:"单位"},{key:"version_no",label:"版本"},
 ];
-function resetPositionSearch(){positionPickerOpen.value=false;}
+function resetPositionSearch(){positionPickerOpen.value=false;quickPickerOpen.value=false;}
 function loadPositionPage(keyword:string,page:number){return listEquipment(catalogs[kind.value],{keyword,page,size:20});}
 function canSelectPosition(row:EquipmentRow){return !row.deleted&&!["retired","inactive"].includes(row.status)&&!positions.value.some(item=>item.id===kind.value+":"+row.id);}
 function loadMaterialPage(keyword:string,page:number){return queryMaterials({keyword,page,pageSize:20,status:"active"});}
 function canSelectMaterial(row:Material){return !row.deleted&&row.status==="active"&&!materials.value.some(item=>item.id===row.id);}
-async function addPositions(selected:EquipmentRow[]) {
+async function addQuickPositions(selected:EquipmentRow[],lineId:string) {
+  await addPositions(selected,lineId);
+  quickPickerOpen.value=false;
+}
+async function addPositions(selected:EquipmentRow[],contextLineId?:string) {
   await positionSheet.value?.finishEditing();
   const type=kind.value;
-  for(const row of selected){
+  const additions=[...new Map(selected.filter(canSelectPosition).map(row=>[row.id,row])).values()];
+  if(positions.value.length+additions.length>5000){ElMessage.error("一条需求最多5000处作业位置");return;}
+  for(const row of additions){
     const id=row.id;
     if(!canSelectPosition(row))continue;
     const locationKey =
@@ -617,7 +659,7 @@ async function addPositions(selected:EquipmentRow[]) {
     positions.value.push({
       id: type + ":" + id,
       label: deviceLabel(row),
-      line: row.line_id_label || "",
+      line: row.line_id_label || row.line_name || row.bindings?.find(b=>b.line_id===contextLineId)?.line_name || "",
       startTower:row.start_tower_no||"",endTower:row.end_tower_no||"",physicalCode:row.tower_code||"",
       quantity: formatScaledDecimal(operation.value?.default_quantity_scaled, 4),
       specification: "",
@@ -625,6 +667,7 @@ async function addPositions(selected:EquipmentRow[]) {
         location_kind: type,
         [locationKey]: id,
         ...(type === "span" ? { span_version: row.version } : {}),
+        ...(type === "physical_tower" && contextLineId ? {context_line_id:contextLineId} : {}),
         quantity_scaled: 0,
       },
       workMode: "unspecified",
@@ -749,7 +792,7 @@ function attributesForSave(values: AttributeValues, schema: OperationAttribute[]
 function command(separate: boolean): DemandWriteInput {
   if (!operation.value) throw Error("请选择操作类型");
   if (!form.problem.trim() || !form.completion.trim()) {
-    section.value = "basic";
+    navigateSection("basic");
     throw Error("请填写问题描述和验收标准");
   }
   const current = record.value;
@@ -801,8 +844,8 @@ async function persist(separate = false) {
     await loadMaterialPrecisions();
     const p = await positionSheet.value?.prepareSave();
     const m = await materialSheet.value?.prepareSave();
-    if (positions.value.length && !p) { section.value="positions"; throw Error("请检查作业位置工作表"); }
-    if (materials.value.length && !m) { section.value="materials"; throw Error("请检查预计物资工作表"); }
+    if (positions.value.length && !p) { navigateSection("positions"); throw Error("请检查作业位置工作表"); }
+    if (materials.value.length && !m) { navigateSection("materials"); throw Error("请检查预计物资工作表"); }
     const saved = await saveDemand(command(separate), record.value?.id);
     savedId = saved.id;
     duplicateOpen.value = false;
@@ -829,7 +872,7 @@ async function load() {
   error.value = "";
   loadFailed.value = false;
   loading.value = true;
-  section.value = "basic";
+  navigateSection("basic");
   if (id) {
     // Revision already has work positions. Start loading the engine alongside the
     // editor data; the mounted worksheet owns the visible retry state.
@@ -930,3 +973,15 @@ onBeforeUnmount(() => {
   window.removeEventListener("beforeunload", beforeUnload);
 });
 </script>
+
+<style scoped lang="scss">
+.demand-editor-card :deep(.el-card__body) { display: flex; flex-direction: column; }
+.demand-editor-card :deep(.el-card__body > .el-alert) { flex-shrink: 0; }
+.demand-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scroll-padding-top: 48px; }
+.demand-section-nav { position: sticky; top: 0; z-index: 5; background: var(--el-bg-color); }
+.demand-section-nav :deep(.el-tabs__header) { margin: 0; }
+.demand-section-nav :deep(.el-tabs__content) { display: none; }
+.demand-form-section { padding: 20px 0; border-bottom: 1px solid var(--el-border-color-light); }
+.demand-form-section > h3 { font-size: 16px; font-weight: 600; margin: 0 0 16px; }
+.demand-form-section:last-child { min-height: calc(100vh - 240px); border-bottom: 0; }
+</style>

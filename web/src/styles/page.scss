@@ -465,3 +465,13 @@
   gap: 8px;
   justify-content: flex-end;
 }
+
+// Common business control rows: align actual native controls, not label wrappers.
+.business-control-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  > .el-form-item { margin: 0; align-items: center; }
+  > .el-button + .el-button { margin-left: 0; }
+}

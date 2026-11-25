@@ -14,7 +14,7 @@ export interface EquipmentRow {
  height_scaled?:number|null;purpose?:string;commissioned_on?:string|null;
  longitude?:number|null;latitude?:number|null;
  related_lines?:string;related_towers?:string;current_circuits?:number;
- bindings?:Array<{logical_tower_id:string;line_name:string;voltage_name:string|null;tower_no:string;logical_status:string;logical_deleted:boolean}>;
+ bindings?:Array<{logical_tower_id:string;line_id:string;line_name:string;voltage_name:string|null;tower_no:string;logical_status:string;logical_deleted:boolean}>;
  start_tower_id?:string;end_tower_id?:string;start_tower_no?:string;end_tower_no?:string;
  transmission_center_length_mm?:number|null;
  created_at?:string;updated_at?:string|null;change_reason?:string;

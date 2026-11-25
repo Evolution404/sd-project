@@ -1,6 +1,7 @@
+import {alignmentAudit} from "./youlai-alignment-helpers.mjs";
 import { settlementCanvas } from "./youlai-settlement-grid-helpers.mjs";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { approvedFixture } from "../helpers.mjs";
@@ -34,6 +35,7 @@ const modules = [
   ["access", "/configuration/access", "新增 IP 授权"],
   ["profile", "/profile", "有效登录会话"],
 ];
+const geometry=[];
 let browser;
 try {
   browser = await chromium.launch(existsSync(chromium.executablePath())
@@ -78,6 +80,7 @@ try {
       assert.equal(await page.locator("html").evaluate(node => node.classList.contains("dark")), colorScheme === "dark");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       assert.ok(overflow <= 1, `${key} ${width} ${colorScheme} has ${overflow}px document overflow`);
+      geometry.push({key,colorScheme,...await alignmentAudit(page)});
       await page.screenshot({ path: join(screenshots, `${key}-${width}-${colorScheme}.png`), animations: "disabled" });
     }
     await page.goto(origin + "/#/business/projects?project=" + project.id);
@@ -85,11 +88,13 @@ try {
     await drawer.getByRole("button", { name: "编制正式变更", exact: true }).waitFor();
     await drawer.getByRole("cell", { name: "已承接", exact: true }).waitFor();
     await drawer.locator(".el-loading-mask:visible").first().waitFor({ state: "hidden" });
+    geometry.push({key:"project-detail",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `project-detail-${width}-${colorScheme}.png`), animations: "disabled" });
     await drawer.getByRole("button", { name: "编制正式变更", exact: true }).click();
     await page.getByRole("textbox", { name: "拟批准预算（元）" }).waitFor();
     await page.getByRole("cell", { name: "T15", exact: true }).waitFor();
     await page.locator(".layout-content .el-loading-mask:visible").first().waitFor({ state: "hidden" });
+    geometry.push({key:"project-change",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `project-change-${width}-${colorScheme}.png`), animations: "disabled" });
     await page.getByRole("button", { name: "返回子项目", exact: true }).click();
     await drawer.getByRole("button", { name: "审核结项", exact: true }).click();
@@ -99,6 +104,7 @@ try {
     const closeButton = await closePreview.getByRole("button", { name: "确认正式结项", exact: true }).boundingBox();
     assert.ok(closeButton && closeButton.y + closeButton.height <= page.viewportSize().height,
       `closeout action exceeds viewport at ${width} ${colorScheme}`);
+    geometry.push({key:"close-preview",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `close-preview-${width}-${colorScheme}.png`), animations: "disabled" });
     await page.keyboard.press("Escape");
     await page.goto(origin + "/#/funding/finance?project=" + project.id);
@@ -109,12 +115,14 @@ try {
     const save = await compose.getByRole("button", { name: "保存草稿", exact: true }).boundingBox();
     assert.ok(save && save.y + save.height <= page.viewportSize().height,
       `settlement action exceeds viewport at ${width} ${colorScheme}`);
+    geometry.push({key:"settlement-worksheet",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `settlement-worksheet-${width}-${colorScheme}.png`), animations: "disabled" });
     await compose.getByRole("button", { name: "返回结算列表", exact: true }).click();
     await compose.waitFor({ state: "hidden" });
     await page.goto(origin + "/#/business/demands/edit");
     await page.getByRole("textbox", { name: "问题描述" }).waitFor();
     await page.locator(".layout-content .el-loading-mask:visible").first().waitFor({ state: "hidden" });
+    geometry.push({key:"demand-editor",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `demand-editor-${width}-${colorScheme}.png`), animations: "disabled" });
     await page.goto(origin + "/#/standards/pricing");
     await page.getByRole("button", { name: "新增参考价格", exact: true }).click();
@@ -128,16 +136,22 @@ try {
     const listId = await operation.getAttribute("aria-controls");
     assert.ok(listId);
     await page.locator("[id='" + listId + "']").getByRole("option").first().waitFor();
+    geometry.push({key:"price-operation-picker",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `price-operation-picker-${width}-${colorScheme}.png`), animations: "disabled" });
     await operation.press("Escape");
     await priceEditor.getByRole("button", { name: "保存正式规则" }).click();
     await priceEditor.getByText("请填写规则名称、操作类型、价格来源、价格日期、生效日期和依据", { exact: true }).waitFor();
+    geometry.push({key:"price-validation",colorScheme,...await alignmentAudit(page)});
     await page.screenshot({ path: join(screenshots, `price-validation-${width}-${colorScheme}.png`), animations: "disabled" });
     await priceEditor.getByRole("button", { name: "取消", exact: true }).click();
     await priceEditor.waitFor({ state: "hidden" });
     assert.deepEqual(errors, [], `production application failures in ${colorScheme}`);
     await context.close();
   }
+  writeFileSync(join(screenshots,"alignment-audit.json"),JSON.stringify(geometry,null,2)+"\n");
+  const deviations=geometry.flatMap(row=>row.violations.map(v=>({key:row.key,colorScheme:row.colorScheme,...v})));
+  console.log("DESKTOP_GEOMETRY",geometry.length,"states",geometry.reduce((n,row)=>n+row.measured.length,0),"rows",deviations.length,"deviations");
+  assert.deepEqual(deviations,[],"desktop geometry deviations exceed 1 CSS px");
   console.log("YOULAI_PRODUCTION_DESKTOP_OK 12 modules, administration, price selector and validation, demand editor, project detail/change/close preview and settlement worksheet, 1920×1080 and both themes");
 } finally {
   await browser?.close();

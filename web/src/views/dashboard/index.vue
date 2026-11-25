@@ -52,7 +52,7 @@
         <div class="card__head">
           <h3 class="card__title">业务概览</h3>
           <el-tag type="primary" size="small" effect="plain">
-            {{ summary ? summary.pending_demands + summary.alerts.length : 0 }} 项需关注
+            {{ attentionItems.length }} 项需关注
           </el-tag>
         </div>
         <div class="card__body overview-card">
@@ -84,16 +84,18 @@
       <div class="card">
         <div class="card__head">
           <h3 class="card__title" data-guide-action="dashboard.alert">需要关注</h3>
-          <span class="card__count">{{ summary?.alerts.length ?? 0 }} 项</span>
+          <span class="card__count">{{ attentionItems.length }} 项</span>
         </div>
         <div class="card__body">
-          <el-empty v-if="!loading && !alerts.length" description="暂无项目风险预警" :image-size="48" />
-          <div v-for="alert in alerts" :key="alert.id" class="todo-row">
+          <el-empty v-if="!loading && !attentionItems.length" description="暂无需要关注的事项" :image-size="48" />
+          <div v-for="alert in attentionPageItems" :key="alert.id" class="todo-row">
             <el-icon class="todo-row__icon--pending" :size="16"><Warning /></el-icon>
-            <span class="todo-row__title">{{ alert.title }}</span>
+            <el-button link type="primary" class="todo-row__title" :title="alert.title" @click="router.push(alert.target)">{{ alert.title }}</el-button>
             <span class="todo-row__tag">{{ alert.kind }}</span>
             <span class="todo-row__time">{{ alert.date }}</span>
           </div>
+          <el-pagination v-if="attentionItems.length > 6" v-model:current-page="attentionPage" :page-size="6"
+            :total="attentionItems.length" layout="prev, pager, next" />
         </div>
       </div>
       <div class="card">
@@ -120,6 +122,7 @@
 defineOptions({ name: "Dashboard", inheritAttrs: false });
 
 import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { User, Document, Folder, CircleCheck, Warning, Monitor } from "@element-plus/icons-vue";
 import { useUserStore } from "@/stores/user";
 import { useSettingsStore } from "@/stores/settings";
@@ -141,6 +144,7 @@ interface DashboardAlert {
 interface DashboardSummary {
   demands: number;
   pending_demands: number;
+  pending_demand_items: {id:string;demand_no:string;problem_description:string}[];
   projects: number;
   active_projects: number;
   portfolio: DashboardProject[];
@@ -150,6 +154,7 @@ interface DashboardSummary {
 }
 
 const userStore = useUserStore();
+const router = useRouter();
 const settingsStore = useSettingsStore();
 const summary = ref<DashboardSummary | null>(null);
 const loading = ref(true);
@@ -194,12 +199,19 @@ const overviewBars = computed(() => {
   const max = Math.max(1, ...items.map(item => item.value));
   return items.map(item => ({ ...item, percent: Math.round(item.value * 100 / max) }));
 });
-const alerts = computed(() => (summary.value?.alerts ?? []).slice(0, 6).map((item, index) => ({
-  id: `${item.project_id}/${item.kind}/${index}`,
-  title: item.project,
-  kind: item.kind,
-  date: item.planned_end_on || "",
-})));
+const attentionPage = ref(1);
+const attentionItems = computed(() => [
+  ...(summary.value?.pending_demand_items ?? []).map(item => ({
+    id: "demand/"+item.id, title: item.demand_no, kind: "待确认需求", date: "",
+    target: {name:"Demands",query:{demand:item.id}},
+  })),
+  ...(summary.value?.alerts ?? []).map((item, index) => ({
+    id: `${item.project_id}/${item.kind}/${index}`,
+    title: item.project, kind: item.kind, date: item.planned_end_on || "",
+    target: {name:"Projects",query:{project:item.project_id}},
+  })),
+]);
+const attentionPageItems = computed(() => attentionItems.value.slice((attentionPage.value-1)*6, attentionPage.value*6));
 const recentProjects = computed(() => (summary.value?.portfolio ?? []).slice(0, 6));
 const expenseChartOptions = computed(() => {
   // The original upstream ECharts component and dashboard layout remain intact.
@@ -746,6 +758,7 @@ $pad: var(--page-padding);
   }
 
   &__title {
+    justify-content: flex-start;
     flex: 1;
     min-width: 0;
     overflow: hidden;

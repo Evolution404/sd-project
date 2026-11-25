@@ -26,6 +26,11 @@ const mode = process.env.SD_PACKAGE_MODE || "production";
 if (!["production", "demo"].includes(mode))
   throw Error("无效的 Windows 打包模式");
 const demoMode = mode === "demo";
+// Release guard only: do not publish a demo that violates the documented account
+// policy. This does not change any existing account or database.
+if (demoMode && (DEMO_ACCOUNT !== "demo" || DEMO_PASSWORD !== DEMO_ACCOUNT))
+  throw Error("演示凭据不符合 AGENTS.md 最新固定演示账号裁决，禁止生成或覆盖演示发布包");
+
 const version = process.env.SD_NODE_VERSION || process.version;
 if (!/^v24\.\d+\.\d+$/.test(version))
   throw Error("Windows 运行时仅允许 Node 24.x");

@@ -287,6 +287,9 @@ function handleSettingsClick() {
   padding: 0 6px 0 2px;
 
   &__avatar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     flex-shrink: 0;
     width: 30px;
     height: 30px;
@@ -295,6 +298,7 @@ function handleSettingsClick() {
   }
 
   &__avatar-img {
+    display: block;
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -303,6 +307,7 @@ function handleSettingsClick() {
 
   &__name {
     margin-left: 8px;
+    line-height: 1;
     font-size: 13px;
     color: currentColor;
     white-space: nowrap;
