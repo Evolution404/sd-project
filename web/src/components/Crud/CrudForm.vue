@@ -112,7 +112,37 @@
 <script setup lang="ts">
 import { computed, nextTick, onScopeDispose, reactive, ref, shallowRef } from "vue";
 import type { Component, VNode } from "vue";
-import { ElDialog, ElDrawer, ElMessageBox, type FormInstance, type FormRules } from "element-plus";
+import {
+  ElAlert, ElButton, ElCascader, ElCheckbox, ElCheckboxGroup, ElCol, ElDatePicker,
+  ElDialog, ElDrawer, ElForm, ElFormItem, ElInput, ElInputNumber, ElMessageBox,
+  ElOption, ElRadio, ElRadioGroup, ElRow, ElScrollbar, ElSelect, ElSwitch,
+  ElText, ElTimePicker, ElTimeSelect, ElTooltip, ElTreeSelect,
+  type FormInstance, type FormRules,
+} from "element-plus";
+// Use fixed imports for the dynamic field registry and its template so the
+// resolver's concurrent completions cannot vary the shared form chunk.
+import "element-plus/es/components/alert/style/index";
+import "element-plus/es/components/button/style/index";
+import "element-plus/es/components/cascader/style/index";
+import "element-plus/es/components/checkbox/style/index";
+import "element-plus/es/components/col/style/index";
+import "element-plus/es/components/date-picker/style/index";
+import "element-plus/es/components/dialog/style/index";
+import "element-plus/es/components/drawer/style/index";
+import "element-plus/es/components/form/style/index";
+import "element-plus/es/components/input/style/index";
+import "element-plus/es/components/input-number/style/index";
+import "element-plus/es/components/message-box/style/index";
+import "element-plus/es/components/radio/style/index";
+import "element-plus/es/components/row/style/index";
+import "element-plus/es/components/scrollbar/style/index";
+import "element-plus/es/components/select/style/index";
+import "element-plus/es/components/switch/style/index";
+import "element-plus/es/components/text/style/index";
+import "element-plus/es/components/time-picker/style/index";
+import "element-plus/es/components/time-select/style/index";
+import "element-plus/es/components/tooltip/style/index";
+import "element-plus/es/components/tree-select/style/index";
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from "vue-router";
 import { listRouteIdentity } from "./utils/list-state";
 import { formSaveGuide } from "@/guides/registry/native-bindings";
