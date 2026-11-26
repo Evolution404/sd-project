@@ -153,7 +153,7 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter } from "@/utils/business/native-list-query";
+import { historyScopeField, nativeListQuery, nativeColumnFilter, textSearchField, dateRangeSearchField } from "@/utils/business/native-list-query";
 import { computed, defineAsyncComponent, onMounted, reactive, ref } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { usePageOverlays } from "@/composables/usePageOverlays";
@@ -475,7 +475,7 @@ function viewNodeHistory(id: string) {
 
 const costSearch: CrudSearchConfig = { fields: [{ type: "input", prop: "keywords", label: "费用事项", attrs: {
   clearable: true, placeholder: "费用事项、发票号或费用科目",
-} }] };
+} }, textSearchField("cost_node_name", "费用科目"), dateRangeSearchField("occurred_on", "费用发生日期")] };
 const costTable: CrudTableConfig<CrudRecord, ActualCost> = {
   stateKey:"finance:costs:"+props.projectId,
   rowKey: "entry_id", table: { border: true }, tableTools: ["refresh", "columns", "search"],
@@ -488,7 +488,8 @@ const costTable: CrudTableConfig<CrudRecord, ActualCost> = {
   ],
   async fetchData(query) {
     const result = await listActualCosts(props.projectId, Number(query.pageNum) || 1, Number(query.pageSize) || 20,
-      String(query.keywords ?? ""), includeDeletedCosts.value, nativeListQuery(query, ["status"]));
+      String(query.keywords ?? ""), includeDeletedCosts.value,
+      nativeListQuery(query, ["status"], false, ["cost_node_name", "occurred_on"]));
     return { list: result.items, total: result.total };
   },
   columns: [
@@ -517,7 +518,11 @@ const costTable: CrudTableConfig<CrudRecord, ActualCost> = {
 };
 const reconciliationSearch: CrudSearchConfig = { fields: [{ type: "input", prop: "keywords", label: "费用核对", attrs: {
   clearable: true, placeholder: "搜索核对依据",
-} },historyScopeField("finance.reconcile-show-deleted")] };
+} }, historyScopeField("finance.reconcile-show-deleted"), textSearchField("settlement_number", "结算编号"),
+  dateRangeSearchField("created_at", "核对日期"),
+  { type: "select", prop: "status", label: "核对状态", attrs: { clearable: true }, options: [
+    { value: "active", label: "有效" }, { value: "stale", label: "所用版本已变更" }, { value: "voided", label: "已作废" },
+  ] }] };
 const reconciliationTable: CrudTableConfig<CrudRecord, CostReconciliation> = {
   stateKey: "finance:reconciliations:" + (props.settlementId || props.projectId),
   rowKey: "record_id", table: { border: true }, tableTools: ["refresh", "columns", "search"],
@@ -529,7 +534,7 @@ const reconciliationTable: CrudTableConfig<CrudRecord, CostReconciliation> = {
       visible: () => !props.closed, onClick: () => openBatch("reconciliations", true) },
   ],
   async fetchData(query) {
-    const options = nativeListQuery(query);
+    const options = nativeListQuery(query, [], false, ["settlement_number", "created_at", "status"]);
     if (props.settlementId) options.filters = { ...options.filters, settlement_id: props.settlementId };
     const result = await listCostReconciliations(props.projectId, Number(query.pageNum) || 1, Number(query.pageSize) || 20,
       String(query.keywords ?? ""), options);

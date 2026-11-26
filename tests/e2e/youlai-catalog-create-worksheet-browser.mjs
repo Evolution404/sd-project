@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 import { alignmentAudit } from "./youlai-alignment-helpers.mjs";
-import { selectWorksheetCell, worksheetCanvas } from "./youlai-business-worksheet-helpers.mjs";
+import { selectWorksheetCell, waitForWorksheetFullscreen, worksheetCanvas } from "./youlai-business-worksheet-helpers.mjs";
 import { pasteSettlementCells } from "./youlai-settlement-grid-helpers.mjs";
 
 const cleanup = [];
@@ -80,6 +80,13 @@ try {
   await page.getByRole("tab", { name: "逻辑杆塔", exact: true }).click();
   const tower = await start("逻辑杆塔", 2);
   const towerWidths = [165, 165, 145, 145, 145, 145, 145];
+  const towerCanvasId = await tower.sheet.getAttribute("id");
+  await page.evaluate(() => Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: false }));
+  await button("全屏编辑", tower.scope).click();
+  await waitForWorksheetFullscreen(page);
+  assert.equal(await page.evaluate(() => document.fullscreenElement), null);
+  await page.locator(".el-message:visible").first().waitFor({ state: "hidden" });
+  await page.screenshot({ path: join(out, "tower-fullscreen-light.png"), animations: "disabled" });
   await selectWorksheetCell(tower.sheet, 1, 0, towerWidths);
   await page.keyboard.press("Shift+ArrowDown");
   await pick(tower.scope, "所属线路", "工作表输电甲", "工作表输电甲");
@@ -87,6 +94,14 @@ try {
   await pick(tower.scope, "共用物理杆塔", towers[0].asset_no, towers[0].asset_no);
   await selectWorksheetCell(tower.sheet, 1, 2, towerWidths);
   await pasteSettlementCells(page, "Z-001\nZ-002");
+  await tower.sheet.click({ position: { x: 36 + towerWidths.slice(0, 3).reduce((sum, width) => sum + width, 0) - 12, y: 44 } });
+  const filterMenu = page.locator('[data-u-comp="rect-popup"]').filter({ has: button("降序") });
+  await button("升序", filterMenu).click();
+  await filterMenu.waitFor({ state: "hidden" });
+  await tower.scope.getByText("已按 杆塔号 升序 排列", { exact: true }).waitFor();
+  await button("退出全屏", tower.scope).click();
+  assert.equal(await tower.sheet.getAttribute("id"), towerCanvasId);
+  await page.evaluate(() => Reflect.deleteProperty(document, "fullscreenEnabled"));
   await preview(tower.scope, 2);
   await commit(tower.scope, "逻辑杆塔");
   const importedTowers = s.equipment.list("towers").filter(item => item.line_id === selectedLine.id);

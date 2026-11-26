@@ -1200,6 +1200,7 @@ defineExpose({
   getFilters,
   getSelection,
   getExportQuery,
+  canExport,
   refresh,
   clearFilters,
 });

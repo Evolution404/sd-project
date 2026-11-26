@@ -102,7 +102,7 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
+import { dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
 import {computed,defineAsyncComponent,ref,reactive,onMounted,onActivated} from "vue";
 import {useRoute,useRouter} from "vue-router";
 import { usePageOverlays } from "@/composables/usePageOverlays";
@@ -237,13 +237,21 @@ onActivated(()=>{
   void openDetails(id);
 });
 const searchConfig:CrudSearchConfig={
+  showNumber:4,
   fields:[
     {type:"input",prop:"keywords",label:"搜索",attrs:{
-      placeholder:"编号 / 名称",clearable:true,
+      placeholder:kind==="frameworks"?"编号 / 名称":"协议编号 / 名称 / 合同编号",clearable:true,
     }},
+    {type:"date-picker",prop:"fiscal_year",label:"年度",
+      attrs:{type:"year",valueFormat:"YYYY",placeholder:"选择年度",clearable:true}},
     {type:"select",prop:"status",label:"状态",attrs:{clearable:true},
       options:[{label:"启用",value:"active"},{label:"停用",value:"inactive"}]},
     historyScopeField(kind==="frameworks"?"frameworks.show-deleted":"agreements.show-deleted"),
+    ...(kind === "agreements" ? [
+      { type: "input" as const, prop: "framework_id_label", label: "年度框架", attrs: { clearable: true } },
+      { type: "input" as const, prop: "counterparty_name", label: "签约对方", attrs: { clearable: true } },
+      dateRangeSearchField("effective_to", "协议截止日期"),
+    ] : []),
   ],
 };
 const tableConfig:CrudTableConfig={
@@ -252,7 +260,8 @@ const tableConfig:CrudTableConfig={
   fetchData:async(query)=>{
     const params=query as {pageNum?:number;pageSize?:number;keywords?:string;status?:string};
     const response=await listFunding(kind,{page:params.pageNum||1,size:params.pageSize||20,
-      keyword:params.keywords||"",status:params.status,...nativeListQuery(query, ["status"])});
+      keyword:params.keywords||"",status:params.status,
+      ...nativeListQuery(query, ["status"], false, ["fiscal_year", "framework_id_label", "counterparty_name", "effective_to"])});
     return {list:response.items,total:response.total};
   },
   toolbarActions:[

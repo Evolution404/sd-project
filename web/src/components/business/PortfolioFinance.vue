@@ -17,7 +17,7 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter } from "@/utils/business/native-list-query";
+import { dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter } from "@/utils/business/native-list-query";
 import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import { usePageOverlays } from "@/composables/usePageOverlays";
@@ -39,6 +39,7 @@ const search = computed<CrudSearchConfig>(()=>({
     { type: "input", prop: "keywords", label: "财务检索", attrs: { clearable: true, placeholder: "费用事项或项目编号" } },
     { type: "input", prop: "projectName", label: "项目名称", attrs: { clearable: true } },
     ...(props.kind==="reconciliations"?[historyScopeField("finance.reconcile-show-deleted")]:[]),
+    dateRangeSearchField("occurred_on", "费用发生日期"),
   ],
 }));
 const table = computed<CrudTableConfig>(() => ({
@@ -47,7 +48,7 @@ const table = computed<CrudTableConfig>(() => ({
   async fetchData(query) {
     const projectName = String(query.projectName || "").trim();
     const result = await listPortfolioFinance(props.kind, Number(query.pageNum) || 1, Number(query.pageSize) || 20,
-      String(query.keywords || ""), projectName ? { project_name: projectName } : {}, nativeListQuery(query, ["status"]));
+      String(query.keywords || ""), projectName ? { project_name: projectName } : {}, nativeListQuery(query, ["status"], false, ["occurred_on"]));
     return { list: result.items, total: result.total };
   },
   columns: [

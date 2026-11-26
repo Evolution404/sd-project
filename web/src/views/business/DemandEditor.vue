@@ -119,14 +119,22 @@
                     />
                   </el-select>
                 </el-form-item>
-                <el-button data-guide-action="demands.location-add" type="primary" @click="positionPickerOpen=true">选择作业设备</el-button>
+                <el-button data-guide-action="demands.location-add" type="primary" @click="openPositionPicker">选择作业设备</el-button>
                 <el-button data-guide-action="demands.location-quick" @click="quickPickerOpen=true">按杆号快速选择</el-button>
                 <DemandTowerQuickPicker v-if="quickPickerOpen" :kind="kind" :existing-count="positions.length"
                   :selectable="canSelectPosition" @close="quickPickerOpen=false" @confirm="addQuickPositions"/>
                 <NativeRecordPicker v-if="positionPickerOpen" title="选择作业设备" placeholder="搜索杆塔、线路或档距"
                   confirm-label="添加所选位置" confirm-guide="demands.location-select-confirm"
                   :columns="positionPickerColumns" :loader="loadPositionPage" :selectable="canSelectPosition"
-                  :saving="addingPositions" @close="positionPickerOpen=false" @confirm="addPositions"/>
+                  :filter-key="positionLineId" :load-filtered="loadFilteredPositions" :selection-limit="5000-positions.length"
+                  :saving="addingPositions" @close="positionPickerOpen=false" @confirm="addPositions">
+                  <template #filters>
+                    <el-select v-model="positionLineId" filterable remote clearable style="width: 175px"
+                      aria-label="所属线路" placeholder="所属线路" :remote-method="searchPositionLines" :loading="positionLineLoading">
+                      <el-option v-for="line in positionLines" :key="line.id" :value="line.id" :label="line.name" />
+                    </el-select>
+                  </template>
+                </NativeRecordPicker>
               </div>
               <div aria-label="作业位置数量工作表">
                 <BusinessWorksheet ref="positionSheet" data-grid-key="demands:positions"
@@ -638,8 +646,44 @@ const materialPickerColumns: {key:keyof Material;label:string;width?:number}[] =
   {key:"code",label:"编号"},{key:"name",label:"物资名称",width:180},{key:"model",label:"型号"},
   {key:"specification",label:"规格"},{key:"unit_id_label",label:"单位"},{key:"version_no",label:"版本"},
 ];
+const positionLineId=ref("");
+const positionLines=ref<EquipmentRow[]>([]);
+const positionLineLoading=ref(false);
+let positionLineSequence=0;
+async function searchPositionLines(keyword:string){
+  const sequence=++positionLineSequence;
+  positionLineLoading.value=true;
+  try{
+    const result=await listEquipment("lines",{keyword,size:200,filters:{status:"active"}});
+    if(sequence===positionLineSequence)positionLines.value=result.items;
+  }catch(error){if(sequence===positionLineSequence)ElMessage.error((error as Error).message);}
+  finally{if(sequence===positionLineSequence)positionLineLoading.value=false;}
+}
+function openPositionPicker(){
+  positionLineId.value="";
+  positionPickerOpen.value=true;
+  void searchPositionLines("");
+}
 function resetPositionSearch(){positionPickerOpen.value=false;quickPickerOpen.value=false;}
-function loadPositionPage(keyword:string,page:number){return listEquipment(catalogs[kind.value],{keyword,page,size:20});}
+function positionQuery(keyword:string){
+  return {keyword,lineId:positionLineId.value,gridFilters:{status:["active","draft"]}};
+}
+function loadPositionPage(keyword:string,page:number){
+  return listEquipment(catalogs[kind.value],{...positionQuery(keyword),page,size:20});
+}
+async function loadFilteredPositions(keyword:string){
+  const catalog=catalogs[kind.value],query=positionQuery(keyword),size=200;
+  const first=await listEquipment(catalog,{...query,page:1,size});
+  if(first.total>5000)throw Error("筛选范围超过5000处，请缩小范围后再批选");
+  const rows=first.items.slice();
+  for(let page=2;rows.length<first.total;page++){
+    const result=await listEquipment(catalog,{...query,page,size});
+    if(result.total!==first.total||!result.items.length)throw Error("筛选结果已变化，请重新查询");
+    rows.push(...result.items);
+  }
+  if(new Set(rows.map(row=>row.id)).size!==first.total)throw Error("筛选结果已变化，请重新查询");
+  return rows;
+}
 function locationId(location: DemandLocationInput) {
   return location.physical_tower_id || location.logical_tower_id || location.span_id;
 }

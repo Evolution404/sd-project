@@ -19,7 +19,6 @@ export async function handleEquipment(
     deleted,
     url,
     mutate,
-    page,
   } = context;
   requireValue(isEquipmentKind(key), "设备目录不存在", 404);
   requireValue(isObject(input), "请求正文必须为JSON对象", 400);
@@ -55,10 +54,6 @@ export async function handleEquipment(
     if (sub === "history")
       return { result: system.equipment.history(key, subKey) };
     if (sub) return { result: system.equipment.get(key, sub, deleted) };
-    if (key === "voltages")
-      return {
-        result: page(system.equipment.list(key, deleted), url.searchParams),
-      };
     return {
       result: system.equipment.search(key, {
         ...parseListQuery(url.searchParams),

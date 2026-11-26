@@ -43,7 +43,7 @@
   </el-drawer>
 </template>
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
+import { textSearchField, dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
 import {ref,onMounted} from "vue";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import type {CrudSearchConfig,CrudTableConfig} from "@/components/Crud/types";
@@ -82,6 +82,12 @@ const searchConfig:CrudSearchConfig={fields:[{
     placeholder:"规则名称 / 编号 / 价格依据"},
 },
     historyScopeField("pricing.show-deleted"),
+    textSearchField("operation_id_label", "操作类型"),
+    textSearchField("voltage_level_id_label", "电压等级"),
+    { type: "select", prop: "pricing_mode", label: "计价模型", attrs: { clearable: true },
+      options: Object.entries(modelLabels).map(([value, label]) => ({ value, label })) },
+    textSearchField("price_source", "价格来源"),
+    dateRangeSearchField("effective_on", "生效日期"),
   ]};
 const tableConfig:CrudTableConfig={
   stateKey:"prices",
@@ -89,7 +95,8 @@ const tableConfig:CrudTableConfig={
   fetchData:async query=>{
     const q=query as {pageNum?:number;pageSize?:number;keywords?:string};
     const result=await listPrices({page:q.pageNum||1,
-      size:q.pageSize||20,keyword:q.keywords||"",...nativeListQuery(query, ["status"])});
+      size:q.pageSize||20,keyword:q.keywords||"",...nativeListQuery(query, ["status"], false,
+        ["operation_id_label", "voltage_level_id_label", "pricing_mode", "price_source", "effective_on"])});
     return {list:result.items,total:result.total};
   },
   toolbarActions:[{key:"create-rule",label:"新增参考价格",permission:"admin",onClick:()=>openRule()}],

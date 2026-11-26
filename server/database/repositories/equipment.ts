@@ -1,6 +1,6 @@
 import { nextBusinessNumber } from "./business-numbers.js";
 import type { createStore } from "./store.js";
-import { searchEquipment } from "./equipment-search.js";
+import { searchEquipment, voltageCatalogSql } from "./equipment-search.js";
 import type {
   EquipmentCatalogKind,
   EquipmentKind,
@@ -26,7 +26,7 @@ const histories = {
 } as const;
 const line = "l.name";
 const sources: Record<EquipmentCatalogKind, string> = {
-  voltages: `SELECT c.*,(SELECT COUNT(*)+1 FROM audit_events a WHERE a.entity='voltages' AND a.entity_id=c.id AND a.action='revise') AS version FROM voltage_levels c`,
+  voltages: voltageCatalogSql,
   lines: `SELECT c.*,v.name AS voltage_level_name,v.name AS voltage_level_id_label,
     p.name AS parent_line_name,j.tower_no AS junction_tower_no,
     p.name AS parent_line_id_label,
@@ -101,7 +101,7 @@ export function equipmentRepository(store: ReturnType<typeof createStore>) {
       rows(kind, "WHERE source.id=?", [id])[0],
     all: (kind: EquipmentCatalogKind, includeDeleted: boolean) =>
       rows(kind).filter((row) => includeDeleted || !row.deleted),
-    search(kind: EquipmentKind, options: EquipmentSearchOptions) {
+    search(kind: EquipmentCatalogKind, options: EquipmentSearchOptions) {
       const page = searchEquipment(store, kind, options);
       // The pagination query already owns identity selection and whitelisted ordering.
       // Fetch display relationships together for only that page, preserving its order.

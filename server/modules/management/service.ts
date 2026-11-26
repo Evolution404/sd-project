@@ -55,6 +55,11 @@ export function createManagement({ repository, identity, auth, audit, database }
       .map(user => ({ ...user, role_codes: identity.rolesForUser(user.id),
         organization_ids:identity.organizationsForUser(user.id),deleted: deleted.has(user.id) }));
   }
+  function userRoleOptions(actor: Actor) {
+    authorize(actor, "user.manage");
+    return identity.roles().filter(role => role.status === "active")
+      .map(role => ({ label: role.name, value: role.code }));
+  }
   function userDetail(actor: Actor, key: string, includeDeleted = false) {
     authorize(actor, "user.manage");
     const user = identity.user(key);
@@ -335,6 +340,6 @@ export function createManagement({ repository, identity, auth, audit, database }
     authorize(actor, "role.manage");
     return repository.permissionCatalog();
   }
-  return { entryBatch, actors, users, userDetail, saveUser, roles, role, saveRole, deleteRole, setRolePermissions, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, searchSecurityEvents, annotateAudit, permissions, menuRoutes };
+  return { entryBatch, actors, users, userRoleOptions, userDetail, saveUser, roles, role, saveRole, deleteRole, setRolePermissions, accessPolicy, setAccessPolicy, ips, saveIp, audits, searchAuditEvents, searchSecurityEvents, annotateAudit, permissions, menuRoutes };
 }
 export type ManagementService = ReturnType<typeof createManagement>;

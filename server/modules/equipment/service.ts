@@ -9,7 +9,6 @@ import type { Actor, Page } from "../../shared/types/contracts.js";
 import { isObject } from "../../shared/types/contracts.js";
 import type {
   EquipmentCatalogKind,
-  EquipmentKind,
   EquipmentRecord,
   EquipmentFields,
   EquipmentFieldValue,
@@ -463,7 +462,7 @@ export function createEquipment(
     ): EquipmentRecord[] =>
       decorate(kind, repository.all(kind, includeDeleted)),
     search: (
-      kind: EquipmentKind,
+      kind: EquipmentCatalogKind,
       options: EquipmentSearchOptions = {},
     ): Page<EquipmentRecord> => {
       const page = repository.search(kind, options);

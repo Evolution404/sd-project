@@ -27,6 +27,10 @@ test("equipment catalog applies search, sorting and filters before SQL paginatio
   });
   assert.equal(filtered.total, 1);
   assert.equal(filtered.items[0].name, "测试线路050");
+  const byVoltage = s.equipment.search("lines", { filters: { voltage_level_id: voltage.id }, page_size: 1 });
+  assert.equal(byVoltage.total, 64);
+  assert.equal(byVoltage.items.length, 1);
+  assert.equal(s.equipment.search("lines", { filters: { voltage_level_id: voltage.id.slice(0, 10) } }).total, 0);
   const attemptedInjection = s.catalog.search("lines", {
     sort: "name; DROP TABLE physical_towers", page_size: 10,
   });
@@ -48,4 +52,21 @@ test("equipment catalog applies search, sorting and filters before SQL paginatio
   assert.equal(towerResult.total, 1);
   assert.equal(towerResult.items[0].tower_no, "#18");
   assert.equal(inspect(s).integrity().foreignKeys.length, 0);
+});
+
+test("span length bounds use inclusive metres with exact stored millimetres", (t) => {
+  const { s, user, save } = fixture(t);
+  const voltage = save("voltages", { name: "35kV测试" });
+  const line = save("lines", { name: "长度范围合成线路", voltage_level_id: voltage.id, status: "active" });
+  const towers = Array.from({ length: 4 }, (_, index) =>
+    s.equipment.save(user, "towers", { line_id: line.id, tower_no: String(index + 1) }));
+  const spans = [0, 130125, null].map((length, index) =>
+    s.equipment.save(user, "spans", { line_id: line.id, start_tower_id: towers[index].id,
+      end_tower_id: towers[index + 1].id, transmission_center_length_mm: length }));
+  const query = filters => s.equipment.search("spans", { filters: { line_name: line.name, ...filters } });
+  assert.deepEqual(query({ length_min: "130", length_max: "130.125" }).items.map(row => row.id), [spans[1].id]);
+  assert.deepEqual(query({ length_max: "0" }).items.map(row => row.id), [spans[0].id]);
+  assert.equal(query({ length_min: "130.126" }).total, 0);
+  assert.throws(() => query({ length_min: "1.0001" }), /最多三位小数/);
+  assert.throws(() => query({ length_min: "131", length_max: "130" }), /最短管辖长度不能超过/);
 });

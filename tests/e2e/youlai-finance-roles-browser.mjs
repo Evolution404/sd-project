@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
+import ExcelJS from "exceljs";
 import { approvedFixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
 
@@ -77,6 +78,47 @@ try {
     assert.equal(await button(costRow, "费用核对").count(), canVerify ? 1 : 0);
     assert.equal(await button(costRow, "查看历史").count(), 1);
     await page.screenshot({ path: join(output, "finance-permissions-" + role + "-1920.png"), animations: "disabled" });
+    if (role === "admin" || role === "viewer") {
+      const settlements = page.getByRole("tab", { name: "结算单", exact: true });
+      const summary = page.getByRole("region", { name: "项目结算总览", exact: true });
+      const exportButton = button(page, "导出 Excel");
+      if (role === "admin") await page.route("**/api/projects/*/summary", route => route.abort(), { times: 1 });
+      await settlements.click();
+      await bill.waitFor();
+      if (role === "admin") {
+        await summary.getByText("项目结算总览读取失败", { exact: true }).waitFor();
+        await summary.getByText("¥250.00", { exact: true }).waitFor();
+        assert.equal(await exportButton.isEnabled(), true);
+        await button(summary, "重新读取结算总览").click();
+        await summary.getByText("项目结算总览读取失败", { exact: true }).waitFor({ state: "hidden" });
+
+        const matchesFailedQuery = url => url.pathname.endsWith("/settlements") &&
+          (url.searchParams.get("filters") || "").includes("999");
+        await page.route(matchesFailedQuery, route => route.abort(), { times: 1 });
+        const amount = page.getByPlaceholder("输入本次金额");
+        await amount.fill("999.00");
+        await amount.press("Enter");
+        await page.locator(".el-alert--error").filter({ hasText: "Failed to fetch" }).waitFor();
+        await bill.waitFor();
+        assert.equal(await exportButton.isDisabled(), true);
+        await button(page, "导入 Excel").click();
+        const exchange = page.getByRole("dialog", { name: "导入 Excel", exact: true });
+        assert.equal(await button(exchange, "下载待修改的数据").isDisabled(), true);
+        await exchange.getByRole("button", { name: "关闭此对话框" }).click();
+        await button(page, "刷新").click();
+        await bill.waitFor({ state: "hidden" });
+        assert.equal(await exportButton.isEnabled(), true);
+      } else {
+        assert.equal(await button(page, "导入 Excel").count(), 0);
+        const complete = page.waitForEvent("download");
+        await exportButton.click();
+        const download = await complete;
+        assert.match(download.suggestedFilename(), /结算报表\.xlsx$/);
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.readFile(await download.path());
+        assert.equal(workbook.worksheets[0].getCell("A4").value, draft.number);
+      }
+    }
     if (!canVerify) {
       const response = await page.request.post(endpoint, {
         data: approvalInput, headers: { "Idempotency-Key": "finance-unapproved-" + role },

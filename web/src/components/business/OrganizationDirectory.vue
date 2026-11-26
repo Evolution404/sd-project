@@ -4,6 +4,10 @@
       <el-card shadow="never">
         <div class="flex flex-wrap gap-2">
           <el-input v-model="keyword" clearable placeholder="按组织名称查找" />
+          <el-select v-model="treeStatus" aria-label="组织状态" placeholder="全部组织状态" clearable style="width:150px">
+            <el-option label="启用" value="active" />
+            <el-option label="停用" value="inactive" />
+          </el-select>
           <el-checkbox data-guide-action="dictionaries.show-deleted" v-model="showDeleted">显示已删除</el-checkbox>
           <el-button v-if="canManage" type="primary" data-guide-action="dictionaries.organization-root" @click="form?.openForm('create')">新增组织</el-button>
           <el-button v-if="canManage" @click="openBatch(false)">批量新增顶级组织</el-button>
@@ -163,6 +167,7 @@ const rows = ref<OrganizationNode[]>([]);
 const selectedId = ref<string>();
 const selected = computed(() => rows.value.find(row => row.id === selectedId.value));
 const keyword = ref(""), showDeleted = ref(false);
+const treeStatus = ref("");
 const loading = ref(false), detailLoading = ref(false), deleting = ref(false);
 const loadError = ref(""), detailError = ref("");
 const detail = ref<OrganizationDetail>();
@@ -198,8 +203,12 @@ const availableParents = computed(() => {
   });
 });
 
-function matches(value: string, row: Record<string, unknown>) {
-  return String(row.name ?? "").toLocaleLowerCase().includes(value.trim().toLocaleLowerCase());
+function matches(search: { keyword: string; status: string }, row: Record<string, unknown>) {
+  return (!search.status || row.status === search.status) &&
+    String(row.name ?? "").toLocaleLowerCase().includes(search.keyword.trim().toLocaleLowerCase());
+}
+function filterTree() {
+  tree.value?.filter({ keyword: keyword.value, status: treeStatus.value });
 }
 async function loadTree(prefer?: string) {
   loading.value = true;
@@ -210,7 +219,7 @@ async function loadTree(prefer?: string) {
     savedId = undefined;
     selectedId.value = next?.id;
     await nextTick();
-    tree.value?.filter(keyword.value);
+    filterTree();
     if (next) await select(next);
     else detail.value = undefined;
   } catch (cause) {
@@ -307,11 +316,11 @@ async function remove() {
     if (cause !== "cancel" && cause !== "close") ElMessage.error((cause as Error).message);
   } finally { deleting.value = false; }
 }
-watch(keyword, value => tree.value?.filter(value));
+watch([keyword, treeStatus], filterTree);
 watch(showDeleted, async value => {
   if (!value && selected.value?.deleted) selectedId.value = undefined;
   await nextTick();
-  tree.value?.filter(keyword.value);
+  filterTree();
 });
 onMounted(() => loadTree());
 </script>

@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 import { fixture } from "../helpers.mjs";
 import { httpServer } from "../../dist/server/platform/http/server.js";
-import { pickDemandPositions, selectWorksheetCell, worksheetCanvas } from "./youlai-business-worksheet-helpers.mjs";
+import { pickDemandPositions, selectWorksheetCell, waitForWorksheetFullscreen, worksheetCanvas } from "./youlai-business-worksheet-helpers.mjs";
 import { copySettlementSelection, pasteSettlementCells } from "./youlai-settlement-grid-helpers.mjs";
 
 const cleanup = [];
@@ -67,7 +67,23 @@ try {
   };
 
   await checkRows([["A", 1], ["B", 2], ["C", 3]]);
-  await edit(1, "4");
+  await selectWorksheetCell(canvas, 1, 0, widths);
+  await selectWorksheetCell(canvas, 1, 2, widths);
+  await page.keyboard.press("4");
+  await button("全屏编辑").click();
+  await waitForWorksheetFullscreen(page);
+  await page.waitForFunction(() => document.fullscreenElement === document.documentElement);
+  assert.equal(await canvas.getAttribute("id"), canvasId);
+  await page.waitForFunction(() => document.activeElement?.matches('[contenteditable][data-u-comp="editor"]'));
+  assert.equal((await copySettlementSelection(page)).trim(), "4");
+  const pageScroll = page.locator(".demand-scroll");
+  const position = await canvas.boundingBox();
+  const scrollBeforeWheel = await pageScroll.evaluate(node => node.scrollTop);
+  await page.mouse.move(position.x + position.width - 80, position.y + 90);
+  await page.mouse.wheel(0, 220);
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  assert.equal(await pageScroll.evaluate(node => node.scrollTop), scrollBeforeWheel);
+  await page.screenshot({ path: join(out, "fullscreen-dark.png"), animations: "disabled" });
   await selectWorksheetCell(canvas, 2, 2, widths);
   await canvas.click({ position: { x: 36 + 180 + 145 + 125 - 12, y: 44 } });
   await page.getByText("降序", { exact: true }).click();
@@ -77,6 +93,9 @@ try {
   await edit(3, "5");
   await remove(2);
   await checkRows([["B", 5], ["A", 4]]);
+  await page.evaluate(() => document.exitFullscreen());
+  await button("全屏编辑").waitFor();
+  assert.equal(await canvas.getAttribute("id"), canvasId);
   await button("撤销").click();
   await checkRows([["B", 5], ["A", 4], ["C", 3]]);
   // Keyboard undo uses the same history as the visible toolbar.
@@ -119,8 +138,13 @@ try {
   await values.getByRole("checkbox").nth(1).locator("..").click();
   await filterPanel.getByRole("button", { name: "确认", exact: true }).click();
   await work.getByText("显示 2 行", { exact: true }).waitFor();
+  await button("全屏编辑").click();
+  await waitForWorksheetFullscreen(page);
+  await work.getByText("显示 2 行", { exact: true }).waitFor();
   assert.equal(await read(1, 0), "ENTRY-HISTORY-D");
   assert.equal(await read(2, 0), "ENTRY-HISTORY-A");
+  await button("退出全屏").click();
+  await work.getByText("显示 2 行", { exact: true }).waitFor();
   await quantityFilter();
   await page.getByText("升序", { exact: true }).click();
   await work.getByText("已按 需求数量 升序 排列", { exact: true }).waitFor();

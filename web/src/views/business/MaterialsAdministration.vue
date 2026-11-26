@@ -40,7 +40,7 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
+import { textSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
 import {defineAsyncComponent,nextTick,onMounted,ref} from "vue";
 import {usePageOverlays} from "@/composables/usePageOverlays";
 import {MAX_MATERIAL_WORKSHEET_ROWS} from "../../../../server/shared/types/master-data";
@@ -101,6 +101,9 @@ const searchConfig:CrudSearchConfig={
     {type:"select",prop:"status",label:"状态",attrs:{clearable:true},
       options:[{label:"有效",value:"active"},{label:"停用",value:"inactive"}]},
     historyScopeField("materials.show-deleted"),
+    textSearchField("model", "型号"),
+    textSearchField("specification", "规格"),
+    textSearchField("unit_id_label", "计量单位"),
   ],
 };
 const tableConfig:CrudTableConfig={
@@ -111,7 +114,7 @@ const tableConfig:CrudTableConfig={
     const params=query as {pageNum?:number;pageSize?:number;keywords?:string;status?:string};
     const data=await queryMaterials({
       page:params.pageNum||1,pageSize:params.pageSize||20,
-      keyword:params.keywords||"",status:params.status,...nativeListQuery(query, ["status"]),
+      keyword:params.keywords||"",status:params.status,...nativeListQuery(query, ["status"], false, ["model", "specification", "unit_id_label"]),
     });
     if(sequence===listSequence)loadedPage.value={rows:data.items,page:params.pageNum||1,total:data.total};
     return {list:data.items,total:data.total};

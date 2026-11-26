@@ -269,7 +269,8 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
   // spans the host. Wheel over unused canvas must reach the surrounding form;
   // wheel over real cells remains local, including at a scroll boundary.
   function routeBlankWheel(event: WheelEvent) {
-    if (event.ctrlKey || event.metaKey || !rows.length || !columns.length) return;
+    if (event.ctrlKey || event.metaKey || !rows.length || !columns.length ||
+        host.closest("[data-worksheet-fullscreen]")) return;
     const render=univer.__getInjector().get(IRenderManagerService).getRenderUnitById(book.getId());
     const canvas=render?.engine.getCanvasElement();
     const viewport=render&&getViewportByCell(1,columns.length-1,render.scene,sheet.getSheet());
@@ -382,6 +383,10 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
     sheet.refreshCanvas();
   }
 
+  function focusKeyboard() {
+    univer.__getInjector().get(ILayoutService).focus(book.getId());
+  }
+
   function focusCell(row: number, column: number, restoreKeyboard = false) {
     if (isHidden(row)) { filledOnly = false; filter()?.removeFilterCriteria(); updateVisibleRows(); }
     const cell = sheet.getRange(row, column);
@@ -393,7 +398,7 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       // A validation link lives outside Univer. Transfer keyboard input to the
       // SDK's own registered sheet editor after selecting the invalid cell.
       host.scrollIntoView({ block: "nearest" });
-      univer.__getInjector().get(ILayoutService).focus(book.getId());
+      focusKeyboard();
     }
   }
 
@@ -880,7 +885,7 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
       initialized = true;
       publishEntries();
     }),
-    finishEditing,
+    finishEditing, focusKeyboard,
     selectedRowIds, removeSelectedRows, addRows, replaceRowReferences,
     isEditing: () => book.isCellEditing(),
     async prepareSave() {
@@ -930,13 +935,13 @@ export function createBusinessWorksheet({ host, rows: initialRows, columns, name
     async undo() {
       await finishEditing();
       onNotice("");
-      univer.__getInjector().get(ILayoutService).focus(book.getId());
+      focusKeyboard();
       await univerAPI.undo();
     },
     async redo() {
       await finishEditing();
       onNotice("");
-      univer.__getInjector().get(ILayoutService).focus(book.getId());
+      focusKeyboard();
       await univerAPI.redo();
     },
     theme(darkMode: boolean, color: string) {

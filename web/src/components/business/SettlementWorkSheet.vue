@@ -5,6 +5,7 @@ import { ThemeMode } from "@/enums";
 import { useSettingsStore } from "@/stores/settings";
 import { formatScaledDecimal } from "@/utils/business/fixed-scale";
 import type { createSettlementWorksheet, QuantityIssue, WorksheetEntries } from "./settlement-worksheet";
+import WorksheetViewport from "@/components/BusinessWorksheet/WorksheetViewport.vue";
 
 const props = defineProps<{
   projectId: string;
@@ -158,6 +159,8 @@ defineExpose({ finishEditing: () => workbook?.finishEditing(), changed, prepareS
 
 <template>
   <section class="settlement-worksheet" aria-label="本次完成工作量工作表">
+    <WorksheetViewport v-slot="{ expanded, toggle }" name="本次完成工作量" :available="ready && rows.length > 0"
+      :finish-editing="() => workbook?.finishEditing()" :focus-worksheet="() => workbook?.focusKeyboard()">
     <div class="settlement-work-heading">
       <div>
         <h3>本次完成工作量</h3>
@@ -169,6 +172,8 @@ defineExpose({ finishEditing: () => workbook?.finishEditing(), changed, prepareS
         <ElButton :disabled="!ready || !rows.length" @click="workbook?.redo()">重做</ElButton>
         <ElButton :disabled="!ready || !rows.length" @click="filledOnly=false;workbook?.clearFilters()">清除筛选</ElButton>
         <ElButton type="primary" plain :disabled="!ready || !rows.length" @click="workbook?.remaining()">按余量填充</ElButton>
+        <ElButton v-if="rows.length" :disabled="!ready && !expanded" :aria-pressed="expanded"
+          @mousedown.prevent @click="toggle">{{ expanded ? "退出全屏" : "全屏编辑" }}</ElButton>
       </div>
     </div>
     <ElAlert v-if="error" type="error" title="工作量位置读取失败" :description="error" :closable="false">
@@ -197,6 +202,7 @@ defineExpose({ finishEditing: () => workbook?.finishEditing(), changed, prepareS
         :style="{ '--worksheet-height': (Math.min(rows.length, 11) * 34 + 80) + 'px' }" @wheel.prevent></div>
       <div class="settlement-work-status" aria-live="polite">{{ notice || selection || "选中单元格开始录入" }}</div>
     </div>
+    </WorksheetViewport>
   </section>
 </template>
 

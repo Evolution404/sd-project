@@ -2,6 +2,7 @@ import { applyNativeListQuery, type NativeListOptions } from "@/utils/business/n
 import { yuanToFen } from "./funding";
 import { randomRequestId } from "@/utils/business/request-id";
 import type { FinanceListItem } from "../../../../server/shared/types/finance";
+import type { FinanceSummary } from "../../../../server/shared/types/finance-api";
 import type { FinanceEntryBatch, FinanceEntryBatchIssue, SettlementDemandLabel, SettlementLocationLabel } from "../../../../server/shared/types/finance-workflows";
 
 export type SettlementMode = "project_total" | "itemized";
@@ -99,6 +100,9 @@ async function mutate<T>(path:string,input:unknown,method="POST"):Promise<T>{
 export function settlementWorksheet(projectId:string,params:URLSearchParams):Promise<Worksheet>{
   return get<Worksheet>("/api/projects/"+encodeURIComponent(projectId)+
     "/settlement-worksheet?"+params.toString());
+}
+export function projectFinanceSummary(projectId: string): Promise<FinanceSummary> {
+  return get(projectPath(projectId) + "/summary");
 }
 export function listSettlements(query:{page?:number;size?:number;keyword?:string;status?:string;projectId?:string} & NativeListOptions={}):Promise<Page<SettlementRow>>{
   const params=new URLSearchParams({page:String(query.page||1),page_size:String(query.size||20),

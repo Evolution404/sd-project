@@ -3,6 +3,18 @@
  */
 import type {CrudSearchConfig} from "@/components/Crud/types";
 import type {HistoryScopeGuideId} from "@/guides/registry/history-scope";
+type SearchField = NonNullable<CrudSearchConfig["fields"]>[number];
+
+export function textSearchField(prop: string, label: string): SearchField {
+  return { type: "input", prop, label, attrs: { clearable: true } };
+}
+
+export function dateRangeSearchField(prop: string, label: string): SearchField {
+  return { type: "date-picker", prop, label, attrs: {
+    type: "daterange", valueFormat: "YYYY-MM-DD", startPlaceholder: "开始日期", endPlaceholder: "结束日期",
+    clearable: true, style: { width: "260px" },
+  } };
+}
 export function historyScopeField(guide:HistoryScopeGuideId):NonNullable<CrudSearchConfig["fields"]>[number] {
   return {type:"select",prop:"include_deleted",label:"记录范围",attrs:{placeholder:"正常记录",clearable:true,"data-guide-action":guide},
     options:[{label:"正常记录",value:"false"},{label:"包含已删除",value:"true"}]};
@@ -20,12 +32,23 @@ type Choice = { value: string; text: string };
 export function nativeColumnFilter(field: string, choices: readonly Choice[], single = false) {
   return { columnKey: "header_" + field, filters: [...choices], filterMultiple: !single };
 }
-export function nativeListQuery(query: NativeQuery, fields: readonly string[] = [], single = false): NativeListOptions {
+export function nativeListQuery(query: NativeQuery, fields: readonly string[] = [], single = false,
+  searchFields: readonly string[] = []): NativeListOptions {
   const order = Array.isArray(query.sort) && typeof query.sort[0] === "string"
     ? /^([a-z_]+),(asc|desc)$/.exec(query.sort[0]) : null;
   const result: NativeListOptions = order
     ? { sort: order[1], direction: order[2] as "asc" | "desc" } : {};
   if(query.include_deleted==="true")result.includeDeleted=true;
+  for (const field of searchFields) {
+    const raw = query[field];
+    if (Array.isArray(raw) && raw.length === 2 && raw.every(value => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value))) {
+      (result.filters ??= {})[field + "_from"] = raw[0];
+      result.filters[field + "_to"] = raw[1];
+      continue;
+    }
+    const value = typeof raw === "string" ? raw.trim() : typeof raw === "number" ? String(raw) : "";
+    if (value) (result.filters ??= {})[field] = value;
+  }
   for (const field of fields) {
     const raw = query["header_" + field];
     if (!Array.isArray(raw)) continue;

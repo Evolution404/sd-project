@@ -14,6 +14,7 @@ export interface RoleDataScope {
 export interface RoleQuery extends PageQuery {
   /** 搜索关键字 */
   keywords?: string;
+  status?: "active" | "disabled" | "";
 }
 
 /**

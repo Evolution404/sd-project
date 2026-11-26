@@ -31,7 +31,7 @@
 <script setup lang="ts">
 import { formatBeijingDateTime } from "@/utils/business/datetime";
 import { nativeListQuery, nativeColumnFilter } from "@/utils/business/native-list-query";
-import { computed, defineAsyncComponent, onMounted, ref, reactive } from "vue";
+import { computed, defineAsyncComponent, ref, reactive } from "vue";
 import type { VersionedBatchEntryConfig } from "@/components/business/versioned-batch-entry";
 import { usePageOverlays } from "@/composables/usePageOverlays";
 import CrudPage from "@/components/Crud/CrudPage.vue";
@@ -39,9 +39,9 @@ import type {
   CrudSearchConfig, CrudTableConfig, CrudFormConfig, CrudRecord
 } from "@/components/Crud/types";
 import type { OptionItem } from "@/api/common";
-import RoleAPI from "@/api/system/role";
+import { organizationTree } from "@/api/business/organizations";
 import {
-  listUsers, loadUser, saveUser, disableUser,
+  listUsers, loadUser, saveUser, disableUser, userRoleOptions,
   type UserFormData, type UserRow,
 } from "@/api/business/users";
 
@@ -85,6 +85,20 @@ const searchConfig:CrudSearchConfig={
     {type:"input",prop:"keywords",label:"用户",attrs:{clearable:true,placeholder:"用户名/姓名/工号"}},
     {type:"select",prop:"status",label:"状态",attrs:{clearable:true},
       options:[{value:"active",label:"启用"},{value:"disabled",label:"禁用"}]},
+    { type: "select", prop: "role_codes", label: "角色", attrs: { clearable: true, filterable: true },
+      async onInit(field) {
+        roles.value = await userRoleOptions();
+        field.options = roles.value;
+        for (const option of roles.value) roleNames[String(option.value)] = option.label;
+      } },
+    { type: "select", prop: "organization_ids", label: "关联组织", attrs: { clearable: true, filterable: true },
+      async onInit(field) {
+        const rows = await organizationTree();
+        const available = rows.filter(row => !row.deleted);
+        field.options = available.map(row => ({ value: row.id, label: row.name }));
+        organizations.value = available.filter(row => row.status === "active").map(row => ({ value: row.id, label: row.name }));
+        for (const row of available) organizationNames[row.id] = row.name;
+      } },
   ],
 };
 const tableConfig:CrudTableConfig={
@@ -93,7 +107,8 @@ const tableConfig:CrudTableConfig={
   rowKey:"id",
   fetchData:async(query)=>{
     const params=query as {pageNum?:number;pageSize?:number;keywords?:string;status?:string};
-    const data=await listUsers(params.pageNum||1,params.pageSize||20,params.keywords||"",{status:params.status,...nativeListQuery(query, ["status"])});
+    const data=await listUsers(params.pageNum||1,params.pageSize||20,params.keywords||"",{status:params.status,
+      ...nativeListQuery(query, ["status"], false, ["role_codes", "organization_ids"])});
     return {list:data.items,total:data.total};
   },
   toolbarActions:[
@@ -160,17 +175,4 @@ async function loadForm(row:CrudRecord):Promise<CrudRecord>{
     primary_org_id:user.primary_org_id,organization_ids:user.organization_ids,
     password:"",version:user.version};
 }
-onMounted(async()=>{
-  try{
-    const options=await RoleAPI.getOptions();
-    roles.value=options;
-    for(const item of options)roleNames[String(item.value)]=item.label;
-    const resp=await fetch("/api/organizations",{credentials:"same-origin"});
-    if(!resp.ok)throw Error("组织目录读取失败");
-    const org=await resp.json() as Array<{id:string;name:string;status:string;deleted?:boolean}>;
-    organizations.value=org.filter(node=>node.status==="active"&&!node.deleted)
-      .map(node=>({value:node.id,label:node.name}));
-    for(const option of organizations.value)organizationNames[String(option.value)]=option.label;
-  }catch(e){ElMessage.error((e as Error).message)}
-});
 </script>

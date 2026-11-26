@@ -22,6 +22,17 @@
     </el-tabs>
   </el-card>
   <el-alert v-if="contextError" type="error" :title="contextError" :closable="false" class="mb-3" />
+  <section v-if="projectContext && contextTab === 'settlements'" aria-label="项目结算总览" class="shrink-0">
+    <el-alert v-if="summaryError" title="项目结算总览读取失败" type="error" :closable="false" class="mb-2">
+      {{ summaryError }}
+      <el-button link type="primary" :loading="summaryLoading" @click="loadSummary">重新读取结算总览</el-button>
+    </el-alert>
+    <el-descriptions v-if="summary" :column="3" border>
+      <el-descriptions-item label="批准预算">{{ projectMoney(summary.approved_budget_fen) }}</el-descriptions-item>
+      <el-descriptions-item label="实际费用">{{ projectMoney(summary.actual_cost_fen) }}</el-descriptions-item>
+      <el-descriptions-item label="已生效结算">{{ projectMoney(summary.settlement_fen) }}</el-descriptions-item>
+    </el-descriptions>
+  </section>
   <ProjectFinanceWorkspace v-if="projectContext && contextTab === 'costs'" :key="projectContext.id"
     :project-id="projectContext.id" :initial-tab="workspaceTab"
     :closed="projectContext.status === 'closed' || Boolean(projectContext.deleted)" />
@@ -54,7 +65,8 @@
     <template #table-cell-created_at="{ row }">{{ formatBeijingDateTime(row.created_at) }}</template>
   </CrudPage>
   <BusinessExchangeDialog v-if="exchangeOpen && projectId" kind="settlements" :project-id="projectId"
-    :applied-query="settlementQuery" @close="exchangeOpen = false" @changed="crud?.refresh()" />
+      :applied-query="settlementQuery" :filter-export-blocked="!crud?.tableRef?.canExport"
+      @close="exchangeOpen = false" @changed="refreshSettlements" />
 
   <el-dialog v-model="chooseProject" title="选择已有正式立项的子项目" width="min(95vw, 950px)"
     append-to-body>
@@ -136,8 +148,8 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery, projectStatusChoices } from "@/utils/business/native-list-query";
-import { computed, nextTick, onActivated, onDeactivated, onMounted, ref } from "vue";
+import { textSearchField, dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery, projectStatusChoices } from "@/utils/business/native-list-query";
+import { computed, nextTick, onActivated, onDeactivated, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
 import { usePageOverlays } from "@/composables/usePageOverlays";
@@ -150,7 +162,8 @@ import BusinessHistoryViewer from "@/components/business/BusinessHistoryViewer.v
 import SettlementFacts from "@/components/business/SettlementFacts.vue";
 import BusinessExchangeDialog from "@/components/business/BusinessExchangeDialog.vue";
 import { listProjects, projectDetail, projectMoney, type ProjectRow, type ProjectDetail } from "@/api/business/projects";
-import { listSettlements, settlementDetail, type SettlementDetails } from "@/api/business/finance";
+import { listSettlements, projectFinanceSummary, settlementDetail, type SettlementDetails } from "@/api/business/finance";
+import { downloadWorkbook } from "@/api/business/exchange";
 import { formatBeijingDateTime } from "@/utils/business/datetime";
 import { settlementStatusText } from "@/utils/business/settlement-status";
 import { useUserStore } from "@/stores/user";
@@ -164,12 +177,37 @@ const contextTab = ref(origin.work ? "costs" : "settlements");
 const portfolioView = origin.view === "costs" || origin.view === "reconciliations" || origin.view === "settlements"
   ? origin.view : "projects";
 const projectContext = ref<ProjectDetail>();
+const summary = ref<Awaited<ReturnType<typeof projectFinanceSummary>>>();
+const summaryLoading = ref(false), summaryError = ref("");
 const exchangeOpen = ref(false), settlementQuery = ref("");
 const contextError = ref("");
 const userStore = useUserStore();
 const canWrite = computed(() => userStore.userInfo.perms.includes("write"));
 const canReview = computed(() => userStore.userInfo.perms.includes("settlement.approve"));
 const crud = ref<InstanceType<typeof CrudPage>>();
+let summaryRequest = 0;
+async function loadSummary() {
+  if (!projectId) return;
+  const request = ++summaryRequest;
+  summaryLoading.value = true;
+  try {
+    const result = await projectFinanceSummary(projectId);
+    if (request !== summaryRequest) return;
+    summary.value = result;
+    summaryError.value = "";
+  } catch (error) {
+    if (request === summaryRequest) summaryError.value = (error as Error).message;
+  } finally {
+    if (request === summaryRequest) summaryLoading.value = false;
+  }
+}
+function refreshSettlements() {
+  void crud.value?.refresh();
+  void loadSummary();
+}
+watch([projectContext, contextTab], ([project, tab]) => {
+  if (project && tab === "settlements") void loadSummary();
+});
 const chooseProject = ref(false), projectLoading = ref(false);
 const projectKeyword = ref("");
 const projectPage = ref(1), projectTotal = ref(0);
@@ -210,8 +248,9 @@ let detailSequence = 0;
 let scrollTop = 0;
 let deactivated = false;
 usePageOverlays([chooseProject,detailsOpen,exchangeOpen,recordDetailsOpen],{invalidate:()=>{
-  detailSequence++;projectSequence++;
+  detailSequence++;projectSequence++;summaryRequest++;
   detailsLoading.value=false;projectLoading.value=false;
+  summaryLoading.value=false;
   detail.value=undefined;recordTarget.value=undefined;approvedProjects.value=[];projectTotal.value=0;
 }});
 
@@ -283,6 +322,7 @@ async function showDetails(id: string) {
 onDeactivated(() => { deactivated = true; });
 onActivated(async () => {
   if (!deactivated) return;
+  if (contextTab.value === "settlements") void loadSummary();
   await crud.value?.refresh();
   await nextTick();
   document.querySelector(".layout-content")?.scrollTo(0, scrollTop);
@@ -319,6 +359,8 @@ const projectSearch: CrudSearchConfig = {
   fields: [
     { type: "input", prop: "keywords", label: "子项目", attrs: { clearable: true, placeholder: "搜索项目名称或编号" } },
     historyScopeField("finance.show-deleted"),
+    textSearchField("framework_name", "年度框架"),
+    textSearchField("managing_unit_name", "归口单位"),
   ],
 };
 const projectTable: CrudTableConfig<CrudRecord, ProjectRow> = {
@@ -331,7 +373,7 @@ const projectTable: CrudTableConfig<CrudRecord, ProjectRow> = {
       page: Number(query.pageNum) || 1,
       size: Number(query.pageSize) || 20,
       keyword: String(query.keywords || ""),
-      ...nativeListQuery(query, ["display_status"], true),
+      ...nativeListQuery(query, ["display_status"], true, ["framework_name", "managing_unit_name"]),
     });
     return { list: result.items, total: result.total };
   },
@@ -351,6 +393,8 @@ const searchConfig:CrudSearchConfig={
     placeholder:"结算编号 / 项目名称 / 项目编号",clearable:true}},
     {type:"input",prop:"amount_fen",label:"本次金额（元）",attrs:{placeholder:"输入本次金额",clearable:true,inputmode:"decimal"}},
     historyScopeField("finance.show-deleted"),
+    textSearchField("project_name", "所属项目"),
+    dateRangeSearchField("occurred_on", "结算日期"),
   ],
 };
 const tableConfig:CrudTableConfig={
@@ -359,7 +403,7 @@ const tableConfig:CrudTableConfig={
   fetchData:async query=>{
     const sequence=++settlementListSequence;
     const q=query as {pageNum?:number;pageSize?:number;keywords?:string;amount_fen?:string};
-    const options = nativeListQuery(query, ["status"]);
+    const options = nativeListQuery(query, ["status"], false, ["project_name", "occurred_on"]);
     const amount = q.amount_fen?.trim();
     if (amount) options.filters = { ...options.filters, amount_fen: amount };
     const result=await listSettlements({page:q.pageNum||1,
@@ -373,6 +417,14 @@ const tableConfig:CrudTableConfig={
     {key:"exchange",label:"导入 Excel",permission:"write",
       visible:()=>Boolean(projectId) && (projectContext.value?.status === "approved" && !projectContext.value.deleted),
       onClick:()=>{ exchangeOpen.value = true; }},
+    {key:"export",label:"导出 Excel",permission:"read",visible:()=>Boolean(projectContext.value),
+      onClick:()=>{
+        if (!projectId) return;
+        const params = new URLSearchParams(settlementQuery.value);
+        params.set("project_id", projectId);
+        params.set("report", "true");
+        return downloadWorkbook("/settlements/export?" + params);
+      }},
   ],
   tableTools:["refresh","columns","search"],
   columns:[

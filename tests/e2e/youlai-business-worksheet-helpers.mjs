@@ -3,6 +3,17 @@ export async function worksheetCanvas(region) {
   await host.waitFor({timeout:20000});
   return host.locator('canvas[id^="univer-sheet-main-canvas"]');
 }
+export async function waitForWorksheetFullscreen(page) {
+  await page.waitForFunction(() => {
+    const viewport = document.querySelector("[data-worksheet-fullscreen]");
+    const canvas = viewport?.querySelector('canvas[id^="univer-sheet-main-canvas"]');
+    if (!viewport || !canvas) return false;
+    const bounds = viewport.getBoundingClientRect();
+    const grid = canvas.getBoundingClientRect();
+    return bounds.x === 0 && bounds.y === 0 && bounds.width === innerWidth && bounds.height === innerHeight
+      && grid.height > innerHeight * 0.8 && viewport.contains(document.elementFromPoint(4, 4));
+  });
+}
 export async function selectWorksheetCell(canvas,row,column,widths) {
   await canvas.click({position:{x:36+widths.slice(0,column).reduce((a,b)=>a+b,0)+25,y:63+(row-0.5)*34}});
 }

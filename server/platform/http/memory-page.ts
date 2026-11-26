@@ -10,10 +10,13 @@ export function memoryPage<T extends object>(rows: T[], search: URLSearchParams,
     requireValue(gridFields.includes(field) && Array.isArray(selection),"不支持的配置列表筛选字段："+field,400);
     return {field,selection};
   });
-  const filtered = rows.filter(row => !query.q || JSON.stringify(row).includes(query.q))
+  const keyword = query.q.toLocaleLowerCase("zh-CN");
+  const filtered = rows.filter(row => !keyword || JSON.stringify(row).toLocaleLowerCase("zh-CN").includes(keyword))
     .filter(row => Object.entries(query.filters).every(([key, value]) =>
       {
-        const field = String(Reflect.get(row, key) ?? "").toLocaleLowerCase("zh-CN");
+        const raw = Reflect.get(row, key);
+        if ((key === "role_codes" || key === "organization_ids") && Array.isArray(raw)) return raw.includes(value);
+        const field = String(raw ?? "").toLocaleLowerCase("zh-CN");
         const expected = value.toLocaleLowerCase("zh-CN");
         return key === "status" || key === "display_status" ? field === expected : field.includes(expected);
       }))
