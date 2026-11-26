@@ -28,8 +28,12 @@ if (process.exitCode === 0) {
   const output = resolve(root, "dist/web");
   const manifestPath = resolve(output, ".vite/manifest.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-  // This metadata is serialized by Vite plugins. Use a stable key order
-  // without reordering CSS, assets or executable dependency lists.
+  // Build checks traverse this manifest as a graph. The offline SPA loads
+  // the generated HTML and chunks directly, so only the graph references
+  // can be normalized here. Keep the emitted assets and CSS order intact.
+  for (const chunk of Object.values(manifest)) {
+    for (const key of ["imports", "dynamicImports"]) chunk[key]?.sort();
+  }
   const ordered = value => Array.isArray(value) ? value.map(ordered) :
     value !== null && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])])) : value;
   writeFileSync(manifestPath, JSON.stringify(ordered(manifest), null, 2) + "\n");
