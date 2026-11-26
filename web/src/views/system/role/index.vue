@@ -27,6 +27,10 @@
               新增
             </el-button>
           </div>
+          <el-select v-model="params.status" aria-label="角色状态" clearable placeholder="全部角色状态" @change="handleSearch">
+            <el-option label="启用" value="active" />
+            <el-option label="停用" value="disabled" />
+          </el-select>
 
           <el-scrollbar v-loading="loading" class="role-list__scroll">
             <div
@@ -344,6 +348,7 @@ const { loading, list, total, params, fetchData } = usePageTable<RoleItem, RoleQ
     pageNum: 1,
     pageSize: 20,
     keywords: "",
+    status: "",
   },
   request: RoleAPI.getPage,
 });

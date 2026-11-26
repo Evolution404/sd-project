@@ -7,6 +7,7 @@ import { httpServer } from "../../dist/server/platform/http/server.js";
 
 const tasks=[];
 const {s,save}=fixture({after:f=>tasks.push(f)});
+save("frameworks", { fiscal_year: 2026, name: "往年计划框架", limit_fen: 100 });
 const server=httpServer(s,{staticDirectory:resolve(process.env.SD_BROWSER_STATIC_DIRECTORY || "dist/web")});
 await new Promise(ok=>server.listen(0,"127.0.0.1",ok));
 const port=server.address().port;
@@ -39,6 +40,20 @@ try {
   assert.ok(fw,"framework must persist through real UI");
   assert.equal(fw.limit_fen,45012347);
   assert.equal(fw.fiscal_year,2027);
+  const yearFilter = page.getByPlaceholder("选择年度", { exact: true });
+  await yearFilter.fill("2027");
+  await yearFilter.press("Tab");
+  const frameworkSearch = page.locator("form").filter({ has: yearFilter });
+  const yearResult = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/funding/frameworks" && JSON.parse(url.searchParams.get("filters") || "{}").fiscal_year === "2027";
+  });
+  await frameworkSearch.getByRole("button", { name: "搜索", exact: true }).click();
+  const frameworks = await (await yearResult).json();
+  assert.deepEqual(frameworks.items.map(row => row.id), [fw.id]);
+  await page.getByText("往年计划框架", { exact: true }).waitFor({ state: "hidden" });
+  await frameworkSearch.getByRole("button", { name: "重置", exact: true }).click();
+  console.log("YOULAI_FRAMEWORK_YEAR_FILTER_OK exact fiscal year");
   await page.screenshot({path:join(output,"framework-list-1920.png"),fullPage:true});
 
   const line=page.getByRole("row").filter({hasText:"2027年输电运维计划框架"}).first();

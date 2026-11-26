@@ -41,7 +41,7 @@
 </template>
 
 <script setup lang="ts">
-import { nativeListQuery, applyNativeListQuery } from "@/utils/business/native-list-query";
+import { textSearchField, dateRangeSearchField, nativeListQuery, applyNativeListQuery } from "@/utils/business/native-list-query";
 import { computed, ref } from "vue";
 import CrudPage from "@/components/Crud/CrudPage.vue";
 import type { CrudRecord, CrudSearchConfig, CrudTableConfig } from "@/components/Crud/types";
@@ -89,9 +89,16 @@ function pretty(value: string | null) {
   return value ? JSON.stringify(JSON.parse(value), null, 2) : "无记录";
 }
 
-const search: CrudSearchConfig = {
-  fields: [{ type: "input", prop: "keywords", label: "审计检索", attrs: { clearable: true, placeholder: "按账号、对象或操作查询" } }],
-};
+const search = computed<CrudSearchConfig>(() => ({
+  fields: [
+    { type: "input", prop: "keywords", label: "审计检索", attrs: { clearable: true, placeholder: "按账号、对象或操作查询" } },
+    dateRangeSearchField("created_at", "发生日期（北京时间）"),
+    textSearchField("actor_username", "操作账号"),
+    ...(kind.value === "security"
+      ? [textSearchField("event_label", "安全事件"), textSearchField("username", "涉及账号"), textSearchField("ip", "来源 IP")]
+      : [textSearchField("entity_label", "业务对象"), textSearchField("action_label", "业务操作")]),
+  ],
+}));
 const table = computed<CrudTableConfig>(() => ({
   stateKey:"audit:"+kind.value,
   table: { border: true },
@@ -103,7 +110,7 @@ const table = computed<CrudTableConfig>(() => ({
       page: String(pageNum ?? 1), page_size: String(pageSize ?? 20),
       q: String(keywords ?? ""), sort: "created_at", direction: "desc",
     });
-    applyNativeListQuery(query, nativeListQuery(nativeQuery));
+    applyNativeListQuery(query, nativeListQuery(nativeQuery, [], false, ["created_at", "actor_username", "event_label", "username", "ip", "entity_label", "action_label"]));
     const result = await read<{ items: CrudRecord[]; total: number }>((kind.value === "security" ? "/security" : "") + "?" + query);
     return { list: result.items, total: result.total };
   },

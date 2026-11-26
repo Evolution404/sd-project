@@ -48,6 +48,7 @@ function source(kind: FoundationKind): ListSource {
           "status",
           "code",
           "version",
+          "quantity_precision",
           "sort_order",
           "created_at",
           "updated_at",

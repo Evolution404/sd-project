@@ -139,7 +139,7 @@
 <script setup lang="ts">
 import { locationDisplayFields } from "../../../../server/shared/location-display";
 
-import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
+import { textSearchField, dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery } from "@/utils/business/native-list-query";
 import { computed, defineAsyncComponent, ref, shallowRef, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { useRoute, useRouter } from "vue-router";
@@ -206,8 +206,13 @@ const searchConfig:CrudSearchConfig={
       placeholder:"需求编号 / 操作类型 / 问题描述",clearable:true,
     }},
     historyScopeField("demands.show-deleted"),
+    textSearchField("location_line_name", "作业线路"),
+    textSearchField("operation_snapshot", "操作类型"),
+    textSearchField("project_name", "承接项目"),
+    dateRangeSearchField("expected_on", "预计解决日期"),
   ],
 };
+const demandSearchFields = ["location_line_name", "operation_snapshot", "project_name", "expected_on"];
 const tableConfig:CrudTableConfig={
   stateKey:"demands",
   statusTabColumn:"display_status",
@@ -218,10 +223,10 @@ const tableConfig:CrudTableConfig={
       pageNum?:number;pageSize?:number;keywords?:string;
     };
     const page=await queryDemands({page:params.pageNum||1,
-      pageSize:params.pageSize||20,keyword:params.keywords||"",...nativeListQuery(query, ["display_status"])});
+      pageSize:params.pageSize||20,keyword:params.keywords||"",...nativeListQuery(query, ["display_status"], false, demandSearchFields)});
     if(request===listRequest){
       const applied=new URLSearchParams({q:params.keywords||"",sort:"created_at",direction:"desc"});
-      applyNativeListQuery(applied, nativeListQuery(query, ["display_status"]));
+      applyNativeListQuery(applied, nativeListQuery(query, ["display_status"], false, demandSearchFields));
       appliedQuery.value=applied.toString();
     }
     return {list:page.items,total:page.total};

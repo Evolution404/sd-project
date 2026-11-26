@@ -136,7 +136,7 @@
 </template>
 
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery, projectStatusChoices } from "@/utils/business/native-list-query";
+import { textSearchField, dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, applyNativeListQuery, projectStatusChoices } from "@/utils/business/native-list-query";
 import { computed, nextTick, onActivated, onDeactivated, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessage } from "element-plus";
@@ -319,6 +319,8 @@ const projectSearch: CrudSearchConfig = {
   fields: [
     { type: "input", prop: "keywords", label: "子项目", attrs: { clearable: true, placeholder: "搜索项目名称或编号" } },
     historyScopeField("finance.show-deleted"),
+    textSearchField("framework_name", "年度框架"),
+    textSearchField("managing_unit_name", "归口单位"),
   ],
 };
 const projectTable: CrudTableConfig<CrudRecord, ProjectRow> = {
@@ -331,7 +333,7 @@ const projectTable: CrudTableConfig<CrudRecord, ProjectRow> = {
       page: Number(query.pageNum) || 1,
       size: Number(query.pageSize) || 20,
       keyword: String(query.keywords || ""),
-      ...nativeListQuery(query, ["display_status"], true),
+      ...nativeListQuery(query, ["display_status"], true, ["framework_name", "managing_unit_name"]),
     });
     return { list: result.items, total: result.total };
   },
@@ -351,6 +353,8 @@ const searchConfig:CrudSearchConfig={
     placeholder:"结算编号 / 项目名称 / 项目编号",clearable:true}},
     {type:"input",prop:"amount_fen",label:"本次金额（元）",attrs:{placeholder:"输入本次金额",clearable:true,inputmode:"decimal"}},
     historyScopeField("finance.show-deleted"),
+    textSearchField("project_name", "所属项目"),
+    dateRangeSearchField("occurred_on", "结算日期"),
   ],
 };
 const tableConfig:CrudTableConfig={
@@ -359,7 +363,7 @@ const tableConfig:CrudTableConfig={
   fetchData:async query=>{
     const sequence=++settlementListSequence;
     const q=query as {pageNum?:number;pageSize?:number;keywords?:string;amount_fen?:string};
-    const options = nativeListQuery(query, ["status"]);
+    const options = nativeListQuery(query, ["status"], false, ["project_name", "occurred_on"]);
     const amount = q.amount_fen?.trim();
     if (amount) options.filters = { ...options.filters, amount_fen: amount };
     const result=await listSettlements({page:q.pageNum||1,

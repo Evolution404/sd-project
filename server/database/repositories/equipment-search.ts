@@ -1,11 +1,12 @@
 import type { createStore } from "./store.js";
 import type {
-  EquipmentKind,
+  EquipmentCatalogKind,
   EquipmentSearchOptions,
   EquipmentRecord,
 } from "../../shared/types/equipment.js";
 import type { Page } from "../../shared/types/contracts.js";
 import { fixedListValue, listDisplayScale } from "../../shared/list-filter-values.js";
+import { requireValue } from "../../shared/errors/business-error.js";
 // Indexed, parameterized pagination for the high-volume equipment catalogs.
 // SQL stays in the Repository layer; client-controlled identifiers are never interpolated.
 function searchableColumn(key: string) {
@@ -16,10 +17,13 @@ function searchableColumn(key: string) {
       ? `(${column} || ' ' || CASE ${column} WHEN 'straight' THEN '直线' WHEN 'tension' THEN '耐张' ELSE '' END)`
       : column;
 }
+export const voltageCatalogSql = `SELECT c.*, (SELECT COUNT(*)+1 FROM audit_events a
+  WHERE a.entity='voltages' AND a.entity_id=c.id AND a.action='revise') AS version FROM voltage_levels c`;
 export const equipmentSources: Record<
-  EquipmentKind,
+  EquipmentCatalogKind,
   { sql: string; columns: string[] }
 > = {
+  voltages: { sql: voltageCatalogSql, columns: ["code", "name", "status", "sort_order"] },
   lines: {
     sql:
       "SELECT c.*, v.name AS voltage_level_name, p.name AS parent_line_name, " +
@@ -30,6 +34,7 @@ export const equipmentSources: Record<
     columns: [
       "name",
       "voltage_level_name",
+      "voltage_level_id",
       "line_kind",
       "parent_line_name",
       "junction_tower_no",
@@ -68,13 +73,14 @@ export const equipmentSources: Record<
   },
   towers: {
     sql:
-      "SELECT c.*, p.tower_nature, l.name AS line_name, v.name AS voltage_level_name " +
+      "SELECT c.*, p.tower_nature, l.name AS line_name, l.voltage_level_id, v.name AS voltage_level_name " +
       "FROM logical_towers c JOIN transmission_lines l ON l.id=c.line_id " +
       "LEFT JOIN physical_towers p ON p.id=c.physical_tower_id " +
       "LEFT JOIN voltage_levels v ON v.id=l.voltage_level_id",
     columns: [
       "line_name",
       "voltage_level_name",
+      "voltage_level_id",
       "tower_no",
       "operations_team",
       "management_department",
@@ -85,13 +91,14 @@ export const equipmentSources: Record<
   },
   spans: {
     sql:
-      "SELECT c.*, l.name AS line_name, start.tower_no AS start_tower_no, " +
+      "SELECT c.*, l.name AS line_name, l.voltage_level_id, start.tower_no AS start_tower_no, " +
       "ending.tower_no AS end_tower_no FROM line_spans c " +
       "JOIN transmission_lines l ON l.id=c.line_id " +
       "LEFT JOIN logical_towers start ON start.id=c.start_tower_id " +
       "LEFT JOIN logical_towers ending ON ending.id=c.end_tower_id",
     columns: [
       "line_name",
+      "voltage_level_id",
       "start_tower_no",
       "end_tower_no",
       "transmission_center_length_mm",
@@ -101,7 +108,7 @@ export const equipmentSources: Record<
 };
 export function searchEquipment(
   store: ReturnType<typeof createStore>,
-  kind: EquipmentKind,
+  kind: EquipmentCatalogKind,
   options: EquipmentSearchOptions = {},
 ): Page<EquipmentRecord> {
   const definition = equipmentSources[kind];
@@ -130,7 +137,7 @@ export function searchEquipment(
   if (q) {
     where.push(
       "(" +
-        definition.columns
+        definition.columns.filter(key => !key.endsWith("_id"))
           .map(
             (key) =>
               "instr(lower(COALESCE(CAST(" +
@@ -140,7 +147,7 @@ export function searchEquipment(
           .join(" OR ") +
         ")",
     );
-    parameters.push(...definition.columns.map(() => q));
+    parameters.push(...definition.columns.filter(key => !key.endsWith("_id")).map(() => q));
   }
   let filters: Record<string, unknown> = {};
   try {
@@ -153,9 +160,23 @@ export function searchEquipment(
   } catch {
     /* malformed client filter is not a query modifier */
   }
+  if (kind === "spans") {
+    const bound = (key: string) => {
+      const raw = filters[key];
+      if (typeof raw !== "string" || !raw.trim()) return null;
+      const value = fixedListValue(raw, 3);
+      requireValue(value !== null && value >= 0, "管辖长度须为非负米数，最多三位小数", 400);
+      return value;
+    };
+    const min = bound("length_min");
+    const max = bound("length_max");
+    requireValue(min === null || max === null || min <= max, "最短管辖长度不能超过最长管辖长度", 400);
+    if (min !== null) { where.push("transmission_center_length_mm>=?"); parameters.push(min); }
+    if (max !== null) { where.push("transmission_center_length_mm<=?"); parameters.push(max); }
+  }
   for (const [key, value] of Object.entries(filters).slice(0, 20)) {
     if (!allowed.has(key) || typeof value !== "string") continue;
-    if (key === "status" || key === "line_kind") {
+    if (["status", "line_kind", "voltage_level_id", "tower_material", "start_tower_no", "end_tower_no"].includes(key)) {
       where.push(key + "=?");
       parameters.push(value.slice(0, 128));
       continue;
@@ -210,8 +231,9 @@ export function searchEquipment(
     ...parameters,
   )?.n ?? 0);
   const sort =
-    options.sort && allowed.has(options.sort) ? options.sort : "created_at";
-  const direction = options.direction === "asc" ? "ASC" : "DESC";
+    kind === "voltages" && (!options.sort || options.sort === "created_at") ? "sort_order"
+      : options.sort && allowed.has(options.sort) ? options.sort : "created_at";
+  const direction = options.direction === "asc" || kind === "voltages" && sort === "sort_order" ? "ASC" : "DESC";
   // Natural numeric-aware ordering is evaluated in SQLite *before* pagination.
   // The identifier is a whitelist-validated field, never a raw client SQL value.
   const towerNumber = ["tower_no", "start_tower_no", "end_tower_no"].includes(sort);

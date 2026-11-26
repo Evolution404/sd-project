@@ -155,7 +155,11 @@ const financeSources: Record<FinanceListKind, ListSource> = {
 };
 
 const exactFilters = new Set(["id", "status", "display_status", "role", "object_position",
-  "attribution_unit", "pricing_mode", "scope", "work_mode", "settlement_id", "cost_node_id"]);
+  "attribution_unit", "pricing_mode", "pricing_scope", "scope", "work_mode", "settlement_id",
+  "cost_node_id", "fiscal_year", "framework_id", "default_unit_id", "unit_id", "operation_id", "priority_id",
+  "quantity_precision"]);
+const dateRangeColumns = new Set(["expected_on", "planned_start_on", "planned_end_on", "occurred_on",
+  "effective_on", "effective_from", "effective_to", "created_at", "last_handled_at", "changed_at"]);
 
 function normalizedFacet(column: string) {
   return `NULLIF(CAST(${column} AS TEXT),'')`;
@@ -200,6 +204,24 @@ function listPredicate(entity: string, source: ListSource, query: ListQuery, exc
     parameters.push(...source.search.map(() => query.q));
   }
   for (const [key, value] of Object.entries(query.filters)) {
+    if (source === demandSource && key === "location_line_name") {
+      predicates.push(`EXISTS(SELECT 1 FROM json_each(full_definition_json,'$.work_locations') location
+        WHERE instr(lower(COALESCE(json_extract(location.value,'$.location_snapshot_json.line_name'),'')),lower(?))>0)`);
+      parameters.push(value);
+      continue;
+    }
+    const range = /^(.*)_(from|to)$/.exec(key);
+    if (range && range[1] !== excludeFacet && dateRangeColumns.has(range[1]) && source.columns.includes(range[1])) {
+      const [column, end] = [range[1], range[2] === "to"];
+      const utcDate = new Date(value + "T00:00:00Z");
+      requireValue(/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(utcDate.valueOf()) &&
+        utcDate.toISOString().slice(0, 10) === value, "请输入有效的筛选日期", 400);
+      predicates.push(`"${column}"${end ? "<=" : ">="}?`);
+      parameters.push(column.endsWith("_at")
+        ? new Date(value + (end ? "T23:59:59.999+08:00" : "T00:00:00+08:00")).toISOString()
+        : value);
+      continue;
+    }
     if (key === excludeFacet || !source.columns.includes(key)) continue;
     const places = listDisplayScale(key);
     if (places !== null) {

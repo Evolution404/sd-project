@@ -171,7 +171,7 @@
 import HandlingBatchDialog from "@/components/business/HandlingBatchDialog.vue";
 import { downloadWorkbook } from "@/api/business/exchange";
 import type { HandlingTarget } from "@/api/business/handling-batch";
-import { historyScopeField, nativeListQuery, nativeColumnFilter, projectStatusChoices } from "@/utils/business/native-list-query";
+import { textSearchField, dateRangeSearchField, historyScopeField, nativeListQuery, nativeColumnFilter, projectStatusChoices } from "@/utils/business/native-list-query";
 import {computed,nextTick,reactive,ref,onMounted,watch, defineAsyncComponent, shallowRef } from "vue";
 import {useRoute,useRouter} from "vue-router";
 import { ElMessage,ElMessageBox, type TableInstance } from "element-plus";
@@ -379,6 +379,11 @@ const searchConfig:CrudSearchConfig={
   fields:[{type:"input",prop:"keywords",label:"子项目",attrs:{
     clearable:true,placeholder:"项目编号 / 项目名称"}},
     historyScopeField("projects.show-deleted"),
+    textSearchField("framework_name", "年度框架"),
+    textSearchField("agreement_name", "执行协议"),
+    textSearchField("category_name", "项目类别"),
+    textSearchField("managing_unit_name", "归口单位"),
+    dateRangeSearchField("planned_start_on", "计划开始日期"),
   ],
 };
 const tableConfig:CrudTableConfig={
@@ -388,7 +393,8 @@ const tableConfig:CrudTableConfig={
   fetchData:async(query)=>{
     const p=query as {pageNum?:number;pageSize?:number;keywords?:string};
     const result=await listProjects({
-      page:p.pageNum||1,size:p.pageSize||20,keyword:p.keywords||"",...nativeListQuery(query, ["display_status"]),
+      page:p.pageNum||1,size:p.pageSize||20,keyword:p.keywords||"",...nativeListQuery(query, ["display_status"], false,
+        ["framework_name", "agreement_name", "category_name", "managing_unit_name", "planned_start_on"]),
     });
     return {list:result.items,total:result.total};
   },

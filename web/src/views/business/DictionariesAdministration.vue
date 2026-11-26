@@ -127,21 +127,26 @@ async function showHistory(id:string) {
   catch(e){ElMessage.error((e as Error).message)}
   finally{historyLoading.value=false}
 }
-const searchConfig:CrudSearchConfig={
+const searchConfig = computed<CrudSearchConfig>(() => ({
   fields:[
     {type:"input",prop:"keywords",label:"搜索",attrs:{clearable:true,
       placeholder:"名称 / 编号"}},
     {type:"select",prop:"status",label:"状态",attrs:{clearable:true},
       options:[{label:"启用",value:"active"},{label:"停用",value:"inactive"}]},
+    ...(kind.value === "units" ? [{
+      type: "select" as const, prop: "quantity_precision", label: "数量精度", attrs: { clearable: true },
+      options: ["整数", "1 位小数", "2 位小数", "3 位小数", "4 位小数"].map((label, value) => ({ label, value: String(value) })),
+    }] : []),
   ],
-};
+}));
 const tableConfig=computed<CrudTableConfig>(()=>({
   stateKey:"dictionaries"+":"+kind.value,
   table:{border:true},rowKey:"id",
   fetchData:async(query)=>{
     const p=query as {pageNum?:number;pageSize?:number;keywords?:string;status?:string};
     const data=await listDictionaries(dictionaryKind.value,{
-      page:p.pageNum||1,size:p.pageSize||20,keyword:p.keywords||"",status:p.status,...nativeListQuery(query, ["status"]),
+      page:p.pageNum||1,size:p.pageSize||20,keyword:p.keywords||"",status:p.status,
+      ...nativeListQuery(query, ["status"], false, kind.value === "units" ? ["quantity_precision"] : []),
     });
     return {list:data.items,total:data.total};
   },

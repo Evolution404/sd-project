@@ -30,6 +30,9 @@ export async function listUsers(page=1,size=20,keyword="", options: NativeListOp
 export async function loadUser(id:string):Promise<UserRow>{
   return request(`/api/users/${encodeURIComponent(id)}`);
 }
+export function userRoleOptions() {
+  return request<{ label: string; value: string }[]>("/api/users/role-options");
+}
 export async function saveUser(data:UserFormData,id?:string){
   const roles=data.role_codes;
   if(!Array.isArray(roles)||roles.length===0)throw Error("至少选择一个角色");

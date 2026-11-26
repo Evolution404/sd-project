@@ -64,6 +64,23 @@ test("project SQL list keeps current approval and binding without loading all de
   assert.equal(detail.scopes[0].binding.demand_id, demand.id);
 });
 
+test("demand list combines location snapshots with inclusive business dates", t => {
+  const { s, user, save, demandInput, towers } = fixture(t);
+  const voltage = save("voltages", { name: "35kV合成" });
+  const line = save("lines", { name: "合成筛选线路", voltage_level_id: voltage.id, status: "active" });
+  save("towers", { line_id: line.id, physical_tower_id: towers[0].id, tower_no: "1" });
+  const withLine = s.demands.save(user, { ...demandInput, expected_on: "2026-12-31",
+    work_locations: [demandInput.work_locations[0]] });
+  const another = s.demands.save(user, { ...demandInput, expected_on: "2027-01-01",
+    work_locations: [demandInput.work_locations[1]] });
+  const list = filters => s.demands.search(query({ filters: JSON.stringify(filters), page_size: "1" }));
+  assert.deepEqual(list({ location_line_name: line.name, expected_on_from: "2026-12-31",
+    expected_on_to: "2026-12-31" }).items.map(row => row.id), [withLine.id]);
+  assert.deepEqual(list({ expected_on_from: "2027-01-01" }).items.map(row => row.id), [another.id]);
+  assert.equal(list({ location_line_name: line.name, expected_on_from: "2027-01-01" }).total, 0);
+  assert.throws(() => list({ expected_on_from: "2026-02-30" }), /有效的筛选日期/);
+});
+
 test("cross-project finance queries preserve formal amount, drafts and reference isolation", t => {
   const { s, user, project, approval, scope, node } = approvedFixture(t);
   const cost = s.finance.cost(user, project.id, { cost_node_id: node.id, title: "跨项目查询费用",

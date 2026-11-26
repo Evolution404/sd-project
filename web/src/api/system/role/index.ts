@@ -26,11 +26,12 @@ function listItem(item:ServerRole):RoleItem {
 }
 const RoleAPI={
   async getPage(queryParams?:RoleQuery):Promise<PageResult<RoleItem>> {
-    const page=await call<RawPage<ServerRole>>("/api/roles?page_size=200");
-    const word=(queryParams?.keywords||"").trim().toLowerCase();
-    const filtered=page.items.filter(x=>!word||x.name.toLowerCase().includes(word)||x.code.includes(word));
-    const from=((queryParams?.pageNum||1)-1)*(queryParams?.pageSize||20);
-    return {list:filtered.slice(from,from+(queryParams?.pageSize||20)).map(listItem),total:filtered.length};
+    const query = new URLSearchParams({ page: String(queryParams?.pageNum || 1),
+      page_size: String(queryParams?.pageSize || 20), q: queryParams?.keywords?.trim() || "",
+      sort: "sort_order", direction: "asc" });
+    if (queryParams?.status) query.set("filters", JSON.stringify({ status: queryParams.status }));
+    const page=await call<RawPage<ServerRole>>("/api/roles?" + query);
+    return { list: page.items.map(listItem), total: page.total };
   },
   async getOptions():Promise<OptionItem[]> {
     const page=await call<RawPage<ServerRole>>("/api/roles?page_size=200");

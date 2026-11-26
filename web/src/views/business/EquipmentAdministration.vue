@@ -208,24 +208,62 @@ function startBulk({selectedRows}:{selectedRows:readonly CrudRecord[]}){
 }
 async function endBulk(saved:boolean){bulkMode.value=false;await nextTick();if(saved)await refreshAssets()}
 let equipmentListSequence=0;
-const searchConfig = computed<CrudSearchConfig>(() => ({ fields: [{
-  type:"input",prop:"keywords",label:"设备检索",attrs:{clearable:true,
-    placeholder:"线路名称、杆塔号或现场铭牌"},
-},
-    ...(kind.value === "spans" ? [{ type: "input" as const, prop: "lengthMetres",
-      label: "输电中心管辖长度（米）", attrs: { clearable: true, inputmode: "decimal" } }] : []),
+const searchConfig = computed<CrudSearchConfig>(() => ({
+  showNumber: kind.value === "spans" ? 5 : kind.value === "lines" ? 4 : 3,
+  fields: [
+    { type: "input", prop: "keywords", label: "设备检索", attrs: { clearable: true,
+      placeholder: kind.value === "lines" ? "线路名称或编号" : kind.value === "voltages" ? "电压名称" : "线路、杆号或现场铭牌" } },
+    ...(kind.value === "spans" ? [
+      { type: "input" as const, prop: "length_min", label: "最短管辖长度（米）", attrs: { clearable: true, inputmode: "decimal" } },
+      { type: "input" as const, prop: "length_max", label: "最长管辖长度（米）", attrs: { clearable: true, inputmode: "decimal" } },
+    ] : []),
+    ...(["lines", "towers", "spans"].includes(kind.value) ? [{
+      type: "select" as const, prop: "voltage_level_id", label: "电压等级",
+      attrs: { clearable: true, filterable: true },
+      async onInit(field: CrudRecord) {
+        field.options = (await listEquipment("voltages", { size: 200 })).items
+          .map(row => ({ label: row.name || row.label, value: row.id }));
+      },
+    }] : []),
+    ...(kind.value === "lines" ? [{
+      type: "select" as const, prop: "line_kind", label: "线路性质",
+      options: Object.entries(EQUIPMENT_LINE_KINDS).map(([value, label]) => ({ value, label })),
+      attrs: { clearable: true },
+    }] : []),
     historyScopeField("ledger.show-deleted"),
-  ] }));
+    ...(kind.value === "physical" ? [{
+      type: "input" as const, prop: "related_lines", label: "关联线路", attrs: { clearable: true },
+    }, {
+      type: "select" as const, prop: "tower_material", label: "杆塔材质",
+      attrs: { clearable: true, filterable: true },
+      async onInit(field: CrudRecord) {
+        field.options = (await listDictionaries("tower_materials", { size: 200 })).items
+          .map(row => ({ label: row.name, value: row.id }));
+      },
+    }] : []),
+    ...(kind.value === "towers" ? [{
+      type: "input" as const, prop: "line_name", label: "所属线路", attrs: { clearable: true },
+    }, {
+      type: "input" as const, prop: "operations_team", label: "运维班组", attrs: { clearable: true },
+    }, {
+      type: "input" as const, prop: "management_department", label: "管理部门", attrs: { clearable: true },
+    }] : []),
+    ...(kind.value === "spans" ? [
+      { type: "input" as const, prop: "line_name", label: "所属线路", attrs: { clearable: true } },
+      { type: "input" as const, prop: "start_tower_no", label: "起点杆塔号", attrs: { clearable: true } },
+      { type: "input" as const, prop: "end_tower_no", label: "终点杆塔号", attrs: { clearable: true } },
+    ] : []),
+  ],
+}));
 const tableConfig=computed<CrudTableConfig>(()=>({
   stateKey:"equipment"+":"+kind.value,
   table:{border:true},rowKey:"id",
   fetchData:async query=>{
     const sequence=++equipmentListSequence;
-    const q=query as {pageNum?:number;pageSize?:number;keywords?:string;lengthMetres?:string};
-    const list = nativeListQuery(query, ["status", "line_kind"], true);
-    if (kind.value === "spans" && q.lengthMetres?.trim()) {
-      (list.filters ??= {}).transmission_center_length_mm = q.lengthMetres.trim();
-    }
+    const q=query as {pageNum?:number;pageSize?:number;keywords?:string};
+    const list = nativeListQuery(query, ["status", "line_kind"], true, ["voltage_level_id", "line_kind",
+      "related_lines", "tower_material", "line_name", "operations_team", "management_department",
+      "start_tower_no", "end_tower_no", "length_min", "length_max"]);
     const result=await listEquipment(kind.value,{
       page:q.pageNum||1,size:q.pageSize||20,keyword:q.keywords||"",...list});
     if (sequence === equipmentListSequence) {

@@ -17,6 +17,10 @@ export async function handleManagement(context: RouteContext): Promise<{
             break;
         case "users":
             authorize(actor, "user.manage");
+            if (key === "role-options" && read && !context.sub) {
+                result = system.management.userRoleOptions(actor);
+                break;
+            }
             if (key === "entry-batch") {
                 const action = context.sub;
                 requireValue(method === "POST" && (action === "preview" || action === "commit") && !context.subKey,

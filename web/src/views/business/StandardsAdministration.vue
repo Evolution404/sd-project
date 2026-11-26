@@ -62,7 +62,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices } from "@/utils/business/native-list-query";
+import { historyScopeField, nativeListQuery, nativeColumnFilter, activeStatusChoices, textSearchField } from "@/utils/business/native-list-query";
 import {computed,defineAsyncComponent,ref,onMounted,watch} from "vue";
 import { useRoute } from "vue-router";
 import CrudPage from "@/components/Crud/CrudPage.vue";
@@ -180,18 +180,28 @@ async function showHistory(id:string){
   catch(e){ElMessage.error((e as Error).message)}
   finally{historyLoading.value=false}
 }
-const searchConfig:CrudSearchConfig={fields:[{
+const searchConfig = computed<CrudSearchConfig>(() => ({fields:[{
   type:"input",prop:"keywords",label:"搜索",attrs:{clearable:true,placeholder:"编号或名称"},
 },
     historyScopeField("standards.show-deleted"),
-  ]};
+    ...(kind.value === "objects" ? [
+      { type: "select" as const, prop: "object_position", label: "对象位置", attrs: { clearable: true },
+        options: [{ label: "本体", value: "body" }, { label: "通道", value: "corridor" }] },
+      { type: "select" as const, prop: "attribution_unit", label: "归属单元", attrs: { clearable: true },
+        options: [{ label: "物理杆塔", value: "physical_tower" }, { label: "逻辑杆塔", value: "logical_tower" }] },
+    ] : [
+      textSearchField("work_object_id_label", "采用作业对象"),
+      textSearchField("default_unit_id_label", "计量单位"),
+    ]),
+  ]}));
 const tableConfig=computed<CrudTableConfig>(()=>({
   stateKey:"standards"+":"+kind.value,
   table:{border:true},rowKey:"id",
   fetchData:async(query)=>{
     const q=query as {pageNum?:number;pageSize?:number;keywords?:string};
     const result=await listStandards(kind.value,{
-      page:q.pageNum||1,size:q.pageSize||20,keyword:q.keywords||"",...nativeListQuery(query, ["status"])});
+      page:q.pageNum||1,size:q.pageSize||20,keyword:q.keywords||"",...nativeListQuery(query, ["status"], false,
+        ["object_position", "attribution_unit", "work_object_id_label", "default_unit_id_label"])});
     return {list:result.items,total:result.total};
   },
   toolbarActions: [

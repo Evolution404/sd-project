@@ -95,6 +95,19 @@ try {
     await pick(dialog,"电压等级","验收220kV");
     await save(dialog);
   }
+  const voltageFilter = page.getByRole("combobox", { name: "电压等级", exact: true });
+  await voltageFilter.click();
+  await page.getByRole("option", { name: "验收220kV", exact: true }).click();
+  const lineFilters = page.locator("form").filter({ has: voltageFilter });
+  const filtered = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === "/api/catalog/lines" && Boolean(JSON.parse(url.searchParams.get("filters") || "{}").voltage_level_id);
+  });
+  await lineFilters.getByRole("button", { name: "搜索", exact: true }).click();
+  const filteredLines = await (await filtered).json();
+  assert.deepEqual(filteredLines.items.map(row => row.name).sort(), ["设备验收乙线", "设备验收甲线"].sort());
+  await lineFilters.getByRole("button", { name: "重置", exact: true }).click();
+  console.log("YOULAI_LINE_VOLTAGE_FILTER_OK exact voltage identity before pagination");
   await page.getByRole("tab",{name:"逻辑杆塔",exact:true}).click();
   const physicalBeforeLogicalCreate=f.s.catalog.list("physical").length;
   for (const [line,number,shared] of [["甲", "15", true], ["乙", "15", true], ["甲", "16", false]]) {
@@ -162,12 +175,14 @@ try {
   await drawer.getByRole("region",{name:"正式历史事实",exact:true}).getByText("86.125 米",{exact:true}).waitFor();
   await drawer.locator(".el-drawer__close-btn").click();
   await drawer.waitFor({state:"hidden"});
-  const filter=page.getByRole("textbox",{name:"输电中心管辖长度（米）",exact:true});
+  const filter=page.getByRole("textbox",{name:"最短管辖长度（米）",exact:true});
+  const maximum=page.getByRole("textbox",{name:"最长管辖长度（米）",exact:true});
   const spanSearch=page.locator("form").filter({has:filter}).getByRole("button",{name:"搜索",exact:true});
-  await filter.fill("130.125");
+  await filter.fill("130");
+  await maximum.fill("130.125");
   await spanSearch.click();
   await newLength.waitFor();
-  await filter.fill("130125");
+  await maximum.fill("130.124");
   await spanSearch.click();
   await newLength.waitFor({state:"hidden"});
 

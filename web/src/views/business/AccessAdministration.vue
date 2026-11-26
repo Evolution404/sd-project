@@ -56,7 +56,7 @@
 </template>
 
 <script setup lang="ts">
-import { nativeListQuery, applyNativeListQuery } from "@/utils/business/native-list-query";
+import { nativeListQuery, applyNativeListQuery, textSearchField } from "@/utils/business/native-list-query";
 import { computed, defineAsyncComponent, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { LIST_QUERY_KEY } from "@/components/Crud/utils/list-state";
@@ -183,13 +183,14 @@ function paging(query: CrudRecord) {
   return { page: String(query.pageNum ?? 1), page_size: String(query.pageSize ?? 20) };
 }
 const grantSearch: CrudSearchConfig = {
-  fields: [{ type: "input", prop: "q", label: "授权查询", attrs: { placeholder: "IP 地址或用途", clearable: true } }],
+  fields: [textSearchField("ip", "授权 IP"), textSearchField("note", "用途说明")],
 };
 const grantTable: CrudTableConfig<CrudRecord, IpGrant> = {
   stateKey:"access:ips",
   rowKey: "id", table: { border: true }, tableTools: ["refresh", "columns", "search"],
   fetchData: async (query) => {
-    const result = await listIpGrants(applyNativeListQuery(new URLSearchParams({ ...paging(query), q: String(query.q ?? "") }),nativeListQuery(query)));
+    const result = await listIpGrants(applyNativeListQuery(new URLSearchParams(paging(query)),
+      nativeListQuery(query, [], false, ["ip", "note"])));
     return { list: result.items, total: result.total };
   },
   columns: [

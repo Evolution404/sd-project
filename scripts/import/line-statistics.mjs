@@ -68,8 +68,9 @@ try{
    const mm=s.managedLengthM==null?null:Math.round(s.managedLengthM*1000);
    assert(mm===null||Number.isSafeInteger(mm)&&mm>=0,"非法管辖长度");
    const status=a.status!=="active"||b.status!=="active"||a.physical_tower_id===b.physical_tower_id?"draft":"active";
-   const row=add("spans",{line_id:lines.get(s.lineId).id,start_tower_id:a.id,end_tower_id:b.id,transmission_center_length_mm:mm,status});
-   report.maps.spans.push({source_id:s.id,id:row.id,start_id:a.id,end_id:b.id,managed_length_mm:mm,status});
+   const [start, end] = a.line_id === b.line_id && a.sort_rank > b.sort_rank ? [b, a] : [a, b];
+   const row=add("spans",{line_id:lines.get(s.lineId).id,start_tower_id:start.id,end_tower_id:end.id,transmission_center_length_mm:mm,status});
+   report.maps.spans.push({source_id:s.id,id:row.id,start_id:start.id,end_id:end.id,managed_length_mm:mm,status});
    if(status==="draft")report.review.push({kind:"span_topology",source_id:s.id,span_id:row.id,reason:"端点待核或同一实物"});
   }
  });

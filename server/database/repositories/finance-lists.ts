@@ -36,6 +36,8 @@ export function financeListRepository(store: Store) {
         sql: `SELECT s.*,management.name AS project_name, root.code AS project_code, effective.amount_fen AS effective_amount_fen,
           CASE WHEN effective.change_type<>'void' THEN effective.mode END AS effective_mode,
           COALESCE(json_extract(draft.draft_json,'$.amount_fen'), latest.amount_fen) AS amount_fen,
+          CASE WHEN draft.settlement_id IS NOT NULL THEN json_extract(draft.draft_json,'$.settlement_on')
+            ELSE latest.settlement_on END AS occurred_on,
           ${settlementStatusSql("draft", "latest", "review")} AS status
           FROM settlements s
           JOIN projects root ON root.id=s.project_id
@@ -48,7 +50,7 @@ export function financeListRepository(store: Store) {
           WHERE (? IS NULL OR s.project_id=?)
           AND (? IS NULL OR s.id IN (SELECT value FROM json_each(?)))`,
         parameters: [projectId ?? null, projectId ?? null, selectedIds ? JSON.stringify(selectedIds) : null, selectedIds ? JSON.stringify(selectedIds) : null],
-        columns: ["id", "number", "project_name", "project_code", "created_at", "amount_fen", "effective_amount_fen", "status"], search: ["number", "project_name", "project_code", "status"],
+        columns: ["id", "number", "project_name", "project_code", "created_at", "occurred_on", "amount_fen", "effective_amount_fen", "status"], search: ["number", "project_name", "project_code", "status"],
       };
       const status = query.filters.status;
       const applied = status ? { ...query, filters: { ...query.filters, status: settlementStatusFilter(status) } } : query;
@@ -134,7 +136,7 @@ export function financeListRepository(store: Store) {
           JOIN settlements settlement ON settlement.id=bill.settlement_id
           JOIN project_cost_node_versions adopted ON adopted.id=item.cost_node_version_id${projectId ? " WHERE entry.project_id=?" : ""}`,
         parameters: projectId ? [projectId] : [], deletionKey: "record_id",
-        columns: ["id", "record_id", "settlement_id", "evidence", "status", "version_no", "reconciled_cost_fen",
+        columns: ["id", "record_id", "settlement_id", "settlement_number", "evidence", "status", "version_no", "reconciled_cost_fen",
           "reconciled_settlement_fen", "created_at", "effective"],
         search: ["evidence"],
       };
