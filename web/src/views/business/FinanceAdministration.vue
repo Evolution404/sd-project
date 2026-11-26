@@ -65,7 +65,7 @@
     <template #table-cell-created_at="{ row }">{{ formatBeijingDateTime(row.created_at) }}</template>
   </CrudPage>
   <BusinessExchangeDialog v-if="exchangeOpen && projectId" kind="settlements" :project-id="projectId"
-      :applied-query="settlementQuery" :filter-export-available="crud?.tableRef?.canExport ?? false"
+      :applied-query="settlementQuery" :filter-export-blocked="!crud?.tableRef?.canExport"
       @close="exchangeOpen = false" @changed="refreshSettlements" />
 
   <el-dialog v-model="chooseProject" title="选择已有正式立项的子项目" width="min(95vw, 950px)"

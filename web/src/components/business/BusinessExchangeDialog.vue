@@ -15,7 +15,7 @@
       <el-button data-guide-action="excel.template" :disabled="busy" @click="download('/' + kind + '/template?' + context())">
         下载模板
       </el-button>
-      <el-button data-guide-action="excel.export-filtered" :disabled="busy || filterExportAvailable === false" @click="download('/' + kind + '/export?' + exportQuery())">
+      <el-button data-guide-action="excel.export-filtered" :disabled="busy || filterExportBlocked" @click="download('/' + kind + '/export?' + exportQuery())">
         下载待修改的数据
       </el-button>
       <el-button data-guide-action="excel.export-selected" :disabled="busy || !selectedIds?.length" v-if="selectedIds" @click="download('/' + kind + '/export?' + exportQuery(),undefined,selectedIds)">下载勾选记录（{{selectedIds.length}}）</el-button>
@@ -147,7 +147,7 @@ import { randomRequestId } from "@/utils/business/request-id";
 const props = defineProps<{
   kind: WorkbookKind;
   appliedQuery?: string;
-  filterExportAvailable?: boolean;
+  filterExportBlocked?: boolean;
   projectId?: string;
   assetKind?: string;
   selectedIds?: readonly string[];
