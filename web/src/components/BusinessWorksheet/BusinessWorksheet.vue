@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue
 import { ThemeMode } from "@/enums";
 import { useSettingsStore } from "@/stores/settings";
 import type { createBusinessWorksheet, WorksheetColumn, WorksheetRow, WorksheetValues, WorksheetIssue } from "./univer-engine";
+import WorksheetViewport from "./WorksheetViewport.vue";
 
 const props = defineProps<{
   name: string; rows: readonly WorksheetRow[]; columns: readonly WorksheetColumn[];
@@ -125,8 +126,11 @@ defineExpose({ prepareSave, addRows,
       <ElButton @click="startLoad">重新加载</ElButton>
     </ElAlert>
     <ElEmpty v-else-if="!rows.length && !removable" description="暂无明细" />
-    <div v-else data-guide-action="common.draft-grid" class="worksheet-frame" :aria-busy="!ready">
+    <WorksheetViewport v-else v-slot="{ expanded, toggle }" :name="name" :available="ready && activeCanvas"
+      :finish-editing="() => engine?.finishEditing()" :focus-worksheet="() => engine?.focusKeyboard()">
+    <div data-guide-action="common.draft-grid" class="worksheet-frame" :aria-busy="!ready">
       <div class="worksheet-toolbar">
+        <strong v-if="expanded">{{ name }}</strong>
         <span>共 {{ rows.length }} 行</span><span>显示 {{visibleCount}} 行</span><span>{{ changed ? "有未保存修改" : "未修改" }}</span>
         <ElButton :data-guide-action="undoGuide" :disabled="!ready || disabled || !canUndo" @click="engine?.undo()">撤销</ElButton>
         <ElButton :data-guide-action="redoGuide" :disabled="!ready || disabled || !canRedo" @click="engine?.redo()">重做</ElButton>
@@ -134,6 +138,8 @@ defineExpose({ prepareSave, addRows,
         <ElButton v-if="removable" :data-guide-action="removeGuide" type="danger" plain :disabled="!ready || disabled" @click="engine?.removeSelectedRows()">{{ removeLabel ?? "移除选中位置" }}</ElButton>
         <slot name="toolbar" />
         <span>可填写</span><span>灰底只读</span><span>红底错误</span>
+        <ElButton v-if="activeCanvas" :disabled="!expanded && (!ready || disabled)" :aria-pressed="expanded"
+          @mousedown.prevent @click="toggle">{{ expanded ? "退出全屏" : "全屏编辑" }}</ElButton>
       </div>
       <div v-if="issues.length" ref="panel" class="worksheet-validation" role="alert">
         <strong>请修正 {{ issues.length }} 个单元格后保存</strong>
@@ -147,6 +153,7 @@ defineExpose({ prepareSave, addRows,
         :inert="!ready || disabled" :style="{ '--worksheet-height': (Math.min(rows.length, 14) * 34 + 80) + 'px' }" @wheel.prevent />
       <div v-if="activeCanvas" class="worksheet-status" aria-live="polite">{{ !ready ? "正在加载工作表…" : notice || selection || "选中单元格开始录入" }}</div>
     </div>
+    </WorksheetViewport>
   </section>
 </template>
 <style scoped>

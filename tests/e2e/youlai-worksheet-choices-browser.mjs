@@ -4,7 +4,7 @@ import {resolve,join} from "node:path";
 import {chromium} from "playwright";
 import {fixture} from "../helpers.mjs";
 import {httpServer} from "../../dist/server/platform/http/server.js";
-import {worksheetCanvas,selectWorksheetCell} from "./youlai-business-worksheet-helpers.mjs";
+import {worksheetCanvas,selectWorksheetCell,waitForWorksheetFullscreen} from "./youlai-business-worksheet-helpers.mjs";
 import {copySettlementSelection,pasteSettlementCells} from "./youlai-settlement-grid-helpers.mjs";
 
 const cleanup=[],f=fixture({after:fn=>cleanup.push(fn)});
@@ -123,12 +123,15 @@ try{
  await region.getByText("显示 3 行",{exact:true}).waitFor();
  console.log("CHOICE_BULK_VALUES_OK mixed paste, repeated fill, drag fill, undo redo, invalid raw text, filtered protection");
  // The data validation arrow is an actual Univer cell dropdown, not a Vue select.
+ await region.getByRole("button",{name:"全屏编辑",exact:true}).click();
+ await waitForWorksheetFullscreen(page);
  await selectWorksheetCell(canvas,1,2,widths);
  await canvas.click({position:{x:36+widths.slice(0,3).reduce((a,b)=>a+b,0)-17,y:80}});
  await page.getByText("220kV",{exact:true}).last().waitFor({timeout:8000});
  await page.screenshot({path:join(out,"native-voltage-dropdown.png")});
  await page.getByText("220kV",{exact:true}).last().click();
  await page.getByRole("button",{name:"保存 1 条修改",exact:true}).waitFor();
+ await region.getByRole("button",{name:"退出全屏",exact:true}).click();
  // Sort by current draft values, then replay the same edit at its new row.
  await header(2);
  await page.getByText("降序",{exact:true}).click();

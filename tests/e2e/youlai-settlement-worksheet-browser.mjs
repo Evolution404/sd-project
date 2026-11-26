@@ -8,6 +8,7 @@ import {
   settlementCanvas, selectSettlementCell, enterSettlementQuantity,
   pasteSettlementCells, copySettlementSelection,
 } from "./youlai-settlement-grid-helpers.mjs";
+import { waitForWorksheetFullscreen } from "./youlai-business-worksheet-helpers.mjs";
 
 const cleanup = [];
 const { s, user, save, demandInput } = fixture({ after: fn => cleanup.push(fn) });
@@ -72,6 +73,11 @@ try {
   const grid = await settlementCanvas(editor);
   assert.equal(await page.evaluate(() => window.__worksheetDoubleLoading), false, "loading skeleton and actual sheet must never coexist");
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: base });
+  const worksheet = editor.getByRole("region", { name: "本次完成工作量工作表" });
+  const gridId = await grid.getAttribute("id");
+  await worksheet.getByRole("button", { name: "全屏编辑", exact: true }).click();
+  await waitForWorksheetFullscreen(page);
+  assert.equal(await grid.getAttribute("id"), gridId);
   await selectSettlementCell(grid, 1, 3);
   assert.equal((await copySettlementSelection(page)).trim(), "1");
   await page.keyboard.press("Escape");
@@ -79,6 +85,9 @@ try {
   await selectSettlementCell(grid, 1);
   await pasteSettlementCells(page, raw.map((quantity, i) => quantity + "\t依据" + (i + 1)).join("\n"));
   await editor.getByTestId("settlement-filled-count").locator("strong").getByText("20", { exact: true }).waitFor();
+  await page.screenshot({ path: join(out, "fullscreen-light.png"), animations: "disabled" });
+  await worksheet.getByRole("button", { name: "退出全屏", exact: true }).click();
+  assert.equal(await grid.getAttribute("id"), gridId);
   await editor.getByPlaceholder("如 1200.00").fill("500.00");
   await editor.getByPlaceholder("请填写本次结算依据").fill("专项验收");
   await editor.getByRole("button", { name: "保存草稿", exact: true }).click();
